@@ -90,6 +90,12 @@ enum AppLanguage: String, CaseIterable, Codable, Identifiable {
             case .lastUpdated: return "Last updated"
             case .refresh: return "Refresh"
             case .settings: return "Settings"
+            case .updatesEyebrow: return "Updates"
+            case .updatesTitle: return "App updates"
+            case .updatesDescription: return "Check the latest GitHub release and compare it with your current version."
+            case .checkForUpdates: return "Check for updates"
+            case .openReleasePage: return "Open release page"
+            case .currentVersion: return "Current version"
             case .quitApp: return "Quit MiniMax Usage Monitor"
             case .statusRefreshing: return "Refreshing"
             case .statusAttention: return "Attention"
@@ -172,6 +178,12 @@ enum AppLanguage: String, CaseIterable, Codable, Identifiable {
             case .lastUpdated: return "上次更新"
             case .refresh: return "刷新"
             case .settings: return "设置"
+            case .updatesEyebrow: return "更新"
+            case .updatesTitle: return "应用更新"
+            case .updatesDescription: return "检查 GitHub 最新 Release，并与当前版本进行对比。"
+            case .checkForUpdates: return "检查更新"
+            case .openReleasePage: return "打开发布页"
+            case .currentVersion: return "当前版本"
             case .quitApp: return "退出 MiniMax Usage Monitor"
             case .statusRefreshing: return "刷新中"
             case .statusAttention: return "需要注意"
@@ -404,6 +416,33 @@ enum AppLanguage: String, CaseIterable, Codable, Identifiable {
         }
     }
 
+    func updateAvailableText(current: String, latest: String) -> String {
+        switch self {
+        case .english:
+            return "Update available: \(current) -> \(latest)"
+        case .simplifiedChinese:
+            return "发现新版本：\(current) -> \(latest)"
+        }
+    }
+
+    func upToDateText(current: String) -> String {
+        switch self {
+        case .english:
+            return "You're up to date (\(current))."
+        case .simplifiedChinese:
+            return "已是最新版本（\(current)）。"
+        }
+    }
+
+    func updateCheckFailedText(_ message: String) -> String {
+        switch self {
+        case .english:
+            return "Update check failed: \(message)"
+        case .simplifiedChinese:
+            return "检查更新失败：\(message)"
+        }
+    }
+
     func apiStatusMessage(statusCode: Int, message: String) -> String {
         switch self {
         case .english:
@@ -519,6 +558,12 @@ enum AppText {
     case lastUpdated
     case refresh
     case settings
+    case updatesEyebrow
+    case updatesTitle
+    case updatesDescription
+    case checkForUpdates
+    case openReleasePage
+    case currentVersion
     case quitApp
     case statusRefreshing
     case statusAttention
