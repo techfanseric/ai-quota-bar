@@ -25,6 +25,7 @@ final class UsageViewModel: ObservableObject {
     @Published var displayFormat: DisplayFormat {
         didSet {
             UserDefaults.standard.set(displayFormat.rawValue, forKey: "displayFormat")
+            updateStatusBarText()
         }
     }
 
@@ -42,11 +43,14 @@ final class UsageViewModel: ObservableObject {
 
     // MARK: - Computed Properties
 
-    var statusBarText: String {
+    @Published var statusBarText: String = "..."
+
+    private func updateStatusBarText() {
         guard let data = usageData else {
-            return error != nil ? "—" : "..."
+            statusBarText = error != nil ? "—" : "..."
+            return
         }
-        return data.formattedRemaining(format: displayFormat)
+        statusBarText = data.formattedRemaining(format: displayFormat)
     }
 
     var hasAPIKey: Bool {
@@ -69,6 +73,7 @@ final class UsageViewModel: ObservableObject {
         self.autoRefreshOnLaunch = UserDefaults.standard.bool(forKey: "autoRefreshOnLaunch")
 
         setupWarningObserver()
+        updateStatusBarText()
     }
 
     // MARK: - Public Methods
@@ -83,11 +88,14 @@ final class UsageViewModel: ObservableObject {
             let data = try await UsageService.shared.fetchUsage()
             usageData = data
             lastRefreshTime = Date()
+            updateStatusBarText()
             checkThreshold()
         } catch let usError as UsageError {
             error = usError
+            updateStatusBarText()
         } catch {
             self.error = .networkError(error)
+            updateStatusBarText()
         }
 
         isLoading = false

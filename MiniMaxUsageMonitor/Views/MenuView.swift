@@ -14,7 +14,7 @@ struct MenuView: View {
             }
             .padding(.horizontal, 16)
             .padding(.vertical, 12)
-            .background(Color(NSColor.windowHeaderColor))
+            .background(Color(NSColor.controlBackgroundColor))
 
             Divider()
 

@@ -7,8 +7,7 @@ let package = Package(
     products: [
         .executable(
             name: "MiniMaxUsageMonitor",
-            targets: ["MiniMaxUsageMonitor"],
-            type: .application
+            targets: ["MiniMaxUsageMonitor"]
         )
     ],
     targets: [

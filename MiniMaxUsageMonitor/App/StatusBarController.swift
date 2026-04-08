@@ -2,6 +2,7 @@ import AppKit
 import SwiftUI
 import Combine
 
+@MainActor
 final class StatusBarController {
     let viewModel = UsageViewModel()
     private var statusItem: NSStatusItem?
@@ -49,6 +50,6 @@ final class StatusBarController {
     }
 
     private func openSettings() {
-        NSApp.delegate?.openSettings()
+        (NSApp.delegate as? AppDelegate)?.openSettings()
     }
 }
