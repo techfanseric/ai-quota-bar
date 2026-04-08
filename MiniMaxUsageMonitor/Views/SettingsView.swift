@@ -1,6 +1,7 @@
 import SwiftUI
 
 struct SettingsView: View {
+    @Environment(\.openURL) private var openURL
     @ObservedObject var viewModel: UsageViewModel
     @State private var apiKey: String = ""
     @State private var refreshInterval: Int = 60
@@ -12,6 +13,9 @@ struct SettingsView: View {
     @State private var saveResult: InlineFeedback?
     @State private var isTesting: Bool = false
     @State private var isSaving: Bool = false
+    @State private var updateResult: InlineFeedback?
+    @State private var latestReleaseURL: URL?
+    @State private var isCheckingUpdate: Bool = false
 
     var body: some View {
         ScrollView {
@@ -23,6 +27,8 @@ struct SettingsView: View {
                 behaviorSection
 
                 appearanceSection
+
+                updatesSection
 
                 footer
             }
@@ -222,6 +228,57 @@ struct SettingsView: View {
         }
     }
 
+    private var updatesSection: some View {
+        SettingsSectionCard(
+            eyebrow: language.text(.updatesEyebrow),
+            title: language.text(.updatesTitle),
+            description: language.text(.updatesDescription)
+        ) {
+            VStack(alignment: .leading, spacing: 14) {
+                HStack {
+                    Text(language.text(.currentVersion))
+                        .font(.system(size: 14, weight: .semibold))
+
+                    Spacer()
+
+                    ValueBadge(text: UpdateChecker.currentAppVersion)
+                }
+
+                HStack(spacing: 10) {
+                    Button {
+                        Task {
+                            await checkForUpdates()
+                        }
+                    } label: {
+                        Label(language.text(.checkForUpdates), systemImage: "arrow.triangle.2.circlepath")
+                    }
+                    .buttonStyle(.bordered)
+                    .disabled(isCheckingUpdate)
+
+                    if isCheckingUpdate {
+                        ProgressView()
+                            .controlSize(.small)
+                    }
+
+                    if let latestReleaseURL {
+                        Button {
+                            openURL(latestReleaseURL)
+                        } label: {
+                            Label(language.text(.openReleasePage), systemImage: "safari")
+                        }
+                        .buttonStyle(.borderedProminent)
+                    }
+
+                    Spacer()
+                }
+
+                if let updateResult {
+                    InlineFeedbackView(feedback: updateResult)
+                }
+            }
+        }
+    }
+
     private func loadCurrentSettings() {
         apiKey = KeychainService.shared.getAPIKey() ?? ""
         refreshInterval = viewModel.refreshInterval
@@ -276,6 +333,37 @@ struct SettingsView: View {
             : InlineFeedback(kind: .error, message: language.text(.apiKeySaveFailed))
 
         isSaving = false
+    }
+
+    private func checkForUpdates() async {
+        isCheckingUpdate = true
+        updateResult = nil
+        latestReleaseURL = nil
+
+        do {
+            let outcome = try await UpdateChecker.shared.checkForUpdates()
+            switch outcome {
+            case .upToDate(let currentVersion):
+                updateResult = InlineFeedback(
+                    kind: .success,
+                    message: language.upToDateText(current: currentVersion)
+                )
+            case .updateAvailable(let currentVersion, let latestVersion, let releaseURL):
+                latestReleaseURL = releaseURL
+                updateResult = InlineFeedback(
+                    kind: .success,
+                    message: language.updateAvailableText(current: currentVersion, latest: latestVersion)
+                )
+            }
+        } catch {
+            let message = error.localizedDescription.isEmpty ? language.text(.unknownError) : error.localizedDescription
+            updateResult = InlineFeedback(
+                kind: .error,
+                message: language.updateCheckFailedText(message)
+            )
+        }
+
+        isCheckingUpdate = false
     }
 }
 
