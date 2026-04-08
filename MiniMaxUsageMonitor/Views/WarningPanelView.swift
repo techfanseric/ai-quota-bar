@@ -48,7 +48,12 @@ struct WarningPanelView: View {
     }
 
     private var estimatedExhaustion: String {
-        let days = max(1, Int(Double(usageData.remains) / Double(usageData.total) * 30))
+        let days: Int
+        if usageData.total > 0 {
+            days = max(1, Int(Double(usageData.remains) / Double(usageData.total) * 30))
+        } else {
+            days = 1
+        }
         return "~ \(days) day\(days == 1 ? "" : "s")"
     }
 }
