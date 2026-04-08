@@ -132,9 +132,8 @@ final class UsageViewModel: ObservableObject {
     }
 
     private func setupWarningObserver() {
-        $usageData
-            .compactMap { $0 }
-            .sink { [weak self] data in
+        Publishers.CombineLatest($usageData, $warningThreshold)
+            .sink { [weak self] _, _ in
                 self?.checkThreshold()
             }
             .store(in: &cancellables)
