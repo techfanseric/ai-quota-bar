@@ -50,11 +50,14 @@ final class StatusBarController {
 
         statusItem?.menu = menu
 
-        Publishers.CombineLatest4(
-            viewModel.$usageData.map { _ in () },
-            viewModel.$error.map { _ in () },
-            viewModel.$lastRefreshTime.map { _ in () },
-            viewModel.$appLanguage.map { _ in () }
+        Publishers.MergeMany(
+            viewModel.$usageData.map { _ in () }.eraseToAnyPublisher(),
+            viewModel.$error.map { _ in () }.eraseToAnyPublisher(),
+            viewModel.$lastRefreshTime.map { _ in () }.eraseToAnyPublisher(),
+            viewModel.$appLanguage.map { _ in () }.eraseToAnyPublisher(),
+            viewModel.$isLoading.map { _ in () }.eraseToAnyPublisher(),
+            viewModel.$displayFormat.map { _ in () }.eraseToAnyPublisher(),
+            viewModel.$warningThreshold.map { _ in () }.eraseToAnyPublisher()
         )
         .receive(on: DispatchQueue.main)
         .sink { [weak self] _ in

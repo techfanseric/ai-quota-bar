@@ -72,6 +72,8 @@ enum AppLanguage: String, CaseIterable, Codable, Identifiable {
             case .details: return "Details"
             case .models: return "Models"
             case .modelCount: return "Tracked models"
+            case .nextReset: return "Next reset"
+            case .mostUrgent: return "Most urgent"
             case .currentQuota: return "Current interval"
             case .weeklyQuota: return "Weekly quota"
             case .noWeeklyCap: return "No weekly cap"
@@ -146,6 +148,8 @@ enum AppLanguage: String, CaseIterable, Codable, Identifiable {
             case .details: return "详情"
             case .models: return "模型额度"
             case .modelCount: return "跟踪模型数"
+            case .nextReset: return "下次重置"
+            case .mostUrgent: return "最紧急模型"
             case .currentQuota: return "当前周期"
             case .weeklyQuota: return "周额度"
             case .noWeeklyCap: return "无周限制"
@@ -201,6 +205,157 @@ enum AppLanguage: String, CaseIterable, Codable, Identifiable {
         }
     }
 
+    func menuBarCompactText(ready: Int, total: Int) -> String {
+        switch self {
+        case .english:
+            return "\(ready)/\(total)"
+        case .simplifiedChinese:
+            return "\(ready)/\(total)"
+        }
+    }
+
+    func readyModelsText(_ count: Int) -> String {
+        switch self {
+        case .english:
+            return "\(count) ready"
+        case .simplifiedChinese:
+            return "\(count) 可用"
+        }
+    }
+
+    func readyLabel() -> String {
+        switch self {
+        case .english:
+            return "Ready"
+        case .simplifiedChinese:
+            return "可用"
+        }
+    }
+
+    func fullModelsText(_ count: Int) -> String {
+        switch self {
+        case .english:
+            return "\(count) full"
+        case .simplifiedChinese:
+            return "\(count) 已耗尽"
+        }
+    }
+
+    func fullLabel() -> String {
+        switch self {
+        case .english:
+            return "Full"
+        case .simplifiedChinese:
+            return "耗尽"
+        }
+    }
+
+    func lowModelsText(_ count: Int) -> String {
+        switch self {
+        case .english:
+            return "\(count) low"
+        case .simplifiedChinese:
+            return "\(count) 偏低"
+        }
+    }
+
+    func weeklyFullLabel() -> String {
+        switch self {
+        case .english:
+            return "Weekly full"
+        case .simplifiedChinese:
+            return "周耗尽"
+        }
+    }
+
+    func weeklyFullModelsText(_ count: Int) -> String {
+        switch self {
+        case .english:
+            return "\(count) weekly full"
+        case .simplifiedChinese:
+            return "\(count) 周耗尽"
+        }
+    }
+
+    func modelsReadyHeadline(ready: Int, total: Int) -> String {
+        switch self {
+        case .english:
+            return "\(ready)/\(total)"
+        case .simplifiedChinese:
+            return "\(ready)/\(total)"
+        }
+    }
+
+    func modelsReadyCaption(ready: Int, total: Int) -> String {
+        switch self {
+        case .english:
+            return "\(ready) of \(total) models still have current interval quota."
+        case .simplifiedChinese:
+            return "共 \(total) 个模型，其中 \(ready) 个当前周期仍有额度。"
+        }
+    }
+
+    func availabilitySummary(ready: Int, full: Int) -> String {
+        switch self {
+        case .english:
+            return "\(ready) ready, \(full) full"
+        case .simplifiedChinese:
+            return "\(ready) 个可用，\(full) 个已耗尽"
+        }
+    }
+
+    func unitsLeftText(_ count: Int) -> String {
+        switch self {
+        case .english:
+            return "\(count) left"
+        case .simplifiedChinese:
+            return "余 \(count)"
+        }
+    }
+
+    func fullStatusText() -> String {
+        switch self {
+        case .english:
+            return "Full"
+        case .simplifiedChinese:
+            return "已耗尽"
+        }
+    }
+
+    func weeklyFullText() -> String {
+        switch self {
+        case .english:
+            return "Weekly full"
+        case .simplifiedChinese:
+            return "周额度耗尽"
+        }
+    }
+
+    func modelUsageCompact(currentUsed: Int, currentTotal: Int) -> String {
+        switch self {
+        case .english:
+            return "Now \(currentUsed)/\(currentTotal)"
+        case .simplifiedChinese:
+            return "当前 \(currentUsed)/\(currentTotal)"
+        }
+    }
+
+    func weeklyUsageCompact(weeklyUsed: Int, weeklyTotal: Int) -> String {
+        switch self {
+        case .english:
+            return "Week \(weeklyUsed)/\(weeklyTotal)"
+        case .simplifiedChinese:
+            return "本周 \(weeklyUsed)/\(weeklyTotal)"
+        }
+    }
+
+    func relativeText(until date: Date) -> String {
+        let formatter = RelativeDateTimeFormatter()
+        formatter.unitsStyle = .abbreviated
+        formatter.locale = Locale(identifier: rawValue)
+        return formatter.localizedString(for: date, relativeTo: Date())
+    }
+
     func estimatedDaysText(_ days: Int) -> String {
         switch self {
         case .english:
@@ -226,6 +381,37 @@ enum AppLanguage: String, CaseIterable, Codable, Identifiable {
         case .simplifiedChinese:
             return "状态码 \(statusCode)：\(message)"
         }
+    }
+
+    func specificModelStatus(for model: ModelUsageData?) -> String {
+        guard let model = model else { return "—" }
+        let remaining = model.currentIntervalRemaining
+        let resetMinutes = minutesUntilReset(model.endTime)
+
+        if resetMinutes <= 0 {
+            return "\(remaining)"
+        }
+
+        let resetText: String
+        if resetMinutes >= 60 {
+            let hours = resetMinutes / 60
+            resetText = "\(hours)h"
+        } else {
+            resetText = "\(resetMinutes)m"
+        }
+
+        switch self {
+        case .english:
+            return "\(remaining) (\(resetText))"
+        case .simplifiedChinese:
+            return "\(remaining) (\(resetText))"
+        }
+    }
+
+    private func minutesUntilReset(_ endTime: Date?) -> Int {
+        guard let endTime = endTime else { return 0 }
+        let interval = endTime.timeIntervalSince(Date())
+        return max(0, Int(interval / 60))
     }
 
     func errorDescription(for error: UsageError) -> String {
@@ -285,6 +471,8 @@ enum AppText {
     case details
     case models
     case modelCount
+    case nextReset
+    case mostUrgent
     case currentQuota
     case weeklyQuota
     case noWeeklyCap
@@ -329,44 +517,56 @@ extension DisplayFormat {
             return "Detailed"
         case (.leveled, .english):
             return "Smart"
+        case (.specificModel, .english):
+            return "Primary Model"
         case (.numberOnly, .simplifiedChinese):
             return "紧凑"
         case (.numberWithUnit, .simplifiedChinese):
             return "详细"
         case (.leveled, .simplifiedChinese):
             return "智能"
+        case (.specificModel, .simplifiedChinese):
+            return "主模型"
         }
     }
 
     func caption(language: AppLanguage) -> String {
         switch (self, language) {
         case (.numberOnly, .english):
-            return "Keep the menu bar as concise as possible."
+            return "Show how many models are still available at a glance."
         case (.numberWithUnit, .english):
-            return "Show the percentage together with context."
+            return "Use a short textual summary of model availability."
         case (.leveled, .english):
-            return "Stay compact until quota starts getting low."
+            return "Switch to warnings automatically when some models are tight."
+        case (.specificModel, .english):
+            return "Show the primary model's remaining count and reset time."
         case (.numberOnly, .simplifiedChinese):
-            return "尽量保持菜单栏显示紧凑。"
+            return "用最紧凑的方式显示可用模型数。"
         case (.numberWithUnit, .simplifiedChinese):
-            return "显示百分比，并带上额外语义。"
+            return "用简短文案展示模型可用情况。"
         case (.leveled, .simplifiedChinese):
-            return "平时保持简洁，额度偏低时显示更多提醒信息。"
+            return "平时保持简洁，模型额度紧张时自动切换成提醒语义。"
+        case (.specificModel, .simplifiedChinese):
+            return "显示主模型的剩余次数和重置时间。"
         }
     }
 
     func preview(language: AppLanguage) -> String {
         switch (self, language) {
         case (.numberOnly, _):
-            return "85%"
+            return "4/6"
         case (.numberWithUnit, .english):
-            return "85% remaining"
+            return "4 ready"
         case (.numberWithUnit, .simplifiedChinese):
-            return "剩余 85%"
+            return "4 可用"
         case (.leveled, .english):
-            return "[Warning] 18% (~5 days)"
+            return "1 full"
         case (.leveled, .simplifiedChinese):
-            return "[提醒] 18% (约 5 天)"
+            return "1 已耗尽"
+        case (.specificModel, .english):
+            return "1101 (44h)"
+        case (.specificModel, .simplifiedChinese):
+            return "1101 (44h)"
         }
     }
 }

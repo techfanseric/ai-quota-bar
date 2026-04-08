@@ -24,9 +24,6 @@ final class UsageService {
             throw UsageError.apiError(response.baseResp.statusMessage)
         }
 
-        let total = response.modelRemains.reduce(0) { $0 + $1.currentIntervalTotalCount }
-        let used = response.modelRemains.reduce(0) { $0 + $1.currentIntervalUsageCount }
-        let remains = max(0, total - used)
         let models = response.modelRemains.map { model in
             ModelUsageData(
                 modelName: model.modelName,
@@ -40,8 +37,15 @@ final class UsageService {
                 weeklyEndTime: date(fromMilliseconds: model.weeklyEndTime)
             )
         }
+        let trackedModelCount = max(models.count, 1)
+        let readyModelsCount = models.filter(\.isCurrentIntervalAvailable).count
 
-        return UsageData(remains: remains, total: max(total, 1), timestamp: Date(), models: models)
+        return UsageData(
+            remains: readyModelsCount,
+            total: trackedModelCount,
+            timestamp: Date(),
+            models: models
+        )
     }
 
     private func date(fromMilliseconds value: Int64) -> Date? {
