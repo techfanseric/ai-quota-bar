@@ -7,7 +7,7 @@ build:
 	swift build -c release --product MiniMaxUsageMonitor
 
 run: build
-	.open $(BUILD_DIR)/release/$(PRODUCT)
+	open $(BUILD_DIR)/release/$(PRODUCT)
 
 install: build
 	cp -R $(BUILD_DIR)/release/$(PRODUCT) /Applications/
