@@ -12,6 +12,7 @@ final class UsageViewModel: ObservableObject {
     @Published var isLoading: Bool = false
     @Published var lastRefreshTime: Date?
     @Published var showWarningPanel: Bool = false
+    @Published private(set) var modelQuotaSamples: [String: [ModelQuotaSample]] = [:]
 
     // MARK: - Settings
 
@@ -120,8 +121,10 @@ final class UsageViewModel: ObservableObject {
 
         do {
             let data = try await UsageService.shared.fetchUsage()
+            let sampleTimestamp = Date()
             usageData = data
-            lastRefreshTime = Date()
+            lastRefreshTime = sampleTimestamp
+            recordSamples(from: data, timestamp: sampleTimestamp)
             updateStatusBarText()
             checkThreshold()
         } catch let usError as UsageError {
@@ -165,6 +168,18 @@ final class UsageViewModel: ObservableObject {
         return try await UsageService.shared.testConnection(apiKey: key)
     }
 
+    func samples(for model: ModelUsageData) -> [ModelQuotaSample] {
+        guard model.isShortCurrentInterval,
+              let startTime = model.startTime,
+              let endTime = model.endTime else {
+            return []
+        }
+
+        return (modelQuotaSamples[model.id] ?? [])
+            .filter { $0.timestamp >= startTime && $0.timestamp <= endTime }
+            .sorted { $0.timestamp < $1.timestamp }
+    }
+
     // MARK: - Private Methods
 
     private func restartTimer() {
@@ -182,6 +197,39 @@ final class UsageViewModel: ObservableObject {
                 self?.checkThreshold()
             }
             .store(in: &cancellables)
+    }
+
+    private func recordSamples(from data: UsageData, timestamp: Date) {
+        var nextSamples: [String: [ModelQuotaSample]] = [:]
+
+        for model in data.models {
+            guard model.isShortCurrentInterval,
+                  let startTime = model.startTime,
+                  let endTime = model.endTime else {
+                continue
+            }
+
+            let clampedTimestamp = min(max(timestamp, startTime), endTime)
+            let newSample = ModelQuotaSample(
+                timestamp: clampedTimestamp,
+                remaining: model.currentIntervalRemaining
+            )
+
+            var samples = (modelQuotaSamples[model.id] ?? [])
+                .filter { $0.timestamp >= startTime && $0.timestamp <= endTime }
+                .sorted { $0.timestamp < $1.timestamp }
+
+            if let lastSample = samples.last,
+               abs(lastSample.timestamp.timeIntervalSince1970 - newSample.timestamp.timeIntervalSince1970) < 1 {
+                samples[samples.count - 1] = newSample
+            } else {
+                samples.append(newSample)
+            }
+
+            nextSamples[model.id] = samples
+        }
+
+        modelQuotaSamples = nextSamples
     }
 
     private func checkThreshold() {

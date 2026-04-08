@@ -152,6 +152,16 @@ struct ModelUsageData: Codable, Identifiable {
         return (Double(currentIntervalUsedCount) / Double(currentIntervalTotal)) * 100
     }
 
+    var currentIntervalDuration: TimeInterval? {
+        guard let startTime, let endTime else { return nil }
+        return endTime.timeIntervalSince(startTime)
+    }
+
+    var isShortCurrentInterval: Bool {
+        guard let currentIntervalDuration else { return false }
+        return currentIntervalDuration < 86_400
+    }
+
     // 周是否满的（已用为0 = 没用过）
     var isWeeklyFull: Bool {
         hasWeeklyLimit && weeklyUsedCount == 0

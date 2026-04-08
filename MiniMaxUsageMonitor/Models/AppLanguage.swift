@@ -83,6 +83,10 @@ enum AppLanguage: String, CaseIterable, Codable, Identifiable {
             case .connection: return "Connection"
             case .needsAttention: return "Needs attention"
             case .loading: return "Loading"
+            case .menuLoadingHint: return "Fetching the latest model quotas for the menu."
+            case .menuConfigureKeyHint: return "Open Settings and add your MiniMax API key to start tracking quota."
+            case .menuEmptyModelsHint: return "No model quota data is available yet. Try refreshing in a moment."
+            case .menuRefreshHint: return "Refresh failed. You can retry now or review your configuration in Settings."
             case .lastUpdated: return "Last updated"
             case .refresh: return "Refresh"
             case .settings: return "Settings"
@@ -161,6 +165,10 @@ enum AppLanguage: String, CaseIterable, Codable, Identifiable {
             case .connection: return "连接状态"
             case .needsAttention: return "需要处理"
             case .loading: return "加载中"
+            case .menuLoadingHint: return "正在拉取菜单里要显示的模型额度。"
+            case .menuConfigureKeyHint: return "打开设置并填入 MiniMax API Key 后，就可以开始跟踪额度。"
+            case .menuEmptyModelsHint: return "暂时还没有可显示的模型额度数据，稍后可以再刷新一次。"
+            case .menuRefreshHint: return "刷新失败了，你可以现在重试，或者去设置里检查配置。"
             case .lastUpdated: return "上次更新"
             case .refresh: return "刷新"
             case .settings: return "设置"
@@ -504,6 +512,10 @@ enum AppText {
     case connection
     case needsAttention
     case loading
+    case menuLoadingHint
+    case menuConfigureKeyHint
+    case menuEmptyModelsHint
+    case menuRefreshHint
     case lastUpdated
     case refresh
     case settings
