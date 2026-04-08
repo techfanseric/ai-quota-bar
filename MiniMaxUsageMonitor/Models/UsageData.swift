@@ -28,7 +28,7 @@ struct UsageData: Codable {
                 return "\(Int(percentageRemaining))%"
             } else {
                 let days = estimateDaysRemaining()
-                return "⚠️ \(Int(percentageRemaining))% (~\(days) days)"
+                return "[Warning] \(Int(percentageRemaining))% (~\(days) days)"
             }
         }
     }
