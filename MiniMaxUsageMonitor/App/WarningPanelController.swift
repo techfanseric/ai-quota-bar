@@ -43,7 +43,7 @@ final class WarningPanelController {
 
         let hostingView = NSHostingView(
             rootView: WarningPanelView(
-                usageData: UsageData(remains: 0, total: 100, timestamp: Date(), models: []),
+                usageData: UsageData(remains: 0, total: 1, timestamp: Date(), models: []),
                 language: AppLanguage.current
             )
         )

@@ -3,9 +3,9 @@ import Foundation
 /// API response model for MiniMax usage data
 /// Endpoint: GET https://www.minimaxi.com/v1/api/openplatform/coding_plan/remains
 struct UsageData: Codable {
-    /// Remaining tokens/credits
+    /// Models that still have quota in the current interval
     let remains: Int
-    /// Total allocated amount (for percentage calculation)
+    /// Total tracked models
     let total: Int
     /// Timestamp of the response
     let timestamp: Date
@@ -19,30 +19,25 @@ struct UsageData: Codable {
     }
 
     /// Formatted remaining display string
-    func formattedRemaining(format: DisplayFormat, language: AppLanguage) -> String {
-        let percent = Int(percentageRemaining)
+    func formattedRemaining(format: DisplayFormat, language: AppLanguage, warningThreshold: Double) -> String {
         switch format {
         case .numberOnly:
-            return "\(percent)%"
+            return language.menuBarCompactText(ready: readyModelsCount, total: modelCount)
         case .numberWithUnit:
-            switch language {
-            case .english:
-                return "\(percent)% remaining"
-            case .simplifiedChinese:
-                return "剩余 \(percent)%"
-            }
+            return language.readyModelsText(readyModelsCount)
         case .leveled:
-            if percentageRemaining > 50 {
-                return "\(percent)%"
-            } else {
-                let days = estimateDaysRemaining()
-                switch language {
-                case .english:
-                    return "[Warning] \(percent)% (~\(days) days)"
-                case .simplifiedChinese:
-                    return "[提醒] \(percent)% (约 \(days) 天)"
-                }
+            if exhaustedModelsCount > 0 {
+                return language.fullModelsText(exhaustedModelsCount)
             }
+
+            let lowModels = lowModelsCount(threshold: warningThreshold)
+            if lowModels > 0 {
+                return language.lowModelsText(lowModels)
+            }
+
+            return language.readyModelsText(readyModelsCount)
+        case .specificModel:
+            return language.specificModelStatus(for: mostUrgentModel)
         }
     }
 
@@ -55,6 +50,51 @@ struct UsageData: Codable {
 
     var modelCount: Int {
         models.count
+    }
+
+    var readyModelsCount: Int {
+        models.filter(\.isCurrentIntervalAvailable).count
+    }
+
+    var exhaustedModelsCount: Int {
+        models.filter { !$0.isCurrentIntervalAvailable }.count
+    }
+
+    var weeklyExhaustedModelsCount: Int {
+        models.filter(\.isWeeklyExhausted).count
+    }
+
+    func lowModelsCount(threshold: Double) -> Int {
+        models.filter {
+            $0.isCurrentIntervalAvailable && $0.currentIntervalPercentageRemaining <= threshold
+        }.count
+    }
+
+    func sortedModels(warningThreshold: Double) -> [ModelUsageData] {
+        models.sorted { lhs, rhs in
+            sortWeight(for: lhs, warningThreshold: warningThreshold) < sortWeight(for: rhs, warningThreshold: warningThreshold)
+        }
+    }
+
+    var nextResetDate: Date? {
+        models.compactMap(\.endTime).min()
+    }
+
+    var mostUrgentModel: ModelUsageData? {
+        sortedModels(warningThreshold: 20).first
+    }
+
+    private func sortWeight(for model: ModelUsageData, warningThreshold: Double) -> (Int, Double, String) {
+        let severity: Int
+        if !model.isCurrentIntervalAvailable {
+            severity = 0
+        } else if model.currentIntervalPercentageRemaining <= warningThreshold {
+            severity = 1
+        } else {
+            severity = 2
+        }
+
+        return (severity, model.currentIntervalPercentageRemaining, model.modelName)
     }
 }
 
@@ -75,6 +115,10 @@ struct ModelUsageData: Codable, Identifiable {
         max(0, currentIntervalTotal - currentIntervalUsed)
     }
 
+    var isCurrentIntervalAvailable: Bool {
+        currentIntervalRemaining > 0
+    }
+
     var weeklyRemaining: Int {
         max(0, weeklyTotal - weeklyUsed)
     }
@@ -86,6 +130,10 @@ struct ModelUsageData: Codable, Identifiable {
     var currentIntervalPercentageRemaining: Double {
         guard currentIntervalTotal > 0 else { return 0 }
         return (Double(currentIntervalRemaining) / Double(currentIntervalTotal)) * 100
+    }
+
+    var isWeeklyExhausted: Bool {
+        hasWeeklyLimit && weeklyRemaining == 0
     }
 }
 
@@ -138,12 +186,14 @@ enum DisplayFormat: Int, CaseIterable, Codable {
     case numberOnly = 0
     case numberWithUnit = 1
     case leveled = 2
+    case specificModel = 3
 
     var description: String {
         switch self {
-        case .numberOnly: return "Number only (e.g., 85%)"
-        case .numberWithUnit: return "Number with unit (e.g., 85% remaining)"
-        case .leveled: return "Leveled (detailed when low)"
+        case .numberOnly: return "Compact model summary"
+        case .numberWithUnit: return "Model availability summary"
+        case .leveled: return "Risk-aware model summary"
+        case .specificModel: return "Primary model detail"
         }
     }
 }

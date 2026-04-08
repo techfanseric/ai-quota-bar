@@ -5,7 +5,7 @@ struct WarningPanelView: View {
     let language: AppLanguage
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 8) {
+        VStack(alignment: .leading, spacing: 10) {
             HStack {
                 Image(systemName: "exclamationmark.triangle.fill")
                     .foregroundColor(.orange)
@@ -19,25 +19,26 @@ struct WarningPanelView: View {
 
             VStack(alignment: .leading, spacing: 4) {
                 HStack {
-                    Text(language.text(.warningRemaining))
+                    Text(language.text(.models))
                         .foregroundColor(.secondary)
                     Spacer()
-                    Text("\(usageData.remains) (\(Int(usageData.percentageRemaining))%)")
+                    Text(language.modelsReadyHeadline(ready: usageData.readyModelsCount, total: usageData.modelCount))
                         .fontWeight(.bold)
                 }
 
                 HStack {
-                    Text(language.text(.warningTime))
+                    Text(language.text(.mostUrgent))
                         .foregroundColor(.secondary)
                     Spacer()
-                    Text(usageData.timestamp, style: .time)
+                    Text(mostUrgentSummary)
+                        .fontWeight(.medium)
                 }
 
                 HStack {
-                    Text(language.text(.warningEstExhaustion))
+                    Text(language.text(.nextReset))
                         .foregroundColor(.secondary)
                     Spacer()
-                    Text(estimatedExhaustion)
+                    Text(nextResetSummary)
                         .fontWeight(.medium)
                 }
             }
@@ -48,13 +49,27 @@ struct WarningPanelView: View {
         .background(Color(NSColor.windowBackgroundColor))
     }
 
-    private var estimatedExhaustion: String {
-        let days: Int
-        if usageData.total > 0 {
-            days = max(1, Int(Double(usageData.remains) / Double(usageData.total) * 30))
-        } else {
-            days = 1
+    private var mostUrgentSummary: String {
+        guard let model = usageData.mostUrgentModel else {
+            return "—"
         }
-        return language.estimatedDaysText(days)
+
+        if !model.isCurrentIntervalAvailable {
+            return "\(model.modelName) · \(language.fullStatusText())"
+        }
+
+        if model.isWeeklyExhausted {
+            return "\(model.modelName) · \(language.weeklyFullText())"
+        }
+
+        return "\(model.modelName) · \(language.unitsLeftText(model.currentIntervalRemaining))"
+    }
+
+    private var nextResetSummary: String {
+        guard let nextReset = usageData.nextResetDate else {
+            return "—"
+        }
+
+        return language.relativeText(until: nextReset)
     }
 }

@@ -57,7 +57,11 @@ final class UsageViewModel: ObservableObject {
             statusBarText = error != nil ? "—" : "..."
             return
         }
-        statusBarText = data.formattedRemaining(format: displayFormat, language: appLanguage)
+        statusBarText = data.formattedRemaining(
+            format: displayFormat,
+            language: appLanguage,
+            warningThreshold: warningThreshold
+        )
     }
 
     var hasAPIKey: Bool {
@@ -166,6 +170,9 @@ final class UsageViewModel: ObservableObject {
             return
         }
 
-        showWarningPanel = data.percentageRemaining <= warningThreshold
+        showWarningPanel =
+            data.exhaustedModelsCount > 0 ||
+            data.weeklyExhaustedModelsCount > 0 ||
+            data.lowModelsCount(threshold: warningThreshold) > 0
     }
 }

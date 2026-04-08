@@ -6,24 +6,15 @@ struct MenuView: View {
     var onOpenSettings: () -> Void
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 14) {
+        VStack(alignment: .leading, spacing: 12) {
             headerCard
             detailCard
             modelsCard
             actionsCard
         }
         .padding(14)
-        .frame(width: 340)
-        .background(
-            LinearGradient(
-                colors: [
-                    Color(nsColor: .windowBackgroundColor),
-                    Color(nsColor: .controlBackgroundColor)
-                ],
-                startPoint: .top,
-                endPoint: .bottom
-            )
-        )
+        .frame(width: 352)
+        .background(Color(nsColor: .windowBackgroundColor))
     }
 
     private var language: AppLanguage {
@@ -31,22 +22,23 @@ struct MenuView: View {
     }
 
     private var usageTint: Color {
-        guard let percentage = viewModel.usageData?.percentageRemaining else {
+        guard let data = viewModel.usageData else {
             return viewModel.error == nil ? .accentColor : .orange
         }
 
-        switch percentage {
-        case ..<20:
+        if data.exhaustedModelsCount > 0 || data.weeklyExhaustedModelsCount > 0 {
             return .red
-        case ..<50:
-            return .orange
-        default:
-            return .green
         }
+
+        if data.lowModelsCount(threshold: viewModel.warningThreshold) > 0 {
+            return .orange
+        }
+
+        return .green
     }
 
     private var primaryValueColor: Color {
-        viewModel.usageData?.percentageRemaining ?? 0 < viewModel.warningThreshold ? .primary : usageTint
+        usageTint
     }
 
     @ViewBuilder
@@ -72,21 +64,27 @@ struct MenuView: View {
                 if let data = viewModel.usageData {
                     VStack(alignment: .leading, spacing: 12) {
                         HStack(alignment: .lastTextBaseline, spacing: 6) {
-                            Text("\(Int(data.percentageRemaining))")
+                            Text(language.modelsReadyHeadline(ready: data.readyModelsCount, total: data.modelCount))
                                 .font(.system(size: 38, weight: .bold, design: .rounded))
                                 .foregroundStyle(primaryValueColor)
-                            Text(language.text(.percentLeft))
-                                .font(.system(size: 18, weight: .semibold))
+                            Text(language.readyLabel())
+                                .font(.system(size: 16, weight: .semibold))
                                 .foregroundStyle(.secondary)
                         }
 
-                        ProgressView(value: data.percentageRemaining, total: 100)
+                        Text(language.modelsReadyCaption(ready: data.readyModelsCount, total: data.modelCount))
+                            .font(.system(size: 12))
+                            .foregroundStyle(.secondary)
+                            .fixedSize(horizontal: false, vertical: true)
+
+                        ProgressView(value: Double(data.readyModelsCount), total: Double(max(data.modelCount, 1)))
                             .tint(usageTint)
                             .controlSize(.large)
 
                         HStack(spacing: 10) {
-                            MetricChip(title: language.text(.remaining), value: "\(data.remains)")
-                            MetricChip(title: language.text(.total), value: "\(data.total)")
+                            MetricChip(title: language.readyLabel(), value: "\(data.readyModelsCount)")
+                            MetricChip(title: language.fullLabel(), value: "\(data.exhaustedModelsCount)")
+                            MetricChip(title: language.weeklyFullLabel(), value: "\(data.weeklyExhaustedModelsCount)")
                         }
                     }
                 } else if let usageError = viewModel.error {
@@ -121,9 +119,13 @@ struct MenuView: View {
                     .textCase(.uppercase)
 
                 if let data = viewModel.usageData {
-                    SummaryRow(title: language.text(.remainingQuota), value: "\(data.remains)")
-                    SummaryRow(title: language.text(.usageRatio), value: language.availablePercentageText(Int(data.percentageRemaining)))
+                    SummaryRow(
+                        title: language.text(.models),
+                        value: language.availabilitySummary(ready: data.readyModelsCount, full: data.exhaustedModelsCount)
+                    )
                     SummaryRow(title: language.text(.modelCount), value: "\(data.modelCount)")
+                    SummaryRow(title: language.text(.nextReset), value: nextResetValue(for: data))
+                    SummaryRow(title: language.text(.mostUrgent), value: mostUrgentValue(for: data))
                     SummaryRow(title: language.text(.menuBarStyle), value: viewModel.displayFormat.title(language: language))
                 } else if viewModel.error != nil {
                     SummaryRow(title: language.text(.connection), value: language.text(.needsAttention))
@@ -149,6 +151,10 @@ struct MenuView: View {
     @ViewBuilder
     private var modelsCard: some View {
         if let data = viewModel.usageData, !data.models.isEmpty {
+            let sortedModels = data.sortedModels(warningThreshold: viewModel.warningThreshold)
+            let availableModels = sortedModels.filter { $0.isCurrentIntervalAvailable }
+            let exhaustedModels = sortedModels.filter { !$0.isCurrentIntervalAvailable }
+
             PanelCard {
                 VStack(alignment: .leading, spacing: 12) {
                     Text(language.text(.models))
@@ -156,11 +162,36 @@ struct MenuView: View {
                         .foregroundStyle(.secondary)
                         .textCase(.uppercase)
 
-                    ForEach(data.models) { model in
-                        ModelUsageRow(model: model, language: language)
+                    // Available models first (sorted by percentage remaining, lowest first)
+                    ForEach(availableModels) { model in
+                        ModelUsageRow(
+                            model: model,
+                            language: language,
+                            warningThreshold: viewModel.warningThreshold
+                        )
 
-                        if model.id != data.models.last?.id {
+                        if model.id != availableModels.last?.id {
                             Divider()
+                        }
+                    }
+
+                    // Collapsed section for exhausted models
+                    if !exhaustedModels.isEmpty {
+                        CollapsibleSection(
+                            title: language.fullModelsText(exhaustedModels.count),
+                            count: exhaustedModels.count
+                        ) {
+                            ForEach(exhaustedModels) { model in
+                                ModelUsageRow(
+                                    model: model,
+                                    language: language,
+                                    warningThreshold: viewModel.warningThreshold
+                                )
+
+                                if model.id != exhaustedModels.last?.id {
+                                    Divider()
+                                }
+                            }
                         }
                     }
                 }
@@ -201,8 +232,12 @@ struct MenuView: View {
     private var statusLabel: String {
         if viewModel.isLoading { return language.text(.statusRefreshing) }
         if viewModel.error != nil { return language.text(.statusAttention) }
-        if let percentage = viewModel.usageData?.percentageRemaining {
-            return percentage < viewModel.warningThreshold ? language.text(.statusLowQuota) : language.text(.statusHealthy)
+        if let data = viewModel.usageData {
+            let hasRisk =
+                data.exhaustedModelsCount > 0 ||
+                data.weeklyExhaustedModelsCount > 0 ||
+                data.lowModelsCount(threshold: viewModel.warningThreshold) > 0
+            return hasRisk ? language.text(.statusLowQuota) : language.text(.statusHealthy)
         }
         return language.text(.statusChecking)
     }
@@ -216,22 +251,58 @@ struct MenuView: View {
             return language.errorDescription(for: usageError)
         }
 
-        if let percentage = viewModel.usageData?.percentageRemaining {
-            return percentage < viewModel.warningThreshold
-                ? language.text(.statusApproachingThreshold)
-                : language.text(.statusStable)
+        if let data = viewModel.usageData {
+            if data.exhaustedModelsCount > 0 {
+                return language.fullModelsText(data.exhaustedModelsCount)
+            }
+
+            if data.weeklyExhaustedModelsCount > 0 {
+                return language.weeklyFullModelsText(data.weeklyExhaustedModelsCount)
+            }
+
+            let lowModels = data.lowModelsCount(threshold: viewModel.warningThreshold)
+            if lowModels > 0 {
+                return language.lowModelsText(lowModels)
+            }
+
+            return language.modelsReadyCaption(ready: data.readyModelsCount, total: data.modelCount)
         }
 
         return language.text(.statusWaitingFirstRefresh)
+    }
+
+    private func nextResetValue(for data: UsageData) -> String {
+        guard let nextReset = data.nextResetDate else {
+            return "—"
+        }
+
+        return language.relativeText(until: nextReset)
+    }
+
+    private func mostUrgentValue(for data: UsageData) -> String {
+        guard let model = data.mostUrgentModel else {
+            return "—"
+        }
+
+        if !model.isCurrentIntervalAvailable {
+            return "\(model.modelName) · \(language.fullStatusText())"
+        }
+
+        if model.isWeeklyExhausted {
+            return "\(model.modelName) · \(language.weeklyFullText())"
+        }
+
+        return "\(model.modelName) · \(language.unitsLeftText(model.currentIntervalRemaining))"
     }
 }
 
 private struct ModelUsageRow: View {
     let model: ModelUsageData
     let language: AppLanguage
+    let warningThreshold: Double
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 6) {
+        VStack(alignment: .leading, spacing: 4) {
             HStack(alignment: .firstTextBaseline, spacing: 8) {
                 Text(model.modelName)
                     .font(.system(size: 11, weight: .semibold))
@@ -239,44 +310,68 @@ private struct ModelUsageRow: View {
 
                 Spacer()
 
-                Text("\(Int(model.currentIntervalPercentageRemaining))%")
-                    .font(.system(size: 10, weight: .semibold, design: .rounded))
-                    .foregroundStyle(.secondary)
-            }
-
-            ProgressView(
-                value: Double(model.currentIntervalUsed),
-                total: Double(max(model.currentIntervalTotal, 1))
-            )
-            .controlSize(.small)
-            .tint(model.currentIntervalPercentageRemaining < 20 ? .red : .accentColor)
-
-            HStack(spacing: 10) {
-                compactStat(
-                    title: language.text(.currentQuota),
-                    value: language.usageProgressText(used: model.currentIntervalUsed, total: model.currentIntervalTotal)
-                )
-
-                compactStat(
-                    title: language.text(.weeklyQuota),
-                    value: model.hasWeeklyLimit
-                        ? language.usageProgressText(used: model.weeklyUsed, total: model.weeklyTotal)
-                        : language.text(.noWeeklyCap)
+                ModelStateBadge(
+                    title: badgeTitle,
+                    tint: badgeTint
                 )
             }
+
+            Text(metadataLine)
+                .font(.system(size: 10, weight: .medium, design: .rounded))
+                .foregroundStyle(.secondary)
+                .lineLimit(2)
+                .fixedSize(horizontal: false, vertical: true)
         }
     }
 
-    private func compactStat(title: String, value: String) -> some View {
-        VStack(alignment: .leading, spacing: 2) {
-            Text(title)
-                .font(.system(size: 9, weight: .medium))
-                .foregroundStyle(.secondary)
-            Text(value)
-                .font(.system(size: 10, weight: .medium, design: .rounded))
-                .lineLimit(1)
+    private var badgeTitle: String {
+        if !model.isCurrentIntervalAvailable {
+            return language.fullStatusText()
         }
-        .frame(maxWidth: .infinity, alignment: .leading)
+
+        if model.isWeeklyExhausted {
+            return language.weeklyFullText()
+        }
+
+        return language.unitsLeftText(model.currentIntervalRemaining)
+    }
+
+    private var badgeTint: Color {
+        if !model.isCurrentIntervalAvailable || model.isWeeklyExhausted {
+            return .red
+        }
+
+        if model.currentIntervalPercentageRemaining <= warningThreshold {
+            return .orange
+        }
+
+        return .green
+    }
+
+    private var metadataLine: String {
+        var parts = [
+            language.modelUsageCompact(
+                currentUsed: model.currentIntervalUsed,
+                currentTotal: model.currentIntervalTotal
+            )
+        ]
+
+        if model.hasWeeklyLimit {
+            parts.append(
+                language.weeklyUsageCompact(
+                    weeklyUsed: model.weeklyUsed,
+                    weeklyTotal: model.weeklyTotal
+                )
+            )
+        } else {
+            parts.append(language.text(.noWeeklyCap))
+        }
+
+        if let endTime = model.endTime {
+            parts.append("\(language.text(.nextReset)) \(language.relativeText(until: endTime))")
+        }
+
+        return parts.joined(separator: " · ")
     }
 }
 
@@ -323,17 +418,35 @@ private struct MetricChip: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 4) {
             Text(value)
-                .font(.system(size: 16, weight: .semibold, design: .rounded))
+                .font(.system(size: 15, weight: .semibold, design: .rounded))
             Text(title)
                 .font(.system(size: 11, weight: .medium))
                 .foregroundStyle(.secondary)
         }
         .frame(maxWidth: .infinity, alignment: .leading)
-        .padding(12)
+        .padding(.horizontal, 12)
+        .padding(.vertical, 10)
         .background(
             RoundedRectangle(cornerRadius: 12, style: .continuous)
                 .fill(Color.primary.opacity(0.04))
         )
+    }
+}
+
+private struct ModelStateBadge: View {
+    let title: String
+    let tint: Color
+
+    var body: some View {
+        Text(title)
+            .font(.system(size: 9, weight: .semibold, design: .rounded))
+            .foregroundStyle(tint)
+            .padding(.horizontal, 8)
+            .padding(.vertical, 4)
+            .background(
+                Capsule(style: .continuous)
+                    .fill(tint.opacity(0.12))
+            )
     }
 }
 
@@ -350,6 +463,55 @@ private struct SummaryRow: View {
             Text(value)
                 .font(.system(size: 12, weight: .medium))
                 .multilineTextAlignment(.trailing)
+        }
+    }
+}
+
+private struct CollapsibleSection<Content: View>: View {
+    let title: String
+    let count: Int
+    @ViewBuilder let content: () -> Content
+    @State private var isExpanded: Bool = false
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            Button {
+                withAnimation(.easeInOut(duration: 0.2)) {
+                    isExpanded.toggle()
+                }
+            } label: {
+                HStack(spacing: 6) {
+                    Image(systemName: isExpanded ? "chevron.down" : "chevron.right")
+                        .font(.system(size: 10, weight: .semibold))
+                        .foregroundStyle(.secondary)
+                        .frame(width: 12)
+
+                    Text(title)
+                        .font(.system(size: 11, weight: .medium))
+                        .foregroundStyle(.secondary)
+
+                    Spacer()
+
+                    Text("\(count)")
+                        .font(.system(size: 10, weight: .semibold, design: .rounded))
+                        .foregroundStyle(.secondary)
+                        .padding(.horizontal, 6)
+                        .padding(.vertical, 2)
+                        .background(
+                            Capsule(style: .continuous)
+                                .fill(Color.primary.opacity(0.08))
+                        )
+                }
+                .padding(.vertical, 8)
+            }
+            .buttonStyle(.plain)
+
+            if isExpanded {
+                Divider()
+                    .padding(.vertical, 8)
+
+                content()
+            }
         }
     }
 }
