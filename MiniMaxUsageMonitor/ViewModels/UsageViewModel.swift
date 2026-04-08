@@ -77,7 +77,7 @@ final class UsageViewModel: ObservableObject {
         self.warningThreshold = UserDefaults.standard.double(forKey: "warningThreshold") > 0
             ? UserDefaults.standard.double(forKey: "warningThreshold")
             : 20.0
-        self.autoRefreshOnLaunch = UserDefaults.standard.bool(forKey: "autoRefreshOnLaunch")
+        self.autoRefreshOnLaunch = UserDefaults.standard.object(forKey: "autoRefreshOnLaunch") as? Bool ?? true
         self.appLanguage = UserDefaults.standard.string(forKey: AppLanguage.storageKey)
             .flatMap(AppLanguage.init(rawValue:))
             ?? AppLanguage.fallback
@@ -112,10 +112,13 @@ final class UsageViewModel: ObservableObject {
     }
 
     func startAutoRefresh() {
-        guard autoRefreshOnLaunch || !hasAPIKey else { return }
+        guard hasAPIKey else { return }
         restartTimer()
-        Task {
-            await refresh()
+
+        if autoRefreshOnLaunch || usageData == nil {
+            Task {
+                await refresh()
+            }
         }
     }
 

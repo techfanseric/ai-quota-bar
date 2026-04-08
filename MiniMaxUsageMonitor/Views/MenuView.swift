@@ -9,6 +9,7 @@ struct MenuView: View {
         VStack(alignment: .leading, spacing: 14) {
             headerCard
             detailCard
+            modelsCard
             actionsCard
         }
         .padding(14)
@@ -122,6 +123,7 @@ struct MenuView: View {
                 if let data = viewModel.usageData {
                     SummaryRow(title: language.text(.remainingQuota), value: "\(data.remains)")
                     SummaryRow(title: language.text(.usageRatio), value: language.availablePercentageText(Int(data.percentageRemaining)))
+                    SummaryRow(title: language.text(.modelCount), value: "\(data.modelCount)")
                     SummaryRow(title: language.text(.menuBarStyle), value: viewModel.displayFormat.title(language: language))
                 } else if viewModel.error != nil {
                     SummaryRow(title: language.text(.connection), value: language.text(.needsAttention))
@@ -138,6 +140,28 @@ struct MenuView: View {
                         Spacer()
                         Text(lastRefresh, style: .relative)
                             .font(.system(size: 12, weight: .medium))
+                    }
+                }
+            }
+        }
+    }
+
+    @ViewBuilder
+    private var modelsCard: some View {
+        if let data = viewModel.usageData, !data.models.isEmpty {
+            PanelCard {
+                VStack(alignment: .leading, spacing: 12) {
+                    Text(language.text(.models))
+                        .font(.system(size: 12, weight: .semibold))
+                        .foregroundStyle(.secondary)
+                        .textCase(.uppercase)
+
+                    ForEach(data.models) { model in
+                        ModelUsageRow(model: model, language: language)
+
+                        if model.id != data.models.last?.id {
+                            Divider()
+                        }
                     }
                 }
             }
@@ -199,6 +223,60 @@ struct MenuView: View {
         }
 
         return language.text(.statusWaitingFirstRefresh)
+    }
+}
+
+private struct ModelUsageRow: View {
+    let model: ModelUsageData
+    let language: AppLanguage
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            HStack(alignment: .firstTextBaseline, spacing: 8) {
+                Text(model.modelName)
+                    .font(.system(size: 11, weight: .semibold))
+                    .lineLimit(1)
+
+                Spacer()
+
+                Text("\(Int(model.currentIntervalPercentageRemaining))%")
+                    .font(.system(size: 10, weight: .semibold, design: .rounded))
+                    .foregroundStyle(.secondary)
+            }
+
+            ProgressView(
+                value: Double(model.currentIntervalUsed),
+                total: Double(max(model.currentIntervalTotal, 1))
+            )
+            .controlSize(.small)
+            .tint(model.currentIntervalPercentageRemaining < 20 ? .red : .accentColor)
+
+            HStack(spacing: 10) {
+                compactStat(
+                    title: language.text(.currentQuota),
+                    value: language.usageProgressText(used: model.currentIntervalUsed, total: model.currentIntervalTotal)
+                )
+
+                compactStat(
+                    title: language.text(.weeklyQuota),
+                    value: model.hasWeeklyLimit
+                        ? language.usageProgressText(used: model.weeklyUsed, total: model.weeklyTotal)
+                        : language.text(.noWeeklyCap)
+                )
+            }
+        }
+    }
+
+    private func compactStat(title: String, value: String) -> some View {
+        VStack(alignment: .leading, spacing: 2) {
+            Text(title)
+                .font(.system(size: 9, weight: .medium))
+                .foregroundStyle(.secondary)
+            Text(value)
+                .font(.system(size: 10, weight: .medium, design: .rounded))
+                .lineLimit(1)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
     }
 }
 

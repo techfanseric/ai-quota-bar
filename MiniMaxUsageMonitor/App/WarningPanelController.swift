@@ -43,12 +43,12 @@ final class WarningPanelController {
 
         let hostingView = NSHostingView(
             rootView: WarningPanelView(
-                usageData: UsageData(remains: 0, total: 100, timestamp: Date()),
+                usageData: UsageData(remains: 0, total: 100, timestamp: Date(), models: []),
                 language: AppLanguage.current
             )
         )
         hostingView.frame = panel.contentView?.bounds ?? .zero
-        hostingView.autoresizingMask = [.width, .height]
+        hostingView.autoresizingMask = NSView.AutoresizingMask(arrayLiteral: .width, .height)
 
         panel.contentView = hostingView
         self.panel = panel

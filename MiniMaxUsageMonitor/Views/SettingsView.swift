@@ -8,8 +8,6 @@ struct SettingsView: View {
     }
 
     @ObservedObject var viewModel: UsageViewModel
-    var onPreferredHeightChange: ((CGFloat) -> Void)?
-
     @State private var apiKey: String = ""
     @State private var refreshInterval: Int = 60
     @State private var warningThreshold: Double = 20
@@ -22,37 +20,22 @@ struct SettingsView: View {
     @State private var isTesting: Bool = false
     @State private var isSaving: Bool = false
 
-    @State private var headerHeight: CGFloat = 0
-    @State private var tabBarHeight: CGFloat = 0
-    @State private var contentHeight: CGFloat = 0
-    @State private var footerHeight: CGFloat = 0
-
     var body: some View {
         VStack(alignment: .leading, spacing: 20) {
             header
-                .measureHeight { headerHeight = $0 }
 
             tabStrip
-                .measureHeight { tabBarHeight = $0 }
 
             activeTabContent
-                .measureHeight { contentHeight = $0 }
 
             footer
-                .measureHeight { footerHeight = $0 }
         }
         .padding(24)
         .frame(width: 700, alignment: .topLeading)
         .background(Color(nsColor: .windowBackgroundColor))
         .onAppear {
             loadCurrentSettings()
-            reportPreferredHeight()
         }
-        .onChange(of: selectedTab) { reportPreferredHeight() }
-        .onChange(of: headerHeight) { reportPreferredHeight() }
-        .onChange(of: tabBarHeight) { reportPreferredHeight() }
-        .onChange(of: contentHeight) { reportPreferredHeight() }
-        .onChange(of: footerHeight) { reportPreferredHeight() }
     }
 
     private var language: AppLanguage {
@@ -391,14 +374,6 @@ struct SettingsView: View {
 
         isSaving = false
     }
-
-    private func reportPreferredHeight() {
-        let preferredHeight = headerHeight + tabBarHeight + contentHeight + footerHeight + 128
-        guard preferredHeight > 0 else { return }
-        DispatchQueue.main.async {
-            onPreferredHeightChange?(preferredHeight)
-        }
-    }
 }
 
 private struct SettingsSectionCard<Content: View>: View {
@@ -513,29 +488,5 @@ private struct InlineFeedbackView: View {
         Label(feedback.message, systemImage: feedback.iconName)
             .font(.system(size: 12, weight: .medium))
             .foregroundStyle(feedback.tint)
-    }
-}
-
-private struct HeightReader: ViewModifier {
-    let onChange: (CGFloat) -> Void
-
-    func body(content: Content) -> some View {
-        content.background(
-            GeometryReader { proxy in
-                Color.clear
-                    .onAppear {
-                        onChange(proxy.size.height)
-                    }
-                    .onChange(of: proxy.size.height) {
-                        onChange(proxy.size.height)
-                    }
-            }
-        )
-    }
-}
-
-private extension View {
-    func measureHeight(_ onChange: @escaping (CGFloat) -> Void) -> some View {
-        modifier(HeightReader(onChange: onChange))
     }
 }

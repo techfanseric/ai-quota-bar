@@ -9,6 +9,8 @@ struct UsageData: Codable {
     let total: Int
     /// Timestamp of the response
     let timestamp: Date
+    /// Per-model quota details returned by the API
+    let models: [ModelUsageData]
 
     /// Percentage remaining (0-100)
     var percentageRemaining: Double {
@@ -50,6 +52,41 @@ struct UsageData: Codable {
         // Real implementation would track usage trend over time
         return max(1, Int(Double(remains) / Double(total) * 30))
     }
+
+    var modelCount: Int {
+        models.count
+    }
+}
+
+struct ModelUsageData: Codable, Identifiable {
+    let modelName: String
+    let currentIntervalTotal: Int
+    let currentIntervalUsed: Int
+    let weeklyTotal: Int
+    let weeklyUsed: Int
+    let startTime: Date?
+    let endTime: Date?
+    let weeklyStartTime: Date?
+    let weeklyEndTime: Date?
+
+    var id: String { modelName }
+
+    var currentIntervalRemaining: Int {
+        max(0, currentIntervalTotal - currentIntervalUsed)
+    }
+
+    var weeklyRemaining: Int {
+        max(0, weeklyTotal - weeklyUsed)
+    }
+
+    var hasWeeklyLimit: Bool {
+        weeklyTotal > 0
+    }
+
+    var currentIntervalPercentageRemaining: Double {
+        guard currentIntervalTotal > 0 else { return 0 }
+        return (Double(currentIntervalRemaining) / Double(currentIntervalTotal)) * 100
+    }
 }
 
 struct MiniMaxUsageAPIResponse: Decodable {
@@ -63,12 +100,26 @@ struct MiniMaxUsageAPIResponse: Decodable {
 }
 
 struct MiniMaxModelRemain: Decodable {
+    let modelName: String
+    let startTime: Int64
+    let endTime: Int64
     let currentIntervalTotalCount: Int
     let currentIntervalUsageCount: Int
+    let currentWeeklyTotalCount: Int
+    let currentWeeklyUsageCount: Int
+    let weeklyStartTime: Int64
+    let weeklyEndTime: Int64
 
     enum CodingKeys: String, CodingKey {
+        case modelName = "model_name"
+        case startTime = "start_time"
+        case endTime = "end_time"
         case currentIntervalTotalCount = "current_interval_total_count"
         case currentIntervalUsageCount = "current_interval_usage_count"
+        case currentWeeklyTotalCount = "current_weekly_total_count"
+        case currentWeeklyUsageCount = "current_weekly_usage_count"
+        case weeklyStartTime = "weekly_start_time"
+        case weeklyEndTime = "weekly_end_time"
     }
 }
 

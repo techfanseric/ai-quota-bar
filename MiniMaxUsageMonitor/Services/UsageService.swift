@@ -27,8 +27,26 @@ final class UsageService {
         let total = response.modelRemains.reduce(0) { $0 + $1.currentIntervalTotalCount }
         let used = response.modelRemains.reduce(0) { $0 + $1.currentIntervalUsageCount }
         let remains = max(0, total - used)
+        let models = response.modelRemains.map { model in
+            ModelUsageData(
+                modelName: model.modelName,
+                currentIntervalTotal: model.currentIntervalTotalCount,
+                currentIntervalUsed: model.currentIntervalUsageCount,
+                weeklyTotal: model.currentWeeklyTotalCount,
+                weeklyUsed: model.currentWeeklyUsageCount,
+                startTime: date(fromMilliseconds: model.startTime),
+                endTime: date(fromMilliseconds: model.endTime),
+                weeklyStartTime: date(fromMilliseconds: model.weeklyStartTime),
+                weeklyEndTime: date(fromMilliseconds: model.weeklyEndTime)
+            )
+        }
 
-        return UsageData(remains: remains, total: max(total, 1), timestamp: Date())
+        return UsageData(remains: remains, total: max(total, 1), timestamp: Date(), models: models)
+    }
+
+    private func date(fromMilliseconds value: Int64) -> Date? {
+        guard value > 0 else { return nil }
+        return Date(timeIntervalSince1970: TimeInterval(value) / 1000)
     }
 
     /// Fetch current usage data from MiniMax API

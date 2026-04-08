@@ -70,6 +70,11 @@ enum AppLanguage: String, CaseIterable, Codable, Identifiable {
             case .total: return "Total"
             case .checkingQuota: return "Checking your current quota..."
             case .details: return "Details"
+            case .models: return "Models"
+            case .modelCount: return "Tracked models"
+            case .currentQuota: return "Current interval"
+            case .weeklyQuota: return "Weekly quota"
+            case .noWeeklyCap: return "No weekly cap"
             case .remainingQuota: return "Remaining quota"
             case .usageRatio: return "Usage ratio"
             case .menuBarStyle: return "Menu bar style"
@@ -139,6 +144,11 @@ enum AppLanguage: String, CaseIterable, Codable, Identifiable {
             case .total: return "总量"
             case .checkingQuota: return "正在检查当前额度..."
             case .details: return "详情"
+            case .models: return "模型额度"
+            case .modelCount: return "跟踪模型数"
+            case .currentQuota: return "当前周期"
+            case .weeklyQuota: return "周额度"
+            case .noWeeklyCap: return "无周限制"
             case .remainingQuota: return "剩余额度"
             case .usageRatio: return "可用比例"
             case .menuBarStyle: return "菜单栏样式"
@@ -179,6 +189,15 @@ enum AppLanguage: String, CaseIterable, Codable, Identifiable {
             return "\(percentage)% available"
         case .simplifiedChinese:
             return "可用 \(percentage)%"
+        }
+    }
+
+    func usageProgressText(used: Int, total: Int) -> String {
+        switch self {
+        case .english:
+            return "\(used) / \(total)"
+        case .simplifiedChinese:
+            return "\(used) / \(total)"
         }
     }
 
@@ -264,6 +283,11 @@ enum AppText {
     case total
     case checkingQuota
     case details
+    case models
+    case modelCount
+    case currentQuota
+    case weeklyQuota
+    case noWeeklyCap
     case remainingQuota
     case usageRatio
     case menuBarStyle
