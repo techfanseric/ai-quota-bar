@@ -36,7 +36,7 @@ final class WarningPanelController {
         // Position at bottom-right
         if let screen = NSScreen.main {
             let screenFrame = screen.visibleFrame
-            let panelX = screenFrame.maxX - 300
+            let panelX = screenFrame.maxX - 280
             let panelY = screenFrame.minY + 20
             panel.setFrameOrigin(NSPoint(x: panelX, y: panelY))
         }
