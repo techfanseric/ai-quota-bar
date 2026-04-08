@@ -107,6 +107,8 @@ enum AppLanguage: String, CaseIterable, Codable, Identifiable {
             case .errorKeychain: return "Keychain access error"
             case .errorNotConfigured: return "API key not configured"
             case .unknownError: return "Unknown error"
+            case .modelSelectionLabel: return "Display model"
+            case .modelSelectionPlaceholder: return "Select a model"
             }
         case .simplifiedChinese:
             switch key {
@@ -183,6 +185,8 @@ enum AppLanguage: String, CaseIterable, Codable, Identifiable {
             case .errorKeychain: return "钥匙串访问失败"
             case .errorNotConfigured: return "尚未配置 API Key"
             case .unknownError: return "未知错误"
+            case .modelSelectionLabel: return "显示模型"
+            case .modelSelectionPlaceholder: return "选择模型"
             }
         }
     }
@@ -337,6 +341,15 @@ enum AppLanguage: String, CaseIterable, Codable, Identifiable {
             return "Now \(currentUsed)/\(currentTotal)"
         case .simplifiedChinese:
             return "当前 \(currentUsed)/\(currentTotal)"
+        }
+    }
+
+    func remainingUsageCompact(remaining: Int, total: Int) -> String {
+        switch self {
+        case .english:
+            return "Left \(remaining)/\(total)"
+        case .simplifiedChinese:
+            return "剩余 \(remaining)/\(total)"
         }
     }
 
@@ -506,6 +519,8 @@ enum AppText {
     case errorKeychain
     case errorNotConfigured
     case unknownError
+    case modelSelectionLabel
+    case modelSelectionPlaceholder
 }
 
 extension DisplayFormat {
@@ -564,9 +579,9 @@ extension DisplayFormat {
         case (.leveled, .simplifiedChinese):
             return "1 已耗尽"
         case (.specificModel, .english):
-            return "1101 (44h)"
+            return "1101/44.40h"
         case (.specificModel, .simplifiedChinese):
-            return "1101 (44h)"
+            return "1101/44.40h"
         }
     }
 }

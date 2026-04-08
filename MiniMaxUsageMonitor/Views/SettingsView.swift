@@ -14,6 +14,7 @@ struct SettingsView: View {
     @State private var autoRefreshOnLaunch: Bool = false
     @State private var displayFormat: DisplayFormat = .leveled
     @State private var appLanguage: AppLanguage = .english
+    @State private var selectedModelName: String = ""
     @State private var selectedTab: SettingsTab = .connection
     @State private var testResult: InlineFeedback?
     @State private var saveResult: InlineFeedback?
@@ -40,6 +41,10 @@ struct SettingsView: View {
 
     private var language: AppLanguage {
         appLanguage
+    }
+
+    private var availableModelNames: [String] {
+        viewModel.availableModels.map(\.modelName)
     }
 
     private var header: some View {
@@ -275,6 +280,21 @@ struct SettingsView: View {
                     .buttonStyle(.plain)
                 }
 
+                if !availableModelNames.isEmpty {
+                    VStack(alignment: .leading, spacing: 10) {
+                        Text(language.text(.modelSelectionLabel))
+                            .font(.system(size: 14, weight: .semibold))
+
+                        Picker(language.text(.modelSelectionPlaceholder), selection: $selectedModelName) {
+                            Text(language.text(.modelSelectionPlaceholder)).tag("")
+                            ForEach(availableModelNames, id: \.self) { modelName in
+                                Text(modelName).tag(modelName)
+                            }
+                        }
+                        .pickerStyle(.menu)
+                    }
+                }
+
                 Divider()
                     .padding(.vertical, 4)
 
@@ -326,6 +346,7 @@ struct SettingsView: View {
         autoRefreshOnLaunch = viewModel.autoRefreshOnLaunch
         displayFormat = viewModel.displayFormat
         appLanguage = viewModel.appLanguage
+        selectedModelName = viewModel.selectedModelName ?? ""
     }
 
     private func testConnection() async {
@@ -355,6 +376,7 @@ struct SettingsView: View {
         viewModel.autoRefreshOnLaunch = autoRefreshOnLaunch
         viewModel.displayFormat = displayFormat
         viewModel.appLanguage = appLanguage
+        viewModel.selectedModelName = selectedModelName.isEmpty ? nil : selectedModelName
 
         let trimmedKey = apiKey.trimmingCharacters(in: .whitespacesAndNewlines)
         let apiKeySaved: Bool

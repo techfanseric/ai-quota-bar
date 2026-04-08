@@ -58,10 +58,6 @@ struct WarningPanelView: View {
             return "\(model.modelName) · \(language.fullStatusText())"
         }
 
-        if model.isWeeklyExhausted {
-            return "\(model.modelName) · \(language.weeklyFullText())"
-        }
-
         return "\(model.modelName) · \(language.unitsLeftText(model.currentIntervalRemaining))"
     }
 

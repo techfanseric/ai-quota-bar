@@ -151,9 +151,10 @@ struct MenuView: View {
     @ViewBuilder
     private var modelsCard: some View {
         if let data = viewModel.usageData, !data.models.isEmpty {
-            let sortedModels = data.sortedModels(warningThreshold: viewModel.warningThreshold)
-            let availableModels = sortedModels.filter { $0.isCurrentIntervalAvailable }
-            let exhaustedModels = sortedModels.filter { !$0.isCurrentIntervalAvailable }
+            let availableModels = data.models.filter { $0.isCurrentIntervalAvailable }
+                .sorted { $0.currentIntervalPercentageRemaining < $1.currentIntervalPercentageRemaining }
+            let exhaustedModels = data.models.filter { !$0.isCurrentIntervalAvailable }
+                .sorted { $0.currentIntervalPercentageRemaining < $1.currentIntervalPercentageRemaining }
 
             PanelCard {
                 VStack(alignment: .leading, spacing: 12) {
@@ -288,10 +289,6 @@ struct MenuView: View {
             return "\(model.modelName) · \(language.fullStatusText())"
         }
 
-        if model.isWeeklyExhausted {
-            return "\(model.modelName) · \(language.weeklyFullText())"
-        }
-
         return "\(model.modelName) · \(language.unitsLeftText(model.currentIntervalRemaining))"
     }
 }
@@ -329,15 +326,11 @@ private struct ModelUsageRow: View {
             return language.fullStatusText()
         }
 
-        if model.isWeeklyExhausted {
-            return language.weeklyFullText()
-        }
-
         return language.unitsLeftText(model.currentIntervalRemaining)
     }
 
     private var badgeTint: Color {
-        if !model.isCurrentIntervalAvailable || model.isWeeklyExhausted {
+        if !model.isCurrentIntervalAvailable {
             return .red
         }
 
@@ -350,9 +343,9 @@ private struct ModelUsageRow: View {
 
     private var metadataLine: String {
         var parts = [
-            language.modelUsageCompact(
-                currentUsed: model.currentIntervalUsed,
-                currentTotal: model.currentIntervalTotal
+            language.remainingUsageCompact(
+                remaining: model.currentIntervalRemaining,
+                total: model.currentIntervalTotal
             )
         ]
 

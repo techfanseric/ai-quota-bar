@@ -35,6 +35,13 @@ final class UsageViewModel: ObservableObject {
         }
     }
 
+    @Published var selectedModelName: String? {
+        didSet {
+            UserDefaults.standard.set(selectedModelName, forKey: "selectedModelName")
+            updateStatusBarText()
+        }
+    }
+
     @Published var autoRefreshOnLaunch: Bool {
         didSet {
             UserDefaults.standard.set(autoRefreshOnLaunch, forKey: "autoRefreshOnLaunch")
@@ -52,16 +59,36 @@ final class UsageViewModel: ObservableObject {
 
     @Published var statusBarText: String = "..."
 
+    var availableModels: [ModelUsageData] {
+        guard let data = usageData else { return [] }
+        return data.models
+            .filter(\.isCurrentIntervalAvailable)
+            .sorted { $0.currentIntervalPercentageRemaining < $1.currentIntervalPercentageRemaining }
+    }
+
     private func updateStatusBarText() {
         guard let data = usageData else {
             statusBarText = error != nil ? "—" : "..."
             return
         }
-        statusBarText = data.formattedRemaining(
-            format: displayFormat,
-            language: appLanguage,
-            warningThreshold: warningThreshold
-        )
+
+        switch displayFormat {
+        case .specificModel:
+            if let modelName = selectedModelName,
+               let model = data.models.first(where: { $0.modelName == modelName }) {
+                statusBarText = model.formattedMenuBarText(language: appLanguage)
+            } else if let firstAvailable = availableModels.first {
+                statusBarText = firstAvailable.formattedMenuBarText(language: appLanguage)
+            } else {
+                statusBarText = "—"
+            }
+        default:
+            statusBarText = data.formattedRemaining(
+                format: displayFormat,
+                language: appLanguage,
+                warningThreshold: warningThreshold
+            )
+        }
     }
 
     var hasAPIKey: Bool {
@@ -85,6 +112,7 @@ final class UsageViewModel: ObservableObject {
         self.appLanguage = UserDefaults.standard.string(forKey: AppLanguage.storageKey)
             .flatMap(AppLanguage.init(rawValue:))
             ?? AppLanguage.fallback
+        self.selectedModelName = UserDefaults.standard.string(forKey: "selectedModelName")
 
         setupWarningObserver()
         updateStatusBarText()

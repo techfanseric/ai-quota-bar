@@ -37,7 +37,7 @@ struct UsageData: Codable {
 
             return language.readyModelsText(readyModelsCount)
         case .specificModel:
-            return language.specificModelStatus(for: mostUrgentModel)
+            return "—"
         }
     }
 
@@ -112,7 +112,7 @@ struct ModelUsageData: Codable, Identifiable {
     var id: String { modelName }
 
     var currentIntervalRemaining: Int {
-        max(0, currentIntervalTotal - currentIntervalUsed)
+        currentIntervalUsed
     }
 
     var isCurrentIntervalAvailable: Bool {
@@ -209,5 +209,28 @@ enum UsageError: Error, LocalizedError {
 
     var errorDescription: String? {
         AppLanguage.current.errorDescription(for: self)
+    }
+}
+
+extension ModelUsageData {
+    func formattedMenuBarText(language: AppLanguage) -> String {
+        let remaining = currentIntervalRemaining
+        let resetText = formatResetTime(endTime: endTime)
+        return "\(remaining)/\(resetText)"
+    }
+
+    private func formatResetTime(endTime: Date?) -> String {
+        guard let endTime = endTime else { return "0m" }
+        let interval = endTime.timeIntervalSince(Date())
+        let hours = interval / 3600.0
+
+        if hours <= 0 {
+            return "0m"
+        }
+        if hours < 1 {
+            let minutes = Int(interval / 60)
+            return "\(minutes)m"
+        }
+        return String(format: "%.2fh", hours)
     }
 }
