@@ -60,8 +60,8 @@ struct UsageData: Codable {
         models.filter { !$0.isCurrentIntervalAvailable }.count
     }
 
-    var weeklyExhaustedModelsCount: Int {
-        models.filter(\.isWeeklyExhausted).count
+    var weeklyFullModelsCount: Int {
+        models.filter(\.isWeeklyFull).count
     }
 
     func lowModelsCount(threshold: Double) -> Int {
@@ -101,9 +101,10 @@ struct UsageData: Codable {
 struct ModelUsageData: Codable, Identifiable {
     let modelName: String
     let currentIntervalTotal: Int
-    let currentIntervalUsed: Int
+    let currentIntervalUsed: Int  // API: 这是剩余数量，不是已用！
     let weeklyTotal: Int
-    let weeklyUsed: Int
+    let weeklyUsed: Int  // API: 这是周剩余数量，不是周已用！
+    let remainsTime: Int  // 距离重置的毫秒数
     let startTime: Date?
     let endTime: Date?
     let weeklyStartTime: Date?
@@ -111,15 +112,27 @@ struct ModelUsageData: Codable, Identifiable {
 
     var id: String { modelName }
 
+    // 剩余 = API 返回的 usage_count
     var currentIntervalRemaining: Int {
         currentIntervalUsed
+    }
+
+    // 已用 = 总量 - 剩余
+    var currentIntervalUsedCount: Int {
+        max(0, currentIntervalTotal - currentIntervalUsed)
     }
 
     var isCurrentIntervalAvailable: Bool {
         currentIntervalRemaining > 0
     }
 
+    // 周剩余 = API 返回的 weekly_usage_count
     var weeklyRemaining: Int {
+        weeklyUsed
+    }
+
+    // 周已用 = 周总量 - 周剩余
+    var weeklyUsedCount: Int {
         max(0, weeklyTotal - weeklyUsed)
     }
 
@@ -127,13 +140,54 @@ struct ModelUsageData: Codable, Identifiable {
         weeklyTotal > 0
     }
 
+    // 当前周期剩余百分比
     var currentIntervalPercentageRemaining: Double {
         guard currentIntervalTotal > 0 else { return 0 }
         return (Double(currentIntervalRemaining) / Double(currentIntervalTotal)) * 100
     }
 
-    var isWeeklyExhausted: Bool {
-        hasWeeklyLimit && weeklyRemaining == 0
+    // 当前周期已用百分比
+    var currentIntervalPercentageUsed: Double {
+        guard currentIntervalTotal > 0 else { return 0 }
+        return (Double(currentIntervalUsedCount) / Double(currentIntervalTotal)) * 100
+    }
+
+    // 周是否满的（已用为0 = 没用过）
+    var isWeeklyFull: Bool {
+        hasWeeklyLimit && weeklyUsedCount == 0
+    }
+
+    // 格式化重置时间文本
+    // 如果周期不足24小时（如M*的4小时），显示完整周期 "04/08 20:00-00:00"
+    // 如果周期是完整的24小时（如其他模型的00:00-00:00），只显示截止时间 "04/09 00:00"
+    var resetTimeText: String {
+        guard let start = startTime, let end = endTime else { return "—" }
+
+        let interval = end.timeIntervalSince(start)
+        let isFullDay = interval >= 86400  // 24小时 = 86400秒
+
+        let formatter = DateFormatter()
+        formatter.timeZone = TimeZone(identifier: "Asia/Shanghai")
+        formatter.dateFormat = "MM/dd"
+        let startDay = formatter.string(from: start)
+        let endDay = formatter.string(from: end)
+
+        if !isFullDay {
+            // 不足24小时，显示完整周期
+            formatter.dateFormat = "HH:mm"
+            let startStr = formatter.string(from: start)
+            let endStr = formatter.string(from: end)
+
+            // 如果起止月日相同，省略截止时间的月日
+            if startDay == endDay {
+                return "\(startDay) \(startStr)-\(endStr)"
+            }
+            return "\(startDay) \(startStr)-\(endDay) \(endStr)"
+        }
+
+        // 完整24小时，只显示截止时间
+        formatter.dateFormat = "MM/dd HH:mm"
+        return formatter.string(from: end)
     }
 }
 
@@ -151,6 +205,7 @@ struct MiniMaxModelRemain: Decodable {
     let modelName: String
     let startTime: Int64
     let endTime: Int64
+    let remainsTime: Int64
     let currentIntervalTotalCount: Int
     let currentIntervalUsageCount: Int
     let currentWeeklyTotalCount: Int
@@ -162,6 +217,7 @@ struct MiniMaxModelRemain: Decodable {
         case modelName = "model_name"
         case startTime = "start_time"
         case endTime = "end_time"
+        case remainsTime = "remains_time"
         case currentIntervalTotalCount = "current_interval_total_count"
         case currentIntervalUsageCount = "current_interval_usage_count"
         case currentWeeklyTotalCount = "current_weekly_total_count"

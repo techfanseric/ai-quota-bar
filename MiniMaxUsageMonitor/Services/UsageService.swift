@@ -31,6 +31,7 @@ final class UsageService {
                 currentIntervalUsed: model.currentIntervalUsageCount,
                 weeklyTotal: model.currentWeeklyTotalCount,
                 weeklyUsed: model.currentWeeklyUsageCount,
+                remainsTime: Int(model.remainsTime),
                 startTime: date(fromMilliseconds: model.startTime),
                 endTime: date(fromMilliseconds: model.endTime),
                 weeklyStartTime: date(fromMilliseconds: model.weeklyStartTime),

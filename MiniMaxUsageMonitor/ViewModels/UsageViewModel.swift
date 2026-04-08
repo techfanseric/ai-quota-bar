@@ -72,22 +72,14 @@ final class UsageViewModel: ObservableObject {
             return
         }
 
-        switch displayFormat {
-        case .specificModel:
-            if let modelName = selectedModelName,
-               let model = data.models.first(where: { $0.modelName == modelName }) {
-                statusBarText = model.formattedMenuBarText(language: appLanguage)
-            } else if let firstAvailable = availableModels.first {
-                statusBarText = firstAvailable.formattedMenuBarText(language: appLanguage)
-            } else {
-                statusBarText = "—"
-            }
-        default:
-            statusBarText = data.formattedRemaining(
-                format: displayFormat,
-                language: appLanguage,
-                warningThreshold: warningThreshold
-            )
+        // Always use primary model format - show selected model or first available
+        if let modelName = selectedModelName,
+           let model = data.models.first(where: { $0.modelName == modelName }) {
+            statusBarText = model.formattedMenuBarText(language: appLanguage)
+        } else if let firstAvailable = availableModels.first {
+            statusBarText = firstAvailable.formattedMenuBarText(language: appLanguage)
+        } else {
+            statusBarText = "—"
         }
     }
 
@@ -200,7 +192,6 @@ final class UsageViewModel: ObservableObject {
 
         showWarningPanel =
             data.exhaustedModelsCount > 0 ||
-            data.weeklyExhaustedModelsCount > 0 ||
             data.lowModelsCount(threshold: warningThreshold) > 0
     }
 }

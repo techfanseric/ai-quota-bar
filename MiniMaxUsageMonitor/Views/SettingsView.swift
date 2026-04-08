@@ -1,37 +1,33 @@
 import SwiftUI
 
 struct SettingsView: View {
-    enum SettingsTab: Hashable {
-        case connection
-        case behavior
-        case appearance
-    }
-
     @ObservedObject var viewModel: UsageViewModel
     @State private var apiKey: String = ""
     @State private var refreshInterval: Int = 60
     @State private var warningThreshold: Double = 20
     @State private var autoRefreshOnLaunch: Bool = false
-    @State private var displayFormat: DisplayFormat = .leveled
     @State private var appLanguage: AppLanguage = .english
     @State private var selectedModelName: String = ""
-    @State private var selectedTab: SettingsTab = .connection
     @State private var testResult: InlineFeedback?
     @State private var saveResult: InlineFeedback?
     @State private var isTesting: Bool = false
     @State private var isSaving: Bool = false
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 20) {
-            header
+        ScrollView {
+            VStack(alignment: .leading, spacing: 20) {
+                header
 
-            tabStrip
+                connectionSection
 
-            activeTabContent
+                behaviorSection
 
-            footer
+                appearanceSection
+
+                footer
+            }
+            .padding(24)
         }
-        .padding(24)
         .frame(width: 700, alignment: .topLeading)
         .background(Color(nsColor: .windowBackgroundColor))
         .onAppear {
@@ -73,72 +69,6 @@ struct SettingsView: View {
         }
     }
 
-    private var tabStrip: some View {
-        HStack(spacing: 10) {
-            SettingsTabButton(
-                title: language.text(.tabConnection),
-                systemImage: "key.fill",
-                isSelected: selectedTab == .connection
-            ) {
-                selectedTab = .connection
-            }
-
-            SettingsTabButton(
-                title: language.text(.tabBehavior),
-                systemImage: "clock.arrow.circlepath",
-                isSelected: selectedTab == .behavior
-            ) {
-                selectedTab = .behavior
-            }
-
-            SettingsTabButton(
-                title: language.text(.tabAppearance),
-                systemImage: "paintbrush.pointed.fill",
-                isSelected: selectedTab == .appearance
-            ) {
-                selectedTab = .appearance
-            }
-
-            Spacer(minLength: 0)
-        }
-    }
-
-    @ViewBuilder
-    private var activeTabContent: some View {
-        switch selectedTab {
-        case .connection:
-            connectionTab
-        case .behavior:
-            behaviorTab
-        case .appearance:
-            appearanceTab
-        }
-    }
-
-    private var connectionTab: some View {
-        VStack(alignment: .leading, spacing: 16) {
-            connectionSection
-        }
-        .padding(.top, 4)
-        .frame(maxWidth: .infinity, alignment: .topLeading)
-    }
-
-    private var behaviorTab: some View {
-        VStack(alignment: .leading, spacing: 16) {
-            refreshSection
-        }
-        .padding(.top, 4)
-        .frame(maxWidth: .infinity, alignment: .topLeading)
-    }
-
-    private var appearanceTab: some View {
-        VStack(alignment: .leading, spacing: 16) {
-            displaySection
-        }
-        .padding(.top, 4)
-        .frame(maxWidth: .infinity, alignment: .topLeading)
-    }
-
     private var connectionSection: some View {
         SettingsSectionCard(
             eyebrow: language.text(.connectionEyebrow),
@@ -146,8 +76,7 @@ struct SettingsView: View {
             description: language.text(.connectionDescription)
         ) {
             VStack(alignment: .leading, spacing: 14) {
-                SecureField(language.text(.apiKeyPlaceholder), text: $apiKey)
-                    .textFieldStyle(.roundedBorder)
+                APIKeyInputField(apiKey: $apiKey)
 
                 HStack(spacing: 10) {
                     Button {
@@ -175,7 +104,7 @@ struct SettingsView: View {
         }
     }
 
-    private var refreshSection: some View {
+    private var behaviorSection: some View {
         SettingsSectionCard(
             eyebrow: language.text(.behaviorEyebrow),
             title: language.text(.behaviorTitle),
@@ -227,59 +156,13 @@ struct SettingsView: View {
         }
     }
 
-    private var displaySection: some View {
+    private var appearanceSection: some View {
         SettingsSectionCard(
             eyebrow: language.text(.appearanceEyebrow),
             title: language.text(.appearanceTitle),
             description: language.text(.appearanceDescription)
         ) {
             VStack(alignment: .leading, spacing: 12) {
-                ForEach(DisplayFormat.allCases, id: \.self) { format in
-                    Button {
-                        displayFormat = format
-                    } label: {
-                        HStack(alignment: .top, spacing: 14) {
-                            VStack(alignment: .leading, spacing: 5) {
-                                HStack(spacing: 8) {
-                                    Text(format.title(language: language))
-                                        .font(.system(size: 14, weight: .semibold))
-
-                                    Text(format.preview(language: language))
-                                        .font(.system(size: 11, weight: .semibold, design: .rounded))
-                                        .foregroundStyle(.secondary)
-                                        .padding(.horizontal, 8)
-                                        .padding(.vertical, 4)
-                                        .background(
-                                            Capsule(style: .continuous)
-                                                .fill(Color.primary.opacity(0.06))
-                                        )
-                                }
-
-                                Text(format.caption(language: language))
-                                    .font(.system(size: 12))
-                                    .foregroundStyle(.secondary)
-                            }
-
-                            Spacer()
-
-                            Image(systemName: displayFormat == format ? "checkmark.circle.fill" : "circle")
-                                .font(.system(size: 18, weight: .semibold))
-                                .foregroundStyle(displayFormat == format ? Color.accentColor : .secondary.opacity(0.6))
-                        }
-                        .padding(14)
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                        .background(
-                            RoundedRectangle(cornerRadius: 14, style: .continuous)
-                                .fill(displayFormat == format ? Color.accentColor.opacity(0.08) : Color(nsColor: .controlBackgroundColor))
-                        )
-                        .overlay(
-                            RoundedRectangle(cornerRadius: 14, style: .continuous)
-                                .stroke(displayFormat == format ? Color.accentColor.opacity(0.32) : Color.primary.opacity(0.08), lineWidth: 1)
-                        )
-                    }
-                    .buttonStyle(.plain)
-                }
-
                 if !availableModelNames.isEmpty {
                     VStack(alignment: .leading, spacing: 10) {
                         Text(language.text(.modelSelectionLabel))
@@ -344,7 +227,6 @@ struct SettingsView: View {
         refreshInterval = viewModel.refreshInterval
         warningThreshold = viewModel.warningThreshold
         autoRefreshOnLaunch = viewModel.autoRefreshOnLaunch
-        displayFormat = viewModel.displayFormat
         appLanguage = viewModel.appLanguage
         selectedModelName = viewModel.selectedModelName ?? ""
     }
@@ -374,7 +256,6 @@ struct SettingsView: View {
         viewModel.refreshInterval = refreshInterval
         viewModel.warningThreshold = warningThreshold
         viewModel.autoRefreshOnLaunch = autoRefreshOnLaunch
-        viewModel.displayFormat = displayFormat
         viewModel.appLanguage = appLanguage
         viewModel.selectedModelName = selectedModelName.isEmpty ? nil : selectedModelName
 
@@ -395,6 +276,58 @@ struct SettingsView: View {
             : InlineFeedback(kind: .error, message: language.text(.apiKeySaveFailed))
 
         isSaving = false
+    }
+}
+
+private struct APIKeyInputField: View {
+    @Binding var apiKey: String
+    @State private var isEditing: Bool = false
+    @State private var draftKey: String = ""
+
+    private var maskedKey: String {
+        let trimmed = apiKey.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard trimmed.count > 8 else { return trimmed }
+        let prefix = String(trimmed.prefix(6))
+        let suffix = String(trimmed.suffix(4))
+        return "\(prefix)...\(suffix)"
+    }
+
+    var body: some View {
+        HStack(spacing: 8) {
+            if apiKey.isEmpty {
+                TextField("MiniMax API Key", text: $draftKey)
+                    .textFieldStyle(.roundedBorder)
+                    .onChange(of: draftKey) { _, newValue in
+                        if !isEditing {
+                            apiKey = newValue
+                        }
+                    }
+            } else {
+                Text(maskedKey)
+                    .font(.system(size: 13, design: .monospaced))
+                    .foregroundStyle(.secondary)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(.horizontal, 12)
+                    .padding(.vertical, 8)
+                    .background(
+                        RoundedRectangle(cornerRadius: 6, style: .continuous)
+                            .fill(Color(nsColor: .textBackgroundColor))
+                    )
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 6, style: .continuous)
+                            .stroke(Color.primary.opacity(0.15), lineWidth: 1)
+                    )
+
+                Button {
+                    apiKey = ""
+                    draftKey = ""
+                } label: {
+                    Image(systemName: "xmark.circle.fill")
+                        .foregroundStyle(.secondary)
+                }
+                .buttonStyle(.plain)
+            }
+        }
     }
 }
 
@@ -424,6 +357,7 @@ private struct SettingsSectionCard<Content: View>: View {
             content
         }
         .padding(20)
+        .frame(maxWidth: .infinity, alignment: .topLeading)
         .background(
             RoundedRectangle(cornerRadius: 20, style: .continuous)
                 .fill(Color(nsColor: .controlBackgroundColor))
@@ -432,31 +366,6 @@ private struct SettingsSectionCard<Content: View>: View {
             RoundedRectangle(cornerRadius: 20, style: .continuous)
                 .stroke(Color.primary.opacity(0.08), lineWidth: 1)
         )
-    }
-}
-
-private struct SettingsTabButton: View {
-    let title: String
-    let systemImage: String
-    let isSelected: Bool
-    let action: () -> Void
-
-    var body: some View {
-        Button(action: action) {
-            Label(title, systemImage: systemImage)
-                .font(.system(size: 13, weight: .semibold))
-                .padding(.horizontal, 14)
-                .padding(.vertical, 9)
-                .background(
-                    Capsule(style: .continuous)
-                        .fill(isSelected ? Color.accentColor.opacity(0.10) : Color(nsColor: .controlBackgroundColor))
-                )
-                .overlay(
-                    Capsule(style: .continuous)
-                        .stroke(isSelected ? Color.accentColor.opacity(0.30) : Color.primary.opacity(0.08), lineWidth: 1)
-                )
-        }
-        .buttonStyle(.plain)
     }
 }
 

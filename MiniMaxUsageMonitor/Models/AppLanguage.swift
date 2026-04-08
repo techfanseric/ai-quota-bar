@@ -281,6 +281,15 @@ enum AppLanguage: String, CaseIterable, Codable, Identifiable {
         }
     }
 
+    func weeklyUnusedText() -> String {
+        switch self {
+        case .english:
+            return "Weekly unused"
+        case .simplifiedChinese:
+            return "周未用"
+        }
+    }
+
     func modelsReadyHeadline(ready: Int, total: Int) -> String {
         switch self {
         case .english:
