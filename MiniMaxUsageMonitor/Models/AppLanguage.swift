@@ -443,6 +443,24 @@ enum AppLanguage: String, CaseIterable, Codable, Identifiable {
         }
     }
 
+    func updateNotificationTitle() -> String {
+        switch self {
+        case .english:
+            return "MiniMax Usage Monitor Update"
+        case .simplifiedChinese:
+            return "MiniMax Usage Monitor 有新版本"
+        }
+    }
+
+    func updateNotificationBody(current: String, latest: String) -> String {
+        switch self {
+        case .english:
+            return "New version \(latest) is available (current: \(current))."
+        case .simplifiedChinese:
+            return "发现新版本 \(latest)（当前版本：\(current)）。"
+        }
+    }
+
     func apiStatusMessage(statusCode: Int, message: String) -> String {
         switch self {
         case .english:

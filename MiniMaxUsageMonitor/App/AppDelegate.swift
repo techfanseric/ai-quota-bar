@@ -1,14 +1,18 @@
 import AppKit
 import SwiftUI
+import UserNotifications
 
-final class AppDelegate: NSObject, NSApplicationDelegate {
+final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCenterDelegate {
     private var statusBarController: StatusBarController?
     private var warningPanelController: WarningPanelController?
     private var settingsWindowController: SettingsWindowController?
+    private var dailyUpdateTimer: Timer?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         // Set LSUIElement to hide from Dock
         NSApp.setActivationPolicy(.accessory)
+
+        UNUserNotificationCenter.current().delegate = self
 
         // Initialize status bar
         statusBarController = StatusBarController()
@@ -26,10 +30,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
         // Start auto-refresh
         statusBarController?.viewModel.startAutoRefresh()
+
+        scheduleDailyUpdateChecks()
+        Task {
+            await runAutomaticUpdateCheckIfNeeded()
+        }
     }
 
     func applicationWillTerminate(_ notification: Notification) {
         statusBarController?.viewModel.stopAutoRefresh()
+        dailyUpdateTimer?.invalidate()
+        dailyUpdateTimer = nil
     }
 
     @objc private func showWarningIfNeeded(_ notification: Notification) {
@@ -46,6 +57,66 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
         settingsWindowController?.showWindow(nil)
         NSApp.activate(ignoringOtherApps: true)
+    }
+
+    // MARK: - Automatic Update Checks
+
+    private func scheduleDailyUpdateChecks() {
+        dailyUpdateTimer?.invalidate()
+        dailyUpdateTimer = Timer.scheduledTimer(withTimeInterval: 24 * 60 * 60, repeats: true) { [weak self] _ in
+            Task {
+                await self?.runAutomaticUpdateCheckIfNeeded()
+            }
+        }
+    }
+
+    private func runAutomaticUpdateCheckIfNeeded() async {
+        let checker = UpdateChecker.shared
+        guard checker.shouldRunAutomaticDailyCheck() else { return }
+        checker.markAutomaticCheck()
+
+        do {
+            let result = try await checker.checkForUpdates()
+            guard case let .updateAvailable(currentVersion, latestVersion, releaseURL) = result else { return }
+            guard checker.shouldNotifyUpdate(latestVersion: latestVersion) else { return }
+
+            checker.markNotifiedUpdate(latestVersion: latestVersion)
+
+            let language = await MainActor.run { statusBarController?.viewModel.appLanguage ?? AppLanguage.current }
+            await UpdateNotificationService.shared.notifyUpdateAvailable(
+                language: language,
+                currentVersion: currentVersion,
+                latestVersion: latestVersion,
+                releaseURL: releaseURL
+            )
+        } catch {
+            // Keep silent for background checks.
+        }
+    }
+
+    // MARK: - UNUserNotificationCenterDelegate
+
+    func userNotificationCenter(
+        _ center: UNUserNotificationCenter,
+        willPresent notification: UNNotification,
+        withCompletionHandler completionHandler: @escaping (UNNotificationPresentationOptions) -> Void
+    ) {
+        completionHandler([.banner, .sound, .list])
+    }
+
+    func userNotificationCenter(
+        _ center: UNUserNotificationCenter,
+        didReceive response: UNNotificationResponse,
+        withCompletionHandler completionHandler: @escaping () -> Void
+    ) {
+        defer { completionHandler() }
+
+        guard let releaseURLString = response.notification.request.content.userInfo["releaseURL"] as? String,
+              let releaseURL = URL(string: releaseURLString) else {
+            return
+        }
+
+        NSWorkspace.shared.open(releaseURL)
     }
 }
 

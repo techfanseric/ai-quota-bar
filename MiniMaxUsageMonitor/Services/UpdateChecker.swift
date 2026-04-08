@@ -24,6 +24,9 @@ final class UpdateChecker {
 
     private let owner = "techfanseric"
     private let repo = "minimax-usage-monitor"
+    private let defaults = UserDefaults.standard
+    private let lastAutomaticCheckAtKey = "lastAutomaticUpdateCheckAt"
+    private let lastNotifiedVersionKey = "lastNotifiedUpdateVersion"
 
     private init() {}
 
@@ -73,6 +76,29 @@ final class UpdateChecker {
         }
 
         return .upToDate(currentVersion: normalizedCurrent)
+    }
+
+    func shouldRunAutomaticDailyCheck(now: Date = Date()) -> Bool {
+        guard let lastCheck = defaults.object(forKey: lastAutomaticCheckAtKey) as? Date else {
+            return true
+        }
+        return now.timeIntervalSince(lastCheck) >= 24 * 60 * 60
+    }
+
+    func markAutomaticCheck(at date: Date = Date()) {
+        defaults.set(date, forKey: lastAutomaticCheckAtKey)
+    }
+
+    func shouldNotifyUpdate(latestVersion: String) -> Bool {
+        let normalizedLatest = normalizeVersionString(latestVersion)
+        guard let lastNotified = defaults.string(forKey: lastNotifiedVersionKey) else {
+            return true
+        }
+        return normalizeVersionString(lastNotified) != normalizedLatest
+    }
+
+    func markNotifiedUpdate(latestVersion: String) {
+        defaults.set(normalizeVersionString(latestVersion), forKey: lastNotifiedVersionKey)
     }
 
     private func normalizeVersionString(_ version: String) -> String {
