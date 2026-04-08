@@ -7,6 +7,7 @@ final class StatusBarController {
     private var statusItem: NSStatusItem?
     private var menu: NSMenu?
     private var hostingView: NSHostingView<MenuView>?
+    private var cancellables = Set<AnyCancellable>()
 
     init() {
         setupStatusItem()
@@ -46,8 +47,6 @@ final class StatusBarController {
 
         statusItem?.menu = menu
     }
-
-    private var cancellables = Set<AnyCancellable>()
 
     private func openSettings() {
         NSApp.delegate?.openSettings()
