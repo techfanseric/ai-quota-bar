@@ -17,18 +17,29 @@ struct UsageData: Codable {
     }
 
     /// Formatted remaining display string
-    func formattedRemaining(format: DisplayFormat) -> String {
+    func formattedRemaining(format: DisplayFormat, language: AppLanguage) -> String {
+        let percent = Int(percentageRemaining)
         switch format {
         case .numberOnly:
-            return "\(Int(percentageRemaining))%"
+            return "\(percent)%"
         case .numberWithUnit:
-            return "\(Int(percentageRemaining))% remaining"
+            switch language {
+            case .english:
+                return "\(percent)% remaining"
+            case .simplifiedChinese:
+                return "剩余 \(percent)%"
+            }
         case .leveled:
             if percentageRemaining > 50 {
-                return "\(Int(percentageRemaining))%"
+                return "\(percent)%"
             } else {
                 let days = estimateDaysRemaining()
-                return "[Warning] \(Int(percentageRemaining))% (~\(days) days)"
+                switch language {
+                case .english:
+                    return "[Warning] \(percent)% (~\(days) days)"
+                case .simplifiedChinese:
+                    return "[提醒] \(percent)% (约 \(days) 天)"
+                }
             }
         }
     }
@@ -38,6 +49,36 @@ struct UsageData: Codable {
         // Placeholder calculation based on typical usage
         // Real implementation would track usage trend over time
         return max(1, Int(Double(remains) / Double(total) * 30))
+    }
+}
+
+struct MiniMaxUsageAPIResponse: Decodable {
+    let modelRemains: [MiniMaxModelRemain]
+    let baseResp: MiniMaxBaseResponse
+
+    enum CodingKeys: String, CodingKey {
+        case modelRemains = "model_remains"
+        case baseResp = "base_resp"
+    }
+}
+
+struct MiniMaxModelRemain: Decodable {
+    let currentIntervalTotalCount: Int
+    let currentIntervalUsageCount: Int
+
+    enum CodingKeys: String, CodingKey {
+        case currentIntervalTotalCount = "current_interval_total_count"
+        case currentIntervalUsageCount = "current_interval_usage_count"
+    }
+}
+
+struct MiniMaxBaseResponse: Decodable {
+    let statusCode: Int
+    let statusMessage: String
+
+    enum CodingKeys: String, CodingKey {
+        case statusCode = "status_code"
+        case statusMessage = "status_msg"
     }
 }
 
@@ -66,13 +107,6 @@ enum UsageError: Error, LocalizedError {
     case notConfigured
 
     var errorDescription: String? {
-        switch self {
-        case .invalidURL: return "Invalid API URL"
-        case .networkError(let error): return "Network error: \(error.localizedDescription)"
-        case .invalidResponse: return "Invalid response from server"
-        case .apiError(let message): return "API error: \(message)"
-        case .keychainError: return "Keychain access error"
-        case .notConfigured: return "API key not configured"
-        }
+        AppLanguage.current.errorDescription(for: self)
     }
 }

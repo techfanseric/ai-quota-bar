@@ -1,3 +1,4 @@
+import AppKit
 import SwiftUI
 
 struct MenuView: View {
@@ -5,118 +6,305 @@ struct MenuView: View {
     var onOpenSettings: () -> Void
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 0) {
-            // Header
-            HStack {
-                Text("MiniMax Usage")
-                    .font(.headline)
-                Spacer()
-            }
-            .padding(.horizontal, 16)
-            .padding(.vertical, 12)
-            .background(Color(NSColor.controlBackgroundColor))
+        VStack(alignment: .leading, spacing: 14) {
+            headerCard
+            detailCard
+            actionsCard
+        }
+        .padding(14)
+        .frame(width: 340)
+        .background(
+            LinearGradient(
+                colors: [
+                    Color(nsColor: .windowBackgroundColor),
+                    Color(nsColor: .controlBackgroundColor)
+                ],
+                startPoint: .top,
+                endPoint: .bottom
+            )
+        )
+    }
 
-            Divider()
+    private var language: AppLanguage {
+        viewModel.appLanguage
+    }
 
-            // Content
-            VStack(alignment: .leading, spacing: 12) {
-                // Status section
+    private var usageTint: Color {
+        guard let percentage = viewModel.usageData?.percentageRemaining else {
+            return viewModel.error == nil ? .accentColor : .orange
+        }
+
+        switch percentage {
+        case ..<20:
+            return .red
+        case ..<50:
+            return .orange
+        default:
+            return .green
+        }
+    }
+
+    private var primaryValueColor: Color {
+        viewModel.usageData?.percentageRemaining ?? 0 < viewModel.warningThreshold ? .primary : usageTint
+    }
+
+    @ViewBuilder
+    private var headerCard: some View {
+        PanelCard {
+            VStack(alignment: .leading, spacing: 14) {
+                HStack(alignment: .top, spacing: 12) {
+                    VStack(alignment: .leading, spacing: 5) {
+                        Text(language.text(.menuTitle))
+                            .font(.system(size: 15, weight: .semibold))
+
+                        Text(statusSubtitle)
+                            .font(.system(size: 12))
+                            .foregroundStyle(.secondary)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+
+                    Spacer()
+
+                    StatusCapsule(label: statusLabel, tint: usageTint)
+                }
+
                 if let data = viewModel.usageData {
-                    StatusRow(title: "Remaining", value: "\(data.remains)")
-                    StatusRow(title: "Percentage", value: "\(Int(data.percentageRemaining))%")
-                    StatusRow(title: "Total", value: "\(data.total)")
-                } else if let error = viewModel.error {
-                    HStack {
+                    VStack(alignment: .leading, spacing: 12) {
+                        HStack(alignment: .lastTextBaseline, spacing: 6) {
+                            Text("\(Int(data.percentageRemaining))")
+                                .font(.system(size: 38, weight: .bold, design: .rounded))
+                                .foregroundStyle(primaryValueColor)
+                            Text(language.text(.percentLeft))
+                                .font(.system(size: 18, weight: .semibold))
+                                .foregroundStyle(.secondary)
+                        }
+
+                        ProgressView(value: data.percentageRemaining, total: 100)
+                            .tint(usageTint)
+                            .controlSize(.large)
+
+                        HStack(spacing: 10) {
+                            MetricChip(title: language.text(.remaining), value: "\(data.remains)")
+                            MetricChip(title: language.text(.total), value: "\(data.total)")
+                        }
+                    }
+                } else if let usageError = viewModel.error {
+                    Label {
+                        Text(language.errorDescription(for: usageError))
+                            .font(.system(size: 12))
+                            .foregroundStyle(.secondary)
+                            .fixedSize(horizontal: false, vertical: true)
+                    } icon: {
                         Image(systemName: "exclamationmark.triangle.fill")
-                            .foregroundColor(.orange)
-                        Text(error.localizedDescription)
-                            .font(.caption)
-                            .foregroundColor(.secondary)
+                            .foregroundStyle(.orange)
                     }
                 } else {
-                    Text("Loading...")
-                        .foregroundColor(.secondary)
-                }
-
-                Divider()
-
-                // Last refresh
-                if let lastRefresh = viewModel.lastRefreshTime {
-                    HStack {
-                        Text("Last refresh:")
-                            .font(.caption)
-                            .foregroundColor(.secondary)
-                        Text(lastRefresh, style: .relative)
-                            .font(.caption)
-                            .foregroundColor(.secondary)
+                    HStack(spacing: 10) {
+                        ProgressView()
+                            .controlSize(.small)
+                        Text(language.text(.checkingQuota))
+                            .font(.system(size: 12))
+                            .foregroundStyle(.secondary)
                     }
                 }
-
-                Divider()
-
-                // Refresh button
-                Button(action: {
-                    Task {
-                        await viewModel.refresh()
-                    }
-                }) {
-                    HStack {
-                        if viewModel.isLoading {
-                            ProgressView()
-                                .scaleEffect(0.5)
-                                .frame(width: 16, height: 16)
-                        } else {
-                            Image(systemName: "arrow.clockwise")
-                        }
-                        Text("Refresh")
-                    }
-                    .frame(maxWidth: .infinity)
-                }
-                .disabled(viewModel.isLoading)
-
-                Divider()
-
-                // Settings button
-                Button(action: onOpenSettings) {
-                    HStack {
-                        Image(systemName: "gear")
-                        Text("Settings")
-                    }
-                    .frame(maxWidth: .infinity)
-                }
-
-                Divider()
-
-                // Quit button
-                Button(action: {
-                    NSApplication.shared.terminate(nil)
-                }) {
-                    HStack {
-                        Image(systemName: "power")
-                        Text("Quit")
-                    }
-                    .frame(maxWidth: .infinity)
-                }
-                .foregroundColor(.red)
             }
-            .padding(16)
         }
-        .frame(width: 300)
-        .fixedSize()
+    }
+
+    private var detailCard: some View {
+        PanelCard {
+            VStack(alignment: .leading, spacing: 12) {
+                Text(language.text(.details))
+                    .font(.system(size: 12, weight: .semibold))
+                    .foregroundStyle(.secondary)
+                    .textCase(.uppercase)
+
+                if let data = viewModel.usageData {
+                    SummaryRow(title: language.text(.remainingQuota), value: "\(data.remains)")
+                    SummaryRow(title: language.text(.usageRatio), value: language.availablePercentageText(Int(data.percentageRemaining)))
+                    SummaryRow(title: language.text(.menuBarStyle), value: viewModel.displayFormat.title(language: language))
+                } else if viewModel.error != nil {
+                    SummaryRow(title: language.text(.connection), value: language.text(.needsAttention))
+                } else {
+                    SummaryRow(title: language.text(.connection), value: language.text(.loading))
+                }
+
+                if let lastRefresh = viewModel.lastRefreshTime {
+                    Divider()
+                    HStack {
+                        Text(language.text(.lastUpdated))
+                            .font(.system(size: 12))
+                            .foregroundStyle(.secondary)
+                        Spacer()
+                        Text(lastRefresh, style: .relative)
+                            .font(.system(size: 12, weight: .medium))
+                    }
+                }
+            }
+        }
+    }
+
+    private var actionsCard: some View {
+        PanelCard {
+            VStack(spacing: 10) {
+                HStack(spacing: 10) {
+                    Button {
+                        Task {
+                            await viewModel.refresh()
+                        }
+                    } label: {
+                        Label(language.text(.refresh), systemImage: viewModel.isLoading ? "hourglass" : "arrow.clockwise")
+                    }
+                    .buttonStyle(MenuActionButtonStyle(tint: .accentColor))
+                    .disabled(viewModel.isLoading)
+
+                    Button(action: onOpenSettings) {
+                        Label(language.text(.settings), systemImage: "slider.horizontal.3")
+                    }
+                    .buttonStyle(MenuActionButtonStyle(tint: .secondary))
+                }
+
+                Button(role: .destructive) {
+                    NSApplication.shared.terminate(nil)
+                } label: {
+                    Label(language.text(.quitApp), systemImage: "power")
+                }
+                .buttonStyle(MenuActionButtonStyle(tint: .red, fill: true))
+            }
+        }
+    }
+
+    private var statusLabel: String {
+        if viewModel.isLoading { return language.text(.statusRefreshing) }
+        if viewModel.error != nil { return language.text(.statusAttention) }
+        if let percentage = viewModel.usageData?.percentageRemaining {
+            return percentage < viewModel.warningThreshold ? language.text(.statusLowQuota) : language.text(.statusHealthy)
+        }
+        return language.text(.statusChecking)
+    }
+
+    private var statusSubtitle: String {
+        if viewModel.isLoading {
+            return language.text(.statusFetchingSnapshot)
+        }
+
+        if let usageError = viewModel.error {
+            return language.errorDescription(for: usageError)
+        }
+
+        if let percentage = viewModel.usageData?.percentageRemaining {
+            return percentage < viewModel.warningThreshold
+                ? language.text(.statusApproachingThreshold)
+                : language.text(.statusStable)
+        }
+
+        return language.text(.statusWaitingFirstRefresh)
     }
 }
 
-struct StatusRow: View {
+private struct PanelCard<Content: View>: View {
+    @ViewBuilder let content: Content
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            content
+        }
+        .padding(16)
+        .background(
+            RoundedRectangle(cornerRadius: 16, style: .continuous)
+                .fill(Color(nsColor: .controlBackgroundColor).opacity(0.92))
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: 16, style: .continuous)
+                .stroke(Color.primary.opacity(0.08), lineWidth: 1)
+        )
+    }
+}
+
+private struct StatusCapsule: View {
+    let label: String
+    let tint: Color
+
+    var body: some View {
+        Text(label)
+            .font(.system(size: 11, weight: .semibold))
+            .foregroundStyle(tint)
+            .padding(.horizontal, 10)
+            .padding(.vertical, 6)
+            .background(
+                Capsule(style: .continuous)
+                    .fill(tint.opacity(0.14))
+            )
+    }
+}
+
+private struct MetricChip: View {
     let title: String
     let value: String
 
     var body: some View {
-        HStack {
+        VStack(alignment: .leading, spacing: 4) {
+            Text(value)
+                .font(.system(size: 16, weight: .semibold, design: .rounded))
             Text(title)
-                .foregroundColor(.secondary)
+                .font(.system(size: 11, weight: .medium))
+                .foregroundStyle(.secondary)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(12)
+        .background(
+            RoundedRectangle(cornerRadius: 12, style: .continuous)
+                .fill(Color.primary.opacity(0.04))
+        )
+    }
+}
+
+private struct SummaryRow: View {
+    let title: String
+    let value: String
+
+    var body: some View {
+        HStack(alignment: .firstTextBaseline) {
+            Text(title)
+                .font(.system(size: 12))
+                .foregroundStyle(.secondary)
             Spacer()
             Text(value)
-                .fontWeight(.medium)
+                .font(.system(size: 12, weight: .medium))
+                .multilineTextAlignment(.trailing)
         }
+    }
+}
+
+private struct MenuActionButtonStyle: ButtonStyle {
+    let tint: Color
+    var fill: Bool = false
+
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label
+            .font(.system(size: 12, weight: .semibold))
+            .foregroundStyle(fill ? Color.white : tint)
+            .frame(maxWidth: .infinity)
+            .padding(.vertical, 10)
+            .background(
+                RoundedRectangle(cornerRadius: 12, style: .continuous)
+                    .fill(backgroundColor(isPressed: configuration.isPressed))
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: 12, style: .continuous)
+                    .stroke(borderColor, lineWidth: fill ? 0 : 1)
+            )
+            .scaleEffect(configuration.isPressed ? 0.99 : 1)
+    }
+
+    private func backgroundColor(isPressed: Bool) -> Color {
+        if fill {
+            return tint.opacity(isPressed ? 0.8 : 0.95)
+        }
+        return tint.opacity(isPressed ? 0.16 : 0.10)
+    }
+
+    private var borderColor: Color {
+        tint.opacity(0.22)
     }
 }

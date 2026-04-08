@@ -10,7 +10,7 @@ final class WarningPanelController {
             createPanel()
         }
 
-        hostingView?.rootView = WarningPanelView(usageData: usageData)
+        hostingView?.rootView = WarningPanelView(usageData: usageData, language: AppLanguage.current)
         panel?.orderFrontRegardless()
     }
 
@@ -41,7 +41,12 @@ final class WarningPanelController {
             panel.setFrameOrigin(NSPoint(x: panelX, y: panelY))
         }
 
-        let hostingView = NSHostingView(rootView: WarningPanelView(usageData: UsageData(remains: 0, total: 100, timestamp: Date())))
+        let hostingView = NSHostingView(
+            rootView: WarningPanelView(
+                usageData: UsageData(remains: 0, total: 100, timestamp: Date()),
+                language: AppLanguage.current
+            )
+        )
         hostingView.frame = panel.contentView?.bounds ?? .zero
         hostingView.autoresizingMask = [.width, .height]
 

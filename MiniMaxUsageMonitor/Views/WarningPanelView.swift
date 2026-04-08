@@ -2,6 +2,7 @@ import SwiftUI
 
 struct WarningPanelView: View {
     let usageData: UsageData
+    let language: AppLanguage
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
@@ -9,7 +10,7 @@ struct WarningPanelView: View {
                 Image(systemName: "exclamationmark.triangle.fill")
                     .foregroundColor(.orange)
                     .font(.title2)
-                Text("Low Quota Warning")
+                Text(language.text(.warningPanelTitle))
                     .font(.headline)
                 Spacer()
             }
@@ -18,7 +19,7 @@ struct WarningPanelView: View {
 
             VStack(alignment: .leading, spacing: 4) {
                 HStack {
-                    Text("Remaining:")
+                    Text(language.text(.warningRemaining))
                         .foregroundColor(.secondary)
                     Spacer()
                     Text("\(usageData.remains) (\(Int(usageData.percentageRemaining))%)")
@@ -26,14 +27,14 @@ struct WarningPanelView: View {
                 }
 
                 HStack {
-                    Text("Time:")
+                    Text(language.text(.warningTime))
                         .foregroundColor(.secondary)
                     Spacer()
                     Text(usageData.timestamp, style: .time)
                 }
 
                 HStack {
-                    Text("Est. exhaustion:")
+                    Text(language.text(.warningEstExhaustion))
                         .foregroundColor(.secondary)
                     Spacer()
                     Text(estimatedExhaustion)
@@ -54,6 +55,6 @@ struct WarningPanelView: View {
         } else {
             days = 1
         }
-        return "~ \(days) day\(days == 1 ? "" : "s")"
+        return language.estimatedDaysText(days)
     }
 }

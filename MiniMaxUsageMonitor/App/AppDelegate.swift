@@ -40,8 +40,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     // MARK: - Window Controllers
 
     func openSettings() {
+        guard let viewModel = statusBarController?.viewModel else { return }
         if settingsWindowController == nil {
-            settingsWindowController = SettingsWindowController()
+            settingsWindowController = SettingsWindowController(viewModel: viewModel)
         }
         settingsWindowController?.showWindow(nil)
         NSApp.activate(ignoringOtherApps: true)

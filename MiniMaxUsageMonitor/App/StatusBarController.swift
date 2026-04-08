@@ -7,6 +7,7 @@ final class StatusBarController {
     let viewModel = UsageViewModel()
     private var statusItem: NSStatusItem?
     private var menu: NSMenu?
+    private var menuItem: NSMenuItem?
     private var hostingView: NSHostingView<MenuView>?
     private var cancellables = Set<AnyCancellable>()
 
@@ -40,13 +41,36 @@ final class StatusBarController {
         })
 
         hostingView = NSHostingView(rootView: menuView)
-        hostingView?.frame = NSRect(x: 0, y: 0, width: 300, height: 200)
+        updateMenuLayout()
 
         let menuItem = NSMenuItem()
         menuItem.view = hostingView!
+        self.menuItem = menuItem
         menu?.addItem(menuItem)
 
         statusItem?.menu = menu
+
+        Publishers.CombineLatest4(
+            viewModel.$usageData.map { _ in () },
+            viewModel.$error.map { _ in () },
+            viewModel.$lastRefreshTime.map { _ in () },
+            viewModel.$appLanguage.map { _ in () }
+        )
+        .receive(on: DispatchQueue.main)
+        .sink { [weak self] _ in
+            self?.updateMenuLayout()
+        }
+        .store(in: &cancellables)
+    }
+
+    private func updateMenuLayout() {
+        guard let hostingView else { return }
+
+        hostingView.layoutSubtreeIfNeeded()
+        let fittingSize = hostingView.fittingSize
+        let size = NSSize(width: ceil(fittingSize.width), height: ceil(fittingSize.height))
+        hostingView.frame = NSRect(origin: .zero, size: size)
+        menuItem?.view?.frame = NSRect(origin: .zero, size: size)
     }
 
     private func openSettings() {

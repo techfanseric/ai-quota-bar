@@ -41,6 +41,13 @@ final class UsageViewModel: ObservableObject {
         }
     }
 
+    @Published var appLanguage: AppLanguage {
+        didSet {
+            UserDefaults.standard.set(appLanguage.rawValue, forKey: AppLanguage.storageKey)
+            updateStatusBarText()
+        }
+    }
+
     // MARK: - Computed Properties
 
     @Published var statusBarText: String = "..."
@@ -50,7 +57,7 @@ final class UsageViewModel: ObservableObject {
             statusBarText = error != nil ? "—" : "..."
             return
         }
-        statusBarText = data.formattedRemaining(format: displayFormat)
+        statusBarText = data.formattedRemaining(format: displayFormat, language: appLanguage)
     }
 
     var hasAPIKey: Bool {
@@ -71,6 +78,9 @@ final class UsageViewModel: ObservableObject {
             ? UserDefaults.standard.double(forKey: "warningThreshold")
             : 20.0
         self.autoRefreshOnLaunch = UserDefaults.standard.bool(forKey: "autoRefreshOnLaunch")
+        self.appLanguage = UserDefaults.standard.string(forKey: AppLanguage.storageKey)
+            .flatMap(AppLanguage.init(rawValue:))
+            ?? AppLanguage.fallback
 
         setupWarningObserver()
         updateStatusBarText()

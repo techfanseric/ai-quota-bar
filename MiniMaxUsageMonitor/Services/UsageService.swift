@@ -8,6 +8,29 @@ final class UsageService {
 
     private init() {}
 
+    private func authorizationHeaderValue(for apiKey: String) -> String {
+        let trimmedKey = apiKey.trimmingCharacters(in: .whitespacesAndNewlines)
+        if trimmedKey.lowercased().hasPrefix("bearer ") {
+            return trimmedKey
+        }
+        return "Bearer \(trimmedKey)"
+    }
+
+    private func decodeUsageData(from data: Data) throws -> UsageData {
+        let decoder = JSONDecoder()
+        let response = try decoder.decode(MiniMaxUsageAPIResponse.self, from: data)
+
+        guard response.baseResp.statusCode == 0 else {
+            throw UsageError.apiError(response.baseResp.statusMessage)
+        }
+
+        let total = response.modelRemains.reduce(0) { $0 + $1.currentIntervalTotalCount }
+        let used = response.modelRemains.reduce(0) { $0 + $1.currentIntervalUsageCount }
+        let remains = max(0, total - used)
+
+        return UsageData(remains: remains, total: max(total, 1), timestamp: Date())
+    }
+
     /// Fetch current usage data from MiniMax API
     func fetchUsage() async throws -> UsageData {
         guard let apiKey = KeychainService.shared.getAPIKey() else {
@@ -20,7 +43,7 @@ final class UsageService {
 
         var request = URLRequest(url: url)
         request.httpMethod = "GET"
-        request.setValue(apiKey, forHTTPHeaderField: "Authorization")
+        request.setValue(authorizationHeaderValue(for: apiKey), forHTTPHeaderField: "Authorization")
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         request.timeoutInterval = 30
 
@@ -36,14 +59,15 @@ final class UsageService {
         }
 
         guard (200...299).contains(httpResponse.statusCode) else {
-            let message = String(data: data, encoding: .utf8) ?? "Unknown error"
-            throw UsageError.apiError("Status \(httpResponse.statusCode): \(message)")
+            let language = AppLanguage.current
+            let message = String(data: data, encoding: .utf8) ?? language.text(.unknownError)
+            throw UsageError.apiError(language.apiStatusMessage(statusCode: httpResponse.statusCode, message: message))
         }
 
         do {
-            let decoder = JSONDecoder()
-            decoder.dateDecodingStrategy = .iso8601
-            return try decoder.decode(UsageData.self, from: data)
+            return try decodeUsageData(from: data)
+        } catch let usageError as UsageError {
+            throw usageError
         } catch {
             throw UsageError.invalidResponse
         }
@@ -57,13 +81,13 @@ final class UsageService {
 
         var request = URLRequest(url: url)
         request.httpMethod = "GET"
-        request.setValue(apiKey, forHTTPHeaderField: "Authorization")
+        request.setValue(authorizationHeaderValue(for: apiKey), forHTTPHeaderField: "Authorization")
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         request.timeoutInterval = 15
 
-        let (_, response): (Data, URLResponse)
+        let (data, response): (Data, URLResponse)
         do {
-            (_, response) = try await URLSession.shared.data(for: request)
+            (data, response) = try await URLSession.shared.data(for: request)
         } catch {
             throw UsageError.networkError(error)
         }
@@ -72,6 +96,15 @@ final class UsageService {
             throw UsageError.invalidResponse
         }
 
-        return (200...299).contains(httpResponse.statusCode)
+        guard (200...299).contains(httpResponse.statusCode) else {
+            return false
+        }
+
+        do {
+            _ = try decodeUsageData(from: data)
+            return true
+        } catch {
+            return false
+        }
     }
 }
