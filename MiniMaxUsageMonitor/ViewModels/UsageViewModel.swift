@@ -175,9 +175,13 @@ final class UsageViewModel: ObservableObject {
             return []
         }
 
+#if DEBUG
+        return syntheticMinuteSamples(for: model, startTime: startTime, endTime: endTime)
+#else
         return (modelQuotaSamples[model.id] ?? [])
             .filter { $0.timestamp >= startTime && $0.timestamp <= endTime }
             .sorted { $0.timestamp < $1.timestamp }
+#endif
     }
 
     // MARK: - Private Methods
@@ -242,4 +246,41 @@ final class UsageViewModel: ObservableObject {
             data.exhaustedModelsCount > 0 ||
             data.lowModelsCount(threshold: warningThreshold) > 0
     }
+
+#if DEBUG
+    /// Generates deterministic mock chart points: 5h range, 1-minute ticks,
+    /// descending from 4500 to the current remaining value at the current time.
+    private func syntheticMinuteSamples(
+        for model: ModelUsageData,
+        startTime: Date,
+        endTime: Date
+    ) -> [ModelQuotaSample] {
+        let clampedNow = min(max(Date(), startTime), endTime)
+        let startRemaining = model.currentIntervalTotal > 0
+            ? min(4500, model.currentIntervalTotal)
+            : 4500
+        let endRemaining = max(0, min(model.currentIntervalRemaining, startRemaining))
+
+        let elapsed = max(clampedNow.timeIntervalSince(startTime), 0)
+        let minuteCount = Int(elapsed / 60)
+        let base = startTime.timeIntervalSince1970
+
+        var samples: [ModelQuotaSample] = (0...minuteCount).map { minute in
+            let ratio = minuteCount > 0 ? Double(minute) / Double(minuteCount) : 0
+            let interpolated = Double(startRemaining) + Double(endRemaining - startRemaining) * ratio
+            return ModelQuotaSample(
+                timestamp: Date(timeIntervalSince1970: base + Double(minute) * 60),
+                remaining: Int(interpolated.rounded())
+            )
+        }
+
+        if samples.last?.timestamp != clampedNow {
+            samples.append(ModelQuotaSample(timestamp: clampedNow, remaining: endRemaining))
+        } else if !samples.isEmpty {
+            samples[samples.count - 1] = ModelQuotaSample(timestamp: clampedNow, remaining: endRemaining)
+        }
+
+        return samples
+    }
+#endif
 }

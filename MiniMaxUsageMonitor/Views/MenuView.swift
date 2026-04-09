@@ -360,12 +360,27 @@ private struct QuotaAreaChart: View {
             return
         }
 
+        guard let firstPoint = points.first,
+              let lastPoint = points.last else { return }
+
         var areaPath = Path()
-        areaPath.move(to: CGPoint(x: points[0].x, y: layout.plotRect.maxY))
-        areaPath.addLines(points)
-        areaPath.addLine(to: CGPoint(x: points[points.count - 1].x, y: layout.plotRect.maxY))
+        areaPath.move(to: CGPoint(x: firstPoint.x, y: layout.plotRect.maxY))  // Y1=0
+        areaPath.addLine(to: CGPoint(x: firstPoint.x, y: firstPoint.y))       // 到第一个点
+        areaPath.addLines(points)                                              // 沿曲线到最后一个点
+        areaPath.addLine(to: CGPoint(x: lastPoint.x, y: layout.plotRect.maxY)) // Yn=0
+        areaPath.addLine(to: CGPoint(x: firstPoint.x, y: layout.plotRect.maxY)) // 回到 Y1=0
         areaPath.closeSubpath()
-        context.fill(areaPath, with: .color(tint.opacity(0.18)))
+        context.fill(
+            areaPath,
+            with: .linearGradient(
+                Gradient(colors: [
+                    tint.opacity(0.22),
+                    tint.opacity(0.03)
+                ]),
+                startPoint: CGPoint(x: 0, y: layout.plotRect.minY),
+                endPoint: CGPoint(x: 0, y: layout.plotRect.maxY)
+            )
+        )
 
         var linePath = Path()
         linePath.addLines(points)
