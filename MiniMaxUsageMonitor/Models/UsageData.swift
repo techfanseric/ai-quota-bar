@@ -3,6 +3,8 @@ import Foundation
 /// API response model for MiniMax usage data
 /// Endpoint: GET https://www.minimaxi.com/v1/api/openplatform/coding_plan/remains
 struct UsageData: Codable {
+    /// Usage provider that produced this response
+    let provider: UsageProvider
     /// Models that still have quota in the current interval
     let remains: Int
     /// Total tracked models
@@ -99,6 +101,7 @@ struct UsageData: Codable {
 }
 
 struct ModelUsageData: Codable, Identifiable {
+    let provider: UsageProvider
     let modelName: String
     let currentIntervalTotal: Int
     let currentIntervalUsed: Int  // API: 这是剩余数量，不是已用！
@@ -110,7 +113,7 @@ struct ModelUsageData: Codable, Identifiable {
     let weeklyStartTime: Date?
     let weeklyEndTime: Date?
 
-    var id: String { modelName }
+    var id: String { "\(provider.rawValue):\(modelName)" }
 
     // 剩余 = API 返回的 usage_count
     var currentIntervalRemaining: Int {
@@ -247,6 +250,42 @@ struct MiniMaxBaseResponse: Decodable {
     }
 }
 
+struct GLMQuotaLimitResponse: Decodable {
+    let code: Int
+    let msg: String?
+    let data: GLMQuotaLimitData?
+    let success: Bool
+}
+
+struct GLMQuotaLimitData: Decodable {
+    let limits: [GLMUsageLimitItem]
+}
+
+struct GLMUsageLimitItem: Decodable {
+    let type: String
+    let currentValue: Double
+    let usage: Double
+    let percentage: Double?
+    let nextResetTime: Int64?
+
+    enum CodingKeys: String, CodingKey {
+        case type
+        case currentValue
+        case usage
+        case percentage
+        case nextResetTime
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        type = try container.decodeFlexibleString(forKey: .type)
+        currentValue = try container.decodeFlexibleDouble(forKey: .currentValue)
+        usage = try container.decodeFlexibleDouble(forKey: .usage)
+        percentage = try container.decodeFlexibleOptionalDouble(forKey: .percentage)
+        nextResetTime = try container.decodeFlexibleOptionalInt64(forKey: .nextResetTime)
+    }
+}
+
 /// Menu bar display format options
 enum DisplayFormat: Int, CaseIterable, Codable {
     case numberOnly = 0
@@ -275,6 +314,55 @@ enum UsageError: Error, LocalizedError {
 
     var errorDescription: String? {
         AppLanguage.current.errorDescription(for: self)
+    }
+}
+
+private extension KeyedDecodingContainer {
+    func decodeFlexibleString(forKey key: Key) throws -> String {
+        if let string = try? decode(String.self, forKey: key) {
+            return string
+        }
+        if let int = try? decode(Int.self, forKey: key) {
+            return String(int)
+        }
+        if let double = try? decode(Double.self, forKey: key) {
+            return String(double)
+        }
+        return ""
+    }
+
+    func decodeFlexibleDouble(forKey key: Key) throws -> Double {
+        if let double = try? decode(Double.self, forKey: key) {
+            return double
+        }
+        if let int = try? decode(Int.self, forKey: key) {
+            return Double(int)
+        }
+        if let string = try? decode(String.self, forKey: key),
+           let double = Double(string) {
+            return double
+        }
+        return 0
+    }
+
+    func decodeFlexibleOptionalDouble(forKey key: Key) throws -> Double? {
+        guard contains(key) else { return nil }
+        return try decodeFlexibleDouble(forKey: key)
+    }
+
+    func decodeFlexibleOptionalInt64(forKey key: Key) throws -> Int64? {
+        guard contains(key) else { return nil }
+        if let int = try? decode(Int64.self, forKey: key) {
+            return int
+        }
+        if let double = try? decode(Double.self, forKey: key) {
+            return Int64(double)
+        }
+        if let string = try? decode(String.self, forKey: key),
+           let int = Int64(string) {
+            return int
+        }
+        return nil
     }
 }
 
