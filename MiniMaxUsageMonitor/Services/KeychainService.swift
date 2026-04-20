@@ -6,21 +6,19 @@ final class KeychainService {
     static let shared = KeychainService()
 
     private let service = "com.minimax.usagemonitor"
-    private let account = "apiKey"
 
     private init() {}
 
-    /// Save API key to Keychain
-    func saveAPIKey(_ key: String) -> Bool {
-        guard let data = key.data(using: .utf8) else { return false }
+    /// Save provider credential to Keychain
+    func saveCredential(_ credential: String, for provider: UsageProvider) -> Bool {
+        guard let data = credential.data(using: .utf8) else { return false }
 
-        // Delete existing item first
-        deleteAPIKey()
+        deleteCredential(for: provider)
 
         let query: [String: Any] = [
             kSecClass as String: kSecClassGenericPassword,
             kSecAttrService as String: service,
-            kSecAttrAccount as String: account,
+            kSecAttrAccount as String: provider.keychainAccount,
             kSecValueData as String: data,
             kSecAttrAccessible as String: kSecAttrAccessibleWhenUnlocked
         ]
@@ -29,12 +27,12 @@ final class KeychainService {
         return status == errSecSuccess
     }
 
-    /// Retrieve API key from Keychain
-    func getAPIKey() -> String? {
+    /// Retrieve provider credential from Keychain
+    func getCredential(for provider: UsageProvider) -> String? {
         let query: [String: Any] = [
             kSecClass as String: kSecClassGenericPassword,
             kSecAttrService as String: service,
-            kSecAttrAccount as String: account,
+            kSecAttrAccount as String: provider.keychainAccount,
             kSecReturnData as String: true,
             kSecMatchLimit as String: kSecMatchLimitOne
         ]
@@ -51,21 +49,42 @@ final class KeychainService {
         return key
     }
 
-    /// Delete API key from Keychain
+    /// Delete provider credential from Keychain
     @discardableResult
-    func deleteAPIKey() -> Bool {
+    func deleteCredential(for provider: UsageProvider) -> Bool {
         let query: [String: Any] = [
             kSecClass as String: kSecClassGenericPassword,
             kSecAttrService as String: service,
-            kSecAttrAccount as String: account
+            kSecAttrAccount as String: provider.keychainAccount
         ]
 
         let status = SecItemDelete(query as CFDictionary)
         return status == errSecSuccess || status == errSecItemNotFound
     }
 
-    /// Check if API key exists
+    /// Check if provider credential exists
+    func hasCredential(for provider: UsageProvider) -> Bool {
+        return getCredential(for: provider) != nil
+    }
+
+    /// Save MiniMax API key to Keychain
+    func saveAPIKey(_ key: String) -> Bool {
+        saveCredential(key, for: .miniMax)
+    }
+
+    /// Retrieve MiniMax API key from Keychain
+    func getAPIKey() -> String? {
+        getCredential(for: .miniMax)
+    }
+
+    /// Delete MiniMax API key from Keychain
+    @discardableResult
+    func deleteAPIKey() -> Bool {
+        deleteCredential(for: .miniMax)
+    }
+
+    /// Check if MiniMax API key exists
     var hasAPIKey: Bool {
-        return getAPIKey() != nil
+        return hasCredential(for: .miniMax)
     }
 }

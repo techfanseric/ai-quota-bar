@@ -53,8 +53,11 @@ final class StatusBarController {
         Publishers.MergeMany(
             viewModel.$usageData.map { _ in () }.eraseToAnyPublisher(),
             viewModel.$error.map { _ in () }.eraseToAnyPublisher(),
+            viewModel.$providerUsageData.map { _ in () }.eraseToAnyPublisher(),
+            viewModel.$providerErrors.map { _ in () }.eraseToAnyPublisher(),
             viewModel.$lastRefreshTime.map { _ in () }.eraseToAnyPublisher(),
             viewModel.$appLanguage.map { _ in () }.eraseToAnyPublisher(),
+            viewModel.$selectedModelName.map { _ in () }.eraseToAnyPublisher(),
             viewModel.$isLoading.map { _ in () }.eraseToAnyPublisher(),
             viewModel.$displayFormat.map { _ in () }.eraseToAnyPublisher(),
             viewModel.$warningThreshold.map { _ in () }.eraseToAnyPublisher()

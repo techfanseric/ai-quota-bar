@@ -35,14 +35,14 @@ enum AppLanguage: String, CaseIterable, Codable, Identifiable {
         case .english:
             switch key {
             case .preferences: return "Preferences"
-            case .preferencesSubtitle: return "Tune refresh behavior, menu bar density, and the MiniMax API key used by the monitor."
+            case .preferencesSubtitle: return "Tune refresh behavior, menu bar density, and the provider credential used by the monitor."
             case .tabConnection: return "Connection"
             case .tabBehavior: return "Behavior"
             case .tabAppearance: return "Appearance"
             case .connectionEyebrow: return "Connection"
             case .connectionTitle: return "API access"
-            case .connectionDescription: return "Your key is stored in Keychain. Clear the field and save if you want to remove the stored key."
-            case .apiKeyPlaceholder: return "MiniMax API key"
+            case .connectionDescription: return "Your credential is stored in Keychain. Clear the field and save if you want to remove the stored credential."
+            case .apiKeyPlaceholder: return "Provider credential"
             case .testConnection: return "Test connection"
             case .behaviorEyebrow: return "Behavior"
             case .behaviorTitle: return "Refresh cadence"
@@ -63,8 +63,8 @@ enum AppLanguage: String, CaseIterable, Codable, Identifiable {
             case .testConnectionSuccess: return "Connection looks good."
             case .testConnectionRejected: return "The API rejected this key."
             case .settingsSaved: return "Settings saved."
-            case .apiKeySaveFailed: return "API key could not be saved."
-            case .menuTitle: return "MiniMax Usage"
+            case .apiKeySaveFailed: return "Credential could not be saved."
+            case .menuTitle: return "Usage Monitor"
             case .percentLeft: return "% left"
             case .remaining: return "Remaining"
             case .total: return "Total"
@@ -84,7 +84,7 @@ enum AppLanguage: String, CaseIterable, Codable, Identifiable {
             case .needsAttention: return "Needs attention"
             case .loading: return "Loading"
             case .menuLoadingHint: return "Fetching the latest model quotas for the menu."
-            case .menuConfigureKeyHint: return "Open Settings and add your MiniMax API key to start tracking quota."
+            case .menuConfigureKeyHint: return "Open Settings and add your provider credential to start tracking quota."
             case .menuEmptyModelsHint: return "No model quota data is available yet. Try refreshing in a moment."
             case .menuRefreshHint: return "Refresh failed. You can retry now or review your configuration in Settings."
             case .lastUpdated: return "Last updated"
@@ -123,14 +123,14 @@ enum AppLanguage: String, CaseIterable, Codable, Identifiable {
         case .simplifiedChinese:
             switch key {
             case .preferences: return "偏好设置"
-            case .preferencesSubtitle: return "调整刷新策略、菜单栏显示密度，以及监控器使用的 MiniMax API Key。"
+            case .preferencesSubtitle: return "调整刷新策略、菜单栏显示密度，以及监控器使用的服务商凭据。"
             case .tabConnection: return "连接"
             case .tabBehavior: return "行为"
             case .tabAppearance: return "外观"
             case .connectionEyebrow: return "连接"
             case .connectionTitle: return "API 访问"
-            case .connectionDescription: return "API Key 会安全保存在钥匙串里。清空输入框并保存即可移除当前已保存的 Key。"
-            case .apiKeyPlaceholder: return "MiniMax API Key"
+            case .connectionDescription: return "凭据会安全保存在钥匙串里。清空输入框并保存即可移除当前已保存的凭据。"
+            case .apiKeyPlaceholder: return "服务商凭据"
             case .testConnection: return "测试连接"
             case .behaviorEyebrow: return "行为"
             case .behaviorTitle: return "刷新策略"
@@ -151,8 +151,8 @@ enum AppLanguage: String, CaseIterable, Codable, Identifiable {
             case .testConnectionSuccess: return "连接正常。"
             case .testConnectionRejected: return "这个 API Key 未通过校验。"
             case .settingsSaved: return "设置已保存。"
-            case .apiKeySaveFailed: return "API Key 保存失败。"
-            case .menuTitle: return "MiniMax 用量"
+            case .apiKeySaveFailed: return "凭据保存失败。"
+            case .menuTitle: return "用量监控"
             case .percentLeft: return "剩余"
             case .remaining: return "剩余"
             case .total: return "总量"
@@ -172,7 +172,7 @@ enum AppLanguage: String, CaseIterable, Codable, Identifiable {
             case .needsAttention: return "需要处理"
             case .loading: return "加载中"
             case .menuLoadingHint: return "正在拉取菜单里要显示的模型额度。"
-            case .menuConfigureKeyHint: return "打开设置并填入 MiniMax API Key 后，就可以开始跟踪额度。"
+            case .menuConfigureKeyHint: return "打开设置并填入服务商凭据后，就可以开始跟踪额度。"
             case .menuEmptyModelsHint: return "暂时还没有可显示的模型额度数据，稍后可以再刷新一次。"
             case .menuRefreshHint: return "刷新失败了，你可以现在重试，或者去设置里检查配置。"
             case .lastUpdated: return "上次更新"
@@ -208,6 +208,59 @@ enum AppLanguage: String, CaseIterable, Codable, Identifiable {
             case .modelSelectionLabel: return "显示模型"
             case .modelSelectionPlaceholder: return "选择模型"
             }
+        }
+    }
+
+    func allProvidersConnectionDescription() -> String {
+        switch self {
+        case .english:
+            return "Configure one or both providers. Each credential is stored separately in Keychain, and all configured providers refresh together."
+        case .simplifiedChinese:
+            return "可以同时配置一个或多个服务商。每个凭据都会分别保存在钥匙串中，已配置的服务商会一起刷新。"
+        }
+    }
+
+    func credentialPlaceholder(for provider: UsageProvider) -> String {
+        switch (self, provider) {
+        case (.english, .miniMax):
+            return "MiniMax API key"
+        case (.english, .glm):
+            return "Paste GLM quota curl command"
+        case (.simplifiedChinese, .miniMax):
+            return "MiniMax API Key"
+        case (.simplifiedChinese, .glm):
+            return "粘贴 GLM 额度接口 curl 命令"
+        }
+    }
+
+    func credentialHelpText(for provider: UsageProvider) -> String {
+        switch (self, provider) {
+        case (.english, .miniMax):
+            return "Use the bearer token for the MiniMax coding plan remains endpoint."
+        case (.english, .glm):
+            return "Required fields are the quota endpoint URL and authorization header; organization, project, and cookie are preserved when present."
+        case (.simplifiedChinese, .miniMax):
+            return "填入 MiniMax coding plan remains 接口使用的 Bearer token。"
+        case (.simplifiedChinese, .glm):
+            return "至少需要额度接口 URL 和 authorization 头；如果 curl 里有组织、项目和 cookie，也会一并保存用于请求。"
+        }
+    }
+
+    func pasteFromClipboardText() -> String {
+        switch self {
+        case .english:
+            return "Paste from Clipboard"
+        case .simplifiedChinese:
+            return "从剪贴板粘贴"
+        }
+    }
+
+    func selectAllText() -> String {
+        switch self {
+        case .english:
+            return "Select All"
+        case .simplifiedChinese:
+            return "全选"
         }
     }
 

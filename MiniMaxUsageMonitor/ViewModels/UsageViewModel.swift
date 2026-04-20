@@ -8,6 +8,8 @@ final class UsageViewModel: ObservableObject {
     // MARK: - Published State
 
     @Published var usageData: UsageData?
+    @Published var providerUsageData: [UsageProvider: UsageData] = [:]
+    @Published var providerErrors: [UsageProvider: UsageError] = [:]
     @Published var error: UsageError?
     @Published var isLoading: Bool = false
     @Published var lastRefreshTime: Date?
@@ -74,8 +76,8 @@ final class UsageViewModel: ObservableObject {
         }
 
         // Always use primary model format - show selected model or first available
-        if let modelName = selectedModelName,
-           let model = data.models.first(where: { $0.modelName == modelName }) {
+        if let modelID = selectedModelName,
+           let model = data.models.first(where: { $0.id == modelID }) {
             statusBarText = model.formattedMenuBarText(language: appLanguage)
         } else if let firstAvailable = availableModels.first {
             statusBarText = firstAvailable.formattedMenuBarText(language: appLanguage)
@@ -85,7 +87,19 @@ final class UsageViewModel: ObservableObject {
     }
 
     var hasAPIKey: Bool {
-        KeychainService.shared.hasAPIKey
+        hasAnyCredential
+    }
+
+    var hasAnyCredential: Bool {
+        configuredProviders.isEmpty == false
+    }
+
+    var configuredProviders: [UsageProvider] {
+        UsageProvider.allCases.filter { KeychainService.shared.hasCredential(for: $0) }
+    }
+
+    var providerUsageSections: [UsageData] {
+        UsageProvider.allCases.compactMap { providerUsageData[$0] }
     }
 
     // MARK: - Private
@@ -118,28 +132,49 @@ final class UsageViewModel: ObservableObject {
 
         isLoading = true
         error = nil
+        providerErrors = [:]
 
-        do {
-            let data = try await UsageService.shared.fetchUsage()
-            let sampleTimestamp = Date()
-            usageData = data
-            lastRefreshTime = sampleTimestamp
-            recordSamples(from: data, timestamp: sampleTimestamp)
+        let providers = configuredProviders
+        guard providers.isEmpty == false else {
+            usageData = nil
+            providerUsageData = [:]
+            error = .notConfigured
             updateStatusBarText()
-            checkThreshold()
-        } catch let usError as UsageError {
-            error = usError
-            updateStatusBarText()
-        } catch {
-            self.error = .networkError(error)
-            updateStatusBarText()
+            isLoading = false
+            return
         }
+
+        var nextProviderData: [UsageProvider: UsageData] = [:]
+        var nextProviderErrors: [UsageProvider: UsageError] = [:]
+        let sampleTimestamp = Date()
+
+        for provider in providers {
+            do {
+                let data = try await UsageService.shared.fetchUsage(provider: provider)
+                nextProviderData[provider] = data
+            } catch let usError as UsageError {
+                nextProviderErrors[provider] = usError
+            } catch {
+                nextProviderErrors[provider] = .networkError(error)
+            }
+        }
+
+        providerUsageData = nextProviderData
+        providerErrors = nextProviderErrors
+        usageData = combinedUsageData(from: nextProviderData.values, timestamp: sampleTimestamp)
+        error = usageData == nil ? nextProviderErrors.values.first : nil
+        if let usageData {
+            lastRefreshTime = sampleTimestamp
+            recordSamples(from: usageData, timestamp: sampleTimestamp)
+        }
+        updateStatusBarText()
+        checkThreshold()
 
         isLoading = false
     }
 
     func startAutoRefresh() {
-        guard hasAPIKey else { return }
+        guard hasAnyCredential else { return }
         restartTimer()
 
         if autoRefreshOnLaunch || usageData == nil {
@@ -155,8 +190,24 @@ final class UsageViewModel: ObservableObject {
     }
 
     func saveAPIKey(_ key: String) -> Bool {
-        let success = KeychainService.shared.saveAPIKey(key)
+        saveCredential(key, for: .miniMax)
+    }
+
+    func saveCredential(_ credential: String, for provider: UsageProvider) -> Bool {
+        let preparedCredential: String
+        do {
+            preparedCredential = try UsageService.shared.prepareCredentialForStorage(credential, provider: provider)
+        } catch let usError as UsageError {
+            error = usError
+            return false
+        } catch {
+            self.error = .invalidResponse
+            return false
+        }
+
+        let success = KeychainService.shared.saveCredential(preparedCredential, for: provider)
         if success {
+            error = nil
             Task {
                 await refresh()
             }
@@ -165,7 +216,11 @@ final class UsageViewModel: ObservableObject {
     }
 
     func testAPIKey(_ key: String) async throws -> Bool {
-        return try await UsageService.shared.testConnection(apiKey: key)
+        return try await UsageService.shared.testConnection(credential: key, provider: .miniMax)
+    }
+
+    func testCredential(_ credential: String, provider: UsageProvider) async throws -> Bool {
+        return try await UsageService.shared.testConnection(credential: credential, provider: provider)
     }
 
     func samples(for model: ModelUsageData) -> [ModelQuotaSample] {
@@ -201,6 +256,19 @@ final class UsageViewModel: ObservableObject {
                 self?.checkThreshold()
             }
             .store(in: &cancellables)
+    }
+
+    private func combinedUsageData(from providerData: Dictionary<UsageProvider, UsageData>.Values, timestamp: Date) -> UsageData? {
+        let models = providerData.flatMap(\.models)
+        guard models.isEmpty == false else { return nil }
+
+        return UsageData(
+            provider: .miniMax,
+            remains: models.filter(\.isCurrentIntervalAvailable).count,
+            total: models.count,
+            timestamp: timestamp,
+            models: models
+        )
     }
 
     private func recordSamples(from data: UsageData, timestamp: Date) {

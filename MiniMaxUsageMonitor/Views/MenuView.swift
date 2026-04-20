@@ -22,14 +22,11 @@ struct MenuView: View {
 
     @ViewBuilder
     private var modelsList: some View {
-        if let data = viewModel.usageData, !data.models.isEmpty {
-            let sorted = data.models.sorted { lhs, rhs in
-                lhs.currentIntervalPercentageUsed > rhs.currentIntervalPercentageUsed
-            }
-
+        let sections = viewModel.providerUsageSections
+        if !sections.isEmpty {
             VStack(spacing: 0) {
                 HStack(spacing: 8) {
-                    Text("\(data.modelCount) models")
+                    Text("\(sections.count) providers · \(sections.map(\.modelCount).reduce(0, +)) models")
                         .font(.system(size: 11, weight: .semibold))
                         .foregroundStyle(.secondary)
 
@@ -48,17 +45,33 @@ struct MenuView: View {
                 .padding(.horizontal, 4)
                 .padding(.bottom, 8)
 
-                ForEach(Array(sorted.enumerated()), id: \.element.id) { index, model in
-                    ModelRow(
-                        model: model,
+                ForEach(sections, id: \.provider) { data in
+                    ProviderModelsSection(
+                        data: data,
                         language: language,
                         warningThreshold: viewModel.warningThreshold,
-                        samples: viewModel.samples(for: model)
+                        samples: viewModel.samples(for:)
                     )
+                }
 
-                    if index < sorted.count - 1 {
-                        Spacer()
-                            .frame(height: 1)
+                if !viewModel.providerErrors.isEmpty {
+                    Divider()
+                        .padding(.vertical, 4)
+
+                    ForEach(UsageProvider.allCases.filter { viewModel.providerErrors[$0] != nil }) { provider in
+                        if let error = viewModel.providerErrors[provider] {
+                            HStack(spacing: 8) {
+                                Image(systemName: "exclamationmark.triangle.fill")
+                                    .foregroundStyle(.orange)
+                                Text("\(provider.displayName): \(language.errorDescription(for: error))")
+                                    .font(.system(size: 10))
+                                    .foregroundStyle(.secondary)
+                                    .lineLimit(2)
+                                Spacer()
+                            }
+                            .padding(.horizontal, 8)
+                            .padding(.vertical, 4)
+                        }
                     }
                 }
             }
@@ -196,6 +209,52 @@ private struct MenuPlaceholderCard: View {
             RoundedRectangle(cornerRadius: 10, style: .continuous)
                 .fill(Color.primary.opacity(0.04))
         )
+    }
+}
+
+private struct ProviderModelsSection: View {
+    let data: UsageData
+    let language: AppLanguage
+    let warningThreshold: Double
+    let samples: (ModelUsageData) -> [ModelQuotaSample]
+
+    private var sortedModels: [ModelUsageData] {
+        data.models.sorted { lhs, rhs in
+            lhs.currentIntervalPercentageUsed > rhs.currentIntervalPercentageUsed
+        }
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            HStack {
+                Text(data.provider.displayName)
+                    .font(.system(size: 11, weight: .semibold))
+                    .foregroundStyle(.secondary)
+
+                Spacer()
+
+                Text(language.menuBarCompactText(ready: data.readyModelsCount, total: data.modelCount))
+                    .font(.system(size: 10, weight: .medium, design: .rounded))
+                    .foregroundStyle(.secondary)
+            }
+            .padding(.horizontal, 8)
+            .padding(.top, 6)
+            .padding(.bottom, 2)
+
+            ForEach(Array(sortedModels.enumerated()), id: \.element.id) { index, model in
+                ModelRow(
+                    model: model,
+                    language: language,
+                    warningThreshold: warningThreshold,
+                    samples: samples(model)
+                )
+
+                if index < sortedModels.count - 1 {
+                    Spacer()
+                        .frame(height: 1)
+                }
+            }
+        }
     }
 }
 
