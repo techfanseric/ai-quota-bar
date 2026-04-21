@@ -1,4 +1,4 @@
-# MiniMax Usage Monitor - Menu Bar Model Selection
+# AI Quota Bar - Menu Bar Model Selection
 
 ## Overview
 
@@ -132,8 +132,8 @@ All new strings need both English and Simplified Chinese variants.
 
 ## Files to Modify
 
-- `MiniMaxUsageMonitor/ViewModels/UsageViewModel.swift`
-- `MiniMaxUsageMonitor/Models/AppLanguage.swift`
-- `MiniMaxUsageMonitor/Views/SettingsView.swift`
-- `MiniMaxUsageMonitor/Views/MenuView.swift`
-- `MiniMaxUsageMonitor/Models/UsageData.swift`
+- `AIQuotaBar/ViewModels/UsageViewModel.swift`
+- `AIQuotaBar/Models/AppLanguage.swift`
+- `AIQuotaBar/Views/SettingsView.swift`
+- `AIQuotaBar/Views/MenuView.swift`
+- `AIQuotaBar/Models/UsageData.swift`

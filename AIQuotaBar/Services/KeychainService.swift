@@ -5,7 +5,8 @@ import Security
 final class KeychainService {
     static let shared = KeychainService()
 
-    private let service = "com.minimax.usagemonitor"
+    private let service = "com.techfanseric.aiquotabar"
+    private let legacyServices = ["com.minimax.usagemonitor"]
 
     private init() {}
 
@@ -29,6 +30,21 @@ final class KeychainService {
 
     /// Retrieve provider credential from Keychain
     func getCredential(for provider: UsageProvider) -> String? {
+        if let credential = credential(for: provider, service: service) {
+            return credential
+        }
+
+        for legacyService in legacyServices {
+            if let credential = credential(for: provider, service: legacyService) {
+                _ = saveCredential(credential, for: provider)
+                return credential
+            }
+        }
+
+        return nil
+    }
+
+    private func credential(for provider: UsageProvider, service: String) -> String? {
         let query: [String: Any] = [
             kSecClass as String: kSecClassGenericPassword,
             kSecAttrService as String: service,
@@ -52,14 +68,16 @@ final class KeychainService {
     /// Delete provider credential from Keychain
     @discardableResult
     func deleteCredential(for provider: UsageProvider) -> Bool {
-        let query: [String: Any] = [
-            kSecClass as String: kSecClassGenericPassword,
-            kSecAttrService as String: service,
-            kSecAttrAccount as String: provider.keychainAccount
-        ]
+        ([service] + legacyServices).allSatisfy { service in
+            let query: [String: Any] = [
+                kSecClass as String: kSecClassGenericPassword,
+                kSecAttrService as String: service,
+                kSecAttrAccount as String: provider.keychainAccount
+            ]
 
-        let status = SecItemDelete(query as CFDictionary)
-        return status == errSecSuccess || status == errSecItemNotFound
+            let status = SecItemDelete(query as CFDictionary)
+            return status == errSecSuccess || status == errSecItemNotFound
+        }
     }
 
     /// Check if provider credential exists

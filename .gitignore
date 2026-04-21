@@ -3,6 +3,8 @@
 
 # Distribution
 dist/
+dist-debug/
+*.dmg
 
 # macOS
 .DS_Store

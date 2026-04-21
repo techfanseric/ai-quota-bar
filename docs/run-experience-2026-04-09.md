@@ -1,4 +1,4 @@
-# MiniMaxUsageMonitor 运行排查经验（2026-04-09）
+# AIQuotaBar 运行排查经验（2026-04-09）
 
 ## 背景
 
@@ -7,7 +7,7 @@
 ## 现象
 
 1. 执行 `make run` 后，用户侧看起来“没有运行”。
-2. 直接运行二进制 `./.build/release/MiniMaxUsageMonitor` 会立即崩溃。
+2. 直接运行二进制 `./.build/release/AIQuotaBar` 会立即崩溃。
 3. 即使应用跑起来，也可能看不到虚构数据。
 
 ## 根因
@@ -23,21 +23,21 @@
 
 ```bash
 make app
-open dist/MiniMaxUsageMonitor.app
+open dist/AIQuotaBar.app
 ```
 
-说明：不要直接执行 `./.build/release/MiniMaxUsageMonitor`。
+说明：不要直接执行 `./.build/release/AIQuotaBar`。
 
 ### 2) 运行 Debug 版（用于验证虚构数据）
 
 ```bash
-swift build -c debug --product MiniMaxUsageMonitor
+swift build -c debug --product AIQuotaBar
 mkdir -p dist-debug
-rm -rf dist-debug/MiniMaxUsageMonitor-debug.app
-cp -R dist/MiniMaxUsageMonitor.app dist-debug/MiniMaxUsageMonitor-debug.app
-cp .build/debug/MiniMaxUsageMonitor dist-debug/MiniMaxUsageMonitor-debug.app/Contents/MacOS/MiniMaxUsageMonitor
-chmod +x dist-debug/MiniMaxUsageMonitor-debug.app/Contents/MacOS/MiniMaxUsageMonitor
-open dist-debug/MiniMaxUsageMonitor-debug.app
+rm -rf dist-debug/AIQuotaBar-debug.app
+cp -R dist/AIQuotaBar.app dist-debug/AIQuotaBar-debug.app
+cp .build/debug/AIQuotaBar dist-debug/AIQuotaBar-debug.app/Contents/MacOS/AIQuotaBar
+chmod +x dist-debug/AIQuotaBar-debug.app/Contents/MacOS/AIQuotaBar
+open dist-debug/AIQuotaBar-debug.app
 ```
 
 说明：这一步复用 `.app` bundle 外壳，但替换为 debug 可执行文件，以便触发 `#if DEBUG` 逻辑。
@@ -45,13 +45,13 @@ open dist-debug/MiniMaxUsageMonitor-debug.app
 ## 快速验证命令
 
 ```bash
-pgrep -fl MiniMaxUsageMonitor
+pgrep -fl AIQuotaBar
 ```
 
 若输出进程路径包含：
 
-- `.../dist/MiniMaxUsageMonitor.app/...`：表示 release app 正在运行
-- `.../dist-debug/MiniMaxUsageMonitor-debug.app/...`：表示 debug app 正在运行
+- `.../dist/AIQuotaBar.app/...`：表示 release app 正在运行
+- `.../dist-debug/AIQuotaBar-debug.app/...`：表示 debug app 正在运行
 
 ## 本次虚构数据验证规则
 
@@ -87,5 +87,5 @@ endPoint:   CGPoint(x: 0, y: layout.plotRect.maxY)
 
 ```bash
 make app
-open dist/MiniMaxUsageMonitor.app
+open dist/AIQuotaBar.app
 ```
