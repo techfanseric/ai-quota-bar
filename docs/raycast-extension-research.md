@@ -1,4 +1,4 @@
-# 用 Raycast 扩展实现 `minimax-usage-monitor` 的调研
+# 用 Raycast 扩展实现 `ai-quota-bar` 的调研
 
 更新时间：2026-04-09
 
@@ -453,8 +453,8 @@ Raycast 的体验约定是配置进入 Preferences，而不是你自绘一个窗
 ```json
 {
   "$schema": "https://www.raycast.com/schemas/extension.json",
-  "name": "minimax-usage-monitor",
-  "title": "MiniMax Usage Monitor",
+  "name": "ai-quota-bar",
+  "title": "AI Quota Bar",
   "description": "Monitor MiniMax coding plan quota in Raycast",
   "icon": "icon.png",
   "preferences": [

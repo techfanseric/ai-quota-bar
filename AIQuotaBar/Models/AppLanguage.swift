@@ -96,7 +96,7 @@ enum AppLanguage: String, CaseIterable, Codable, Identifiable {
             case .checkForUpdates: return "Check for updates"
             case .openReleasePage: return "Open release page"
             case .currentVersion: return "Current version"
-            case .quitApp: return "Quit MiniMax Usage Monitor"
+            case .quitApp: return "Quit AI Quota Bar"
             case .statusRefreshing: return "Refreshing"
             case .statusAttention: return "Attention"
             case .statusLowQuota: return "Low quota"
@@ -184,7 +184,7 @@ enum AppLanguage: String, CaseIterable, Codable, Identifiable {
             case .checkForUpdates: return "检查更新"
             case .openReleasePage: return "打开发布页"
             case .currentVersion: return "当前版本"
-            case .quitApp: return "退出 MiniMax Usage Monitor"
+            case .quitApp: return "退出 AI Quota Bar"
             case .statusRefreshing: return "刷新中"
             case .statusAttention: return "需要注意"
             case .statusLowQuota: return "额度偏低"
@@ -517,9 +517,9 @@ enum AppLanguage: String, CaseIterable, Codable, Identifiable {
     func updateNotificationTitle() -> String {
         switch self {
         case .english:
-            return "MiniMax Usage Monitor Update"
+            return "AI Quota Bar Update"
         case .simplifiedChinese:
-            return "MiniMax Usage Monitor 有新版本"
+            return "AI Quota Bar 有新版本"
         }
     }
 

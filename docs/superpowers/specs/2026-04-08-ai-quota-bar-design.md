@@ -1,12 +1,12 @@
-# MiniMax Usage Monitor - Design Specification
+# AI Quota Bar - Design Specification
 
 **Date**: 2026-04-08
 **Version**: 1.0
 
 ## 1. Project Overview
 
-**Name**: MiniMax Usage Monitor
-**Bundle ID**: com.minimax.usagemonitor
+**Name**: AI Quota Bar
+**Bundle ID**: com.techfanseric.aiquotabar
 **Type**: macOS menu-bar application (LSUIElement mode)
 **Target**: macOS 14.0+
 
@@ -70,7 +70,7 @@ API (minimaxi.com)
 ## 5. Project Structure
 
 ```
-MiniMaxUsageMonitor/
+AIQuotaBar/
 ├── App/
 │   ├── main.swift
 │   ├── AppDelegate.swift

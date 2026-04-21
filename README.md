@@ -1,12 +1,14 @@
-# MiniMax Usage Monitor
+# AI Quota Bar
 
-A macOS menu bar application for monitoring MiniMax and GLM API usage and quota.
+A macOS menu bar application for monitoring model coding plan quota across providers.
+
+AI Quota Bar is focused on coding-plan consumption: it tracks the remaining quota for supported AI coding models, shows per-model breakdowns, and warns you before a short-interval or subscription quota runs out. It currently supports MiniMax and GLM/Z.ai.
 
 ## Features
 
-- Menu bar widget displaying remaining quota
-- Detailed usage view with per-model breakdown
-- Quota trend charts for short-interval models
+- Menu bar widget displaying remaining coding-plan quota
+- Detailed per-provider and per-model usage breakdown
+- Quota trend charts for short-interval model limits
 - Configurable refresh interval
 - Warning notifications when quota runs low
 - Secure provider credential storage via Keychain
@@ -25,7 +27,7 @@ A macOS menu bar application for monitoring MiniMax and GLM API usage and quota.
 ## Requirements
 
 - macOS 14+
-- MiniMax API key or GLM quota curl command
+- MiniMax API key, GLM quota curl command, or both
 
 ## Build & Run
 
@@ -48,13 +50,27 @@ make install
 
 1. Click the menu bar icon
 2. Select **Settings**
-3. Enter a MiniMax API key, paste a GLM quota curl, or configure both
+3. Enter a MiniMax API key, paste a GLM quota curl command, or configure both
 4. Configured providers refresh together and appear as separate sections in the menu
 5. Adjust refresh interval as needed
 
+## MiniMax support
+
+For MiniMax, paste the bearer token used by the MiniMax coding plan remains endpoint. The app calls the MiniMax coding plan quota API and maps the returned model quota windows into the menu bar and dropdown views.
+
 ## GLM support
 
-For GLM, open the BigModel/Z.ai coding plan page, copy the `quota/limit` request as curl, and paste the full command into Settings. The app parses the endpoint URL, `authorization`, `bigmodel-organization`, `bigmodel-project`, and cookie fields, then stores the parsed credential in Keychain.
+For GLM/Z.ai, the quota API is tied to your signed-in web session. You need to copy the request from the official website yourself:
+
+1. Sign in to the official BigModel/Z.ai website in your browser.
+2. Open the coding plan or quota page where your model quota is displayed.
+3. Open the browser developer tools.
+4. Refresh the quota page or trigger the quota query again.
+5. In the Network panel, find the `quota/limit` request.
+6. Copy that request as a curl command.
+7. Paste the full curl command into AI Quota Bar Settings.
+
+The app parses the endpoint URL, `authorization`, `bigmodel-organization`, `bigmodel-project`, and cookie fields, then stores the parsed credential in Keychain.
 
 GLM quota fields are mapped differently from MiniMax:
 
@@ -62,4 +78,6 @@ GLM quota fields are mapped differently from MiniMax:
 - `usage` means total amount.
 - Remaining amount is calculated as `usage - currentValue`.
 - `TOKENS_LIMIT` is shown as `GLM Tokens (5h)`.
-- `TIME_LIMIT` is shown as `GLM MCP (month)`.
+- `TIME_LIMIT` is shown as `GLM MCP/Search (month)`.
+
+Because the GLM credential comes from your browser session, it may expire. If GLM refresh fails after a while, repeat the steps above and paste a fresh curl command.

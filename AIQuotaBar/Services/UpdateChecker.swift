@@ -23,7 +23,7 @@ final class UpdateChecker {
     static let shared = UpdateChecker()
 
     private let owner = "techfanseric"
-    private let repo = "minimax-usage-monitor"
+    private let repo = "ai-quota-bar"
     private let defaults = UserDefaults.standard
     private let lastAutomaticCheckAtKey = "lastAutomaticUpdateCheckAt"
     private let lastNotifiedVersionKey = "lastNotifiedUpdateVersion"
@@ -51,7 +51,7 @@ final class UpdateChecker {
 
         var request = URLRequest(url: endpoint)
         request.setValue("application/vnd.github+json", forHTTPHeaderField: "Accept")
-        request.setValue("MiniMaxUsageMonitor", forHTTPHeaderField: "User-Agent")
+        request.setValue("AIQuotaBar", forHTTPHeaderField: "User-Agent")
         request.timeoutInterval = 10
 
         let (data, response) = try await URLSession.shared.data(for: request)

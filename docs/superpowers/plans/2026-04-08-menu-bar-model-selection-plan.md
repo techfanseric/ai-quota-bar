@@ -13,7 +13,7 @@
 ## Task 1: Add specificModel case to DisplayFormat enum
 
 **Files:**
-- Modify: `MiniMaxUsageMonitor/Models/UsageData.swift:184-199`
+- Modify: `AIQuotaBar/Models/UsageData.swift:184-199`
 
 - [ ] **Step 1: Add specificModel case to DisplayFormat**
 
@@ -68,7 +68,7 @@ func formattedRemaining(format: DisplayFormat, language: AppLanguage, warningThr
 ## Task 2: Add selectedModelName and availableModels to UsageViewModel
 
 **Files:**
-- Modify: `MiniMaxUsageMonitor/ViewModels/UsageViewModel.swift`
+- Modify: `AIQuotaBar/ViewModels/UsageViewModel.swift`
 
 - [ ] **Step 1: Add selectedModelName published property after displayFormat (after line 30)**
 
@@ -166,7 +166,7 @@ extension ModelUsageData {
 ## Task 3: Add new text keys to AppLanguage
 
 **Files:**
-- Modify: `MiniMaxUsageMonitor/Models/AppLanguage.swift`
+- Modify: `AIQuotaBar/Models/AppLanguage.swift`
 
 - [ ] **Step 1: Add modelSelectionLabel and modelSelectionPlaceholder to AppText enum (after line 477)**
 
@@ -227,7 +227,7 @@ case (.specificModel, .simplifiedChinese):
 ## Task 4: Add model picker to SettingsView appearance tab
 
 **Files:**
-- Modify: `MiniMaxUsageMonitor/Views/SettingsView.swift`
+- Modify: `AIQuotaBar/Views/SettingsView.swift`
 
 - [ ] **Step 1: Add selectedModelName state variable (after line 15)**
 
@@ -279,7 +279,7 @@ viewModel.selectedModelName = selectedModelName.isEmpty ? nil : selectedModelNam
 ## Task 5: Update MenuView to collapse exhausted models
 
 **Files:**
-- Modify: `MiniMaxUsageMonitor/Views/MenuView.swift`
+- Modify: `AIQuotaBar/Views/MenuView.swift`
 
 - [ ] **Step 1: Update modelsCard to separate available and exhausted models (lines 151-200)**
 
@@ -352,7 +352,7 @@ The `CollapsibleSection` component should already exist from previous work. Veri
 
 - [ ] **Step 1: Build the project**
 
-Run: `swift build -c release --product MiniMaxUsageMonitor`
+Run: `swift build -c release --product AIQuotaBar`
 Expected: Build complete!
 
 - [ ] **Step 2: Run the app**

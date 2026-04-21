@@ -2,19 +2,20 @@
 import PackageDescription
 
 let package = Package(
-    name: "MiniMaxUsageMonitor",
+    name: "AIQuotaBar",
     platforms: [.macOS(.v14)],
     products: [
         .executable(
-            name: "MiniMaxUsageMonitor",
-            targets: ["MiniMaxUsageMonitor"]
+            name: "AIQuotaBar",
+            targets: ["AIQuotaBar"]
         )
     ],
     targets: [
         .executableTarget(
-            name: "MiniMaxUsageMonitor",
+            name: "AIQuotaBar",
             dependencies: [],
-            path: "MiniMaxUsageMonitor"
+            path: "AIQuotaBar",
+            exclude: ["Resources/Assets.xcassets"]
         )
     ]
 )

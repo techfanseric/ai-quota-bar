@@ -1,4 +1,4 @@
-# MiniMax Usage Monitor Implementation Plan
+# AI Quota Bar Implementation Plan
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
@@ -13,7 +13,7 @@
 ## File Structure
 
 ```
-MiniMaxUsageMonitor/
+AIQuotaBar/
 ├── App/
 │   ├── main.swift                    # Manual app entry point
 │   ├── AppDelegate.swift             # App lifecycle, LSUIElement
@@ -43,7 +43,7 @@ Package.swift                         # SPM manifest
 **Files:**
 - Create: `Package.swift`
 - Create: `Makefile`
-- Create: `MiniMaxUsageMonitor/Resources/Assets.xcassets/AppIcon.appiconset/Contents.json`
+- Create: `AIQuotaBar/Resources/Assets.xcassets/AppIcon.appiconset/Contents.json`
 
 - [ ] **Step 1: Create SPM Package.swift**
 
@@ -52,20 +52,20 @@ Package.swift                         # SPM manifest
 import PackageDescription
 
 let package = Package(
-    name: "MiniMaxUsageMonitor",
+    name: "AIQuotaBar",
     platforms: [.macOS(.v14)],
     products: [
         .executable(
-            name: "MiniMaxUsageMonitor",
-            targets: ["MiniMaxUsageMonitor"],
+            name: "AIQuotaBar",
+            targets: ["AIQuotaBar"],
             type: .application
         )
     ],
     targets: [
         .executableTarget(
-            name: "MiniMaxUsageMonitor",
+            name: "AIQuotaBar",
             dependencies: [],
-            path: "MiniMaxUsageMonitor"
+            path: "AIQuotaBar"
         )
     ]
 )
@@ -77,10 +77,10 @@ let package = Package(
 .PHONY: build run install clean
 
 BUILD_DIR = .build
-PRODUCT = MiniMaxUsageMonitor.app
+PRODUCT = AIQuotaBar.app
 
 build:
-	swift build -c release --product MiniMaxUsageMonitor
+	swift build -c release --product AIQuotaBar
 
 run: build
 	.open $(BUILD_DIR)/release/$(PRODUCT)
@@ -95,7 +95,7 @@ clean:
 
 - [ ] **Step 3: Create Assets.xcassets structure**
 
-Create `MiniMaxUsageMonitor/Resources/Assets.xcassets/AppIcon.appiconset/Contents.json`:
+Create `AIQuotaBar/Resources/Assets.xcassets/AppIcon.appiconset/Contents.json`:
 ```json
 {
   "images" : [
@@ -159,7 +159,7 @@ Create `MiniMaxUsageMonitor/Resources/Assets.xcassets/AppIcon.appiconset/Content
 
 - [ ] **Step 4: Create Assets.xcassets Contents.json**
 
-Create `MiniMaxUsageMonitor/Resources/Assets.xcassets/Contents.json`:
+Create `AIQuotaBar/Resources/Assets.xcassets/Contents.json`:
 ```json
 {
   "info" : {
@@ -172,7 +172,7 @@ Create `MiniMaxUsageMonitor/Resources/Assets.xcassets/Contents.json`:
 - [ ] **Step 5: Commit**
 
 ```bash
-git add Package.swift Makefile MiniMaxUsageMonitor/Resources/
+git add Package.swift Makefile AIQuotaBar/Resources/
 git commit -m "chore: add SPM project setup and Makefile
 
 Co-Authored-By: Eric Yim <eric.yim@foxmail.com>"
@@ -183,7 +183,7 @@ Co-Authored-By: Eric Yim <eric.yim@foxmail.com>"
 ## Task 2: Models
 
 **Files:**
-- Create: `MiniMaxUsageMonitor/Models/UsageData.swift`
+- Create: `AIQuotaBar/Models/UsageData.swift`
 
 - [ ] **Step 1: Create UsageData model**
 
@@ -271,7 +271,7 @@ enum UsageError: Error, LocalizedError {
 - [ ] **Step 2: Commit**
 
 ```bash
-git add MiniMaxUsageMonitor/Models/UsageData.swift
+git add AIQuotaBar/Models/UsageData.swift
 git commit -m "feat: add UsageData model with DisplayFormat enum
 
 Co-Authored-By: Eric Yim <eric.yim@foxmail.com>"
@@ -282,7 +282,7 @@ Co-Authored-By: Eric Yim <eric.yim@foxmail.com>"
 ## Task 3: Services - KeychainService
 
 **Files:**
-- Create: `MiniMaxUsageMonitor/Services/KeychainService.swift`
+- Create: `AIQuotaBar/Services/KeychainService.swift`
 
 - [ ] **Step 1: Create KeychainService**
 
@@ -294,7 +294,7 @@ import Security
 final class KeychainService {
     static let shared = KeychainService()
 
-    private let service = "com.minimax.usagemonitor"
+    private let service = "com.techfanseric.aiquotabar"
     private let account = "apiKey"
 
     private init() {}
@@ -363,7 +363,7 @@ final class KeychainService {
 - [ ] **Step 2: Commit**
 
 ```bash
-git add MiniMaxUsageMonitor/Services/KeychainService.swift
+git add AIQuotaBar/Services/KeychainService.swift
 git commit -m "feat: add KeychainService for secure API key storage
 
 Co-Authored-By: Eric Yim <eric.yim@foxmail.com>"
@@ -374,7 +374,7 @@ Co-Authored-By: Eric Yim <eric.yim@foxmail.com>"
 ## Task 4: Services - UsageService
 
 **Files:**
-- Create: `MiniMaxUsageMonitor/Services/UsageService.swift`
+- Create: `AIQuotaBar/Services/UsageService.swift`
 
 - [ ] **Step 1: Create UsageService**
 
@@ -461,7 +461,7 @@ final class UsageService {
 - [ ] **Step 2: Commit**
 
 ```bash
-git add MiniMaxUsageMonitor/Services/UsageService.swift
+git add AIQuotaBar/Services/UsageService.swift
 git commit -m "feat: add UsageService for API requests
 
 Co-Authored-By: Eric Yim <eric.yim@foxmail.com>"
@@ -472,7 +472,7 @@ Co-Authored-By: Eric Yim <eric.yim@foxmail.com>"
 ## Task 5: ViewModels - UsageViewModel
 
 **Files:**
-- Create: `MiniMaxUsageMonitor/ViewModels/UsageViewModel.swift`
+- Create: `AIQuotaBar/ViewModels/UsageViewModel.swift`
 
 - [ ] **Step 1: Create UsageViewModel**
 
@@ -633,7 +633,7 @@ final class UsageViewModel: ObservableObject {
 - [ ] **Step 2: Commit**
 
 ```bash
-git add MiniMaxUsageMonitor/ViewModels/UsageViewModel.swift
+git add AIQuotaBar/ViewModels/UsageViewModel.swift
 git commit -m "feat: add UsageViewModel with state management and timer
 
 Co-Authored-By: Eric Yim <eric.yim@foxmail.com>"
@@ -644,8 +644,8 @@ Co-Authored-By: Eric Yim <eric.yim@foxmail.com>"
 ## Task 6: App Entry Point
 
 **Files:**
-- Create: `MiniMaxUsageMonitor/App/main.swift`
-- Create: `MiniMaxUsageMonitor/App/AppDelegate.swift`
+- Create: `AIQuotaBar/App/main.swift`
+- Create: `AIQuotaBar/App/AppDelegate.swift`
 
 - [ ] **Step 1: Create main.swift (manual app entry, no @main)**
 
@@ -721,7 +721,7 @@ extension Notification.Name {
 - [ ] **Step 3: Commit**
 
 ```bash
-git add MiniMaxUsageMonitor/App/main.swift MiniMaxUsageMonitor/App/AppDelegate.swift
+git add AIQuotaBar/App/main.swift AIQuotaBar/App/AppDelegate.swift
 git commit -m "feat: add app entry point with LSUIElement mode
 
 Co-Authored-By: Eric Yim <eric.yim@foxmail.com>"
@@ -732,7 +732,7 @@ Co-Authored-By: Eric Yim <eric.yim@foxmail.com>"
 ## Task 7: StatusBarController
 
 **Files:**
-- Create: `MiniMaxUsageMonitor/App/StatusBarController.swift`
+- Create: `AIQuotaBar/App/StatusBarController.swift`
 
 - [ ] **Step 1: Create StatusBarController**
 
@@ -798,7 +798,7 @@ import Combine
 - [ ] **Step 2: Commit**
 
 ```bash
-git add MiniMaxUsageMonitor/App/StatusBarController.swift
+git add AIQuotaBar/App/StatusBarController.swift
 git commit -m "feat: add StatusBarController for menu bar integration
 
 Co-Authored-By: Eric Yim <eric.yim@foxmail.com>"
@@ -809,7 +809,7 @@ Co-Authored-By: Eric Yim <eric.yim@foxmail.com>"
 ## Task 8: MenuView
 
 **Files:**
-- Create: `MiniMaxUsageMonitor/Views/MenuView.swift`
+- Create: `AIQuotaBar/Views/MenuView.swift`
 
 - [ ] **Step 1: Create MenuView**
 
@@ -941,7 +941,7 @@ struct StatusRow: View {
 - [ ] **Step 2: Commit**
 
 ```bash
-git add MiniMaxUsageMonitor/Views/MenuView.swift
+git add AIQuotaBar/Views/MenuView.swift
 git commit -m "feat: add MenuView for dropdown menu content
 
 Co-Authored-By: Eric Yim <eric.yim@foxmail.com>"
@@ -952,8 +952,8 @@ Co-Authored-By: Eric Yim <eric.yim@foxmail.com>"
 ## Task 9: SettingsView
 
 **Files:**
-- Create: `MiniMaxUsageMonitor/Views/SettingsView.swift`
-- Create: `MiniMaxUsageMonitor/App/SettingsWindowController.swift`
+- Create: `AIQuotaBar/Views/SettingsView.swift`
+- Create: `AIQuotaBar/App/SettingsWindowController.swift`
 
 - [ ] **Step 1: Create SettingsView**
 
@@ -1099,7 +1099,7 @@ final class SettingsWindowController: NSWindowController {
         let hostingController = NSHostingController(rootView: settingsView)
 
         let window = NSWindow(contentViewController: hostingController)
-        window.title = "MiniMax Usage Monitor - Settings"
+        window.title = "AI Quota Bar - Settings"
         window.setContentSize(NSSize(width: 480, height: 400))
         window.styleMask = [.titled, .closable, .miniaturizable]
         window.center()
@@ -1112,7 +1112,7 @@ final class SettingsWindowController: NSWindowController {
 - [ ] **Step 3: Commit**
 
 ```bash
-git add MiniMaxUsageMonitor/Views/SettingsView.swift MiniMaxUsageMonitor/App/SettingsWindowController.swift
+git add AIQuotaBar/Views/SettingsView.swift AIQuotaBar/App/SettingsWindowController.swift
 git commit -m "feat: add SettingsView and SettingsWindowController
 
 Co-Authored-By: Eric Yim <eric.yim@foxmail.com>"
@@ -1123,8 +1123,8 @@ Co-Authored-By: Eric Yim <eric.yim@foxmail.com>"
 ## Task 10: WarningPanel
 
 **Files:**
-- Create: `MiniMaxUsageMonitor/Views/WarningPanelView.swift`
-- Create: `MiniMaxUsageMonitor/App/WarningPanelController.swift`
+- Create: `AIQuotaBar/Views/WarningPanelView.swift`
+- Create: `AIQuotaBar/App/WarningPanelController.swift`
 
 - [ ] **Step 1: Create WarningPanelView**
 
@@ -1245,7 +1245,7 @@ final class WarningPanelController {
 - [ ] **Step 3: Commit**
 
 ```bash
-git add MiniMaxUsageMonitor/Views/WarningPanelView.swift MiniMaxUsageMonitor/App/WarningPanelController.swift
+git add AIQuotaBar/Views/WarningPanelView.swift AIQuotaBar/App/WarningPanelController.swift
 git commit -m "feat: add WarningPanelView and WarningPanelController
 
 Co-Authored-By: Eric Yim <eric.yim@foxmail.com>"
@@ -1277,7 +1277,7 @@ Co-Authored-By: Eric Yim <eric.yim@foxmail.com>"
 
 ## Implementation Complete
 
-Plan saved to `docs/superpowers/plans/YYYY-MM-DD-minimax-usage-monitor-implementation.md`
+Plan saved to `docs/superpowers/plans/YYYY-MM-DD-ai-quota-bar-implementation.md`
 
 Two execution options:
 
