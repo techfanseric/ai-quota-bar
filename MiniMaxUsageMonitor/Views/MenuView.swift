@@ -4,10 +4,16 @@ import SwiftUI
 struct MenuView: View {
     @ObservedObject var viewModel: UsageViewModel
     var onOpenSettings: () -> Void
+    var onLayoutChange: () -> Void = {}
 
     var body: some View {
         VStack(spacing: 0) {
-            modelsList
+            ScrollView {
+                modelsList
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            .frame(maxHeight: 540)
+
             Divider()
                 .padding(.vertical, 4)
             footer
@@ -50,7 +56,8 @@ struct MenuView: View {
                         data: data,
                         language: language,
                         warningThreshold: viewModel.warningThreshold,
-                        samples: viewModel.samples(for:)
+                        samples: viewModel.samples(for:),
+                        onLayoutChange: onLayoutChange
                     )
                 }
 
@@ -217,10 +224,23 @@ private struct ProviderModelsSection: View {
     let language: AppLanguage
     let warningThreshold: Double
     let samples: (ModelUsageData) -> [ModelQuotaSample]
+    let onLayoutChange: () -> Void
 
-    private var sortedModels: [ModelUsageData] {
+    @State private var showsFullQuotaModels = false
+
+    private var visibleModels: [ModelUsageData] {
         data.models.sorted { lhs, rhs in
             lhs.currentIntervalPercentageUsed > rhs.currentIntervalPercentageUsed
+        }.filter {
+            !$0.isFullQuotaUnused
+        }
+    }
+
+    private var fullQuotaModels: [ModelUsageData] {
+        data.models.sorted { lhs, rhs in
+            lhs.modelName < rhs.modelName
+        }.filter {
+            $0.isFullQuotaUnused
         }
     }
 
@@ -241,7 +261,7 @@ private struct ProviderModelsSection: View {
             .padding(.top, 6)
             .padding(.bottom, 2)
 
-            ForEach(Array(sortedModels.enumerated()), id: \.element.id) { index, model in
+            ForEach(Array(visibleModels.enumerated()), id: \.element.id) { index, model in
                 ModelRow(
                     model: model,
                     language: language,
@@ -249,9 +269,60 @@ private struct ProviderModelsSection: View {
                     samples: samples(model)
                 )
 
-                if index < sortedModels.count - 1 {
+                if index < visibleModels.count - 1 {
                     Spacer()
                         .frame(height: 1)
+                }
+            }
+
+            if visibleModels.isEmpty && !fullQuotaModels.isEmpty && !showsFullQuotaModels {
+                Text(language.allModelsUnusedText())
+                    .font(.system(size: 10))
+                    .foregroundStyle(.secondary)
+                    .padding(.horizontal, 10)
+                    .padding(.vertical, 6)
+            }
+
+            if !fullQuotaModels.isEmpty {
+                Button {
+                    showsFullQuotaModels.toggle()
+                    DispatchQueue.main.async {
+                        onLayoutChange()
+                        DispatchQueue.main.async {
+                            onLayoutChange()
+                        }
+                    }
+                } label: {
+                    HStack(spacing: 6) {
+                        Image(systemName: showsFullQuotaModels ? "chevron.down" : "chevron.right")
+                            .font(.system(size: 9, weight: .semibold))
+                            .frame(width: 10)
+
+                        Text(language.fullQuotaModelsToggleText(count: fullQuotaModels.count, isExpanded: showsFullQuotaModels))
+                            .font(.system(size: 10, weight: .medium))
+
+                        Spacer()
+                    }
+                    .foregroundStyle(.secondary)
+                    .padding(.horizontal, 10)
+                    .padding(.vertical, 6)
+                }
+                .buttonStyle(.plain)
+
+                if showsFullQuotaModels {
+                    ForEach(Array(fullQuotaModels.enumerated()), id: \.element.id) { index, model in
+                        ModelRow(
+                            model: model,
+                            language: language,
+                            warningThreshold: warningThreshold,
+                            samples: samples(model)
+                        )
+
+                        if index < fullQuotaModels.count - 1 {
+                            Spacer()
+                                .frame(height: 1)
+                        }
+                    }
                 }
             }
         }

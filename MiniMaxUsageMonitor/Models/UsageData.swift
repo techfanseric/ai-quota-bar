@@ -367,6 +367,12 @@ private extension KeyedDecodingContainer {
 }
 
 extension ModelUsageData {
+    var isFullQuotaUnused: Bool {
+        currentIntervalTotal > 0 &&
+            currentIntervalRemaining >= currentIntervalTotal &&
+            currentIntervalUsedCount == 0
+    }
+
     func formattedMenuBarText(language: AppLanguage) -> String {
         let remaining = currentIntervalRemaining
         let resetText = formatResetTime(endTime: endTime)

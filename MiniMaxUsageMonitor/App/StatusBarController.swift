@@ -36,9 +36,15 @@ final class StatusBarController {
     private func setupMenu() {
         menu = NSMenu()
 
-        let menuView = MenuView(viewModel: viewModel, onOpenSettings: { [weak self] in
-            self?.openSettings()
-        })
+        let menuView = MenuView(
+            viewModel: viewModel,
+            onOpenSettings: { [weak self] in
+                self?.openSettings()
+            },
+            onLayoutChange: { [weak self] in
+                self?.updateMenuLayout()
+            }
+        )
 
         hostingView = NSHostingView(rootView: menuView)
         updateMenuLayout()
@@ -77,6 +83,7 @@ final class StatusBarController {
         let size = NSSize(width: ceil(fittingSize.width), height: ceil(fittingSize.height))
         hostingView.frame = NSRect(origin: .zero, size: size)
         menuItem?.view?.frame = NSRect(origin: .zero, size: size)
+        menu?.update()
     }
 
     private func openSettings() {

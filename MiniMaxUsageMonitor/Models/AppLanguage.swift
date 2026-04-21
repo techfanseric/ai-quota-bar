@@ -264,6 +264,24 @@ enum AppLanguage: String, CaseIterable, Codable, Identifiable {
         }
     }
 
+    func fullQuotaModelsToggleText(count: Int, isExpanded: Bool) -> String {
+        switch self {
+        case .english:
+            return isExpanded ? "Hide \(count) unused full-quota models" : "Show \(count) unused full-quota models"
+        case .simplifiedChinese:
+            return isExpanded ? "收起 \(count) 个满额度未使用模型" : "展开 \(count) 个满额度未使用模型"
+        }
+    }
+
+    func allModelsUnusedText() -> String {
+        switch self {
+        case .english:
+            return "All tracked models are still at full quota."
+        case .simplifiedChinese:
+            return "当前服务商的模型都还没使用，额度都是满的。"
+        }
+    }
+
     func availablePercentageText(_ percentage: Int) -> String {
         switch self {
         case .english:
