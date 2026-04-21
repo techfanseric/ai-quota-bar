@@ -12,7 +12,7 @@ struct MenuView: View {
                 modelsList
                     .fixedSize(horizontal: false, vertical: true)
             }
-            .frame(maxHeight: 540)
+            .frame(maxHeight: maxScrollableHeight)
 
             Divider()
                 .padding(.vertical, 4)
@@ -20,6 +20,12 @@ struct MenuView: View {
         }
         .padding(10)
         .frame(width: 296)
+    }
+
+    private var maxScrollableHeight: CGFloat {
+        let visibleHeight = NSScreen.main?.visibleFrame.height ?? 600
+        let menuChromeHeight: CGFloat = 56
+        return max(540, visibleHeight * 0.9 - menuChromeHeight)
     }
 
     private var language: AppLanguage {

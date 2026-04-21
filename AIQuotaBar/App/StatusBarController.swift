@@ -80,7 +80,11 @@ final class StatusBarController {
 
         hostingView.layoutSubtreeIfNeeded()
         let fittingSize = hostingView.fittingSize
-        let size = NSSize(width: ceil(fittingSize.width), height: ceil(fittingSize.height))
+        let maxMenuHeight = (NSScreen.main?.visibleFrame.height ?? 600) * 0.9
+        let size = NSSize(
+            width: ceil(fittingSize.width),
+            height: ceil(min(fittingSize.height, maxMenuHeight))
+        )
         hostingView.frame = NSRect(origin: .zero, size: size)
         menuItem?.view?.frame = NSRect(origin: .zero, size: size)
         menu?.update()
