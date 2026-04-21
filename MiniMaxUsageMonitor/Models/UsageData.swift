@@ -112,6 +112,8 @@ struct ModelUsageData: Codable, Identifiable {
     let endTime: Date?
     let weeklyStartTime: Date?
     let weeklyEndTime: Date?
+    let valueSuffix: String?
+    let detailText: String?
 
     var id: String { "\(provider.rawValue):\(modelName)" }
 
@@ -120,9 +122,21 @@ struct ModelUsageData: Codable, Identifiable {
         currentIntervalUsed
     }
 
+    var currentIntervalRemainingText: String {
+        "\(currentIntervalRemaining)\(valueSuffix ?? "")"
+    }
+
     // 已用 = 总量 - 剩余
     var currentIntervalUsedCount: Int {
         max(0, currentIntervalTotal - currentIntervalUsed)
+    }
+
+    var currentIntervalUsageRatioText: String {
+        if valueSuffix == "%" {
+            return "\(currentIntervalUsedCount)%/\(currentIntervalTotal)%"
+        }
+
+        return "\(currentIntervalUsedCount)/\(currentIntervalTotal)"
     }
 
     var isCurrentIntervalAvailable: Bool {
@@ -174,22 +188,22 @@ struct ModelUsageData: Codable, Identifiable {
     // 如果周期不足24小时（如M*的4小时），显示完整周期 "04/08 20:00-00:00"
     // 如果周期是完整的24小时（如其他模型的00:00-00:00），只显示截止时间 "04/09 00:00"
     var resetTimeText: String {
-        guard let start = startTime, let end = endTime else { return "—" }
+        guard let end = endTime else { return "—" }
+        guard let start = startTime else {
+            return formattedDateTime(end)
+        }
 
         let interval = end.timeIntervalSince(start)
         let isFullDay = interval >= 86400  // 24小时 = 86400秒
 
-        let formatter = DateFormatter()
-        formatter.timeZone = TimeZone(identifier: "Asia/Shanghai")
-        formatter.dateFormat = "MM/dd"
-        let startDay = formatter.string(from: start)
-        let endDay = formatter.string(from: end)
-
         if !isFullDay {
             // 不足24小时，显示完整周期
-            formatter.dateFormat = "HH:mm"
-            let startStr = formatter.string(from: start)
-            let endStr = formatter.string(from: end)
+            let startDay = formattedDay(start)
+            let endDay = formattedDay(end)
+            let timeFormatter = formatter
+            timeFormatter.dateFormat = "HH:mm"
+            let startStr = timeFormatter.string(from: start)
+            let endStr = timeFormatter.string(from: end)
 
             // 如果起止月日相同，省略截止时间的月日
             if startDay == endDay {
@@ -199,8 +213,40 @@ struct ModelUsageData: Codable, Identifiable {
         }
 
         // 完整24小时，只显示截止时间
-        formatter.dateFormat = "MM/dd HH:mm"
-        return formatter.string(from: end)
+        return formattedDateTime(end)
+    }
+
+    private var formatter: DateFormatter {
+        let formatter = DateFormatter()
+        formatter.timeZone = TimeZone(identifier: "Asia/Shanghai")
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        return formatter
+    }
+
+    private var calendar: Calendar {
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = TimeZone(identifier: "Asia/Shanghai") ?? .current
+        return calendar
+    }
+
+    private func formattedDay(_ date: Date) -> String {
+        if calendar.isDateInToday(date) {
+            return "Today"
+        }
+        if calendar.isDateInTomorrow(date) {
+            return "Tomorrow"
+        }
+
+        let formatter = formatter
+        formatter.dateFormat = "MM/dd"
+        return formatter.string(from: date)
+    }
+
+    private func formattedDateTime(_ date: Date) -> String {
+        let formatter = formatter
+        formatter.dateFormat = "HH:mm"
+        let timeText = formatter.string(from: date)
+        return "\(formattedDay(date)) \(timeText)"
     }
 }
 
@@ -267,6 +313,10 @@ struct GLMUsageLimitItem: Decodable {
     let usage: Double
     let percentage: Double?
     let nextResetTime: Int64?
+    let remaining: Double?
+    let unit: Int?
+    let number: Int?
+    let usageDetails: [GLMUsageDetailItem]
 
     enum CodingKeys: String, CodingKey {
         case type
@@ -274,6 +324,10 @@ struct GLMUsageLimitItem: Decodable {
         case usage
         case percentage
         case nextResetTime
+        case remaining
+        case unit
+        case number
+        case usageDetails
     }
 
     init(from decoder: Decoder) throws {
@@ -283,7 +337,40 @@ struct GLMUsageLimitItem: Decodable {
         usage = try container.decodeFlexibleDouble(forKey: .usage)
         percentage = try container.decodeFlexibleOptionalDouble(forKey: .percentage)
         nextResetTime = try container.decodeFlexibleOptionalInt64(forKey: .nextResetTime)
+        remaining = try container.decodeFlexibleOptionalDouble(forKey: .remaining)
+        unit = try container.decodeFlexibleOptionalInt(forKey: .unit)
+        number = try container.decodeFlexibleOptionalInt(forKey: .number)
+        usageDetails = (try? container.decode([GLMUsageDetailItem].self, forKey: .usageDetails)) ?? []
     }
+}
+
+struct GLMUsageDetailItem: Decodable {
+    let modelCode: String
+    let usage: Double
+
+    enum CodingKeys: String, CodingKey {
+        case modelCode
+        case usage
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        modelCode = try container.decodeFlexibleString(forKey: .modelCode)
+        usage = try container.decodeFlexibleDouble(forKey: .usage)
+    }
+}
+
+struct GLMSubscriptionListResponse: Decodable {
+    let code: Int
+    let data: [GLMSubscriptionItem]?
+    let success: Bool
+}
+
+struct GLMSubscriptionItem: Decodable {
+    let productName: String?
+    let valid: String?
+    let nextRenewTime: String?
+    let inCurrentPeriod: Bool?
 }
 
 /// Menu bar display format options
@@ -360,6 +447,21 @@ private extension KeyedDecodingContainer {
         }
         if let string = try? decode(String.self, forKey: key),
            let int = Int64(string) {
+            return int
+        }
+        return nil
+    }
+
+    func decodeFlexibleOptionalInt(forKey key: Key) throws -> Int? {
+        guard contains(key) else { return nil }
+        if let int = try? decode(Int.self, forKey: key) {
+            return int
+        }
+        if let double = try? decode(Double.self, forKey: key) {
+            return Int(double)
+        }
+        if let string = try? decode(String.self, forKey: key),
+           let int = Int(string) {
             return int
         }
         return nil

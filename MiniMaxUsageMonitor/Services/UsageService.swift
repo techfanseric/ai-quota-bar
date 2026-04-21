@@ -45,7 +45,9 @@ final class UsageService {
                 startTime: date(fromMilliseconds: model.startTime),
                 endTime: date(fromMilliseconds: model.endTime),
                 weeklyStartTime: date(fromMilliseconds: model.weeklyStartTime),
-                weeklyEndTime: date(fromMilliseconds: model.weeklyEndTime)
+                weeklyEndTime: date(fromMilliseconds: model.weeklyEndTime),
+                valueSuffix: nil,
+                detailText: nil
             )
         }
         let trackedModelCount = max(models.count, 1)
@@ -61,6 +63,10 @@ final class UsageService {
     }
 
     private func decodeGLMUsageData(from data: Data) throws -> UsageData {
+        try decodeGLMUsageData(from: data, subscriptionResetTime: nil)
+    }
+
+    private func decodeGLMUsageData(from data: Data, subscriptionResetTime: Date?) throws -> UsageData {
         let decoder = JSONDecoder()
         let response = try decoder.decode(GLMQuotaLimitResponse.self, from: data)
 
@@ -68,7 +74,9 @@ final class UsageService {
             throw UsageError.apiError(response.msg ?? AppLanguage.current.text(.unknownError))
         }
 
-        let models = response.data?.limits.compactMap(glmModel(from:)) ?? []
+        let models = response.data?.limits.compactMap {
+            glmModel(from: $0, subscriptionResetTime: subscriptionResetTime)
+        } ?? []
         let trackedModelCount = max(models.count, 1)
         let readyModelsCount = models.filter(\.isCurrentIntervalAvailable).count
 
@@ -81,40 +89,98 @@ final class UsageService {
         )
     }
 
-    private func glmModel(from limit: GLMUsageLimitItem) -> ModelUsageData? {
-        guard limit.usage > 0 else { return nil }
+    private func glmModel(from limit: GLMUsageLimitItem, subscriptionResetTime: Date?) -> ModelUsageData? {
+        let normalized = normalizedGLMQuotaValues(for: limit)
+        guard normalized.total > 0 else { return nil }
 
-        let total = Int(limit.usage.rounded())
-        let used = Int(limit.currentValue.rounded())
-        let remaining = max(0, total - used)
         let endTime = limit.nextResetTime.flatMap(date(fromMilliseconds:))
+            ?? (limit.type == "TIME_LIMIT" ? subscriptionResetTime : nil)
         let startTime = limit.type == "TOKENS_LIMIT"
             ? endTime?.addingTimeInterval(-5 * 60 * 60)
             : nil
 
         return ModelUsageData(
             provider: .glm,
-            modelName: glmModelName(for: limit.type),
-            currentIntervalTotal: total,
-            currentIntervalUsed: remaining,
+            modelName: glmModelName(for: limit),
+            currentIntervalTotal: normalized.total,
+            currentIntervalUsed: normalized.remaining,
             weeklyTotal: 0,
             weeklyUsed: 0,
             remainsTime: endTime.map { max(0, Int($0.timeIntervalSince(Date()) * 1000)) } ?? 0,
             startTime: startTime,
             endTime: endTime,
             weeklyStartTime: nil,
-            weeklyEndTime: nil
+            weeklyEndTime: nil,
+            valueSuffix: normalized.valueSuffix,
+            detailText: glmDetailText(for: limit, used: normalized.used, total: normalized.total)
         )
     }
 
-    private func glmModelName(for type: String) -> String {
-        switch type {
+    private func normalizedGLMQuotaValues(for limit: GLMUsageLimitItem) -> (used: Int, remaining: Int, total: Int, valueSuffix: String?) {
+        if limit.usage > 0 {
+            let total = Int(limit.usage.rounded())
+            let used = Int(limit.currentValue.rounded())
+            let remaining = Int((limit.remaining ?? max(0, limit.usage - limit.currentValue)).rounded())
+            return (used: used, remaining: max(0, remaining), total: total, valueSuffix: nil)
+        }
+
+        if let percentage = limit.percentage {
+            let used = min(max(Int(percentage.rounded()), 0), 100)
+            return (used: used, remaining: max(0, 100 - used), total: 100, valueSuffix: "%")
+        }
+
+        return (used: 0, remaining: 0, total: 0, valueSuffix: nil)
+    }
+
+    private func glmModelName(for limit: GLMUsageLimitItem) -> String {
+        switch limit.type {
         case "TOKENS_LIMIT":
-            return "GLM Tokens (5h)"
+            return "GLM Tokens (\(glmPeriodText(unit: limit.unit, number: limit.number, fallback: "5h")))"
         case "TIME_LIMIT":
-            return "GLM MCP (month)"
+            return "GLM MCP/Search (\(glmPeriodText(unit: limit.unit, number: limit.number, fallback: "month")))"
         default:
-            return "GLM \(type)"
+            return "GLM \(limit.type)"
+        }
+    }
+
+    private func glmDetailText(for limit: GLMUsageLimitItem, used: Int, total: Int) -> String? {
+        var details: [String] = []
+
+        if let percentage = limit.percentage {
+            details.append(String(format: "%.1f%% used", percentage))
+        } else if total > 0 {
+            details.append("\(used) used")
+        }
+
+        let usageDetails = limit.usageDetails
+            .filter { $0.usage > 0 }
+            .sorted { $0.usage > $1.usage }
+            .prefix(3)
+            .map { "\($0.modelCode): \(Int($0.usage.rounded()))" }
+
+        if !usageDetails.isEmpty {
+            details.append(usageDetails.joined(separator: " · "))
+        }
+
+        return details.isEmpty ? nil : details.joined(separator: " · ")
+    }
+
+    private func glmPeriodText(unit: Int?, number: Int?, fallback: String) -> String {
+        guard let unit, let number else { return fallback }
+
+        switch unit {
+        case 1:
+            return "\(number)m"
+        case 2:
+            return "\(number)h"
+        case 3:
+            return "\(number)h"
+        case 4:
+            return "\(number)d"
+        case 5:
+            return number == 1 ? "month" : "\(number)mo"
+        default:
+            return fallback
         }
     }
 
@@ -203,12 +269,95 @@ final class UsageService {
         }
 
         do {
-            return try decodeGLMUsageData(from: data)
+            let subscriptionResetTime = try? await fetchGLMSubscriptionResetTime(credential: credential)
+            return try decodeGLMUsageData(from: data, subscriptionResetTime: subscriptionResetTime)
         } catch let usageError as UsageError {
             throw usageError
         } catch {
             throw UsageError.apiError("Unable to parse GLM response: \(responseSnippet(from: data))")
         }
+    }
+
+    private func fetchGLMSubscriptionResetTime(credential: GLMCredential) async throws -> Date? {
+        guard let url = subscriptionURL(from: credential.apiURL) else {
+            return nil
+        }
+
+        var request = URLRequest(url: url)
+        request.httpMethod = "GET"
+        applyGLMHeaders(credential, to: &request)
+        request.timeoutInterval = 15
+
+        let (data, response): (Data, URLResponse)
+        do {
+            (data, response) = try await URLSession.shared.data(for: request)
+        } catch {
+            throw UsageError.networkError(error)
+        }
+
+        guard let httpResponse = response as? HTTPURLResponse,
+              (200...299).contains(httpResponse.statusCode) else {
+            return nil
+        }
+
+        let decoded = try JSONDecoder().decode(GLMSubscriptionListResponse.self, from: data)
+        guard decoded.success, decoded.code == 200 else { return nil }
+
+        return decoded.data?
+            .compactMap(subscriptionResetDate)
+            .min { lhs, rhs in
+                let now = Date()
+                let lhsInterval = lhs.timeIntervalSince(now)
+                let rhsInterval = rhs.timeIntervalSince(now)
+                if lhsInterval >= 0, rhsInterval >= 0 {
+                    return lhsInterval < rhsInterval
+                }
+                return lhs > rhs
+            }
+    }
+
+    private func subscriptionURL(from quotaURL: String) -> URL? {
+        guard let url = URL(string: quotaURL),
+              var components = URLComponents(url: url, resolvingAgainstBaseURL: false) else {
+            return nil
+        }
+
+        components.path = "/api/biz/subscription/list"
+        components.query = nil
+        return components.url
+    }
+
+    private func subscriptionResetDate(from item: GLMSubscriptionItem) -> Date? {
+        if let nextRenewTime = item.nextRenewTime,
+           let date = parseGLMDate(nextRenewTime) {
+            return date
+        }
+
+        guard let valid = item.valid else { return nil }
+        let parts = valid.components(separatedBy: "-")
+        guard parts.count >= 6 else { return nil }
+        let endString = parts.suffix(3).joined(separator: "-")
+        return parseGLMDate(endString)
+    }
+
+    private func parseGLMDate(_ string: String) -> Date? {
+        let trimmed = string.trimmingCharacters(in: .whitespacesAndNewlines)
+        let formatter = DateFormatter()
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        formatter.timeZone = TimeZone(identifier: "Asia/Shanghai")
+
+        for format in ["yyyy-MM-dd HH:mm:ss", "yyyy-MM-dd HH:mm", "yyyy-MM-dd"] {
+            formatter.dateFormat = format
+            if let date = formatter.date(from: trimmed) {
+                return date
+            }
+        }
+
+        if let milliseconds = Int64(trimmed) {
+            return date(fromMilliseconds: milliseconds)
+        }
+
+        return nil
     }
 
     private func applyGLMHeaders(_ credential: GLMCredential, to request: inout URLRequest) {

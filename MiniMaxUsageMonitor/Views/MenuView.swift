@@ -344,7 +344,7 @@ private struct ModelRow: View {
 
                 Spacer()
 
-                Text("\(model.currentIntervalRemaining)")
+                Text(model.currentIntervalRemainingText)
                     .font(.system(size: 13, weight: .semibold, design: .rounded))
                     .foregroundStyle(tint)
             }
@@ -395,9 +395,16 @@ private struct ModelRow: View {
 
                 Spacer()
 
-                Text("\(model.currentIntervalUsedCount)/\(model.currentIntervalTotal)")
+                Text(model.currentIntervalUsageRatioText)
                     .font(.system(size: 10, design: .rounded))
                     .foregroundStyle(.secondary)
+            }
+
+            if let detailText = model.detailText, !detailText.isEmpty {
+                Text(detailText)
+                    .font(.system(size: 9, design: .rounded))
+                    .foregroundStyle(.tertiary)
+                    .lineLimit(2)
             }
         }
         .padding(10)
