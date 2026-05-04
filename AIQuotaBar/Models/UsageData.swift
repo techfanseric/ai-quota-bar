@@ -500,7 +500,7 @@ extension ModelUsageData {
     }
 
     func formattedMenuBarText(language: AppLanguage) -> String {
-        let remaining = currentIntervalRemaining
+        let remaining = currentIntervalRemainingText
         let resetText = formatResetTime(endTime: endTime)
         return "\(remaining)/\(resetText)"
     }

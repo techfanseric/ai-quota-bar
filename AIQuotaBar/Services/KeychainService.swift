@@ -6,37 +6,37 @@ final class KeychainService {
     static let shared = KeychainService()
 
     private let service = "com.techfanseric.aiquotabar"
+    private let credentialStoreAccount = "providerCredentials"
     private let legacyServices = ["com.minimax.usagemonitor"]
+    private var cachedCredentialStore: [String: String]?
 
     private init() {}
 
     /// Save provider credential to Keychain
     func saveCredential(_ credential: String, for provider: UsageProvider) -> Bool {
-        guard let data = credential.data(using: .utf8) else { return false }
-
-        deleteCredential(for: provider)
-
-        let query: [String: Any] = [
-            kSecClass as String: kSecClassGenericPassword,
-            kSecAttrService as String: service,
-            kSecAttrAccount as String: provider.keychainAccount,
-            kSecValueData as String: data,
-            kSecAttrAccessible as String: kSecAttrAccessibleWhenUnlocked
-        ]
-
-        let status = SecItemAdd(query as CFDictionary, nil)
-        return status == errSecSuccess
+        var store = credentialStore()
+        store[provider.rawValue] = credential
+        return saveCredentialStore(store)
     }
 
     /// Retrieve provider credential from Keychain
     func getCredential(for provider: UsageProvider) -> String? {
+        if let credential = credentialStore()[provider.rawValue] {
+            return credential
+        }
+
         if let credential = credential(for: provider, service: service) {
+            var store = credentialStore()
+            store[provider.rawValue] = credential
+            _ = saveCredentialStore(store)
             return credential
         }
 
         for legacyService in legacyServices {
             if let credential = credential(for: provider, service: legacyService) {
-                _ = saveCredential(credential, for: provider)
+                var store = credentialStore()
+                store[provider.rawValue] = credential
+                _ = saveCredentialStore(store)
                 return credential
             }
         }
@@ -68,7 +68,11 @@ final class KeychainService {
     /// Delete provider credential from Keychain
     @discardableResult
     func deleteCredential(for provider: UsageProvider) -> Bool {
-        ([service] + legacyServices).allSatisfy { service in
+        var store = credentialStore()
+        store.removeValue(forKey: provider.rawValue)
+        let storeSaved = saveCredentialStore(store)
+
+        let oldItemsDeleted = ([service] + legacyServices).allSatisfy { service in
             let query: [String: Any] = [
                 kSecClass as String: kSecClassGenericPassword,
                 kSecAttrService as String: service,
@@ -78,6 +82,8 @@ final class KeychainService {
             let status = SecItemDelete(query as CFDictionary)
             return status == errSecSuccess || status == errSecItemNotFound
         }
+
+        return storeSaved && oldItemsDeleted
     }
 
     /// Check if provider credential exists
@@ -104,5 +110,65 @@ final class KeychainService {
     /// Check if MiniMax API key exists
     var hasAPIKey: Bool {
         return hasCredential(for: .miniMax)
+    }
+
+    private func credentialStore() -> [String: String] {
+        if let cachedCredentialStore {
+            return cachedCredentialStore
+        }
+
+        let query: [String: Any] = [
+            kSecClass as String: kSecClassGenericPassword,
+            kSecAttrService as String: service,
+            kSecAttrAccount as String: credentialStoreAccount,
+            kSecReturnData as String: true,
+            kSecMatchLimit as String: kSecMatchLimitOne
+        ]
+
+        var result: AnyObject?
+        let status = SecItemCopyMatching(query as CFDictionary, &result)
+
+        guard status == errSecSuccess,
+              let data = result as? Data,
+              let store = try? JSONDecoder().decode([String: String].self, from: data) else {
+            cachedCredentialStore = [:]
+            return [:]
+        }
+
+        cachedCredentialStore = store
+        return store
+    }
+
+    private func saveCredentialStore(_ store: [String: String]) -> Bool {
+        guard let data = try? JSONEncoder().encode(store) else { return false }
+
+        let query: [String: Any] = [
+            kSecClass as String: kSecClassGenericPassword,
+            kSecAttrService as String: service,
+            kSecAttrAccount as String: credentialStoreAccount
+        ]
+
+        let update: [String: Any] = [
+            kSecValueData as String: data,
+            kSecAttrAccessible as String: kSecAttrAccessibleWhenUnlocked
+        ]
+
+        let updateStatus = SecItemUpdate(query as CFDictionary, update as CFDictionary)
+        if updateStatus == errSecSuccess {
+            cachedCredentialStore = store
+            return true
+        }
+
+        guard updateStatus == errSecItemNotFound else { return false }
+
+        var addQuery = query
+        addQuery[kSecValueData as String] = data
+        addQuery[kSecAttrAccessible as String] = kSecAttrAccessibleWhenUnlocked
+
+        let addStatus = SecItemAdd(addQuery as CFDictionary, nil)
+        guard addStatus == errSecSuccess else { return false }
+
+        cachedCredentialStore = store
+        return true
     }
 }

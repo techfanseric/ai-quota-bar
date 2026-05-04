@@ -2,7 +2,7 @@
 
 A macOS menu bar application for monitoring model coding plan quota across providers.
 
-AI Quota Bar is focused on coding-plan consumption: it tracks the remaining quota for supported AI coding models, shows per-model breakdowns, and warns you before a short-interval or subscription quota runs out. It currently supports MiniMax, GLM/Z.ai, and ChatGPT web quota snapshots.
+AI Quota Bar is focused on coding-plan consumption: it tracks the remaining quota for supported AI coding models, shows per-model breakdowns, and warns you before a short-interval or subscription quota runs out. It currently supports MiniMax, GLM/Z.ai, and ChatGPT/Codex GPT coding quota snapshots.
 
 ## Features
 
@@ -27,7 +27,7 @@ AI Quota Bar is focused on coding-plan consumption: it tracks the remaining quot
 ## Requirements
 
 - macOS 14+
-- MiniMax API key, GLM quota curl command, ChatGPT plan/quota curl command, or any combination of them
+- MiniMax API key, GLM quota curl command, ChatGPT/Codex session JSON or quota curl command, or any combination of them
 
 ## Build & Run
 
@@ -50,7 +50,7 @@ make install
 
 1. Click the menu bar icon
 2. Select **Settings**
-3. Enter a MiniMax API key, paste a GLM quota curl command, paste a ChatGPT plan/quota curl command, or configure multiple providers
+3. Enter a MiniMax API key, paste a GLM quota curl command, paste a ChatGPT/Codex session JSON or quota curl command, or configure multiple providers
 4. Configured providers refresh together and appear as separate sections in the menu
 5. Adjust refresh interval as needed
 
@@ -82,11 +82,14 @@ GLM quota fields are mapped differently from MiniMax:
 
 Because the GLM credential comes from your browser session, it may expire. If GLM refresh fails after a while, repeat the steps above and paste a fresh curl command.
 
-## ChatGPT support
+## ChatGPT/Codex GPT support
 
-For ChatGPT, the app supports two levels of data:
+For ChatGPT/Codex GPT coding quota, the app reads ChatGPT web-session usage data and maps the Codex rate-limit windows into the menu:
 
-- If you paste a ChatGPT account/session JSON that contains `account.planType`, the app can show the current plan such as Free, Plus, or Pro.
-- To show remaining paid-plan model quota, copy the ChatGPT web request that returns plan or quota limit data as a curl command from the browser Network panel.
+- `primary_window` is shown as `5h`, with remaining quota displayed as a percentage and reset shown as a time.
+- `secondary_window` is shown as `Weekly`, with remaining quota displayed as a percentage and reset shown as a date.
+- Plan details such as Plus or Pro are shown when returned by the session/usage response.
 
-The ChatGPT web API is not a public stable API, so response fields can change. AI Quota Bar stores the copied request headers/cookies in Keychain and uses a flexible parser that looks for common fields such as model name, limit, remaining/used count, and reset time.
+The easiest setup path is to paste the ChatGPT account/session JSON that contains an `accessToken`; AI Quota Bar uses it with `https://chatgpt.com/backend-api/codex/usage`. You can also paste a copied curl command for the same endpoint from the browser Network panel.
+
+The ChatGPT web API is not a public stable API, so response fields can change. AI Quota Bar stores provider credentials in one Keychain JSON item and uses a flexible parser that looks for common fields such as utilization percentage, remaining percentage, reset time, `primary_window`, and `secondary_window`.
