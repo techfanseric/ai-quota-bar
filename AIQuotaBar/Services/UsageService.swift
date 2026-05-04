@@ -499,6 +499,7 @@ final class UsageService {
         let name = chatGPTModelName(from: object, inheritedName: inheritedName)
         let endTime = firstDate(in: object, matching: chatGPTResetKeys)
             ?? firstResetIntervalDate(in: object)
+        let startTime = chatGPTWindowStartTime(name: name, endTime: endTime)
 
         return ChatGPTQuotaCandidate(
             name: name,
@@ -507,11 +508,31 @@ final class UsageService {
             valueSuffix: valueSuffix,
             weeklyTotal: 0,
             weeklyRemaining: 0,
-            startTime: nil,
+            startTime: startTime,
             endTime: endTime,
             weeklyStartTime: nil,
             weeklyEndTime: nil
         )
+    }
+
+    private func chatGPTWindowStartTime(name: String, endTime: Date?) -> Date? {
+        guard let endTime else { return nil }
+
+        let loweredName = name.lowercased()
+        if loweredName.contains("5h") || loweredName.contains("primary") || loweredName.contains("session") {
+            return endTime.addingTimeInterval(-5 * 60 * 60)
+        }
+
+        if loweredName.contains("weekly") || loweredName.contains("7d") || loweredName.contains("secondary") {
+            return endTime.addingTimeInterval(-7 * 24 * 60 * 60)
+        }
+
+        let remaining = endTime.timeIntervalSince(Date())
+        if remaining > 0, remaining < 86_400 {
+            return endTime.addingTimeInterval(-5 * 60 * 60)
+        }
+
+        return nil
     }
 
     private func chatGPTWindowKey(for candidate: ChatGPTQuotaCandidate) -> String {
