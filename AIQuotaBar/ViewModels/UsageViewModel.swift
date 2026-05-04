@@ -64,9 +64,11 @@ final class UsageViewModel: ObservableObject {
 
     var availableModels: [ModelUsageData] {
         guard let data = usageData else { return [] }
-        return data.models
-            .filter(\.isCurrentIntervalAvailable)
-            .sorted { $0.currentIntervalPercentageRemaining < $1.currentIntervalPercentageRemaining }
+        return menuBarCandidateModels(from: data.models, now: Date())
+    }
+
+    var usedMenuBarModels: [ModelUsageData] {
+        availableModels.filter { $0.currentIntervalUsedCount > 0 && $0.isShortCurrentInterval }
     }
 
     private func updateStatusBarText() {
@@ -75,11 +77,15 @@ final class UsageViewModel: ObservableObject {
             return
         }
 
-        // Always use primary model format - show selected model or first available
+        let now = Date()
+
+        // Always use primary model format - show selected model while it is usable,
+        // then fall back to the usable model whose reset arrives soonest.
         if let modelID = selectedModelName,
-           let model = data.models.first(where: { $0.id == modelID }) {
+           let model = data.models.first(where: { $0.id == modelID }),
+           isMenuBarCandidate(model, now: now) {
             statusBarText = model.formattedMenuBarText(language: appLanguage)
-        } else if let firstAvailable = availableModels.first {
+        } else if let firstAvailable = preferredMenuBarFallbackModels(from: data.models, now: now).first {
             statusBarText = firstAvailable.formattedMenuBarText(language: appLanguage)
         } else {
             statusBarText = "—"
@@ -239,6 +245,22 @@ final class UsageViewModel: ObservableObject {
 #endif
     }
 
+    func switchToNextUsedModel() {
+        let models = usedMenuBarModels
+        guard models.isEmpty == false else { return }
+
+        if let selectedModelName,
+           let currentIndex = models.firstIndex(where: { $0.id == selectedModelName }) {
+            let nextIndex = models.index(after: currentIndex) == models.endIndex
+                ? models.startIndex
+                : models.index(after: currentIndex)
+            self.selectedModelName = models[nextIndex].id
+            return
+        }
+
+        selectedModelName = models[0].id
+    }
+
     // MARK: - Private Methods
 
     private func restartTimer() {
@@ -269,6 +291,35 @@ final class UsageViewModel: ObservableObject {
             timestamp: timestamp,
             models: models
         )
+    }
+
+    private func menuBarCandidateModels(from models: [ModelUsageData], now: Date) -> [ModelUsageData] {
+        models
+            .filter { isMenuBarCandidate($0, now: now) }
+            .sorted { lhs, rhs in
+                let lhsReset = lhs.endTime ?? .distantFuture
+                let rhsReset = rhs.endTime ?? .distantFuture
+
+                if lhsReset != rhsReset {
+                    return lhsReset < rhsReset
+                }
+                if lhs.currentIntervalPercentageRemaining != rhs.currentIntervalPercentageRemaining {
+                    return lhs.currentIntervalPercentageRemaining < rhs.currentIntervalPercentageRemaining
+                }
+                return lhs.displayName < rhs.displayName
+            }
+    }
+
+    private func preferredMenuBarFallbackModels(from models: [ModelUsageData], now: Date) -> [ModelUsageData] {
+        let candidates = menuBarCandidateModels(from: models, now: now)
+        let usedCandidates = candidates.filter { $0.currentIntervalUsedCount > 0 }
+        return usedCandidates.isEmpty ? candidates : usedCandidates
+    }
+
+    private func isMenuBarCandidate(_ model: ModelUsageData, now: Date) -> Bool {
+        guard model.isCurrentIntervalAvailable else { return false }
+        guard let endTime = model.endTime else { return true }
+        return endTime > now
     }
 
     private func recordSamples(from data: UsageData, timestamp: Date) {

@@ -22,6 +22,10 @@ final class StatusBarController {
         if let button = statusItem?.button {
             button.title = viewModel.statusBarText
             button.font = NSFont.monospacedDigitSystemFont(ofSize: 12, weight: .regular)
+            button.target = self
+            button.action = #selector(handleStatusItemClick(_:))
+            button.sendAction(on: [.leftMouseUp, .rightMouseUp])
+            button.toolTip = "Left click: details. Right click: switch used model."
         }
 
         // Observe status bar text changes
@@ -54,8 +58,6 @@ final class StatusBarController {
         self.menuItem = menuItem
         menu?.addItem(menuItem)
 
-        statusItem?.menu = menu
-
         Publishers.MergeMany(
             viewModel.$usageData.map { _ in () }.eraseToAnyPublisher(),
             viewModel.$error.map { _ in () }.eraseToAnyPublisher(),
@@ -73,6 +75,23 @@ final class StatusBarController {
             self?.updateMenuLayout()
         }
         .store(in: &cancellables)
+    }
+
+    @objc private func handleStatusItemClick(_ sender: NSStatusBarButton) {
+        switch NSApp.currentEvent?.type {
+        case .rightMouseUp:
+            viewModel.switchToNextUsedModel()
+        default:
+            showMenu()
+        }
+    }
+
+    private func showMenu() {
+        guard let statusItem, let menu else { return }
+
+        statusItem.menu = menu
+        statusItem.button?.performClick(nil)
+        statusItem.menu = nil
     }
 
     private func updateMenuLayout() {

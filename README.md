@@ -9,6 +9,8 @@ AI Quota Bar is focused on coding-plan consumption: it tracks the remaining quot
 - Menu bar widget displaying remaining coding-plan quota
 - Detailed per-provider and per-model usage breakdown
 - Quota trend charts for short-interval model limits
+- Automatic menu bar fallback to the used model with the soonest reset when the displayed quota expires
+- Right-click menu bar shortcut for cycling through used short-interval models
 - Configurable refresh interval
 - Warning notifications when quota runs low
 - Secure provider credential storage via Keychain
@@ -54,6 +56,12 @@ make install
 4. Configured providers refresh together and appear as separate sections in the menu
 5. Adjust refresh interval as needed
 
+## Menu bar behavior
+
+The menu bar item shows one primary quota at a time. When the displayed model is exhausted or its reset window has already passed, AI Quota Bar automatically falls back to the eligible model whose reset time arrives soonest. Models that are still at full quota are skipped when there is already-used quota to show, so the menu bar stays focused on active limits.
+
+Left-click the menu bar item to open the detailed dropdown. Right-click it to quickly cycle through used short-interval models, which are the models shown with trend charts in the dropdown rather than long-window progress bars.
+
 ## MiniMax support
 
 For MiniMax, paste the bearer token used by the MiniMax coding plan remains endpoint. The app calls the MiniMax coding plan quota API and maps the returned model quota windows into the menu bar and dropdown views.
@@ -89,7 +97,23 @@ For ChatGPT/Codex GPT coding quota, the app reads ChatGPT web-session usage data
 - `primary_window` is shown as `5h`, with remaining quota displayed as a percentage and reset shown as a time.
 - `secondary_window` is shown as `Weekly`, with remaining quota displayed as a percentage and reset shown as a date.
 - Plan details such as Plus or Pro are shown when returned by the session/usage response.
+- Multiple ChatGPT accounts can be configured, named, tested, and displayed separately.
 
 The easiest setup path is to paste the ChatGPT account/session JSON that contains an `accessToken`; AI Quota Bar uses it with `https://chatgpt.com/backend-api/codex/usage`. You can also paste a copied curl command for the same endpoint from the browser Network panel.
 
 The ChatGPT web API is not a public stable API, so response fields can change. AI Quota Bar stores provider credentials in one Keychain JSON item and uses a flexible parser that looks for common fields such as utilization percentage, remaining percentage, reset time, `primary_window`, and `secondary_window`.
+
+Existing single-account ChatGPT credentials are migrated into the multi-account storage format automatically when loaded.
+
+## Release highlights
+
+### 1.3.2
+
+- Added right-click menu bar cycling for used short-interval quota windows.
+- Improved automatic menu bar fallback so expired or exhausted selections rotate to the soonest reset among active, already-used models.
+- Skipped full, unused quota windows during active-model cycling.
+- Added README coverage for multi-account ChatGPT setup introduced after 1.3.0.
+
+### 1.3.1
+
+- Fixed ChatGPT short-window quota chart detection.
