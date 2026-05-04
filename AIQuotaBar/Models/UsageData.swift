@@ -133,7 +133,7 @@ struct ModelUsageData: Codable, Identifiable {
 
     var currentIntervalUsageRatioText: String {
         if valueSuffix == "%" {
-            return "\(currentIntervalUsedCount)%/\(currentIntervalTotal)%"
+            return "\(currentIntervalRemaining)% left"
         }
 
         return "\(currentIntervalUsedCount)/\(currentIntervalTotal)"
@@ -189,6 +189,11 @@ struct ModelUsageData: Codable, Identifiable {
     // 如果周期是完整的24小时（如其他模型的00:00-00:00），只显示截止时间 "04/09 00:00"
     var resetTimeText: String {
         guard let end = endTime else { return "—" }
+
+        if provider == .chatGPT {
+            return chatGPTResetTimeText(end)
+        }
+
         guard let start = startTime else {
             return formattedDateTime(end)
         }
@@ -214,6 +219,23 @@ struct ModelUsageData: Codable, Identifiable {
 
         // 完整24小时，只显示截止时间
         return formattedDateTime(end)
+    }
+
+    private func chatGPTResetTimeText(_ end: Date) -> String {
+        let formatter = formatter
+        let loweredName = modelName.lowercased()
+        let remaining = end.timeIntervalSince(Date())
+
+        if loweredName.contains("5h") ||
+            loweredName.contains("short") ||
+            loweredName.contains("hour") ||
+            remaining < 86_400 {
+            formatter.dateFormat = "HH:mm"
+            return formatter.string(from: end)
+        }
+
+        formatter.dateFormat = "MM/dd"
+        return formatter.string(from: end)
     }
 
     private var formatter: DateFormatter {
@@ -470,7 +492,9 @@ private extension KeyedDecodingContainer {
 
 extension ModelUsageData {
     var isFullQuotaUnused: Bool {
-        currentIntervalTotal > 0 &&
+        guard provider != .chatGPT else { return false }
+
+        return currentIntervalTotal > 0 &&
             currentIntervalRemaining >= currentIntervalTotal &&
             currentIntervalUsedCount == 0
     }

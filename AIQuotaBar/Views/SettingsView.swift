@@ -6,8 +6,10 @@ struct SettingsView: View {
     @ObservedObject var viewModel: UsageViewModel
     @State private var miniMaxCredential: String = ""
     @State private var glmCredential: String = ""
+    @State private var chatGPTCredential: String = ""
     @State private var miniMaxCredentialInputID = UUID()
     @State private var glmCredentialInputID = UUID()
+    @State private var chatGPTCredentialInputID = UUID()
     @State private var refreshInterval: Int = 60
     @State private var warningThreshold: Double = 20
     @State private var autoRefreshOnLaunch: Bool = false
@@ -15,9 +17,11 @@ struct SettingsView: View {
     @State private var selectedModelName: String = ""
     @State private var miniMaxTestResult: InlineFeedback?
     @State private var glmTestResult: InlineFeedback?
+    @State private var chatGPTTestResult: InlineFeedback?
     @State private var saveResult: InlineFeedback?
     @State private var isTestingMiniMax: Bool = false
     @State private var isTestingGLM: Bool = false
+    @State private var isTestingChatGPT: Bool = false
     @State private var isSaving: Bool = false
     @State private var updateResult: InlineFeedback?
     @State private var latestReleaseURL: URL?
@@ -111,6 +115,20 @@ struct SettingsView: View {
                     feedback: glmTestResult,
                     onTest: {
                         Task { await testConnection(for: .glm) }
+                    }
+                )
+
+                Divider()
+
+                ProviderCredentialSection(
+                    provider: .chatGPT,
+                    credential: $chatGPTCredential,
+                    inputID: chatGPTCredentialInputID,
+                    language: language,
+                    isTesting: isTestingChatGPT,
+                    feedback: chatGPTTestResult,
+                    onTest: {
+                        Task { await testConnection(for: .chatGPT) }
                     }
                 )
             }
@@ -289,8 +307,10 @@ struct SettingsView: View {
     private func loadCurrentSettings() {
         miniMaxCredential = KeychainService.shared.getCredential(for: .miniMax) ?? ""
         glmCredential = KeychainService.shared.getCredential(for: .glm) ?? ""
+        chatGPTCredential = KeychainService.shared.getCredential(for: .chatGPT) ?? ""
         miniMaxCredentialInputID = UUID()
         glmCredentialInputID = UUID()
+        chatGPTCredentialInputID = UUID()
         refreshInterval = viewModel.refreshInterval
         warningThreshold = viewModel.warningThreshold
         autoRefreshOnLaunch = viewModel.autoRefreshOnLaunch
@@ -335,13 +355,16 @@ struct SettingsView: View {
 
         let miniMaxSaved = saveCredential(miniMaxCredential, for: .miniMax)
         let glmSaved = saveCredential(glmCredential, for: .glm)
-        let credentialsSaved = miniMaxSaved && glmSaved
+        let chatGPTSaved = saveCredential(chatGPTCredential, for: .chatGPT)
+        let credentialsSaved = miniMaxSaved && glmSaved && chatGPTSaved
 
         if credentialsSaved {
             miniMaxCredential = KeychainService.shared.getCredential(for: .miniMax) ?? ""
             glmCredential = KeychainService.shared.getCredential(for: .glm) ?? ""
+            chatGPTCredential = KeychainService.shared.getCredential(for: .chatGPT) ?? ""
             miniMaxCredentialInputID = UUID()
             glmCredentialInputID = UUID()
+            chatGPTCredentialInputID = UUID()
             Task { await viewModel.refresh() }
         }
 
@@ -379,6 +402,8 @@ struct SettingsView: View {
             return miniMaxCredential
         case .glm:
             return glmCredential
+        case .chatGPT:
+            return chatGPTCredential
         }
     }
 
@@ -388,6 +413,8 @@ struct SettingsView: View {
             miniMaxTestResult = feedback
         case .glm:
             glmTestResult = feedback
+        case .chatGPT:
+            chatGPTTestResult = feedback
         }
     }
 
@@ -397,6 +424,8 @@ struct SettingsView: View {
             isTestingMiniMax = isTesting
         case .glm:
             isTestingGLM = isTesting
+        case .chatGPT:
+            isTestingChatGPT = isTesting
         }
     }
 

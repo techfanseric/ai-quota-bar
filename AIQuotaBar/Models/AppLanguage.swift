@@ -226,10 +226,14 @@ enum AppLanguage: String, CaseIterable, Codable, Identifiable {
             return "MiniMax API key"
         case (.english, .glm):
             return "Paste GLM quota curl command"
+        case (.english, .chatGPT):
+            return "Paste ChatGPT quota curl command"
         case (.simplifiedChinese, .miniMax):
             return "MiniMax API Key"
         case (.simplifiedChinese, .glm):
             return "粘贴 GLM 额度接口 curl 命令"
+        case (.simplifiedChinese, .chatGPT):
+            return "粘贴 ChatGPT 额度接口 curl 命令"
         }
     }
 
@@ -239,10 +243,14 @@ enum AppLanguage: String, CaseIterable, Codable, Identifiable {
             return "Use the bearer token for the MiniMax coding plan remains endpoint."
         case (.english, .glm):
             return "Required fields are the quota endpoint URL and authorization header; organization, project, and cookie are preserved when present."
+        case (.english, .chatGPT):
+            return "Copy the ChatGPT web request that returns plan or quota data as curl. Authorization and cookies are stored in Keychain."
         case (.simplifiedChinese, .miniMax):
             return "填入 MiniMax coding plan remains 接口使用的 Bearer token。"
         case (.simplifiedChinese, .glm):
             return "至少需要额度接口 URL 和 authorization 头；如果 curl 里有组织、项目和 cookie，也会一并保存用于请求。"
+        case (.simplifiedChinese, .chatGPT):
+            return "从 ChatGPT 网页端复制返回套餐或额度数据的请求为 curl。authorization 和 cookie 会保存在钥匙串里。"
         }
     }
 

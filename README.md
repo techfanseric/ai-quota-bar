@@ -2,7 +2,7 @@
 
 A macOS menu bar application for monitoring model coding plan quota across providers.
 
-AI Quota Bar is focused on coding-plan consumption: it tracks the remaining quota for supported AI coding models, shows per-model breakdowns, and warns you before a short-interval or subscription quota runs out. It currently supports MiniMax and GLM/Z.ai.
+AI Quota Bar is focused on coding-plan consumption: it tracks the remaining quota for supported AI coding models, shows per-model breakdowns, and warns you before a short-interval or subscription quota runs out. It currently supports MiniMax, GLM/Z.ai, and ChatGPT web quota snapshots.
 
 ## Features
 
@@ -27,7 +27,7 @@ AI Quota Bar is focused on coding-plan consumption: it tracks the remaining quot
 ## Requirements
 
 - macOS 14+
-- MiniMax API key, GLM quota curl command, or both
+- MiniMax API key, GLM quota curl command, ChatGPT plan/quota curl command, or any combination of them
 
 ## Build & Run
 
@@ -50,7 +50,7 @@ make install
 
 1. Click the menu bar icon
 2. Select **Settings**
-3. Enter a MiniMax API key, paste a GLM quota curl command, or configure both
+3. Enter a MiniMax API key, paste a GLM quota curl command, paste a ChatGPT plan/quota curl command, or configure multiple providers
 4. Configured providers refresh together and appear as separate sections in the menu
 5. Adjust refresh interval as needed
 
@@ -81,3 +81,12 @@ GLM quota fields are mapped differently from MiniMax:
 - `TIME_LIMIT` is shown as `GLM MCP/Search (month)`.
 
 Because the GLM credential comes from your browser session, it may expire. If GLM refresh fails after a while, repeat the steps above and paste a fresh curl command.
+
+## ChatGPT support
+
+For ChatGPT, the app supports two levels of data:
+
+- If you paste a ChatGPT account/session JSON that contains `account.planType`, the app can show the current plan such as Free, Plus, or Pro.
+- To show remaining paid-plan model quota, copy the ChatGPT web request that returns plan or quota limit data as a curl command from the browser Network panel.
+
+The ChatGPT web API is not a public stable API, so response fields can change. AI Quota Bar stores the copied request headers/cookies in Keychain and uses a flexible parser that looks for common fields such as model name, limit, remaining/used count, and reset time.

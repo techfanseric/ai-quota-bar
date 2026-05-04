@@ -3,6 +3,7 @@ import Foundation
 enum UsageProvider: String, CaseIterable, Codable, Identifiable {
     case miniMax = "minimax"
     case glm = "glm"
+    case chatGPT = "chatgpt"
 
     var id: String { rawValue }
 
@@ -12,6 +13,8 @@ enum UsageProvider: String, CaseIterable, Codable, Identifiable {
             return "MiniMax"
         case .glm:
             return "GLM"
+        case .chatGPT:
+            return "ChatGPT"
         }
     }
 
@@ -21,11 +24,13 @@ enum UsageProvider: String, CaseIterable, Codable, Identifiable {
             return "apiKey"
         case .glm:
             return "glmCredential"
+        case .chatGPT:
+            return "chatGPTCredential"
         }
     }
 
     var usesCurlCredential: Bool {
-        self == .glm
+        self == .glm || self == .chatGPT
     }
 
     static let storageKey = "usageProvider"

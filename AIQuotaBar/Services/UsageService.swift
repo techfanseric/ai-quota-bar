@@ -22,6 +22,8 @@ final class UsageService {
             return credential.trimmingCharacters(in: .whitespacesAndNewlines)
         case .glm:
             return try GLMCredential.parse(credential).storageString
+        case .chatGPT:
+            return try ChatGPTCredential.parse(credential).storageString
         }
     }
 
@@ -200,6 +202,8 @@ final class UsageService {
             return try await fetchMiniMaxUsage(apiKey: credential)
         case .glm:
             return try await fetchGLMUsage(credentialInput: credential)
+        case .chatGPT:
+            return try await fetchChatGPTUsage(credentialInput: credential)
         }
     }
 
@@ -276,6 +280,572 @@ final class UsageService {
         } catch {
             throw UsageError.apiError("Unable to parse GLM response: \(responseSnippet(from: data))")
         }
+    }
+
+    private func fetchChatGPTUsage(credentialInput: String) async throws -> UsageData {
+        let credential = try ChatGPTCredential.parse(credentialInput)
+        guard let url = URL(string: credential.apiURL) else {
+            throw UsageError.invalidURL
+        }
+
+        var request = URLRequest(url: url)
+        request.httpMethod = "GET"
+        applyChatGPTHeaders(credential, to: &request)
+        request.timeoutInterval = 30
+
+        let (data, response): (Data, URLResponse)
+        do {
+            (data, response) = try await URLSession.shared.data(for: request)
+        } catch {
+            throw UsageError.networkError(error)
+        }
+
+        guard let httpResponse = response as? HTTPURLResponse else {
+            throw UsageError.invalidResponse
+        }
+
+        guard (200...299).contains(httpResponse.statusCode) else {
+            let language = AppLanguage.current
+            let message = String(data: data, encoding: .utf8) ?? language.text(.unknownError)
+            throw UsageError.apiError(language.apiStatusMessage(statusCode: httpResponse.statusCode, message: message))
+        }
+
+        do {
+            return try decodeChatGPTUsageData(from: data)
+        } catch let usageError as UsageError {
+            throw usageError
+        } catch {
+            throw UsageError.apiError("Unable to parse ChatGPT response: \(responseSnippet(from: data))")
+        }
+    }
+
+    private func decodeChatGPTUsageData(from data: Data) throws -> UsageData {
+        let json = try JSONDecoder().decode(AnyJSONValue.self, from: data)
+        let planType = chatGPTPlanType(in: json)
+        let quotaModels = chatGPTQuotaCandidates(in: json)
+        let models: [ModelUsageData]
+
+        if quotaModels.isEmpty {
+            let planName = planType.map { "ChatGPT \($0.capitalized)" } ?? "ChatGPT account"
+            models = [
+                ModelUsageData(
+                    provider: .chatGPT,
+                    modelName: planName,
+                    currentIntervalTotal: 1,
+                    currentIntervalUsed: 1,
+                    weeklyTotal: 0,
+                    weeklyUsed: 0,
+                    remainsTime: 0,
+                    startTime: nil,
+                    endTime: nil,
+                    weeklyStartTime: nil,
+                    weeklyEndTime: nil,
+                    valueSuffix: nil,
+                    detailText: "Plan \(planType ?? "unknown") · paste a ChatGPT quota endpoint curl to show remaining model limits"
+                )
+            ]
+        } else {
+            models = quotaModels.map { quota in
+                ModelUsageData(
+                    provider: .chatGPT,
+                    modelName: quota.name,
+                    currentIntervalTotal: quota.total,
+                    currentIntervalUsed: quota.remaining,
+                    weeklyTotal: quota.weeklyTotal,
+                    weeklyUsed: quota.weeklyRemaining,
+                    remainsTime: quota.endTime.map { max(0, Int($0.timeIntervalSince(Date()) * 1000)) } ?? 0,
+                    startTime: quota.startTime,
+                    endTime: quota.endTime,
+                    weeklyStartTime: quota.weeklyStartTime,
+                    weeklyEndTime: quota.weeklyEndTime,
+                    valueSuffix: quota.valueSuffix,
+                    detailText: quota.detailText(planType: planType)
+                )
+            }
+        }
+
+        let trackedModelCount = max(models.count, 1)
+        let readyModelsCount = models.filter(\.isCurrentIntervalAvailable).count
+
+        return UsageData(
+            provider: .chatGPT,
+            remains: readyModelsCount,
+            total: trackedModelCount,
+            timestamp: Date(),
+            models: models
+        )
+    }
+
+    private func applyChatGPTHeaders(_ credential: ChatGPTCredential, to request: inout URLRequest) {
+        for (name, value) in credential.headers {
+            request.setValue(value, forHTTPHeaderField: name)
+        }
+
+        if credential.headers["accept"] == nil {
+            request.setValue("application/json, text/plain, */*", forHTTPHeaderField: "Accept")
+        }
+        if credential.headers["content-type"] == nil {
+            request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        }
+        if credential.headers["user-agent"] == nil {
+            request.setValue("AIQuotaBar/1.0", forHTTPHeaderField: "User-Agent")
+        }
+        if credential.headers["authorization"] == nil,
+           let authorization = credential.authorization,
+           !authorization.isEmpty {
+            request.setValue(authorization, forHTTPHeaderField: "Authorization")
+        }
+        if let cookie = credential.cookie, !cookie.isEmpty {
+            request.setValue(cookie, forHTTPHeaderField: "Cookie")
+        }
+    }
+
+    private func chatGPTPlanType(in json: AnyJSONValue) -> String? {
+        if case .object(let object) = json {
+            for key in ["planType", "plan_type", "plan", "account_plan", "subscription_plan"] {
+                if let value = object[key]?.stringValue, !value.isEmpty {
+                    return value
+                }
+            }
+        }
+
+        for child in json.children {
+            if let planType = chatGPTPlanType(in: child) {
+                return planType
+            }
+        }
+
+        return nil
+    }
+
+    private func chatGPTQuotaCandidates(in json: AnyJSONValue) -> [ChatGPTQuotaCandidate] {
+        var candidates: [ChatGPTQuotaCandidate] = []
+        collectChatGPTQuotaCandidates(from: json, inheritedName: nil, into: &candidates)
+
+        let namedCandidates = candidates.filter { $0.name != "ChatGPT quota" }
+        let preferredCandidates = namedCandidates.isEmpty ? candidates : namedCandidates
+        var bestByWindow: [String: ChatGPTQuotaCandidate] = [:]
+
+        for candidate in preferredCandidates {
+            let key = chatGPTWindowKey(for: candidate)
+            if let existing = bestByWindow[key] {
+                bestByWindow[key] = moreSpecificChatGPTCandidate(existing, candidate)
+            } else {
+                bestByWindow[key] = candidate
+            }
+        }
+
+        return bestByWindow.values.sorted { lhs, rhs in
+            chatGPTWindowSortWeight(lhs) < chatGPTWindowSortWeight(rhs)
+        }
+    }
+
+    private func collectChatGPTQuotaCandidates(
+        from json: AnyJSONValue,
+        inheritedName: String?,
+        into candidates: inout [ChatGPTQuotaCandidate]
+    ) {
+        switch json {
+        case .object(let object):
+            if let candidate = chatGPTQuotaCandidate(from: object, inheritedName: inheritedName) {
+                candidates.append(candidate)
+            }
+
+            for (key, value) in object {
+                let childName = chatGPTInheritedWindowName(for: key) ?? inheritedName
+                collectChatGPTQuotaCandidates(from: value, inheritedName: childName, into: &candidates)
+            }
+        case .array(let values):
+            for value in values {
+                collectChatGPTQuotaCandidates(from: value, inheritedName: inheritedName, into: &candidates)
+            }
+        default:
+            break
+        }
+    }
+
+    private func chatGPTQuotaCandidate(
+        from object: [String: AnyJSONValue],
+        inheritedName: String?
+    ) -> ChatGPTQuotaCandidate? {
+        let explicitTotal = firstInt(in: object, matching: chatGPTTotalKeys)
+        let percentRemaining = firstPercentage(in: object, matching: chatGPTPercentageRemainingKeys)
+        let percentUsed = firstPercentage(in: object, matching: chatGPTPercentageUsedKeys)
+        let total = explicitTotal ?? (percentRemaining == nil && percentUsed == nil ? nil : 100)
+
+        guard let total, total > 0 else { return nil }
+
+        let remaining = firstInt(in: object, matching: chatGPTRemainingKeys)
+        let used = firstInt(in: object, matching: chatGPTUsedKeys)
+        let currentRemaining: Int
+        let valueSuffix: String?
+
+        if let percentRemaining {
+            currentRemaining = percentRemaining
+            valueSuffix = "%"
+        } else if let percentUsed {
+            currentRemaining = max(0, 100 - percentUsed)
+            valueSuffix = "%"
+        } else if let remaining {
+            currentRemaining = remaining
+            valueSuffix = nil
+        } else if let used {
+            currentRemaining = max(0, total - used)
+            valueSuffix = nil
+        } else {
+            return nil
+        }
+
+        let name = chatGPTModelName(from: object, inheritedName: inheritedName)
+        let endTime = firstDate(in: object, matching: chatGPTResetKeys)
+            ?? firstResetIntervalDate(in: object)
+
+        return ChatGPTQuotaCandidate(
+            name: name,
+            total: total,
+            remaining: max(0, min(currentRemaining, total)),
+            valueSuffix: valueSuffix,
+            weeklyTotal: 0,
+            weeklyRemaining: 0,
+            startTime: nil,
+            endTime: endTime,
+            weeklyStartTime: nil,
+            weeklyEndTime: nil
+        )
+    }
+
+    private func chatGPTWindowKey(for candidate: ChatGPTQuotaCandidate) -> String {
+        let loweredName = candidate.name.lowercased()
+        if loweredName.contains("5h") || loweredName.contains("primary") || loweredName.contains("session") {
+            return "primary"
+        }
+        if loweredName.contains("weekly") || loweredName.contains("7d") || loweredName.contains("secondary") {
+            return "secondary"
+        }
+
+        if let endTime = candidate.endTime {
+            let seconds = endTime.timeIntervalSince(Date())
+            if seconds > 86_400 {
+                return "secondary"
+            }
+            return "primary"
+        }
+
+        return candidate.name.lowercased()
+    }
+
+    private func moreSpecificChatGPTCandidate(
+        _ lhs: ChatGPTQuotaCandidate,
+        _ rhs: ChatGPTQuotaCandidate
+    ) -> ChatGPTQuotaCandidate {
+        if lhs.name == "ChatGPT quota", rhs.name != "ChatGPT quota" {
+            return rhs
+        }
+        if rhs.name == "ChatGPT quota", lhs.name != "ChatGPT quota" {
+            return lhs
+        }
+        if lhs.endTime == nil, rhs.endTime != nil {
+            return rhs
+        }
+        return lhs
+    }
+
+    private func chatGPTWindowSortWeight(_ candidate: ChatGPTQuotaCandidate) -> Int {
+        switch chatGPTWindowKey(for: candidate) {
+        case "primary":
+            return 0
+        case "secondary":
+            return 1
+        default:
+            return 2
+        }
+    }
+
+    private var chatGPTTotalKeys: [String] {
+        ["total", "limit", "cap", "max", "quota", "message_cap", "messageCap", "message_limit", "messageLimit"]
+    }
+
+    private var chatGPTRemainingKeys: [String] {
+        ["remaining", "remain", "available", "messages_remaining", "messagesRemaining", "remaining_messages", "remainingMessages"]
+    }
+
+    private var chatGPTPercentageRemainingKeys: [String] {
+        [
+            "remaining_percent",
+            "remainingPercent",
+            "remaining_percentage",
+            "remainingPercentage",
+            "percent_remaining",
+            "percentRemaining",
+            "percentage_remaining",
+            "percentageRemaining",
+            "available_percent",
+            "availablePercent",
+            "available_percentage",
+            "availablePercentage",
+            "rate_limit_remaining",
+            "rateLimitRemaining",
+            "rate_limits_remaining",
+            "rateLimitsRemaining",
+            "remaining_quota_percent",
+            "remainingQuotaPercent",
+            "quota_remaining_percent",
+            "quotaRemainingPercent",
+            "remaining_pct",
+            "remainingPct"
+        ]
+    }
+
+    private var chatGPTPercentageUsedKeys: [String] {
+        [
+            "utilization",
+            "utilisation",
+            "utilization_percent",
+            "utilizationPercent",
+            "used_percent",
+            "usedPercent",
+            "used_percentage",
+            "usedPercentage",
+            "percent_used",
+            "percentUsed",
+            "usage_percent",
+            "usagePercent",
+            "usage_percentage",
+            "usagePercentage",
+            "used_pct",
+            "usedPct"
+        ]
+    }
+
+    private var chatGPTUsedKeys: [String] {
+        ["used", "usage", "current", "count", "messages_used", "messagesUsed", "used_messages", "usedMessages"]
+    }
+
+    private var chatGPTResetKeys: [String] {
+        ["reset", "reset_at", "resetAt", "resets_at", "resetsAt", "reset_time", "resetTime", "next_reset", "nextReset", "nextResetTime", "reset_date", "resetDate"]
+    }
+
+    private var chatGPTResetIntervalKeys: [String] {
+        [
+            "reset_after_seconds",
+            "resetAfterSeconds",
+            "seconds_until_reset",
+            "secondsUntilReset",
+            "reset_in_seconds",
+            "resetInSeconds",
+            "resets_in_seconds",
+            "resetsInSeconds",
+            "reset_after",
+            "resetAfter",
+            "resets_in",
+            "resetsIn"
+        ]
+    }
+
+    private func firstInt(in object: [String: AnyJSONValue], matching keys: [String]) -> Int? {
+        for key in keys {
+            if let value = object[key], let int = intValue(from: value) {
+                return int
+            }
+        }
+
+        let lowercasedKeys = Dictionary(uniqueKeysWithValues: object.map { ($0.key.lowercased(), $0.value) })
+        for key in keys {
+            if let value = lowercasedKeys[key.lowercased()], let int = intValue(from: value) {
+                return int
+            }
+        }
+
+        return nil
+    }
+
+    private func firstPercentage(in object: [String: AnyJSONValue], matching keys: [String]) -> Int? {
+        for key in keys {
+            if let value = object[key], let percentage = percentageValue(from: value) {
+                return percentage
+            }
+        }
+
+        let lowercasedKeys = Dictionary(uniqueKeysWithValues: object.map { ($0.key.lowercased(), $0.value) })
+        for key in keys {
+            if let value = lowercasedKeys[key.lowercased()], let percentage = percentageValue(from: value) {
+                return percentage
+            }
+        }
+
+        return nil
+    }
+
+    private func firstDate(in object: [String: AnyJSONValue], matching keys: [String]) -> Date? {
+        for key in keys {
+            if let value = object[key], let date = chatGPTDate(from: value) {
+                return date
+            }
+        }
+
+        let lowercasedKeys = Dictionary(uniqueKeysWithValues: object.map { ($0.key.lowercased(), $0.value) })
+        for key in keys {
+            if let value = lowercasedKeys[key.lowercased()], let date = chatGPTDate(from: value) {
+                return date
+            }
+        }
+
+        return nil
+    }
+
+    private func firstResetIntervalDate(in object: [String: AnyJSONValue]) -> Date? {
+        for key in chatGPTResetIntervalKeys {
+            if let value = object[key], let interval = secondsValue(from: value) {
+                return Date().addingTimeInterval(interval)
+            }
+        }
+
+        let lowercasedKeys = Dictionary(uniqueKeysWithValues: object.map { ($0.key.lowercased(), $0.value) })
+        for key in chatGPTResetIntervalKeys {
+            if let value = lowercasedKeys[key.lowercased()], let interval = secondsValue(from: value) {
+                return Date().addingTimeInterval(interval)
+            }
+        }
+
+        return nil
+    }
+
+    private func intValue(from value: AnyJSONValue) -> Int? {
+        if let number = value.doubleValue {
+            return Int(number.rounded())
+        }
+        if let string = value.stringValue {
+            guard let number = Double(string) else { return nil }
+            let int = Int(number.rounded())
+            return int >= 0 ? int : nil
+        }
+        return nil
+    }
+
+    private func percentageValue(from value: AnyJSONValue) -> Int? {
+        if let string = value.stringValue?.trimmingCharacters(in: .whitespacesAndNewlines) {
+            let normalized = string.replacingOccurrences(of: "%", with: "")
+            guard let number = Double(normalized) else { return nil }
+            let percentage = number <= 1 ? number * 100 : number
+            return min(max(Int(percentage.rounded()), 0), 100)
+        }
+
+        guard let number = value.doubleValue else { return nil }
+        let percentage = number <= 1 ? number * 100 : number
+        return min(max(Int(percentage.rounded()), 0), 100)
+    }
+
+    private func secondsValue(from value: AnyJSONValue) -> TimeInterval? {
+        guard let number = value.doubleValue else { return nil }
+        let seconds = number > 10_000_000 ? number / 1000 : number
+        return seconds > 0 ? seconds : nil
+    }
+
+    private func chatGPTDate(from value: AnyJSONValue) -> Date? {
+        if let number = value.doubleValue {
+            let raw = number > 10_000_000_000 ? number / 1000 : number
+            return Date(timeIntervalSince1970: raw)
+        }
+
+        guard let string = value.stringValue?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !string.isEmpty else {
+            return nil
+        }
+
+        if let number = Double(string) {
+            let raw = number > 10_000_000_000 ? number / 1000 : number
+            return Date(timeIntervalSince1970: raw)
+        }
+
+        let isoFormatter = ISO8601DateFormatter()
+        if let date = isoFormatter.date(from: string) {
+            return date
+        }
+
+        return nil
+    }
+
+    private func chatGPTModelName(from object: [String: AnyJSONValue], inheritedName: String?) -> String {
+        for key in ["window", "period", "duration", "bucket", "type", "model", "model_slug", "modelSlug", "model_name", "modelName", "name", "title", "id"] {
+            if let value = object[key]?.stringValue, quotaLikeKey(value) {
+                return chatGPTDisplayName(for: value)
+            }
+        }
+
+        if let inheritedName, quotaLikeKey(inheritedName) {
+            return chatGPTDisplayName(for: inheritedName)
+        }
+
+        return "ChatGPT quota"
+    }
+
+    private func chatGPTInheritedWindowName(for key: String) -> String? {
+        let lowered = key.lowercased()
+        if lowered.contains("primary_window") ||
+            lowered == "primary" ||
+            lowered.contains("session") ||
+            lowered.contains("5h") ||
+            lowered.contains("5_hour") ||
+            lowered.contains("five_hour") ||
+            lowered.contains("short") {
+            return "5h"
+        }
+
+        if lowered.contains("secondary_window") ||
+            lowered == "secondary" ||
+            lowered.contains("weekly") ||
+            lowered.contains("7d") ||
+            lowered.contains("7_day") ||
+            lowered.contains("week") ||
+            lowered.contains("long") {
+            return "Weekly"
+        }
+
+        return quotaLikeKey(key) ? key : nil
+    }
+
+    private func quotaLikeKey(_ key: String) -> Bool {
+        let lowered = key.lowercased()
+        return lowered.contains("gpt") ||
+            lowered.contains("o3") ||
+            lowered.contains("o4") ||
+            lowered.contains("model") ||
+            lowered.contains("thinking") ||
+            lowered.contains("pro") ||
+            lowered.contains("5h") ||
+            lowered.contains("5_hour") ||
+            lowered.contains("five_hour") ||
+            lowered.contains("short") ||
+            lowered.contains("weekly") ||
+            lowered.contains("week") ||
+            lowered.contains("long")
+    }
+
+    private func chatGPTDisplayName(for value: String) -> String {
+        let normalized = value
+            .replacingOccurrences(of: "_", with: " ")
+            .replacingOccurrences(of: "-", with: " ")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        let lowered = normalized.lowercased()
+
+        if lowered.contains("primary window") ||
+            lowered == "primary" ||
+            lowered.contains("5h") ||
+            lowered.contains("5 hour") ||
+            lowered.contains("session") ||
+            lowered.contains("short") {
+            return "5h"
+        }
+        if lowered.contains("secondary window") ||
+            lowered == "secondary" ||
+            lowered.contains("weekly") ||
+            lowered.contains("7d") ||
+            lowered.contains("7 day") ||
+            lowered.contains("week") ||
+            lowered.contains("long") {
+            return "Weekly"
+        }
+        return normalized.isEmpty ? "ChatGPT quota" : normalized
     }
 
     private func fetchGLMSubscriptionResetTime(credential: GLMCredential) async throws -> Date? {
@@ -413,6 +983,8 @@ final class UsageService {
             return try await testMiniMaxConnection(apiKey: credential)
         case .glm:
             return try await testGLMConnection(credentialInput: credential)
+        case .chatGPT:
+            return try await testChatGPTConnection(credentialInput: credential)
         }
     }
 
@@ -453,5 +1025,130 @@ final class UsageService {
     private func testGLMConnection(credentialInput: String) async throws -> Bool {
         _ = try await fetchGLMUsage(credentialInput: credentialInput)
         return true
+    }
+
+    private func testChatGPTConnection(credentialInput: String) async throws -> Bool {
+        _ = try await fetchChatGPTUsage(credentialInput: credentialInput)
+        return true
+    }
+}
+
+private struct ChatGPTQuotaCandidate {
+    let name: String
+    let total: Int
+    let remaining: Int
+    let valueSuffix: String?
+    let weeklyTotal: Int
+    let weeklyRemaining: Int
+    let startTime: Date?
+    let endTime: Date?
+    let weeklyStartTime: Date?
+    let weeklyEndTime: Date?
+
+    func detailText(planType: String?) -> String? {
+        var details: [String] = []
+        if let planType, !planType.isEmpty {
+            details.append("Plan \(planType)")
+        }
+        if let endTime {
+            let formatter = DateFormatter()
+            formatter.locale = Locale(identifier: "en_US_POSIX")
+            formatter.timeZone = TimeZone(identifier: "Asia/Shanghai")
+            formatter.dateFormat = "MM/dd HH:mm"
+            details.append("resets \(formatter.string(from: endTime))")
+        }
+        return details.isEmpty ? nil : details.joined(separator: " · ")
+    }
+}
+
+private enum AnyJSONValue: Decodable {
+    case object([String: AnyJSONValue])
+    case array([AnyJSONValue])
+    case string(String)
+    case number(Double)
+    case bool(Bool)
+    case null
+
+    init(from decoder: Decoder) throws {
+        if let container = try? decoder.container(keyedBy: DynamicCodingKey.self) {
+            var object: [String: AnyJSONValue] = [:]
+            for key in container.allKeys {
+                object[key.stringValue] = try container.decode(AnyJSONValue.self, forKey: key)
+            }
+            self = .object(object)
+            return
+        }
+
+        if var container = try? decoder.unkeyedContainer() {
+            var array: [AnyJSONValue] = []
+            while !container.isAtEnd {
+                array.append(try container.decode(AnyJSONValue.self))
+            }
+            self = .array(array)
+            return
+        }
+
+        let container = try decoder.singleValueContainer()
+        if container.decodeNil() {
+            self = .null
+        } else if let bool = try? container.decode(Bool.self) {
+            self = .bool(bool)
+        } else if let number = try? container.decode(Double.self) {
+            self = .number(number)
+        } else if let string = try? container.decode(String.self) {
+            self = .string(string)
+        } else {
+            self = .null
+        }
+    }
+
+    var stringValue: String? {
+        switch self {
+        case .string(let value):
+            return value
+        case .number(let value):
+            return String(value)
+        case .bool(let value):
+            return String(value)
+        default:
+            return nil
+        }
+    }
+
+    var doubleValue: Double? {
+        switch self {
+        case .number(let value):
+            return value
+        case .string(let value):
+            return Double(value)
+        default:
+            return nil
+        }
+    }
+
+    var children: [AnyJSONValue] {
+        switch self {
+        case .object(let object):
+            return Array(object.values)
+        case .array(let values):
+            return values
+        default:
+            return []
+        }
+    }
+}
+
+private struct DynamicCodingKey: CodingKey {
+    let stringValue: String
+    let intValue: Int?
+
+    init?(stringValue: String) {
+        self.stringValue = stringValue
+        self.intValue = nil
+    }
+
+    init?(intValue: Int) {
+        self.stringValue = String(intValue)
+        self.intValue = intValue
     }
 }
