@@ -23,8 +23,12 @@ final class UsageService {
         case .glm:
             return try GLMCredential.parse(credential).storageString
         case .chatGPT:
-            return try ChatGPTCredential.parse(credential).storageString
+            return try ChatGPTCredentialCollection.parseStorage(credential).storageString
         }
+    }
+
+    func prepareChatGPTCredentialsForStorage(_ credentials: [(id: String, name: String, credentialInput: String)]) throws -> String {
+        try ChatGPTCredentialCollection.storageString(from: credentials)
     }
 
     private func decodeMiniMaxUsageData(from data: Data) throws -> UsageData {
@@ -38,6 +42,7 @@ final class UsageService {
         let models = response.modelRemains.map { model in
             ModelUsageData(
                 provider: .miniMax,
+                accountName: nil,
                 modelName: model.modelName,
                 currentIntervalTotal: model.currentIntervalTotalCount,
                 currentIntervalUsed: model.currentIntervalUsageCount,
@@ -103,6 +108,7 @@ final class UsageService {
 
         return ModelUsageData(
             provider: .glm,
+            accountName: nil,
             modelName: glmModelName(for: limit),
             currentIntervalTotal: normalized.total,
             currentIntervalUsed: normalized.remaining,
@@ -203,7 +209,7 @@ final class UsageService {
         case .glm:
             return try await fetchGLMUsage(credentialInput: credential)
         case .chatGPT:
-            return try await fetchChatGPTUsage(credentialInput: credential)
+            return try await fetchChatGPTAccountsUsage(credentialInput: credential)
         }
     }
 
@@ -284,6 +290,44 @@ final class UsageService {
 
     private func fetchChatGPTUsage(credentialInput: String) async throws -> UsageData {
         let credential = try ChatGPTCredential.parse(credentialInput)
+        return try await fetchChatGPTUsage(credential: credential, accountName: nil)
+    }
+
+    private func fetchChatGPTAccountsUsage(credentialInput: String) async throws -> UsageData {
+        let collection = try ChatGPTCredentialCollection.parseStorage(credentialInput)
+        var models: [ModelUsageData] = []
+        var firstError: UsageError?
+        let timestamp = Date()
+
+        for account in collection.accounts {
+            do {
+                let data = try await fetchChatGPTUsage(credential: account.credential, accountName: account.name)
+                models.append(contentsOf: data.models)
+            } catch let usageError as UsageError {
+                if firstError == nil {
+                    firstError = usageError
+                }
+            } catch {
+                if firstError == nil {
+                    firstError = .networkError(error)
+                }
+            }
+        }
+
+        guard !models.isEmpty else {
+            throw firstError ?? UsageError.notConfigured
+        }
+
+        return UsageData(
+            provider: .chatGPT,
+            remains: models.filter(\.isCurrentIntervalAvailable).count,
+            total: models.count,
+            timestamp: timestamp,
+            models: models
+        )
+    }
+
+    private func fetchChatGPTUsage(credential: ChatGPTCredential, accountName: String?) async throws -> UsageData {
         guard let url = URL(string: credential.apiURL) else {
             throw UsageError.invalidURL
         }
@@ -311,7 +355,7 @@ final class UsageService {
         }
 
         do {
-            return try decodeChatGPTUsageData(from: data)
+            return try decodeChatGPTUsageData(from: data, accountName: accountName)
         } catch let usageError as UsageError {
             throw usageError
         } catch {
@@ -320,6 +364,10 @@ final class UsageService {
     }
 
     private func decodeChatGPTUsageData(from data: Data) throws -> UsageData {
+        try decodeChatGPTUsageData(from: data, accountName: nil)
+    }
+
+    private func decodeChatGPTUsageData(from data: Data, accountName: String?) throws -> UsageData {
         let json = try JSONDecoder().decode(AnyJSONValue.self, from: data)
         let planType = chatGPTPlanType(in: json)
         let quotaModels = chatGPTQuotaCandidates(in: json)
@@ -330,6 +378,7 @@ final class UsageService {
             models = [
                 ModelUsageData(
                     provider: .chatGPT,
+                    accountName: accountName,
                     modelName: planName,
                     currentIntervalTotal: 1,
                     currentIntervalUsed: 1,
@@ -348,6 +397,7 @@ final class UsageService {
             models = quotaModels.map { quota in
                 ModelUsageData(
                     provider: .chatGPT,
+                    accountName: accountName,
                     modelName: quota.name,
                     currentIntervalTotal: quota.total,
                     currentIntervalUsed: quota.remaining,

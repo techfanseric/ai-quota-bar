@@ -344,7 +344,7 @@ private struct ModelRow: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
             HStack(spacing: 8) {
-                Text(model.modelName)
+                Text(model.displayName)
                     .font(.system(size: 11, weight: .medium))
                     .lineLimit(1)
 

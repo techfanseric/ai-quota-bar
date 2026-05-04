@@ -254,6 +254,42 @@ enum AppLanguage: String, CaseIterable, Codable, Identifiable {
         }
     }
 
+    func chatGPTAccountsHelpText() -> String {
+        switch self {
+        case .english:
+            return "Add one entry per ChatGPT account. Each account is stored separately inside the Keychain credential set and refreshed together."
+        case .simplifiedChinese:
+            return "每个 ChatGPT 账号添加一条。所有账号会分别保存在钥匙串的凭据集合里，并一起刷新。"
+        }
+    }
+
+    func addChatGPTAccountText() -> String {
+        switch self {
+        case .english:
+            return "Add account"
+        case .simplifiedChinese:
+            return "添加账号"
+        }
+    }
+
+    func chatGPTAccountNamePlaceholder() -> String {
+        switch self {
+        case .english:
+            return "Account name"
+        case .simplifiedChinese:
+            return "账号名称"
+        }
+    }
+
+    func defaultChatGPTAccountName(_ index: Int) -> String {
+        switch self {
+        case .english:
+            return "Account \(index)"
+        case .simplifiedChinese:
+            return "账号 \(index)"
+        }
+    }
+
     func pasteFromClipboardText() -> String {
         switch self {
         case .english:

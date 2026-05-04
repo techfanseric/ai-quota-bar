@@ -6,10 +6,9 @@ struct SettingsView: View {
     @ObservedObject var viewModel: UsageViewModel
     @State private var miniMaxCredential: String = ""
     @State private var glmCredential: String = ""
-    @State private var chatGPTCredential: String = ""
+    @State private var chatGPTCredentials: [ChatGPTCredentialDraft] = [ChatGPTCredentialDraft()]
     @State private var miniMaxCredentialInputID = UUID()
     @State private var glmCredentialInputID = UUID()
-    @State private var chatGPTCredentialInputID = UUID()
     @State private var refreshInterval: Int = 60
     @State private var warningThreshold: Double = 20
     @State private var autoRefreshOnLaunch: Bool = false
@@ -17,11 +16,9 @@ struct SettingsView: View {
     @State private var selectedModelName: String = ""
     @State private var miniMaxTestResult: InlineFeedback?
     @State private var glmTestResult: InlineFeedback?
-    @State private var chatGPTTestResult: InlineFeedback?
     @State private var saveResult: InlineFeedback?
     @State private var isTestingMiniMax: Bool = false
     @State private var isTestingGLM: Bool = false
-    @State private var isTestingChatGPT: Bool = false
     @State private var isSaving: Bool = false
     @State private var updateResult: InlineFeedback?
     @State private var latestReleaseURL: URL?
@@ -120,15 +117,13 @@ struct SettingsView: View {
 
                 Divider()
 
-                ProviderCredentialSection(
-                    provider: .chatGPT,
-                    credential: $chatGPTCredential,
-                    inputID: chatGPTCredentialInputID,
+                ChatGPTCredentialListSection(
+                    accounts: $chatGPTCredentials,
                     language: language,
-                    isTesting: isTestingChatGPT,
-                    feedback: chatGPTTestResult,
-                    onTest: {
-                        Task { await testConnection(for: .chatGPT) }
+                    onAdd: addChatGPTAccount,
+                    onRemove: removeChatGPTAccount,
+                    onTest: { id in
+                        Task { await testChatGPTConnection(accountID: id) }
                     }
                 )
             }
@@ -202,7 +197,7 @@ struct SettingsView: View {
                         Picker(language.text(.modelSelectionPlaceholder), selection: $selectedModelName) {
                             Text(language.text(.modelSelectionPlaceholder)).tag("")
                             ForEach(availableModelOptions) { model in
-                                Text("\(model.provider.displayName) · \(model.modelName)").tag(model.id)
+                                Text("\(model.provider.displayName) · \(model.displayName)").tag(model.id)
                             }
                         }
                         .pickerStyle(.menu)
@@ -307,10 +302,9 @@ struct SettingsView: View {
     private func loadCurrentSettings() {
         miniMaxCredential = KeychainService.shared.getCredential(for: .miniMax) ?? ""
         glmCredential = KeychainService.shared.getCredential(for: .glm) ?? ""
-        chatGPTCredential = KeychainService.shared.getCredential(for: .chatGPT) ?? ""
+        chatGPTCredentials = loadChatGPTCredentialDrafts()
         miniMaxCredentialInputID = UUID()
         glmCredentialInputID = UUID()
-        chatGPTCredentialInputID = UUID()
         refreshInterval = viewModel.refreshInterval
         warningThreshold = viewModel.warningThreshold
         autoRefreshOnLaunch = viewModel.autoRefreshOnLaunch
@@ -343,6 +337,35 @@ struct SettingsView: View {
         setTesting(false, for: provider)
     }
 
+    private func testChatGPTConnection(accountID: UUID) async {
+        guard let index = chatGPTCredentials.firstIndex(where: { $0.id == accountID }) else { return }
+        chatGPTCredentials[index].isTesting = true
+        chatGPTCredentials[index].feedback = nil
+
+        let credential = chatGPTCredentials[index].credential.trimmingCharacters(in: .whitespacesAndNewlines)
+
+        do {
+            let success = try await viewModel.testCredential(credential, provider: .chatGPT)
+            if let updatedIndex = chatGPTCredentials.firstIndex(where: { $0.id == accountID }) {
+                chatGPTCredentials[updatedIndex].feedback = success
+                    ? InlineFeedback(kind: .success, message: language.text(.testConnectionSuccess))
+                    : InlineFeedback(kind: .error, message: language.text(.testConnectionRejected))
+            }
+        } catch let error as UsageError {
+            if let updatedIndex = chatGPTCredentials.firstIndex(where: { $0.id == accountID }) {
+                chatGPTCredentials[updatedIndex].feedback = InlineFeedback(kind: .error, message: language.errorDescription(for: error))
+            }
+        } catch {
+            if let updatedIndex = chatGPTCredentials.firstIndex(where: { $0.id == accountID }) {
+                chatGPTCredentials[updatedIndex].feedback = InlineFeedback(kind: .error, message: error.localizedDescription)
+            }
+        }
+
+        if let updatedIndex = chatGPTCredentials.firstIndex(where: { $0.id == accountID }) {
+            chatGPTCredentials[updatedIndex].isTesting = false
+        }
+    }
+
     private func saveSettings() {
         isSaving = true
         saveResult = nil
@@ -355,16 +378,15 @@ struct SettingsView: View {
 
         let miniMaxSaved = saveCredential(miniMaxCredential, for: .miniMax)
         let glmSaved = saveCredential(glmCredential, for: .glm)
-        let chatGPTSaved = saveCredential(chatGPTCredential, for: .chatGPT)
+        let chatGPTSaved = saveChatGPTCredentials()
         let credentialsSaved = miniMaxSaved && glmSaved && chatGPTSaved
 
         if credentialsSaved {
             miniMaxCredential = KeychainService.shared.getCredential(for: .miniMax) ?? ""
             glmCredential = KeychainService.shared.getCredential(for: .glm) ?? ""
-            chatGPTCredential = KeychainService.shared.getCredential(for: .chatGPT) ?? ""
+            chatGPTCredentials = loadChatGPTCredentialDrafts()
             miniMaxCredentialInputID = UUID()
             glmCredentialInputID = UUID()
-            chatGPTCredentialInputID = UUID()
             Task { await viewModel.refresh() }
         }
 
@@ -396,6 +418,76 @@ struct SettingsView: View {
         return KeychainService.shared.saveCredential(preparedCredential, for: provider)
     }
 
+    private func saveChatGPTCredentials() -> Bool {
+        let accounts = chatGPTCredentials
+            .filter { !$0.credential.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
+
+        if accounts.isEmpty {
+            return KeychainService.shared.deleteCredential(for: .chatGPT)
+        }
+
+        do {
+            let preparedCredential = try UsageService.shared.prepareChatGPTCredentialsForStorage(
+                accounts.map { account in
+                    (
+                        id: account.storageID,
+                        name: account.name,
+                        credentialInput: account.credential
+                    )
+                }
+            )
+            return KeychainService.shared.saveCredential(preparedCredential, for: .chatGPT)
+        } catch let error as UsageError {
+            setChatGPTSaveError(language.errorDescription(for: error))
+            return false
+        } catch {
+            setChatGPTSaveError(error.localizedDescription)
+            return false
+        }
+    }
+
+    private func loadChatGPTCredentialDrafts() -> [ChatGPTCredentialDraft] {
+        guard let storedCredential = KeychainService.shared.getCredential(for: .chatGPT),
+              let collection = try? ChatGPTCredentialCollection.parseStorage(storedCredential) else {
+            return [ChatGPTCredentialDraft()]
+        }
+
+        let drafts = collection.accounts.map { entry in
+            ChatGPTCredentialDraft(
+                storageID: entry.id,
+                name: entry.name,
+                credential: entry.credential.storageString
+            )
+        }
+
+        return drafts.isEmpty ? [ChatGPTCredentialDraft()] : drafts
+    }
+
+    private func addChatGPTAccount() {
+        chatGPTCredentials.append(ChatGPTCredentialDraft(name: language.defaultChatGPTAccountName(chatGPTCredentials.count + 1)))
+    }
+
+    private func removeChatGPTAccount(_ id: UUID) {
+        guard chatGPTCredentials.count > 1 else {
+            chatGPTCredentials = [ChatGPTCredentialDraft()]
+            return
+        }
+
+        chatGPTCredentials.removeAll { $0.id == id }
+    }
+
+    private func setChatGPTSaveError(_ message: String) {
+        if let firstEditableIndex = chatGPTCredentials.firstIndex(where: {
+            !$0.credential.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        }) {
+            chatGPTCredentials[firstEditableIndex].feedback = InlineFeedback(kind: .error, message: message)
+        } else if chatGPTCredentials.isEmpty {
+            chatGPTCredentials = [ChatGPTCredentialDraft(feedback: InlineFeedback(kind: .error, message: message))]
+        } else {
+            chatGPTCredentials[0].feedback = InlineFeedback(kind: .error, message: message)
+        }
+    }
+
     private func credentialValue(for provider: UsageProvider) -> String {
         switch provider {
         case .miniMax:
@@ -403,7 +495,7 @@ struct SettingsView: View {
         case .glm:
             return glmCredential
         case .chatGPT:
-            return chatGPTCredential
+            return chatGPTCredentials.first?.credential ?? ""
         }
     }
 
@@ -414,7 +506,9 @@ struct SettingsView: View {
         case .glm:
             glmTestResult = feedback
         case .chatGPT:
-            chatGPTTestResult = feedback
+            if !chatGPTCredentials.isEmpty {
+                chatGPTCredentials[0].feedback = feedback
+            }
         }
     }
 
@@ -425,7 +519,9 @@ struct SettingsView: View {
         case .glm:
             isTestingGLM = isTesting
         case .chatGPT:
-            isTestingChatGPT = isTesting
+            if !chatGPTCredentials.isEmpty {
+                chatGPTCredentials[0].isTesting = isTesting
+            }
         }
     }
 
@@ -458,6 +554,144 @@ struct SettingsView: View {
         }
 
         isCheckingUpdate = false
+    }
+}
+
+private struct ChatGPTCredentialDraft: Identifiable {
+    let id: UUID
+    var storageID: String
+    var name: String
+    var credential: String
+    var inputID: UUID
+    var feedback: InlineFeedback?
+    var isTesting: Bool
+
+    init(
+        id: UUID = UUID(),
+        storageID: String = UUID().uuidString,
+        name: String = "",
+        credential: String = "",
+        inputID: UUID = UUID(),
+        feedback: InlineFeedback? = nil,
+        isTesting: Bool = false
+    ) {
+        self.id = id
+        self.storageID = storageID
+        self.name = name
+        self.credential = credential
+        self.inputID = inputID
+        self.feedback = feedback
+        self.isTesting = isTesting
+    }
+}
+
+private struct ChatGPTCredentialListSection: View {
+    @Binding var accounts: [ChatGPTCredentialDraft]
+    let language: AppLanguage
+    let onAdd: () -> Void
+    let onRemove: (UUID) -> Void
+    let onTest: (UUID) -> Void
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            HStack {
+                VStack(alignment: .leading, spacing: 4) {
+                    Text(UsageProvider.chatGPT.displayName)
+                        .font(.system(size: 14, weight: .semibold))
+
+                    Text(language.chatGPTAccountsHelpText())
+                        .font(.system(size: 12))
+                        .foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+
+                Spacer()
+
+                Button {
+                    onAdd()
+                } label: {
+                    Label(language.addChatGPTAccountText(), systemImage: "plus.circle")
+                }
+                .buttonStyle(.bordered)
+                .controlSize(.small)
+            }
+
+            ForEach($accounts) { $account in
+                ChatGPTAccountCredentialCard(
+                    account: $account,
+                    language: language,
+                    canRemove: accounts.count > 1,
+                    onRemove: {
+                        onRemove(account.id)
+                    },
+                    onTest: {
+                        onTest(account.id)
+                    }
+                )
+            }
+        }
+    }
+}
+
+private struct ChatGPTAccountCredentialCard: View {
+    @Binding var account: ChatGPTCredentialDraft
+    let language: AppLanguage
+    let canRemove: Bool
+    let onRemove: () -> Void
+    let onTest: () -> Void
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            HStack(spacing: 8) {
+                TextField(language.chatGPTAccountNamePlaceholder(), text: $account.name)
+                    .textFieldStyle(.roundedBorder)
+
+                Button(role: .destructive) {
+                    onRemove()
+                } label: {
+                    Image(systemName: "minus.circle")
+                }
+                .buttonStyle(.borderless)
+                .disabled(!canRemove && account.credential.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+            }
+
+            CredentialInputField(
+                provider: .chatGPT,
+                credential: $account.credential,
+                language: language
+            )
+            .id(account.inputID)
+
+            HStack(spacing: 10) {
+                Button {
+                    onTest()
+                } label: {
+                    Label(language.text(.testConnection), systemImage: "bolt.horizontal.circle")
+                }
+                .buttonStyle(.bordered)
+                .disabled(account.credential.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || account.isTesting)
+
+                if account.isTesting {
+                    ProgressView()
+                        .controlSize(.small)
+                }
+
+                Spacer()
+
+                if let feedback = account.feedback {
+                    InlineFeedbackView(feedback: feedback)
+                }
+            }
+        }
+        .padding(12)
+        .background(
+            RoundedRectangle(cornerRadius: 8, style: .continuous)
+                .fill(Color.primary.opacity(0.035))
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: 8, style: .continuous)
+                .stroke(Color.primary.opacity(0.08), lineWidth: 1)
+        )
     }
 }
 

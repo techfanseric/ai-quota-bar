@@ -180,6 +180,128 @@ struct ChatGPTCredential: Codable {
     }
 }
 
+struct ChatGPTCredentialEntry: Codable, Identifiable {
+    let id: String
+    var name: String
+    var credential: ChatGPTCredential
+
+    var storageString: String {
+        ChatGPTCredentialCollection(accounts: [self]).storageString
+    }
+}
+
+struct ChatGPTCredentialCollection: Codable {
+    let version: Int
+    var accounts: [ChatGPTCredentialEntry]
+
+    init(version: Int = 1, accounts: [ChatGPTCredentialEntry]) {
+        self.version = version
+        self.accounts = accounts
+    }
+
+    var storageString: String {
+        guard let data = try? JSONEncoder().encode(self),
+              let string = String(data: data, encoding: .utf8) else {
+            return accounts.first?.credential.storageString ?? ""
+        }
+        return string
+    }
+
+    static func parseStorage(_ input: String) throws -> ChatGPTCredentialCollection {
+        let trimmed = input.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else {
+            throw UsageError.notConfigured
+        }
+
+        if let data = trimmed.data(using: .utf8),
+           let collection = try? JSONDecoder().decode(ChatGPTCredentialCollection.self, from: data) {
+            return ChatGPTCredentialCollection(
+                accounts: collection.accounts
+                    .enumerated()
+                    .map { index, entry in
+                        ChatGPTCredentialEntry(
+                            id: entry.id.isEmpty ? UUID().uuidString : entry.id,
+                            name: entry.name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                                ? defaultAccountName(for: index)
+                                : entry.name,
+                            credential: entry.credential
+                        )
+                    }
+            )
+        }
+
+        let credential = try ChatGPTCredential.parse(trimmed)
+        return ChatGPTCredentialCollection(accounts: [
+            ChatGPTCredentialEntry(
+                id: UUID().uuidString,
+                name: inferredAccountName(from: trimmed) ?? defaultAccountName(for: 0),
+                credential: credential
+            )
+        ])
+    }
+
+    static func storageString(from inputs: [(id: String, name: String, credentialInput: String)]) throws -> String {
+        var accounts: [ChatGPTCredentialEntry] = []
+
+        for (index, input) in inputs.enumerated() {
+            let trimmedInput = input.credentialInput.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !trimmedInput.isEmpty else { continue }
+
+            let trimmedName = input.name.trimmingCharacters(in: .whitespacesAndNewlines)
+            let credential = try ChatGPTCredential.parse(trimmedInput)
+            accounts.append(
+                ChatGPTCredentialEntry(
+                    id: input.id.isEmpty ? UUID().uuidString : input.id,
+                    name: trimmedName.isEmpty
+                        ? inferredAccountName(from: trimmedInput) ?? defaultAccountName(for: index)
+                        : trimmedName,
+                    credential: credential
+                )
+            )
+        }
+
+        guard !accounts.isEmpty else {
+            throw UsageError.notConfigured
+        }
+
+        return ChatGPTCredentialCollection(accounts: accounts).storageString
+    }
+
+    private static func defaultAccountName(for index: Int) -> String {
+        "Account \(index + 1)"
+    }
+
+    private static func inferredAccountName(from input: String) -> String? {
+        guard let data = input.trimmingCharacters(in: .whitespacesAndNewlines).data(using: .utf8),
+              let session = try? JSONDecoder().decode(ChatGPTAccountSession.self, from: data) else {
+            return nil
+        }
+
+        if let email = session.user?.email, !email.isEmpty {
+            return email
+        }
+        if let name = session.user?.name, !name.isEmpty {
+            return name
+        }
+        if let accountID = session.account?.id, !accountID.isEmpty {
+            return accountID
+        }
+
+        return nil
+    }
+}
+
 private struct ChatGPTAccountSession: Decodable {
     let accessToken: String?
+    let user: ChatGPTAccountUser?
+    let account: ChatGPTAccountInfo?
+}
+
+private struct ChatGPTAccountUser: Decodable {
+    let name: String?
+    let email: String?
+}
+
+private struct ChatGPTAccountInfo: Decodable {
+    let id: String?
 }

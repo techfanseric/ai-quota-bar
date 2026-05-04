@@ -102,6 +102,7 @@ struct UsageData: Codable {
 
 struct ModelUsageData: Codable, Identifiable {
     let provider: UsageProvider
+    let accountName: String?
     let modelName: String
     let currentIntervalTotal: Int
     let currentIntervalUsed: Int  // API: 这是剩余数量，不是已用！
@@ -115,7 +116,17 @@ struct ModelUsageData: Codable, Identifiable {
     let valueSuffix: String?
     let detailText: String?
 
-    var id: String { "\(provider.rawValue):\(modelName)" }
+    var id: String {
+        guard let accountName, !accountName.isEmpty else {
+            return "\(provider.rawValue):\(modelName)"
+        }
+        return "\(provider.rawValue):\(accountName):\(modelName)"
+    }
+
+    var displayName: String {
+        guard let accountName, !accountName.isEmpty else { return modelName }
+        return "\(accountName) · \(modelName)"
+    }
 
     // 剩余 = API 返回的 usage_count
     var currentIntervalRemaining: Int {
