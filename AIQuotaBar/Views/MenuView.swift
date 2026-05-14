@@ -233,21 +233,20 @@ private struct ProviderModelsSection: View {
     let onLayoutChange: () -> Void
 
     @State private var showsFullQuotaModels = false
+    @State private var showsExhaustedModels = false
 
     private var visibleModels: [ModelUsageData] {
-        data.models.sorted { lhs, rhs in
-            lhs.currentIntervalPercentageUsed > rhs.currentIntervalPercentageUsed
-        }.filter {
-            !$0.isFullQuotaUnused
+        sortedMenuModels(data.models).filter {
+            !$0.isExhaustedCurrentInterval && !$0.isFullQuotaUnused
         }
     }
 
+    private var exhaustedModels: [ModelUsageData] {
+        sortedMenuModels(data.models).filter(\.isExhaustedCurrentInterval)
+    }
+
     private var fullQuotaModels: [ModelUsageData] {
-        data.models.sorted { lhs, rhs in
-            lhs.modelName < rhs.modelName
-        }.filter {
-            $0.isFullQuotaUnused
-        }
+        sortedMenuModels(data.models).filter(\.isFullQuotaUnused)
     }
 
     var body: some View {
@@ -281,7 +280,7 @@ private struct ProviderModelsSection: View {
                 }
             }
 
-            if visibleModels.isEmpty && !fullQuotaModels.isEmpty && !showsFullQuotaModels {
+            if visibleModels.isEmpty && exhaustedModels.isEmpty && !fullQuotaModels.isEmpty && !showsFullQuotaModels {
                 Text(language.allModelsUnusedText())
                     .font(.system(size: 10))
                     .foregroundStyle(.secondary)
@@ -289,48 +288,148 @@ private struct ProviderModelsSection: View {
                     .padding(.vertical, 6)
             }
 
-            if !fullQuotaModels.isEmpty {
-                Button {
-                    showsFullQuotaModels.toggle()
-                    DispatchQueue.main.async {
-                        onLayoutChange()
-                        DispatchQueue.main.async {
-                            onLayoutChange()
-                        }
-                    }
-                } label: {
-                    HStack(spacing: 6) {
-                        Image(systemName: showsFullQuotaModels ? "chevron.down" : "chevron.right")
-                            .font(.system(size: 9, weight: .semibold))
-                            .frame(width: 10)
-
-                        Text(language.fullQuotaModelsToggleText(count: fullQuotaModels.count, isExpanded: showsFullQuotaModels))
-                            .font(.system(size: 10, weight: .medium))
-
-                        Spacer()
-                    }
-                    .foregroundStyle(.secondary)
-                    .padding(.horizontal, 10)
-                    .padding(.vertical, 6)
+            if !exhaustedModels.isEmpty {
+                CollapsibleModelsButton(
+                    title: language.exhaustedModelsToggleText(count: exhaustedModels.count, isExpanded: showsExhaustedModels),
+                    isExpanded: showsExhaustedModels
+                ) {
+                    showsExhaustedModels.toggle()
+                    notifyLayoutChange()
                 }
-                .buttonStyle(.plain)
 
-                if showsFullQuotaModels {
-                    ForEach(Array(fullQuotaModels.enumerated()), id: \.element.id) { index, model in
-                        ModelRow(
-                            model: model,
-                            language: language,
-                            warningThreshold: warningThreshold,
-                            samples: samples(model)
-                        )
-
-                        if index < fullQuotaModels.count - 1 {
-                            Spacer()
-                                .frame(height: 1)
-                        }
-                    }
+                if showsExhaustedModels {
+                    ModelsRows(
+                        models: exhaustedModels,
+                        language: language,
+                        warningThreshold: warningThreshold,
+                        samples: samples
+                    )
                 }
             }
+
+            if !fullQuotaModels.isEmpty {
+                CollapsibleModelsButton(
+                    title: language.fullQuotaModelsToggleText(count: fullQuotaModels.count, isExpanded: showsFullQuotaModels),
+                    isExpanded: showsFullQuotaModels
+                ) {
+                    showsFullQuotaModels.toggle()
+                    notifyLayoutChange()
+                }
+
+                if showsFullQuotaModels {
+                    ModelsRows(
+                        models: fullQuotaModels,
+                        language: language,
+                        warningThreshold: warningThreshold,
+                        samples: samples
+                    )
+                }
+            }
+        }
+    }
+
+    private func sortedMenuModels(_ models: [ModelUsageData]) -> [ModelUsageData] {
+        models.sorted { lhs, rhs in
+            lhs.isOrderedBeforeInMenu(rhs)
+        }
+    }
+
+    private func notifyLayoutChange() {
+        DispatchQueue.main.async {
+            onLayoutChange()
+            DispatchQueue.main.async {
+                onLayoutChange()
+            }
+        }
+    }
+}
+
+private struct CollapsibleModelsButton: View {
+    let title: String
+    let isExpanded: Bool
+    let action: () -> Void
+
+    var body: some View {
+        Button(action: action) {
+            HStack(spacing: 6) {
+                Image(systemName: isExpanded ? "chevron.down" : "chevron.right")
+                    .font(.system(size: 9, weight: .semibold))
+                    .frame(width: 10)
+
+                Text(title)
+                    .font(.system(size: 10, weight: .medium))
+
+                Spacer()
+            }
+            .foregroundStyle(.secondary)
+            .padding(.horizontal, 10)
+            .padding(.vertical, 6)
+        }
+        .buttonStyle(.plain)
+    }
+}
+
+private struct ModelsRows: View {
+    let models: [ModelUsageData]
+    let language: AppLanguage
+    let warningThreshold: Double
+    let samples: (ModelUsageData) -> [ModelQuotaSample]
+
+    var body: some View {
+        ForEach(Array(models.enumerated()), id: \.element.id) { index, model in
+            ModelRow(
+                model: model,
+                language: language,
+                warningThreshold: warningThreshold,
+                samples: samples(model)
+            )
+
+            if index < models.count - 1 {
+                Spacer()
+                    .frame(height: 1)
+            }
+        }
+    }
+}
+
+private extension ModelUsageData {
+    func isOrderedBeforeInMenu(_ other: ModelUsageData) -> Bool {
+        let lhsAccount = menuSortAccountName
+        let rhsAccount = other.menuSortAccountName
+        if lhsAccount != rhsAccount {
+            return lhsAccount < rhsAccount
+        }
+
+        let lhsIntervalPriority = isShortCurrentInterval ? 0 : 1
+        let rhsIntervalPriority = other.isShortCurrentInterval ? 0 : 1
+        if lhsIntervalPriority != rhsIntervalPriority {
+            return lhsIntervalPriority < rhsIntervalPriority
+        }
+
+        let lhsReset = endTime ?? .distantFuture
+        let rhsReset = other.endTime ?? .distantFuture
+        if lhsReset != rhsReset {
+            return lhsReset < rhsReset
+        }
+
+        return modelName.localizedStandardCompare(other.modelName) == .orderedAscending
+    }
+
+    private var menuSortAccountName: String {
+        guard let accountName, !accountName.isEmpty else {
+            return ""
+        }
+        return accountName.localizedLowercase
+    }
+}
+
+private extension AppLanguage {
+    func exhaustedModelsToggleText(count: Int, isExpanded: Bool) -> String {
+        switch self {
+        case .english:
+            return isExpanded ? "Hide \(count) exhausted models" : "Show \(count) exhausted models"
+        case .simplifiedChinese:
+            return isExpanded ? "收起 \(count) 个已用完模型" : "展开 \(count) 个已用完模型"
         }
     }
 }

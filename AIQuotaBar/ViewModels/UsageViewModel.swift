@@ -58,6 +58,25 @@ final class UsageViewModel: ObservableObject {
         }
     }
 
+    @Published var launchAtLogin: Bool {
+        didSet {
+            UserDefaults.standard.set(launchAtLogin, forKey: "launchAtLogin")
+            AutoLaunchService.shared.setEnabled(launchAtLogin)
+        }
+    }
+
+    @Published var cloudSyncEnabled: Bool {
+        didSet {
+            saveCloudSyncSettings()
+        }
+    }
+
+    @Published var cloudSyncEndpointURL: String {
+        didSet {
+            saveCloudSyncSettings()
+        }
+    }
+
     // MARK: - Computed Properties
 
     @Published var statusBarText: String = "..."
@@ -126,6 +145,10 @@ final class UsageViewModel: ObservableObject {
             .flatMap(AppLanguage.init(rawValue:))
             ?? AppLanguage.fallback
         self.selectedModelName = UserDefaults.standard.string(forKey: "selectedModelName")
+        self.launchAtLogin = UserDefaults.standard.object(forKey: "launchAtLogin") as? Bool ?? false
+        let cloudSyncSettings = CloudSyncSettings.current
+        self.cloudSyncEnabled = cloudSyncSettings.isEnabled
+        self.cloudSyncEndpointURL = cloudSyncSettings.endpointURLString
 
         setupWarningObserver()
         updateStatusBarText()
@@ -172,6 +195,7 @@ final class UsageViewModel: ObservableObject {
         if let usageData {
             lastRefreshTime = sampleTimestamp
             recordSamples(from: usageData, timestamp: sampleTimestamp)
+            syncUsageDataToCloud(usageData, sampledAt: sampleTimestamp)
         }
         updateStatusBarText()
         checkThreshold()
@@ -229,6 +253,22 @@ final class UsageViewModel: ObservableObject {
         return try await UsageService.shared.testConnection(credential: credential, provider: provider)
     }
 
+    func saveCloudSyncToken(_ token: String) -> Bool {
+        let trimmedToken = token.trimmingCharacters(in: .whitespacesAndNewlines)
+        if trimmedToken.isEmpty {
+            return KeychainService.shared.deleteCloudSyncToken()
+        }
+        return KeychainService.shared.saveCloudSyncToken(trimmedToken)
+    }
+
+    func cloudSyncToken() -> String {
+        KeychainService.shared.getCloudSyncToken() ?? ""
+    }
+
+    func testCloudSync(endpointURL: String, token: String) async throws {
+        try await CloudSyncService.shared.testConnection(endpointURLString: endpointURL, token: token)
+    }
+
     func samples(for model: ModelUsageData) -> [ModelQuotaSample] {
         guard model.isShortCurrentInterval,
               let startTime = model.startTime,
@@ -268,6 +308,28 @@ final class UsageViewModel: ObservableObject {
         timer = Timer.scheduledTimer(withTimeInterval: TimeInterval(refreshInterval), repeats: true) { [weak self] _ in
             Task { @MainActor [weak self] in
                 await self?.refresh()
+            }
+        }
+    }
+
+    private func saveCloudSyncSettings() {
+        CloudSyncSettings(
+            isEnabled: cloudSyncEnabled,
+            endpointURLString: cloudSyncEndpointURL,
+            deviceID: CloudSyncSettings.current.deviceID
+        ).save()
+    }
+
+    private func syncUsageDataToCloud(_ usageData: UsageData, sampledAt: Date) {
+        guard cloudSyncEnabled else { return }
+
+        Task {
+            do {
+                try await CloudSyncService.shared.syncUsageData(usageData, sampledAt: sampledAt)
+            } catch {
+#if DEBUG
+                print("Cloud sync failed: \(error.localizedDescription)")
+#endif
             }
         }
     }

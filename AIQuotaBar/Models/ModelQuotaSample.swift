@@ -1,6 +1,6 @@
 import Foundation
 
-struct ModelQuotaSample: Identifiable, Equatable {
+struct ModelQuotaSample: Codable, Identifiable, Equatable {
     let timestamp: Date
     let remaining: Int
 

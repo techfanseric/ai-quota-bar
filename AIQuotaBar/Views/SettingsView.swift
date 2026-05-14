@@ -12,13 +12,20 @@ struct SettingsView: View {
     @State private var refreshInterval: Int = 60
     @State private var warningThreshold: Double = 20
     @State private var autoRefreshOnLaunch: Bool = false
+    @State private var launchAtLogin: Bool = false
+    @State private var cloudSyncEnabled: Bool = false
+    @State private var cloudSyncEndpointURL: String = ""
+    @State private var cloudSyncToken: String = ""
     @State private var appLanguage: AppLanguage = .english
     @State private var selectedModelName: String = ""
     @State private var miniMaxTestResult: InlineFeedback?
     @State private var glmTestResult: InlineFeedback?
+    @State private var cloudSyncTestResult: InlineFeedback?
     @State private var saveResult: InlineFeedback?
     @State private var isTestingMiniMax: Bool = false
     @State private var isTestingGLM: Bool = false
+    @State private var isTestingCloudSync: Bool = false
+    @State private var isOpeningCloudData: Bool = false
     @State private var isSaving: Bool = false
     @State private var updateResult: InlineFeedback?
     @State private var latestReleaseURL: URL?
@@ -32,6 +39,8 @@ struct SettingsView: View {
                 connectionSection
 
                 behaviorSection
+
+                cloudSyncSection
 
                 appearanceSection
 
@@ -178,6 +187,16 @@ struct SettingsView: View {
                             .foregroundStyle(.secondary)
                     }
                 }
+
+                Toggle(isOn: $launchAtLogin) {
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text(language.text(.launchAtLogin))
+                            .font(.system(size: 14, weight: .semibold))
+                        Text(language.text(.launchAtLoginDescription))
+                            .font(.system(size: 12))
+                            .foregroundStyle(.secondary)
+                    }
+                }
             }
         }
     }
@@ -222,6 +241,84 @@ struct SettingsView: View {
                     }
                     .pickerStyle(.segmented)
                     .labelsHidden()
+                }
+            }
+        }
+    }
+
+    private var cloudSyncSection: some View {
+        SettingsSectionCard(
+            eyebrow: language.cloudSyncEyebrowText(),
+            title: language.cloudSyncTitleText(),
+            description: language.cloudSyncDescriptionText()
+        ) {
+            VStack(alignment: .leading, spacing: 14) {
+                Toggle(isOn: $cloudSyncEnabled) {
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text(language.cloudSyncEnableText())
+                            .font(.system(size: 14, weight: .semibold))
+                        Text(language.cloudSyncEnableDescriptionText())
+                            .font(.system(size: 12))
+                            .foregroundStyle(.secondary)
+                    }
+                }
+
+                VStack(alignment: .leading, spacing: 8) {
+                    Text(language.cloudSyncEndpointText())
+                        .font(.system(size: 14, weight: .semibold))
+
+                    TextField("https://your-worker.workers.dev", text: $cloudSyncEndpointURL)
+                        .textFieldStyle(.roundedBorder)
+                }
+
+                VStack(alignment: .leading, spacing: 8) {
+                    Text(language.cloudSyncTokenText())
+                        .font(.system(size: 14, weight: .semibold))
+
+                    SecureField(language.cloudSyncTokenPlaceholderText(), text: $cloudSyncToken)
+                        .textFieldStyle(.roundedBorder)
+                }
+
+                HStack(spacing: 10) {
+                    Button {
+                        Task { await testCloudSync() }
+                    } label: {
+                        Label(language.cloudSyncTestText(), systemImage: "icloud.and.arrow.up")
+                    }
+                    .buttonStyle(.bordered)
+                    .disabled(
+                        cloudSyncEndpointURL.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ||
+                        cloudSyncToken.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ||
+                        isTestingCloudSync
+                    )
+
+                    if isTestingCloudSync {
+                        ProgressView()
+                            .controlSize(.small)
+                    }
+
+                    Button {
+                        Task { await openCloudSyncDataReport() }
+                    } label: {
+                        Label(language.cloudSyncViewDataText(), systemImage: "tablecells")
+                    }
+                    .buttonStyle(.borderedProminent)
+                    .disabled(
+                        cloudSyncEndpointURL.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ||
+                        cloudSyncToken.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ||
+                        isOpeningCloudData
+                    )
+
+                    if isOpeningCloudData {
+                        ProgressView()
+                            .controlSize(.small)
+                    }
+
+                    Spacer()
+
+                    if let cloudSyncTestResult {
+                        InlineFeedbackView(feedback: cloudSyncTestResult)
+                    }
                 }
             }
         }
@@ -308,6 +405,10 @@ struct SettingsView: View {
         refreshInterval = viewModel.refreshInterval
         warningThreshold = viewModel.warningThreshold
         autoRefreshOnLaunch = viewModel.autoRefreshOnLaunch
+        launchAtLogin = viewModel.launchAtLogin
+        cloudSyncEnabled = viewModel.cloudSyncEnabled
+        cloudSyncEndpointURL = viewModel.cloudSyncEndpointURL
+        cloudSyncToken = viewModel.cloudSyncToken()
         appLanguage = viewModel.appLanguage
         selectedModelName = viewModel.selectedModelName ?? ""
     }
@@ -373,17 +474,22 @@ struct SettingsView: View {
         viewModel.refreshInterval = refreshInterval
         viewModel.warningThreshold = warningThreshold
         viewModel.autoRefreshOnLaunch = autoRefreshOnLaunch
+        viewModel.launchAtLogin = launchAtLogin
+        viewModel.cloudSyncEnabled = cloudSyncEnabled
+        viewModel.cloudSyncEndpointURL = cloudSyncEndpointURL
         viewModel.appLanguage = appLanguage
         viewModel.selectedModelName = selectedModelName.isEmpty ? nil : selectedModelName
 
         let miniMaxSaved = saveCredential(miniMaxCredential, for: .miniMax)
         let glmSaved = saveCredential(glmCredential, for: .glm)
         let chatGPTSaved = saveChatGPTCredentials()
-        let credentialsSaved = miniMaxSaved && glmSaved && chatGPTSaved
+        let cloudSyncSaved = viewModel.saveCloudSyncToken(cloudSyncToken)
+        let credentialsSaved = miniMaxSaved && glmSaved && chatGPTSaved && cloudSyncSaved
 
         if credentialsSaved {
             miniMaxCredential = KeychainService.shared.getCredential(for: .miniMax) ?? ""
             glmCredential = KeychainService.shared.getCredential(for: .glm) ?? ""
+            cloudSyncToken = viewModel.cloudSyncToken()
             chatGPTCredentials = loadChatGPTCredentialDrafts()
             miniMaxCredentialInputID = UUID()
             glmCredentialInputID = UUID()
@@ -395,6 +501,40 @@ struct SettingsView: View {
             : InlineFeedback(kind: .error, message: language.text(.apiKeySaveFailed))
 
         isSaving = false
+    }
+
+    private func testCloudSync() async {
+        isTestingCloudSync = true
+        cloudSyncTestResult = nil
+
+        do {
+            try await viewModel.testCloudSync(endpointURL: cloudSyncEndpointURL, token: cloudSyncToken)
+            cloudSyncTestResult = InlineFeedback(kind: .success, message: language.cloudSyncTestSuccessText())
+        } catch {
+            cloudSyncTestResult = InlineFeedback(kind: .error, message: error.localizedDescription)
+        }
+
+        isTestingCloudSync = false
+    }
+
+    private func openCloudSyncDataReport() async {
+        isOpeningCloudData = true
+        cloudSyncTestResult = nil
+
+        do {
+            let reportURL = try await CloudSyncService.shared.makeRemoteDataReport(
+                endpointURLString: cloudSyncEndpointURL,
+                token: cloudSyncToken
+            )
+            await MainActor.run {
+                NSWorkspace.shared.open(reportURL)
+                cloudSyncTestResult = InlineFeedback(kind: .success, message: language.cloudSyncReportOpenedText())
+            }
+        } catch {
+            cloudSyncTestResult = InlineFeedback(kind: .error, message: error.localizedDescription)
+        }
+
+        isOpeningCloudData = false
     }
 
     private func saveCredential(_ credential: String, for provider: UsageProvider) -> Bool {

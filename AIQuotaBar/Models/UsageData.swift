@@ -502,9 +502,11 @@ private extension KeyedDecodingContainer {
 }
 
 extension ModelUsageData {
-    var isFullQuotaUnused: Bool {
-        guard provider != .chatGPT else { return false }
+    var isExhaustedCurrentInterval: Bool {
+        currentIntervalTotal > 0 && currentIntervalRemaining <= 0
+    }
 
+    var isFullQuotaUnused: Bool {
         return currentIntervalTotal > 0 &&
             currentIntervalRemaining >= currentIntervalTotal &&
             currentIntervalUsedCount == 0

@@ -14,6 +14,7 @@ AI Quota Bar is focused on coding-plan consumption: it tracks the remaining quot
 - Configurable refresh interval
 - Warning notifications when quota runs low
 - Secure provider credential storage via Keychain
+- Optional cloud backup of quota snapshots through your own Cloudflare Worker + D1 database
 
 ## Screenshots
 
@@ -105,7 +106,22 @@ The ChatGPT web API is not a public stable API, so response fields can change. A
 
 Existing single-account ChatGPT credentials are migrated into the multi-account storage format automatically when loaded.
 
+## Cloud backup
+
+AI Quota Bar can back up quota snapshots to a Cloudflare D1 database through a small Worker in `cloudflare/`.
+Provider credentials are not uploaded; MiniMax, GLM, and ChatGPT credentials remain in macOS Keychain.
+
+See `cloudflare/README.md` for the Cloudflare setup steps, then paste the deployed Worker URL and sync token into Settings.
+After setup, use **Settings -> Cloud backup -> View remote data** to open a local HTML report of the remote D1 data. The fallback command is `cloudflare/view-remote-data.command`.
+
 ## Release highlights
+
+### 1.4.0
+
+- Added optional Cloudflare Worker + D1 cloud backup for quota snapshots.
+- Added a Settings shortcut to view remote stored quota data as a local HTML report.
+- Kept provider credentials local in Keychain while storing only compact quota history remotely.
+- Added launch-at-login preferences and improved model grouping for exhausted/full quota rows.
 
 ### 1.3.2
 

@@ -1,0 +1,13 @@
+{
+  "name": "ai-quota-bar-sync",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "check": "node --check src/worker.js",
+    "deploy": "wrangler deploy",
+    "db:migrate": "wrangler d1 execute ai-quota-bar --file=./schema.sql"
+  },
+  "devDependencies": {
+    "wrangler": "^4.15.0"
+  }
+}

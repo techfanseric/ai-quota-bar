@@ -119,6 +119,8 @@ enum AppLanguage: String, CaseIterable, Codable, Identifiable {
             case .unknownError: return "Unknown error"
             case .modelSelectionLabel: return "Display model"
             case .modelSelectionPlaceholder: return "Select a model"
+            case .launchAtLogin: return "Launch at login"
+            case .launchAtLoginDescription: return "Automatically start AIQuotaBar when you log in."
             }
         case .simplifiedChinese:
             switch key {
@@ -207,6 +209,8 @@ enum AppLanguage: String, CaseIterable, Codable, Identifiable {
             case .unknownError: return "未知错误"
             case .modelSelectionLabel: return "显示模型"
             case .modelSelectionPlaceholder: return "选择模型"
+            case .launchAtLogin: return "登录时启动"
+            case .launchAtLoginDescription: return "登录时自动启动 AIQuotaBar。"
             }
         }
     }
@@ -632,6 +636,114 @@ enum AppLanguage: String, CaseIterable, Codable, Identifiable {
             return text(.errorNotConfigured)
         }
     }
+
+    func cloudSyncEyebrowText() -> String {
+        switch self {
+        case .english:
+            return "Cloud"
+        case .simplifiedChinese:
+            return "云端"
+        }
+    }
+
+    func cloudSyncTitleText() -> String {
+        switch self {
+        case .english:
+            return "Cloud backup"
+        case .simplifiedChinese:
+            return "云端备份"
+        }
+    }
+
+    func cloudSyncDescriptionText() -> String {
+        switch self {
+        case .english:
+            return "Back up quota snapshots to your own free Cloudflare D1 database. Provider credentials stay in Keychain."
+        case .simplifiedChinese:
+            return "把额度快照备份到你自己的免费 Cloudflare D1 数据库。服务商凭据仍只保存在钥匙串。"
+        }
+    }
+
+    func cloudSyncEnableText() -> String {
+        switch self {
+        case .english:
+            return "Enable cloud backup"
+        case .simplifiedChinese:
+            return "启用云端备份"
+        }
+    }
+
+    func cloudSyncEnableDescriptionText() -> String {
+        switch self {
+        case .english:
+            return "Each successful refresh uploads a compact history snapshot in the background."
+        case .simplifiedChinese:
+            return "每次成功刷新后，会在后台上传一份精简历史快照。"
+        }
+    }
+
+    func cloudSyncEndpointText() -> String {
+        switch self {
+        case .english:
+            return "Worker URL"
+        case .simplifiedChinese:
+            return "Worker 地址"
+        }
+    }
+
+    func cloudSyncTokenText() -> String {
+        switch self {
+        case .english:
+            return "Sync token"
+        case .simplifiedChinese:
+            return "同步令牌"
+        }
+    }
+
+    func cloudSyncTokenPlaceholderText() -> String {
+        switch self {
+        case .english:
+            return "Stored in Keychain"
+        case .simplifiedChinese:
+            return "保存在钥匙串"
+        }
+    }
+
+    func cloudSyncTestText() -> String {
+        switch self {
+        case .english:
+            return "Test cloud backup"
+        case .simplifiedChinese:
+            return "测试云端备份"
+        }
+    }
+
+    func cloudSyncTestSuccessText() -> String {
+        switch self {
+        case .english:
+            return "Cloud backup is reachable."
+        case .simplifiedChinese:
+            return "云端备份连接正常。"
+        }
+    }
+
+    func cloudSyncViewDataText() -> String {
+        switch self {
+        case .english:
+            return "View remote data"
+        case .simplifiedChinese:
+            return "查看远程数据"
+        }
+    }
+
+    func cloudSyncReportOpenedText() -> String {
+        switch self {
+        case .english:
+            return "Remote data report opened."
+        case .simplifiedChinese:
+            return "远程数据报表已打开。"
+        }
+    }
 }
 
 enum AppText {
@@ -720,6 +832,8 @@ enum AppText {
     case unknownError
     case modelSelectionLabel
     case modelSelectionPlaceholder
+    case launchAtLogin
+    case launchAtLoginDescription
 }
 
 extension DisplayFormat {

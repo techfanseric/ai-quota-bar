@@ -7,6 +7,7 @@ final class KeychainService {
 
     private let service = "com.techfanseric.aiquotabar"
     private let credentialStoreAccount = "providerCredentials"
+    private let cloudSyncTokenAccount = "cloudSyncToken"
     private let legacyServices = ["com.minimax.usagemonitor"]
     private var cachedCredentialStore: [String: String]?
 
@@ -112,6 +113,19 @@ final class KeychainService {
         return hasCredential(for: .miniMax)
     }
 
+    func saveCloudSyncToken(_ token: String) -> Bool {
+        saveGenericSecret(token, account: cloudSyncTokenAccount)
+    }
+
+    func getCloudSyncToken() -> String? {
+        getGenericSecret(account: cloudSyncTokenAccount)
+    }
+
+    @discardableResult
+    func deleteCloudSyncToken() -> Bool {
+        deleteGenericSecret(account: cloudSyncTokenAccount)
+    }
+
     private func credentialStore() -> [String: String] {
         if let cachedCredentialStore {
             return cachedCredentialStore
@@ -170,5 +184,64 @@ final class KeychainService {
 
         cachedCredentialStore = store
         return true
+    }
+
+    private func saveGenericSecret(_ secret: String, account: String) -> Bool {
+        guard let data = secret.data(using: .utf8) else { return false }
+
+        let query: [String: Any] = [
+            kSecClass as String: kSecClassGenericPassword,
+            kSecAttrService as String: service,
+            kSecAttrAccount as String: account
+        ]
+
+        let update: [String: Any] = [
+            kSecValueData as String: data,
+            kSecAttrAccessible as String: kSecAttrAccessibleWhenUnlocked
+        ]
+
+        let updateStatus = SecItemUpdate(query as CFDictionary, update as CFDictionary)
+        if updateStatus == errSecSuccess {
+            return true
+        }
+
+        guard updateStatus == errSecItemNotFound else { return false }
+
+        var addQuery = query
+        addQuery[kSecValueData as String] = data
+        addQuery[kSecAttrAccessible as String] = kSecAttrAccessibleWhenUnlocked
+
+        return SecItemAdd(addQuery as CFDictionary, nil) == errSecSuccess
+    }
+
+    private func getGenericSecret(account: String) -> String? {
+        let query: [String: Any] = [
+            kSecClass as String: kSecClassGenericPassword,
+            kSecAttrService as String: service,
+            kSecAttrAccount as String: account,
+            kSecReturnData as String: true,
+            kSecMatchLimit as String: kSecMatchLimitOne
+        ]
+
+        var result: AnyObject?
+        let status = SecItemCopyMatching(query as CFDictionary, &result)
+
+        guard status == errSecSuccess,
+              let data = result as? Data else {
+            return nil
+        }
+
+        return String(data: data, encoding: .utf8)
+    }
+
+    private func deleteGenericSecret(account: String) -> Bool {
+        let query: [String: Any] = [
+            kSecClass as String: kSecClassGenericPassword,
+            kSecAttrService as String: service,
+            kSecAttrAccount as String: account
+        ]
+
+        let status = SecItemDelete(query as CFDictionary)
+        return status == errSecSuccess || status == errSecItemNotFound
     }
 }
