@@ -487,8 +487,16 @@ private struct ModelRow: View {
                     Text("·")
                         .foregroundStyle(.tertiary)
 
-                    if model.isWeeklyFull {
+                    if model.isWeeklyUnlimited {
+                        Text(language == .simplifiedChinese ? "周无限制" : "Weekly unlimited")
+                            .font(.system(size: 10, design: .rounded))
+                            .foregroundStyle(.secondary)
+                    } else if model.isWeeklyFull {
                         Text(language.weeklyUnusedText())
+                            .font(.system(size: 10, design: .rounded))
+                            .foregroundStyle(.secondary)
+                    } else if let percent = model.weeklyRemainingPercent, model.weeklyTotal <= 0 {
+                        Text("周 \(percent)%")
                             .font(.system(size: 10, design: .rounded))
                             .foregroundStyle(.secondary)
                     } else {
@@ -572,13 +580,17 @@ private struct QuotaAreaChart: View {
         axisPath.addLine(to: CGPoint(x: layout.plotRect.maxX, y: layout.plotRect.maxY))
         context.stroke(axisPath, with: .color(Color.primary.opacity(0.14)), lineWidth: 1)
 
-        let midY = yPosition(forRemaining: Double(model.currentIntervalTotal) / 2, layout: layout)
+        let yAxisMax = model.currentIntervalYAxisMax
+        let midY = yPosition(forRemaining: yAxisMax / 2, layout: layout)
         var midline = Path()
         midline.move(to: CGPoint(x: layout.plotRect.minX, y: midY))
         midline.addLine(to: CGPoint(x: layout.plotRect.maxX, y: midY))
         context.stroke(midline, with: .color(Color.primary.opacity(0.06)), style: StrokeStyle(lineWidth: 1, dash: [3, 3]))
 
-        context.draw(axisLabel("\(model.currentIntervalTotal)"), at: CGPoint(x: layout.leftAxisLabelX, y: layout.plotRect.minY), anchor: .leading)
+        let topLabel = model.isCurrentIntervalPercentMode
+            ? axisLabel("100%")
+            : axisLabel("\(model.currentIntervalTotal)")
+        context.draw(topLabel, at: CGPoint(x: layout.leftAxisLabelX, y: layout.plotRect.minY), anchor: .leading)
         context.draw(axisLabel("0"), at: CGPoint(x: layout.leftAxisLabelX, y: layout.plotRect.maxY), anchor: .leading)
 
         if let startTime = model.startTime, let endTime = model.endTime {
@@ -654,15 +666,24 @@ private struct QuotaAreaChart: View {
     }
 
     private func plottedSamples(in layout: QuotaChartLayout) -> [CGPoint] {
-        samples
-            .sorted { $0.timestamp < $1.timestamp }
-            .map { plottedPoint(for: $0, layout: layout) }
+        let sorted = samples.sorted { $0.timestamp < $1.timestamp }
+        // 百分比模式下没有历史百分比数据，只画当前点
+        let effective = model.isCurrentIntervalPercentMode && !sorted.isEmpty
+            ? [sorted.last!]
+            : sorted
+        return effective.map { plottedPoint(for: $0, layout: layout) }
     }
 
     private func plottedPoint(for sample: ModelQuotaSample, layout: QuotaChartLayout) -> CGPoint {
-        CGPoint(
+        let yValue: Double
+        if model.isCurrentIntervalPercentMode {
+            yValue = Double(model.currentIntervalRemainingPercent ?? 0)
+        } else {
+            yValue = Double(sample.remaining)
+        }
+        return CGPoint(
             x: xPosition(for: sample.timestamp, layout: layout),
-            y: yPosition(forRemaining: Double(sample.remaining), layout: layout)
+            y: yPosition(forRemaining: yValue, layout: layout)
         )
     }
 
@@ -678,9 +699,10 @@ private struct QuotaAreaChart: View {
     }
 
     private func yPosition(forRemaining remaining: Double, layout: QuotaChartLayout) -> CGFloat {
-        guard model.currentIntervalTotal > 0 else { return layout.plotRect.maxY }
-        let clampedRemaining = min(max(remaining, 0), Double(model.currentIntervalTotal))
-        let ratio = clampedRemaining / Double(model.currentIntervalTotal)
+        let yAxisMax = model.currentIntervalYAxisMax
+        guard yAxisMax > 0 else { return layout.plotRect.maxY }
+        let clampedRemaining = min(max(remaining, 0), yAxisMax)
+        let ratio = clampedRemaining / yAxisMax
         return layout.plotRect.maxY - layout.plotRect.height * ratio
     }
 
@@ -698,7 +720,13 @@ private struct QuotaAreaChart: View {
     }
 
     private func hoverText(for sample: ModelQuotaSample) -> String {
-        "\(tooltipTimeText(for: sample.timestamp)) · \(sample.remaining)"
+        let value: String
+        if model.isCurrentIntervalPercentMode {
+            value = "\(model.currentIntervalRemainingPercent ?? 0)%"
+        } else {
+            value = "\(sample.remaining)"
+        }
+        return "\(tooltipTimeText(for: sample.timestamp)) · \(value)"
     }
 
     private func calloutPosition(for sample: ModelQuotaSample, layout: QuotaChartLayout) -> CGPoint {

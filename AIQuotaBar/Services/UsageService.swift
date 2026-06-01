@@ -54,7 +54,9 @@ final class UsageService {
                 weeklyStartTime: date(fromMilliseconds: model.weeklyStartTime),
                 weeklyEndTime: date(fromMilliseconds: model.weeklyEndTime),
                 valueSuffix: nil,
-                detailText: nil
+                detailText: nil,
+                currentIntervalRemainingPercent: model.currentIntervalRemainingPercent,
+                weeklyRemainingPercent: model.currentWeeklyRemainingPercent
             )
         }
         let trackedModelCount = max(models.count, 1)
@@ -120,7 +122,9 @@ final class UsageService {
             weeklyStartTime: nil,
             weeklyEndTime: nil,
             valueSuffix: normalized.valueSuffix,
-            detailText: glmDetailText(for: limit, used: normalized.used, total: normalized.total)
+            detailText: glmDetailText(for: limit, used: normalized.used, total: normalized.total),
+            currentIntervalRemainingPercent: nil,
+            weeklyRemainingPercent: nil
         )
     }
 
@@ -390,7 +394,9 @@ final class UsageService {
                     weeklyStartTime: nil,
                     weeklyEndTime: nil,
                     valueSuffix: nil,
-                    detailText: "Plan \(planType ?? "unknown") · paste a ChatGPT quota endpoint curl to show remaining model limits"
+                    detailText: "Plan \(planType ?? "unknown") · paste a ChatGPT quota endpoint curl to show remaining model limits",
+                    currentIntervalRemainingPercent: nil,
+                    weeklyRemainingPercent: nil
                 )
             ]
         } else {
@@ -409,7 +415,9 @@ final class UsageService {
                     weeklyStartTime: quota.weeklyStartTime,
                     weeklyEndTime: quota.weeklyEndTime,
                     valueSuffix: quota.valueSuffix,
-                    detailText: quota.detailText(planType: planType)
+                    detailText: quota.detailText(planType: planType),
+                    currentIntervalRemainingPercent: nil,
+                    weeklyRemainingPercent: nil
                 )
             }
         }

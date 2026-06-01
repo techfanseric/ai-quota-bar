@@ -115,6 +115,10 @@ struct ModelUsageData: Codable, Identifiable {
     let weeklyEndTime: Date?
     let valueSuffix: String?
     let detailText: String?
+    /// API 直接返回的当前周期剩余百分比（0-100），为 nil 时回退到按 count 计算
+    let currentIntervalRemainingPercent: Int?
+    /// API 直接返回的周剩余百分比（0-100），为 nil 时回退到按 count 计算
+    let weeklyRemainingPercent: Int?
 
     var id: String {
         guard let accountName, !accountName.isEmpty else {
@@ -134,7 +138,10 @@ struct ModelUsageData: Codable, Identifiable {
     }
 
     var currentIntervalRemainingText: String {
-        "\(currentIntervalRemaining)\(valueSuffix ?? "")"
+        if let percent = currentIntervalRemainingPercent {
+            return "\(percent)%"
+        }
+        return "\(currentIntervalRemaining)\(valueSuffix ?? "")"
     }
 
     // 已用 = 总量 - 剩余
@@ -147,11 +154,18 @@ struct ModelUsageData: Codable, Identifiable {
             return "\(currentIntervalRemaining)% left"
         }
 
+        if currentIntervalTotal <= 0, let percent = currentIntervalRemainingPercent {
+            return "\(percent)% left"
+        }
+
         return "\(currentIntervalUsedCount)/\(currentIntervalTotal)"
     }
 
     var isCurrentIntervalAvailable: Bool {
-        currentIntervalRemaining > 0
+        if let percent = currentIntervalRemainingPercent {
+            return percent > 0
+        }
+        return currentIntervalRemaining > 0
     }
 
     // 周剩余 = API 返回的 weekly_usage_count
@@ -165,17 +179,40 @@ struct ModelUsageData: Codable, Identifiable {
     }
 
     var hasWeeklyLimit: Bool {
-        weeklyTotal > 0
+        if weeklyRemainingPercent != nil {
+            return true
+        }
+        return weeklyTotal > 0
+    }
+
+    /// 周配额是否无限制（API 通过 status=3 或 total=0+percent=100 表达）
+    var isWeeklyUnlimited: Bool {
+        if provider != .miniMax { return false }
+        if let percent = weeklyRemainingPercent, percent >= 100, weeklyTotal <= 0 {
+            return true
+        }
+        return false
+    }
+
+    var weeklyRemainingPercentValue: Double? {
+        guard let percent = weeklyRemainingPercent else { return nil }
+        return Double(percent)
     }
 
     // 当前周期剩余百分比
     var currentIntervalPercentageRemaining: Double {
+        if let percent = currentIntervalRemainingPercent {
+            return Double(percent)
+        }
         guard currentIntervalTotal > 0 else { return 0 }
         return (Double(currentIntervalRemaining) / Double(currentIntervalTotal)) * 100
     }
 
     // 当前周期已用百分比
     var currentIntervalPercentageUsed: Double {
+        if let percent = currentIntervalRemainingPercent {
+            return max(0, 100 - Double(percent))
+        }
         guard currentIntervalTotal > 0 else { return 0 }
         return (Double(currentIntervalUsedCount) / Double(currentIntervalTotal)) * 100
     }
@@ -183,6 +220,22 @@ struct ModelUsageData: Codable, Identifiable {
     var currentIntervalDuration: TimeInterval? {
         guard let startTime, let endTime else { return nil }
         return endTime.timeIntervalSince(startTime)
+    }
+
+    /// 图表 Y 轴上限：有具体计数用计数，否则退到 0-100 百分比
+    var currentIntervalYAxisMax: Double {
+        if currentIntervalTotal > 0 {
+            return Double(currentIntervalTotal)
+        }
+        if currentIntervalRemainingPercent != nil {
+            return 100
+        }
+        return 0
+    }
+
+    /// 是否处于百分比模式（total=0 但 API 返回了百分比）
+    var isCurrentIntervalPercentMode: Bool {
+        currentIntervalTotal <= 0 && currentIntervalRemainingPercent != nil
     }
 
     var isShortCurrentInterval: Bool {
@@ -304,6 +357,13 @@ struct MiniMaxModelRemain: Decodable {
     let currentWeeklyUsageCount: Int
     let weeklyStartTime: Int64
     let weeklyEndTime: Int64
+    let weeklyRemainsTime: Int64?
+    let currentIntervalStatus: Int?
+    let currentIntervalRemainingPercent: Int?
+    let currentWeeklyStatus: Int?
+    let currentWeeklyRemainingPercent: Int?
+    let intervalBoostPermille: Int?
+    let weeklyBoostPermille: Int?
 
     enum CodingKeys: String, CodingKey {
         case modelName = "model_name"
@@ -316,6 +376,13 @@ struct MiniMaxModelRemain: Decodable {
         case currentWeeklyUsageCount = "current_weekly_usage_count"
         case weeklyStartTime = "weekly_start_time"
         case weeklyEndTime = "weekly_end_time"
+        case weeklyRemainsTime = "weekly_remains_time"
+        case currentIntervalStatus = "current_interval_status"
+        case currentIntervalRemainingPercent = "current_interval_remaining_percent"
+        case currentWeeklyStatus = "current_weekly_status"
+        case currentWeeklyRemainingPercent = "current_weekly_remaining_percent"
+        case intervalBoostPermille = "interval_boost_permille"
+        case weeklyBoostPermille = "weekly_boost_permille"
     }
 }
 
@@ -503,10 +570,16 @@ private extension KeyedDecodingContainer {
 
 extension ModelUsageData {
     var isExhaustedCurrentInterval: Bool {
-        currentIntervalTotal > 0 && currentIntervalRemaining <= 0
+        if let percent = currentIntervalRemainingPercent {
+            return percent <= 0
+        }
+        return currentIntervalTotal > 0 && currentIntervalRemaining <= 0
     }
 
     var isFullQuotaUnused: Bool {
+        if let percent = currentIntervalRemainingPercent {
+            return percent >= 100
+        }
         return currentIntervalTotal > 0 &&
             currentIntervalRemaining >= currentIntervalTotal &&
             currentIntervalUsedCount == 0
