@@ -200,17 +200,23 @@ final class UsageService {
 
     /// Fetch current usage data from the active provider API
     func fetchUsage(provider: UsageProvider) async throws -> UsageData {
-        guard let credential = KeychainService.shared.getCredential(for: provider) else {
-            throw UsageError.notConfigured
-        }
-
         switch provider {
-        case .miniMax:
-            return try await fetchMiniMaxUsage(apiKey: credential)
-        case .glm:
-            return try await fetchGLMUsage(credentialInput: credential)
         case .codex:
+            // codexbar 自管凭证（~/.codex + ~/.codexbar），不在 Keychain；
+            // 直接交给适配层处理，未配置会在内部抛 .unauthorized。
             return try await CodexService.shared.fetchUsage()
+        default:
+            guard let credential = KeychainService.shared.getCredential(for: provider) else {
+                throw UsageError.notConfigured
+            }
+            switch provider {
+            case .miniMax:
+                return try await fetchMiniMaxUsage(apiKey: credential)
+            case .glm:
+                return try await fetchGLMUsage(credentialInput: credential)
+            case .codex:
+                return try await CodexService.shared.fetchUsage()
+            }
         }
     }
 
