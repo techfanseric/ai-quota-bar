@@ -20,7 +20,12 @@ let package = Package(
                 .product(name: "CodexBarCore", package: "codexbar")
             ],
             path: "AIQuotaBar",
-            exclude: ["Resources/Assets.xcassets"]
+            exclude: ["Resources/Assets.xcassets", "Tests"]
+        ),
+        .testTarget(
+            name: "AIQuotaBarTests",
+            dependencies: ["AIQuotaBar", .product(name: "CodexBarCore", package: "codexbar")],
+            path: "AIQuotaBar/Tests"
         )
     ]
 )
