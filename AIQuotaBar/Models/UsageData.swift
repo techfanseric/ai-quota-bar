@@ -255,7 +255,7 @@ struct ModelUsageData: Codable, Identifiable {
         guard let end = endTime else { return "—" }
 
         if provider == .codex {
-            return chatGPTResetTimeText(end)
+            return codexResetTimeText(end)
         }
 
         guard let start = startTime else {
@@ -285,7 +285,7 @@ struct ModelUsageData: Codable, Identifiable {
         return formattedDateTime(end)
     }
 
-    private func chatGPTResetTimeText(_ end: Date) -> String {
+    private func codexResetTimeText(_ end: Date) -> String {
         let formatter = formatter
         let loweredName = modelName.lowercased()
         let remaining = end.timeIntervalSince(Date())
