@@ -2,7 +2,7 @@
 
 A macOS menu bar application for monitoring model coding plan quota across providers.
 
-AI Quota Bar is focused on coding-plan consumption: it tracks the remaining quota for supported AI coding models, shows per-model breakdowns, and warns you before a short-interval or subscription quota runs out. It currently supports MiniMax, GLM/Z.ai, and ChatGPT/Codex GPT coding quota snapshots.
+AI Quota Bar is focused on coding-plan consumption: it tracks the remaining quota for supported AI coding models, shows per-model breakdowns, and warns you before a short-interval or subscription quota runs out. It currently supports MiniMax, GLM/Z.ai, and Codex coding quota snapshots.
 
 ## Features
 
@@ -30,7 +30,7 @@ AI Quota Bar is focused on coding-plan consumption: it tracks the remaining quot
 ## Requirements
 
 - macOS 14+
-- MiniMax API key, GLM quota curl command, ChatGPT/Codex session JSON or quota curl command, or any combination of them
+- MiniMax API key, GLM quota curl command, Codex CLI installed and signed in (`codex` command available), or any combination of them
 
 ## Build & Run
 
@@ -53,7 +53,7 @@ make install
 
 1. Click the menu bar icon
 2. Select **Settings**
-3. Enter a MiniMax API key, paste a GLM quota curl command, paste a ChatGPT/Codex session JSON or quota curl command, or configure multiple providers
+3. Enter a MiniMax API key, paste a GLM quota curl command, sign in to Codex via the `codex` CLI, or configure multiple providers
 4. Configured providers refresh together and appear as separate sections in the menu
 5. Adjust refresh interval as needed
 
@@ -91,30 +91,51 @@ GLM quota fields are mapped differently from MiniMax:
 
 Because the GLM credential comes from your browser session, it may expire. If GLM refresh fails after a while, repeat the steps above and paste a fresh curl command.
 
-## ChatGPT/Codex GPT support
+## Codex support
 
-For ChatGPT/Codex GPT coding quota, the app reads ChatGPT web-session usage data and maps the Codex rate-limit windows into the menu:
+Codex quota is fetched by reusing the [`codexbar`](https://github.com/steipete/CodexBar) project as a local SwiftPM dependency (`CodexBarCore`). AI Quota Bar does not talk to ChatGPT/OpenAI endpoints directly; instead it wraps codexbar's `ProviderDescriptor` and lets codexbar choose the best available source:
 
 - `primary_window` is shown as `5h`, with remaining quota displayed as a percentage and reset shown as a time.
 - `secondary_window` is shown as `Weekly`, with remaining quota displayed as a percentage and reset shown as a date.
-- Plan details such as Plus or Pro are shown when returned by the session/usage response.
-- Multiple ChatGPT accounts can be configured, named, tested, and displayed separately.
+- Extra rate-limit windows returned by codexbar (for example the Codex CLI's secondary counters) are mapped to additional rows in the dropdown.
+- `Credits` balance is shown when codexbar reports it.
+- Plan details such as Plus or Pro are shown when returned by the response.
+- Multiple Codex accounts can be configured and displayed separately, each with its own account header in the dropdown.
 
-The easiest setup path is to paste the ChatGPT account/session JSON that contains an `accessToken`; AI Quota Bar uses it with `https://chatgpt.com/backend-api/codex/usage`. You can also paste a copied curl command for the same endpoint from the browser Network panel.
+The Codex section in Settings exposes a **Source mode** picker that matches codexbar's `ProviderSourceMode`:
 
-The ChatGPT web API is not a public stable API, so response fields can change. AI Quota Bar stores provider credentials in one Keychain JSON item and uses a flexible parser that looks for common fields such as utilization percentage, remaining percentage, reset time, `primary_window`, and `secondary_window`.
+- `Auto` — try OAuth, then the local `codex` CLI, then the OpenAI web session, in that order.
+- `OAuth` — only use the local Codex CLI's OAuth credentials.
+- `CLI` — only use the `~/.codex` and `~/.codexbar` config directories read by the CLI.
+- `Web` — only use the OpenAI web session scraped through the local browser cookie store.
 
-Existing single-account ChatGPT credentials are migrated into the multi-account storage format automatically when loaded.
+To add a Codex account, sign in through the official `codex` CLI once on this Mac:
+
+```bash
+codex        # follow the OAuth / sign-in prompt
+```
+
+AI Quota Bar reads the same `~/.codex` directory the CLI writes to, so no extra paste-in step is required. New accounts are picked up automatically by the **Refresh** action in Settings; the **Sign out** button clears the local Codex credentials through codexbar's managed account store. The **Remove** button only hides the account from AI Quota Bar's list without touching the underlying CLI credentials.
+
+The pre-2.0 single-account ChatGPT/Codex GPT flow (paste session JSON or curl) has been removed. Existing stored credentials are not migrated; please re-connect through the `codex` CLI after upgrading.
 
 ## Cloud backup
 
 AI Quota Bar can back up quota snapshots to a Cloudflare D1 database through a small Worker in `cloudflare/`.
-Provider credentials are not uploaded; MiniMax, GLM, and ChatGPT credentials remain in macOS Keychain.
+Provider credentials are not uploaded; MiniMax and GLM credentials remain in macOS Keychain, and Codex accounts live in codexbar's managed account store under `~/.codexbar`.
 
 See `cloudflare/README.md` for the Cloudflare setup steps, then paste the deployed Worker URL and sync token into Settings.
 After setup, use **Settings -> Cloud backup -> View remote data** to open a local HTML report of the remote D1 data. The fallback command is `cloudflare/view-remote-data.command`.
 
 ## Release highlights
+
+### 2.0.0
+
+- Rewrote the Codex/ChatGPT provider on top of the `codexbar` project's `CodexBarCore` library.
+- Replaced the pasted session-JSON / curl setup with `codex` CLI sign-in and codexbar's managed account store.
+- Added a Source mode picker (Auto / OAuth / CLI / Web) and multi-account support that mirrors codexbar.
+- Mapped the Codex rate-limit windows (`5h` and `Weekly`) plus the credits balance into the menu and dropdown, grouped by account.
+- Dropped pre-2.0 ChatGPT Keychain credentials; please re-connect through `codex` CLI after upgrading.
 
 ### 1.4.0
 
