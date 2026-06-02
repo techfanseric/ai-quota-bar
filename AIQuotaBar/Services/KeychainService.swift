@@ -7,11 +7,13 @@ final class KeychainService {
 
     private let service = "com.techfanseric.aiquotabar"
     private let credentialStoreAccount = "providerCredentials"
-    private let cloudSyncTokenAccount = "cloudSyncToken"
+    private let cloudSyncTokenKey = "cloudSyncToken"
     private let legacyServices = ["com.minimax.usagemonitor"]
     private var cachedCredentialStore: [String: String]?
 
-    private init() {}
+    private init() {
+        migrateLegacyCloudSyncToken()
+    }
 
     /// Save provider credential to Keychain
     func saveCredential(_ credential: String, for provider: UsageProvider) -> Bool {
@@ -114,16 +116,50 @@ final class KeychainService {
     }
 
     func saveCloudSyncToken(_ token: String) -> Bool {
-        saveGenericSecret(token, account: cloudSyncTokenAccount)
+        var store = credentialStore()
+        store[cloudSyncTokenKey] = token
+        return saveCredentialStore(store)
     }
 
     func getCloudSyncToken() -> String? {
-        getGenericSecret(account: cloudSyncTokenAccount)
+        credentialStore()[cloudSyncTokenKey]
     }
 
     @discardableResult
     func deleteCloudSyncToken() -> Bool {
-        deleteGenericSecret(account: cloudSyncTokenAccount)
+        var store = credentialStore()
+        store.removeValue(forKey: cloudSyncTokenKey)
+        return saveCredentialStore(store)
+    }
+
+    private func migrateLegacyCloudSyncToken() {
+        let legacyAccount = "cloudSyncToken"
+        let query: [String: Any] = [
+            kSecClass as String: kSecClassGenericPassword,
+            kSecAttrService as String: service,
+            kSecAttrAccount as String: legacyAccount,
+            kSecReturnData as String: true,
+            kSecMatchLimit as String: kSecMatchLimitOne
+        ]
+
+        var result: AnyObject?
+        let status = SecItemCopyMatching(query as CFDictionary, &result)
+        guard status == errSecSuccess,
+              let data = result as? Data,
+              let token = String(data: data, encoding: .utf8),
+              !token.isEmpty,
+              credentialStore()[cloudSyncTokenKey] == nil else {
+            return
+        }
+
+        _ = saveCloudSyncToken(token)
+
+        let deleteQuery: [String: Any] = [
+            kSecClass as String: kSecClassGenericPassword,
+            kSecAttrService as String: service,
+            kSecAttrAccount as String: legacyAccount
+        ]
+        SecItemDelete(deleteQuery as CFDictionary)
     }
 
     private func credentialStore() -> [String: String] {
