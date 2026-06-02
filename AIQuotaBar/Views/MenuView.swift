@@ -58,13 +58,23 @@ struct MenuView: View {
                 .padding(.bottom, 8)
 
                 ForEach(sections, id: \.provider) { data in
-                    ProviderModelsSection(
-                        data: data,
-                        language: language,
-                        warningThreshold: viewModel.warningThreshold,
-                        samples: viewModel.samples(for:),
-                        onLayoutChange: onLayoutChange
-                    )
+                    if data.provider == .codex && data.models.isEmpty {
+                        MenuPlaceholderCard(
+                            icon: "terminal.fill",
+                            title: language.codexMenuNotConfiguredTitle(),
+                            message: language.codexMenuNotConfiguredMessage(),
+                            primaryActionTitle: language.text(.settings),
+                            primaryAction: onOpenSettings
+                        )
+                    } else {
+                        ProviderModelsSection(
+                            data: data,
+                            language: language,
+                            warningThreshold: viewModel.warningThreshold,
+                            samples: viewModel.samples(for:),
+                            onLayoutChange: onLayoutChange
+                        )
+                    }
                 }
 
                 if !viewModel.providerErrors.isEmpty {
@@ -88,6 +98,14 @@ struct MenuView: View {
                     }
                 }
             }
+        } else if shouldShowCodexEmptyState {
+            MenuPlaceholderCard(
+                icon: "terminal.fill",
+                title: language.codexMenuNotConfiguredTitle(),
+                message: language.codexMenuNotConfiguredMessage(),
+                primaryActionTitle: language.text(.settings),
+                primaryAction: onOpenSettings
+            )
         } else if !viewModel.hasAPIKey {
             MenuPlaceholderCard(
                 icon: "key.fill",
@@ -149,6 +167,15 @@ struct MenuView: View {
             .buttonStyle(.plain)
         }
         .padding(.horizontal, 4)
+    }
+
+    /// 当 Codex 是唯一已配置且尚未拉到数据时，触发 codex 专属占位
+    /// （避免退化成通用的 "API key not configured" 提示）。
+    private var shouldShowCodexEmptyState: Bool {
+        !viewModel.isLoading
+            && viewModel.error == nil
+            && viewModel.usageData == nil
+            && viewModel.configuredProviders == [.codex]
     }
 }
 
@@ -249,34 +276,62 @@ private struct ProviderModelsSection: View {
         sortedMenuModels(data.models).filter(\.isFullQuotaUnused)
     }
 
+    /// 按 `accountName` 分组（nil/空归入 nil bucket）。
+    /// 返回的顺序：nil 桶最后，已命名的桶按字典序升序。
+    private var groupedVisibleModels: [(accountName: String?, models: [ModelUsageData])] {
+        let named = Dictionary(grouping: visibleModels) { model -> String? in
+            guard let account = model.accountName, !account.isEmpty else { return nil }
+            return account
+        }
+        let sortedNames = named.keys
+            .compactMap { $0 }
+            .sorted { $0.localizedStandardCompare($1) == .orderedAscending }
+
+        var groups: [(accountName: String?, models: [ModelUsageData])] = []
+        for name in sortedNames {
+            if let bucketModels = named[name] {
+                groups.append((name, sortedMenuModels(bucketModels)))
+            }
+        }
+        if let unassigned = named[nil], !unassigned.isEmpty {
+            groups.append((nil, sortedMenuModels(unassigned)))
+        }
+        return groups
+    }
+
+    /// 多个 distinct 非空 accountName 才需要子分组头。
+    private var shouldShowAccountSubHeaders: Bool {
+        let namedAccounts = Set(data.models.compactMap { model -> String? in
+            guard let account = model.accountName, !account.isEmpty else { return nil }
+            return account
+        })
+        return namedAccounts.count > 1
+    }
+
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
-            HStack {
-                Text(data.provider.displayName)
-                    .font(.system(size: 11, weight: .semibold))
-                    .foregroundStyle(.secondary)
-
-                Spacer()
-
-                Text(language.menuBarCompactText(ready: data.readyModelsCount, total: data.modelCount))
-                    .font(.system(size: 10, weight: .medium, design: .rounded))
-                    .foregroundStyle(.secondary)
+            if !shouldShowAccountSubHeaders {
+                providerHeader
             }
-            .padding(.horizontal, 8)
-            .padding(.top, 6)
-            .padding(.bottom, 2)
 
-            ForEach(Array(visibleModels.enumerated()), id: \.element.id) { index, model in
-                ModelRow(
-                    model: model,
-                    language: language,
-                    warningThreshold: warningThreshold,
-                    samples: samples(model)
-                )
+            ForEach(Array(groupedVisibleModels.enumerated()), id: \.element.accountName) { groupIndex, group in
+                if shouldShowAccountSubHeaders {
+                    accountSubHeader(for: group)
+                }
 
-                if index < visibleModels.count - 1 {
-                    Spacer()
-                        .frame(height: 1)
+                let rows = group.models
+                ForEach(Array(rows.enumerated()), id: \.element.id) { index, model in
+                    ModelRow(
+                        model: model,
+                        language: language,
+                        warningThreshold: warningThreshold,
+                        samples: samples(model)
+                    )
+
+                    if !(index == rows.count - 1 && groupIndex == groupedVisibleModels.count - 1) {
+                        Spacer()
+                            .frame(height: 1)
+                    }
                 }
             }
 
@@ -328,6 +383,67 @@ private struct ProviderModelsSection: View {
         }
     }
 
+    @ViewBuilder
+    private var providerHeader: some View {
+        HStack {
+            Text(data.provider.displayName)
+                .font(.system(size: 11, weight: .semibold))
+                .foregroundStyle(.secondary)
+
+            Spacer()
+
+            Text(language.menuBarCompactText(ready: data.readyModelsCount, total: data.modelCount))
+                .font(.system(size: 10, weight: .medium, design: .rounded))
+                .foregroundStyle(.secondary)
+        }
+        .padding(.horizontal, 8)
+        .padding(.top, 6)
+        .padding(.bottom, 2)
+    }
+
+    @ViewBuilder
+    private func accountSubHeader(for group: (accountName: String?, models: [ModelUsageData])) -> some View {
+        let anchor = group.models.first
+        let parsed = parseDetail(anchor?.detailText)
+        let plan = parsed.plan
+        let source = parsed.source
+        let timestampText = shortClockText(from: data.timestamp)
+
+        HStack(spacing: 6) {
+            Text(group.accountName ?? data.provider.displayName)
+                .font(.system(size: 11, weight: .semibold))
+                .foregroundStyle(.secondary)
+                .lineLimit(1)
+
+            if let plan, !plan.isEmpty {
+                Text("(\(plan))")
+                    .font(.system(size: 10))
+                    .foregroundStyle(.tertiary)
+                    .lineLimit(1)
+            }
+
+            Spacer()
+
+            if let source, !source.isEmpty {
+                Text(source)
+                    .font(.system(size: 10, weight: .medium, design: .rounded))
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+
+                Text("·")
+                    .font(.system(size: 10))
+                    .foregroundStyle(.tertiary)
+            }
+
+            Text(timestampText)
+                .font(.system(size: 10, weight: .medium, design: .rounded))
+                .foregroundStyle(.secondary)
+        }
+        .padding(.horizontal, 8)
+        .padding(.top, 6)
+        .padding(.bottom, 2)
+    }
+
     private func sortedMenuModels(_ models: [ModelUsageData]) -> [ModelUsageData] {
         models.sorted { lhs, rhs in
             lhs.isOrderedBeforeInMenu(rhs)
@@ -341,6 +457,32 @@ private struct ProviderModelsSection: View {
                 onLayoutChange()
             }
         }
+    }
+
+    /// 把 CodexUsageDataMapper 写入的 detailText（"Plan Pro · oauth · resets 04/08 00:00"）
+    /// 拆出 plan 和 source 两段；找不到就返回 nil。
+    private func parseDetail(_ detailText: String?) -> (plan: String?, source: String?) {
+        guard let detailText, !detailText.isEmpty else { return (nil, nil) }
+        let parts = detailText.components(separatedBy: " · ")
+        var plan: String?
+        var source: String?
+        for part in parts {
+            if part.hasPrefix("Plan "), plan == nil {
+                plan = String(part.dropFirst("Plan ".count))
+            } else if part.hasPrefix("resets "), source == nil {
+                // resets 段不算 source；它出现在最后
+            } else if source == nil, !part.isEmpty {
+                source = part
+            }
+        }
+        return (plan, source)
+    }
+
+    private func shortClockText(from date: Date) -> String {
+        let formatter = DateFormatter()
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        formatter.dateFormat = "HH:mm"
+        return formatter.string(from: date)
     }
 }
 
