@@ -231,13 +231,13 @@ enum AppLanguage: String, CaseIterable, Codable, Identifiable {
         case (.english, .glm):
             return "Paste GLM quota curl command"
         case (.english, .codex):
-            return "Paste ChatGPT quota curl command"
+            return "Codex account email"
         case (.simplifiedChinese, .miniMax):
             return "MiniMax API Key"
         case (.simplifiedChinese, .glm):
             return "粘贴 GLM 额度接口 curl 命令"
         case (.simplifiedChinese, .codex):
-            return "粘贴 ChatGPT 额度接口 curl 命令"
+            return "Codex 账号邮箱"
         }
     }
 
@@ -248,26 +248,26 @@ enum AppLanguage: String, CaseIterable, Codable, Identifiable {
         case (.english, .glm):
             return "Required fields are the quota endpoint URL and authorization header; organization, project, and cookie are preserved when present."
         case (.english, .codex):
-            return "Copy the ChatGPT web request that returns plan or quota data as curl. Authorization and cookies are stored in Keychain."
+            return "Codex is configured through the codexbar subsystem. Use the Codex section above to manage accounts and source mode."
         case (.simplifiedChinese, .miniMax):
             return "填入 MiniMax coding plan remains 接口使用的 Bearer token。"
         case (.simplifiedChinese, .glm):
             return "至少需要额度接口 URL 和 authorization 头；如果 curl 里有组织、项目和 cookie，也会一并保存用于请求。"
         case (.simplifiedChinese, .codex):
-            return "从 ChatGPT 网页端复制返回套餐或额度数据的请求为 curl。authorization 和 cookie 会保存在钥匙串里。"
+            return "Codex 通过 codexbar 子系统配置。请使用上方的 Codex 区管理账号和数据源模式。"
         }
     }
 
-    func chatGPTAccountsHelpText() -> String {
+    func codexAccountsHelpText() -> String {
         switch self {
         case .english:
-            return "Add one entry per ChatGPT account. Each account is stored separately inside the Keychain credential set and refreshed together."
+            return "Codex reads usage via the codexbar subsystem. Choose a source mode; the app will pick a matching account automatically."
         case .simplifiedChinese:
-            return "每个 ChatGPT 账号添加一条。所有账号会分别保存在钥匙串的凭据集合里，并一起刷新。"
+            return "Codex 通过 codexbar 子系统读取额度。请选择数据源模式，App 会自动选用匹配的账号。"
         }
     }
 
-    func addChatGPTAccountText() -> String {
+    func codexAccountAddButtonText() -> String {
         switch self {
         case .english:
             return "Add account"
@@ -276,21 +276,75 @@ enum AppLanguage: String, CaseIterable, Codable, Identifiable {
         }
     }
 
-    func chatGPTAccountNamePlaceholder() -> String {
+    func codexAccountEmptyStateText() -> String {
         switch self {
         case .english:
-            return "Account name"
+            return "Codex not configured — run `codex` in Terminal to sign in, then click Add account."
         case .simplifiedChinese:
-            return "账号名称"
+            return "尚未配置 Codex —— 请先在终端运行 `codex` 完成登录，再点击「添加账号」。"
         }
     }
 
-    func defaultChatGPTAccountName(_ index: Int) -> String {
+    func codexAccountRefreshButtonText() -> String {
         switch self {
         case .english:
-            return "Account \(index)"
+            return "Refresh"
         case .simplifiedChinese:
-            return "账号 \(index)"
+            return "刷新"
+        }
+    }
+
+    func codexAccountSignOutButtonText() -> String {
+        switch self {
+        case .english:
+            return "Sign out"
+        case .simplifiedChinese:
+            return "退出登录"
+        }
+    }
+
+    func codexAccountRemoveButtonText() -> String {
+        switch self {
+        case .english:
+            return "Remove"
+        case .simplifiedChinese:
+            return "移除"
+        }
+    }
+
+    func codexSourceModeLabel() -> String {
+        switch self {
+        case .english:
+            return "Source"
+        case .simplifiedChinese:
+            return "数据源"
+        }
+    }
+
+    func codexSourceModeDisplayName(_ mode: CodexDataSourceMode) -> String {
+        switch (self, mode) {
+        case (.english, .auto): return "Auto"
+        case (.english, .oauth): return "OAuth"
+        case (.english, .cli): return "CLI"
+        case (.english, .web): return "Web dashboard"
+        case (.simplifiedChinese, .auto): return "自动"
+        case (.simplifiedChinese, .oauth): return "OAuth"
+        case (.simplifiedChinese, .cli): return "CLI"
+        case (.simplifiedChinese, .web): return "Web 控制台"
+        }
+    }
+
+    func codexLastRefreshedText(_ date: Date) -> String {
+        let formatter = DateFormatter()
+        formatter.locale = Locale(identifier: rawValue)
+        formatter.timeZone = TimeZone(identifier: "Asia/Shanghai")
+        formatter.dateFormat = "MM-dd HH:mm"
+        let formatted = formatter.string(from: date)
+        switch self {
+        case .english:
+            return "Last refreshed \(formatted)"
+        case .simplifiedChinese:
+            return "上次刷新 \(formatted)"
         }
     }
 

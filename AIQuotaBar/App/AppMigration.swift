@@ -5,8 +5,6 @@ enum AppMigration {
     private static let legacyBundleID = "com.minimax.usagemonitor"
     private static let migratedDefaultsKey = "didMigrateDefaultsFromLegacyBundle"
     private static let codexMigrationKey = "codexMigration_v1"
-    private static let keychainService = "com.techfanseric.aiquotabar"
-    private static let legacyChatGPTCredentialAccount = "chatGPTCredential"
 
     static func migrateLegacyDefaultsIfNeeded() {
         let currentDefaults = UserDefaults.standard
@@ -37,14 +35,14 @@ enum AppMigration {
 
         let query: [String: Any] = [
             kSecClass as String: kSecClassGenericPassword,
-            kSecAttrService as String: keychainService,
-            kSecAttrAccount as String: legacyChatGPTCredentialAccount
+            kSecAttrService as String: KeychainService.service,
+            kSecAttrAccount as String: UsageProvider.legacyChatGPTKeychainAccount
         ]
         _ = SecItemDelete(query as CFDictionary)
 
-        if let oldProvider = defaults.string(forKey: "usageProvider"),
+        if let oldProvider = defaults.string(forKey: UsageProvider.storageKey),
            oldProvider == "chatgpt" {
-            defaults.set("codex", forKey: "usageProvider")
+            defaults.set(UsageProvider.codex.rawValue, forKey: UsageProvider.storageKey)
         }
 
         defaults.set(true, forKey: codexMigrationKey)

@@ -5,7 +5,8 @@ import Security
 final class KeychainService {
     static let shared = KeychainService()
 
-    private let service = "com.techfanseric.aiquotabar"
+    static let service = "com.techfanseric.aiquotabar"
+
     private let credentialStoreAccount = "providerCredentials"
     private let cloudSyncTokenKey = "cloudSyncToken"
     private let legacyServices = ["com.minimax.usagemonitor"]
@@ -28,7 +29,7 @@ final class KeychainService {
             return credential
         }
 
-        if let credential = credential(for: provider, service: service) {
+        if let credential = credential(for: provider, service: Self.service) {
             var store = credentialStore()
             store[provider.rawValue] = credential
             _ = saveCredentialStore(store)
@@ -50,7 +51,7 @@ final class KeychainService {
     private func credential(for provider: UsageProvider, service: String) -> String? {
         let query: [String: Any] = [
             kSecClass as String: kSecClassGenericPassword,
-            kSecAttrService as String: service,
+            kSecAttrService as String: Self.service,
             kSecAttrAccount as String: provider.keychainAccount,
             kSecReturnData as String: true,
             kSecMatchLimit as String: kSecMatchLimitOne
@@ -75,10 +76,10 @@ final class KeychainService {
         store.removeValue(forKey: provider.rawValue)
         let storeSaved = saveCredentialStore(store)
 
-        let oldItemsDeleted = ([service] + legacyServices).allSatisfy { service in
+        let oldItemsDeleted = ([Self.service] + legacyServices).allSatisfy { service in
             let query: [String: Any] = [
                 kSecClass as String: kSecClassGenericPassword,
-                kSecAttrService as String: service,
+                kSecAttrService as String: Self.service,
                 kSecAttrAccount as String: provider.keychainAccount
             ]
 
@@ -136,7 +137,7 @@ final class KeychainService {
         let legacyAccount = "cloudSyncToken"
         let query: [String: Any] = [
             kSecClass as String: kSecClassGenericPassword,
-            kSecAttrService as String: service,
+            kSecAttrService as String: Self.service,
             kSecAttrAccount as String: legacyAccount,
             kSecReturnData as String: true,
             kSecMatchLimit as String: kSecMatchLimitOne
@@ -156,7 +157,7 @@ final class KeychainService {
 
         let deleteQuery: [String: Any] = [
             kSecClass as String: kSecClassGenericPassword,
-            kSecAttrService as String: service,
+            kSecAttrService as String: Self.service,
             kSecAttrAccount as String: legacyAccount
         ]
         SecItemDelete(deleteQuery as CFDictionary)
@@ -169,7 +170,7 @@ final class KeychainService {
 
         let query: [String: Any] = [
             kSecClass as String: kSecClassGenericPassword,
-            kSecAttrService as String: service,
+            kSecAttrService as String: Self.service,
             kSecAttrAccount as String: credentialStoreAccount,
             kSecReturnData as String: true,
             kSecMatchLimit as String: kSecMatchLimitOne
@@ -194,7 +195,7 @@ final class KeychainService {
 
         let query: [String: Any] = [
             kSecClass as String: kSecClassGenericPassword,
-            kSecAttrService as String: service,
+            kSecAttrService as String: Self.service,
             kSecAttrAccount as String: credentialStoreAccount
         ]
 
@@ -227,7 +228,7 @@ final class KeychainService {
 
         let query: [String: Any] = [
             kSecClass as String: kSecClassGenericPassword,
-            kSecAttrService as String: service,
+            kSecAttrService as String: Self.service,
             kSecAttrAccount as String: account
         ]
 
@@ -253,7 +254,7 @@ final class KeychainService {
     private func getGenericSecret(account: String) -> String? {
         let query: [String: Any] = [
             kSecClass as String: kSecClassGenericPassword,
-            kSecAttrService as String: service,
+            kSecAttrService as String: Self.service,
             kSecAttrAccount as String: account,
             kSecReturnData as String: true,
             kSecMatchLimit as String: kSecMatchLimitOne
@@ -273,7 +274,7 @@ final class KeychainService {
     private func deleteGenericSecret(account: String) -> Bool {
         let query: [String: Any] = [
             kSecClass as String: kSecClassGenericPassword,
-            kSecAttrService as String: service,
+            kSecAttrService as String: Self.service,
             kSecAttrAccount as String: account
         ]
 
