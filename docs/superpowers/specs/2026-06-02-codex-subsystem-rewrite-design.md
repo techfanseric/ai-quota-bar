@@ -4,6 +4,13 @@
 **Status**: Approved (pending user spec review)
 **Scope**: 替换 ai-quota-bar 中现有的 ChatGPT/Codex GPT 读取与展示实现，全面对齐 codexbar 的 Codex 子系统
 
+## 实施偏差记录
+
+| 项 | 计划 | 实际 | 理由 |
+|---|---|---|---|
+| `swift-tools-version` | 6.2 | 5.9 | 升级 6.2 触发 ai-quota-bar 现有 `static let shared` 单例的 strict concurrency `MutableGlobalVariable` 错误（多个文件），超出本计划范围。codexbar 6.2 dep 在 5.9 caller 下可正常 resolve 与编译 |
+| CodexBarCore 路径（worktree 视角） | `../codexbar` | `../../../codexbar` | plan 写路径时未考虑 worktree 在 `.worktrees/codex-rewrite/` 下。合并到 main 前最后一次 commit 把路径改回 `../codexbar` |
+
 ---
 
 ## 1. 背景与目标
