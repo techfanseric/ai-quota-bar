@@ -397,7 +397,8 @@ final class UsageViewModel: ObservableObject {
             let clampedTimestamp = min(max(timestamp, startTime), endTime)
             let newSample = ModelQuotaSample(
                 timestamp: clampedTimestamp,
-                remaining: model.currentIntervalRemaining
+                remaining: model.currentIntervalRemaining,
+                percent: model.currentIntervalRemainingPercent
             )
 
             var samples = (modelQuotaSamples[model.id] ?? [])

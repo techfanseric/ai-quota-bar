@@ -604,6 +604,24 @@ private struct QuotaAreaChart: View {
         guard !points.isEmpty else { return }
 
         if points.count == 1, let point = points.first {
+            var areaPath = Path()
+            areaPath.move(to: CGPoint(x: layout.plotRect.minX, y: layout.plotRect.maxY))
+            areaPath.addLine(to: CGPoint(x: layout.plotRect.minX, y: point.y))
+            areaPath.addLine(to: CGPoint(x: point.x, y: point.y))
+            areaPath.addLine(to: CGPoint(x: point.x, y: layout.plotRect.maxY))
+            areaPath.closeSubpath()
+            context.fill(
+                areaPath,
+                with: .linearGradient(
+                    Gradient(colors: [
+                        tint.opacity(0.22),
+                        tint.opacity(0.03)
+                    ]),
+                    startPoint: CGPoint(x: 0, y: layout.plotRect.minY),
+                    endPoint: CGPoint(x: 0, y: layout.plotRect.maxY)
+                )
+            )
+
             var guide = Path()
             guide.move(to: CGPoint(x: point.x, y: layout.plotRect.maxY))
             guide.addLine(to: point)
@@ -667,17 +685,20 @@ private struct QuotaAreaChart: View {
 
     private func plottedSamples(in layout: QuotaChartLayout) -> [CGPoint] {
         let sorted = samples.sorted { $0.timestamp < $1.timestamp }
-        // 百分比模式下没有历史百分比数据，只画当前点
-        let effective = model.isCurrentIntervalPercentMode && !sorted.isEmpty
-            ? [sorted.last!]
-            : sorted
+        let effective: [ModelQuotaSample]
+        if model.isCurrentIntervalPercentMode {
+            let withPercent = sorted.filter { $0.percent != nil }
+            effective = withPercent.isEmpty && !sorted.isEmpty ? [sorted.last!] : withPercent
+        } else {
+            effective = sorted
+        }
         return effective.map { plottedPoint(for: $0, layout: layout) }
     }
 
     private func plottedPoint(for sample: ModelQuotaSample, layout: QuotaChartLayout) -> CGPoint {
         let yValue: Double
         if model.isCurrentIntervalPercentMode {
-            yValue = Double(model.currentIntervalRemainingPercent ?? 0)
+            yValue = Double(sample.percent ?? model.currentIntervalRemainingPercent ?? 0)
         } else {
             yValue = Double(sample.remaining)
         }
@@ -722,7 +743,7 @@ private struct QuotaAreaChart: View {
     private func hoverText(for sample: ModelQuotaSample) -> String {
         let value: String
         if model.isCurrentIntervalPercentMode {
-            value = "\(model.currentIntervalRemainingPercent ?? 0)%"
+            value = "\(sample.percent ?? model.currentIntervalRemainingPercent ?? 0)%"
         } else {
             value = "\(sample.remaining)"
         }
