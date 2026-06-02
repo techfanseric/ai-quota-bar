@@ -18,7 +18,8 @@ struct CodexSection: View {
     @Binding var accounts: [CodexAccountDraft]
     let onAdd: () -> Void
     let onRemove: (String) -> Void
-    let onRefresh: () -> Void
+    let onRefresh: (String) -> Void
+    let onSignOut: (String) -> Void
     let onSourceModeChange: (CodexDataSourceMode) -> Void
     @State private var showingAddAlert: Bool = false
 
@@ -58,6 +59,8 @@ struct CodexSection: View {
                         CodexAccountRow(
                             account: account,
                             language: language,
+                            onRefresh: { onRefresh(account.id) },
+                            onSignOut: { onSignOut(account.id) },
                             onRemove: { onRemove(account.id) })
                     }
                 }
@@ -78,14 +81,6 @@ struct CodexSection: View {
                 }
 
                 Spacer()
-
-                Button {
-                    onRefresh()
-                } label: {
-                    Label(language.codexAccountRefreshButtonText(), systemImage: "arrow.triangle.2.circlepath")
-                }
-                .buttonStyle(.bordered)
-                .controlSize(.small)
             }
         }
     }
@@ -94,6 +89,8 @@ struct CodexSection: View {
 private struct CodexAccountRow: View {
     let account: CodexAccountDraft
     let language: AppLanguage
+    let onRefresh: () -> Void
+    let onSignOut: () -> Void
     let onRemove: () -> Void
 
     var body: some View {
@@ -133,6 +130,22 @@ private struct CodexAccountRow: View {
             }
 
             HStack(spacing: 8) {
+                Button {
+                    onRefresh()
+                } label: {
+                    Label(language.codexAccountRefreshButtonText(), systemImage: "arrow.triangle.2.circlepath")
+                }
+                .buttonStyle(.bordered)
+                .controlSize(.small)
+
+                Button {
+                    onSignOut()
+                } label: {
+                    Label(language.codexAccountSignOutButtonText(), systemImage: "rectangle.portrait.and.arrow.right")
+                }
+                .buttonStyle(.bordered)
+                .controlSize(.small)
+
                 Spacer()
 
                 Button(role: .destructive) {

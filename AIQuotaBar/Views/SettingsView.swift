@@ -133,7 +133,8 @@ struct SettingsView: View {
                     accounts: $codexAccounts,
                     onAdd: addCodexAccount,
                     onRemove: removeCodexAccount,
-                    onRefresh: refreshCodexAccount,
+                    onRefresh: refreshCodexAccount(id:),
+                    onSignOut: signOutCodexAccount(id:),
                     onSourceModeChange: updateCodexSourceMode
                 )
             }
@@ -451,8 +452,13 @@ struct SettingsView: View {
         codexAccounts = CodexAccountCoordinator.shared.listAccountDrafts()
     }
 
-    private func refreshCodexAccount() {
+    private func refreshCodexAccount(id: String) {
         Task { await viewModel.refresh() }
+    }
+
+    private func signOutCodexAccount(id: String) {
+        CodexAccountCoordinator.shared.removeAccount(id: id)
+        codexAccounts = CodexAccountCoordinator.shared.listAccountDrafts()
     }
 
     private func updateCodexSourceMode(_ newMode: CodexDataSourceMode) {
