@@ -22,13 +22,10 @@ final class UsageService {
             return credential.trimmingCharacters(in: .whitespacesAndNewlines)
         case .glm:
             return try GLMCredential.parse(credential).storageString
-        case .chatGPT:
-            return try ChatGPTCredentialCollection.parseStorage(credential).storageString
+        case .codex:
+            // 适配层 CodexService 自管凭证存储；这里不再校验
+            return credential.trimmingCharacters(in: .whitespacesAndNewlines)
         }
-    }
-
-    func prepareChatGPTCredentialsForStorage(_ credentials: [(id: String, name: String, credentialInput: String)]) throws -> String {
-        try ChatGPTCredentialCollection.storageString(from: credentials)
     }
 
     private func decodeMiniMaxUsageData(from data: Data) throws -> UsageData {
@@ -212,8 +209,8 @@ final class UsageService {
             return try await fetchMiniMaxUsage(apiKey: credential)
         case .glm:
             return try await fetchGLMUsage(credentialInput: credential)
-        case .chatGPT:
-            return try await fetchChatGPTAccountsUsage(credentialInput: credential)
+        case .codex:
+            return try await CodexService.shared.fetchUsage()
         }
     }
 
@@ -323,7 +320,7 @@ final class UsageService {
         }
 
         return UsageData(
-            provider: .chatGPT,
+            provider: .codex,
             remains: models.filter(\.isCurrentIntervalAvailable).count,
             total: models.count,
             timestamp: timestamp,
@@ -381,7 +378,7 @@ final class UsageService {
             let planName = planType.map { "ChatGPT \($0.capitalized)" } ?? "ChatGPT account"
             models = [
                 ModelUsageData(
-                    provider: .chatGPT,
+                    provider: .codex,
                     accountName: accountName,
                     modelName: planName,
                     currentIntervalTotal: 1,
@@ -402,7 +399,7 @@ final class UsageService {
         } else {
             models = quotaModels.map { quota in
                 ModelUsageData(
-                    provider: .chatGPT,
+                    provider: .codex,
                     accountName: accountName,
                     modelName: quota.name,
                     currentIntervalTotal: quota.total,
@@ -426,7 +423,7 @@ final class UsageService {
         let readyModelsCount = models.filter(\.isCurrentIntervalAvailable).count
 
         return UsageData(
-            provider: .chatGPT,
+            provider: .codex,
             remains: readyModelsCount,
             total: trackedModelCount,
             timestamp: Date(),
@@ -1062,8 +1059,8 @@ final class UsageService {
             return try await testMiniMaxConnection(apiKey: credential)
         case .glm:
             return try await testGLMConnection(credentialInput: credential)
-        case .chatGPT:
-            return try await testChatGPTConnection(credentialInput: credential)
+        case .codex:
+            return try await CodexService.shared.testConnection()
         }
     }
 
@@ -1103,11 +1100,6 @@ final class UsageService {
 
     private func testGLMConnection(credentialInput: String) async throws -> Bool {
         _ = try await fetchGLMUsage(credentialInput: credentialInput)
-        return true
-    }
-
-    private func testChatGPTConnection(credentialInput: String) async throws -> Bool {
-        _ = try await fetchChatGPTUsage(credentialInput: credentialInput)
         return true
     }
 }
