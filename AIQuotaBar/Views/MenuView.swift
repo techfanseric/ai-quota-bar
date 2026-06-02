@@ -564,17 +564,17 @@ private struct ModelRow: View {
                 GeometryReader { geo in
                     ZStack(alignment: .leading) {
                         Capsule()
-                            .fill(Color.primary.opacity(0.08))
-                            .frame(height: 5)
+                            .fill(Color.primary.opacity(0.22))
+                            .frame(height: 6)
 
                         if model.currentIntervalBarPercent > 0 {
                             Capsule()
                                 .fill(tint)
-                                .frame(width: geo.size.width * model.currentIntervalBarPercent / 100, height: 5)
+                                .frame(width: geo.size.width * model.currentIntervalBarPercent / 100, height: 6)
                         }
                     }
                 }
-                .frame(height: 5)
+                .frame(height: 6)
             }
 
             HStack(spacing: 8) {
