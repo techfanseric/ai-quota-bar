@@ -309,12 +309,13 @@ private struct ProviderModelsSection: View {
     }
 
     var body: some View {
+        let groups = groupedVisibleModels
         VStack(alignment: .leading, spacing: 0) {
             if !shouldShowAccountSubHeaders {
                 providerHeader
             }
 
-            ForEach(Array(groupedVisibleModels.enumerated()), id: \.element.accountName) { groupIndex, group in
+            ForEach(Array(groups.enumerated()), id: \.offset) { groupIndex, group in
                 if shouldShowAccountSubHeaders {
                     accountSubHeader(for: group)
                 }
@@ -328,7 +329,7 @@ private struct ProviderModelsSection: View {
                         samples: samples(model)
                     )
 
-                    if !(index == rows.count - 1 && groupIndex == groupedVisibleModels.count - 1) {
+                    if !(index == rows.count - 1 && groupIndex == groups.count - 1) {
                         Spacer()
                             .frame(height: 1)
                     }
