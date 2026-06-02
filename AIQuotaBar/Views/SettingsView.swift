@@ -453,10 +453,13 @@ struct SettingsView: View {
     }
 
     private func refreshCodexAccount(id: String) {
+        // 单账号模型下 id 暂未使用；多账号场景下沉到 coordinator.refreshAccount(id:)
         Task { await viewModel.refresh() }
     }
 
     private func signOutCodexAccount(id: String) {
+        // codexbar 当前 ManagedCodexAccount 没有独立的 signOut API；
+        // 此处与 removeAccount 行为一致，保留 UI 入口以便未来区分
         CodexAccountCoordinator.shared.removeAccount(id: id)
         codexAccounts = CodexAccountCoordinator.shared.listAccountDrafts()
     }
