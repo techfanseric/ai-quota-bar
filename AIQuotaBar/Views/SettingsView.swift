@@ -446,7 +446,7 @@ struct SettingsView: View {
         let credential = chatGPTCredentials[index].credential.trimmingCharacters(in: .whitespacesAndNewlines)
 
         do {
-            let success = try await viewModel.testCredential(credential, provider: .chatGPT)
+            let success = try await viewModel.testCredential(credential, provider: .codex)
             if let updatedIndex = chatGPTCredentials.firstIndex(where: { $0.id == accountID }) {
                 chatGPTCredentials[updatedIndex].feedback = success
                     ? InlineFeedback(kind: .success, message: language.text(.testConnectionSuccess))
@@ -563,7 +563,7 @@ struct SettingsView: View {
             .filter { !$0.credential.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
 
         if accounts.isEmpty {
-            return KeychainService.shared.deleteCredential(for: .chatGPT)
+            return KeychainService.shared.deleteCredential(for: .codex)
         }
 
         do {
@@ -576,7 +576,7 @@ struct SettingsView: View {
                     )
                 }
             )
-            return KeychainService.shared.saveCredential(preparedCredential, for: .chatGPT)
+            return KeychainService.shared.saveCredential(preparedCredential, for: .codex)
         } catch let error as UsageError {
             setChatGPTSaveError(language.errorDescription(for: error))
             return false
@@ -587,7 +587,7 @@ struct SettingsView: View {
     }
 
     private func loadChatGPTCredentialDrafts() -> [ChatGPTCredentialDraft] {
-        guard let storedCredential = KeychainService.shared.getCredential(for: .chatGPT),
+        guard let storedCredential = KeychainService.shared.getCredential(for: .codex),
               let collection = try? ChatGPTCredentialCollection.parseStorage(storedCredential) else {
             return [ChatGPTCredentialDraft()]
         }
@@ -634,7 +634,7 @@ struct SettingsView: View {
             return miniMaxCredential
         case .glm:
             return glmCredential
-        case .chatGPT:
+        case .codex:
             return chatGPTCredentials.first?.credential ?? ""
         }
     }
@@ -645,7 +645,7 @@ struct SettingsView: View {
             miniMaxTestResult = feedback
         case .glm:
             glmTestResult = feedback
-        case .chatGPT:
+        case .codex:
             if !chatGPTCredentials.isEmpty {
                 chatGPTCredentials[0].feedback = feedback
             }
@@ -658,7 +658,7 @@ struct SettingsView: View {
             isTestingMiniMax = isTesting
         case .glm:
             isTestingGLM = isTesting
-        case .chatGPT:
+        case .codex:
             if !chatGPTCredentials.isEmpty {
                 chatGPTCredentials[0].isTesting = isTesting
             }
@@ -736,7 +736,7 @@ private struct ChatGPTCredentialListSection: View {
         VStack(alignment: .leading, spacing: 12) {
             HStack {
                 VStack(alignment: .leading, spacing: 4) {
-                    Text(UsageProvider.chatGPT.displayName)
+                    Text(UsageProvider.codex.displayName)
                         .font(.system(size: 14, weight: .semibold))
 
                     Text(language.chatGPTAccountsHelpText())
@@ -796,7 +796,7 @@ private struct ChatGPTAccountCredentialCard: View {
             }
 
             CredentialInputField(
-                provider: .chatGPT,
+                provider: .codex,
                 credential: $account.credential,
                 language: language
             )

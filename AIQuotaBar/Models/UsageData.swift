@@ -254,7 +254,7 @@ struct ModelUsageData: Codable, Identifiable {
     var resetTimeText: String {
         guard let end = endTime else { return "—" }
 
-        if provider == .chatGPT {
+        if provider == .codex {
             return chatGPTResetTimeText(end)
         }
 
