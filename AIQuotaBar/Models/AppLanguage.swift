@@ -285,6 +285,24 @@ enum AppLanguage: String, CaseIterable, Codable, Identifiable {
         }
     }
 
+    func codexMenuNotConfiguredTitle() -> String {
+        switch self {
+        case .english:
+            return "Codex not configured"
+        case .simplifiedChinese:
+            return "Codex 未配置"
+        }
+    }
+
+    func codexMenuNotConfiguredMessage() -> String {
+        switch self {
+        case .english:
+            return "Run `codex` in Terminal to sign in, then return to Settings → Codex to add the account."
+        case .simplifiedChinese:
+            return "在终端运行 `codex` 完成登录后，回到「设置 → Codex」添加账号。"
+        }
+    }
+
     func codexAccountRefreshButtonText() -> String {
         switch self {
         case .english:
