@@ -10,10 +10,15 @@ let package = Package(
             targets: ["AIQuotaBar"]
         )
     ],
+    dependencies: [
+        .package(path: "../../../codexbar")
+    ],
     targets: [
         .executableTarget(
             name: "AIQuotaBar",
-            dependencies: [],
+            dependencies: [
+                .product(name: "CodexBarCore", package: "codexbar")
+            ],
             path: "AIQuotaBar",
             exclude: ["Resources/Assets.xcassets"]
         )
