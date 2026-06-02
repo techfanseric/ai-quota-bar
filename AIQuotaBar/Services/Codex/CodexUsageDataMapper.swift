@@ -185,7 +185,7 @@ enum CodexUsageDataMapper {
             parts.append("Plan \(capitalized)")
         }
         if let sourceLabel, !sourceLabel.isEmpty {
-            parts.append(sourceLabel)
+            parts.append(prettySourceLabel(sourceLabel))
         }
         if let endTime {
             let formatter = DateFormatter()
@@ -195,5 +195,16 @@ enum CodexUsageDataMapper {
             parts.append("resets \(formatter.string(from: endTime))")
         }
         return parts.isEmpty ? nil : parts.joined(separator: " · ")
+    }
+
+    /// 把 codexbar 的小写 source 标签（oauth / codex-cli / openai-web）
+    /// 映射成菜单可读形式（OAuth / Codex CLI / OpenAI Web）。
+    private static func prettySourceLabel(_ raw: String) -> String {
+        switch raw.lowercased() {
+        case "oauth": return "OAuth"
+        case "cli", "codex-cli": return "Codex CLI"
+        case "web", "openai-web": return "OpenAI Web"
+        default: return raw.prefix(1).uppercased() + raw.dropFirst()
+        }
     }
 }
