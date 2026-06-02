@@ -120,7 +120,21 @@ final class UsageViewModel: ObservableObject {
     }
 
     var configuredProviders: [UsageProvider] {
-        UsageProvider.allCases.filter { KeychainService.shared.hasCredential(for: $0) }
+        UsageProvider.allCases.filter { isConfigured($0) }
+    }
+
+    /// 判断 provider 是否应该被纳入刷新与下拉菜单。
+    /// MiniMax / GLM 走 Keychain；Codex 由 codexbar 的 managed account store 自管，
+    /// 凭证在 `~/.codex`（CLI）或 `~/.codexbar`（managed store）。
+    /// 这里始终让 Codex 算 configured：fetch 时 codexbar 自己会返回 unauthorized 之类的错误，
+    /// dropdown 不会展示该 section，Settings 仍能进 Codex 段做添加/移除操作。
+    private func isConfigured(_ provider: UsageProvider) -> Bool {
+        switch provider {
+        case .codex:
+            return true
+        default:
+            return KeychainService.shared.hasCredential(for: provider)
+        }
     }
 
     var providerUsageSections: [UsageData] {
