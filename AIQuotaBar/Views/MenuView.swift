@@ -526,8 +526,8 @@ private struct ModelRow: View {
     private var tint: Color {
         if model.currentIntervalPercentageUsed >= 100 { return .red }
         if model.currentIntervalPercentageUsed >= 80 { return .orange }
-        if model.currentIntervalUsedCount > 0 && model.currentIntervalPercentageRemaining <= warningThreshold { return .orange }
-        if model.currentIntervalUsedCount > 0 { return .green }
+        if model.currentIntervalPercentageUsed > 0 && model.currentIntervalPercentageRemaining <= warningThreshold { return .orange }
+        if model.currentIntervalPercentageUsed > 0 { return .green }
         return .secondary
     }
 }
