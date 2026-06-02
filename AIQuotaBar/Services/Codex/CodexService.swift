@@ -8,11 +8,13 @@ final class CodexService {
     private let descriptor: ProviderDescriptor
     private let fetcher: UsageFetcher
     private let browserDetection: BrowserDetection
+    private let claudeFetcher: ClaudeUsageFetcher
 
     private init() {
         self.descriptor = CodexProviderDescriptor.descriptor
         self.fetcher = UsageFetcher()
         self.browserDetection = BrowserDetection()
+        self.claudeFetcher = ClaudeUsageFetcher(browserDetection: browserDetection)
     }
 
     /// 当前 source mode（持久化在 UserDefaults）
@@ -67,7 +69,7 @@ final class CodexService {
             env: ProcessInfo.processInfo.environment,
             settings: nil,
             fetcher: fetcher,
-            claudeFetcher: ClaudeUsageFetcher(browserDetection: browserDetection),
+            claudeFetcher: claudeFetcher,
             browserDetection: browserDetection)
     }
 
@@ -77,7 +79,10 @@ final class CodexService {
             return .apiError("Codex token expired — run `codex` to refresh")
         case .invalidResponse:
             return .invalidResponse
-        case let .serverError(code, _):
+        case let .serverError(code, message):
+            if let message, !message.isEmpty {
+                return .apiError("Codex API error \(code): \(message)")
+            }
             return .apiError("Codex API error \(code)")
         case let .networkError(inner):
             return .networkError(inner)
