@@ -12,6 +12,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         // Set LSUIElement to hide from Dock
         NSApp.setActivationPolicy(.accessory)
         AppMigration.migrateLegacyDefaultsIfNeeded()
+        AppMigration.runCodexMigrationIfNeeded()
 
         UNUserNotificationCenter.current().delegate = self
 
