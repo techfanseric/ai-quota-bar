@@ -23,6 +23,11 @@ enum UsageProvider: String, CaseIterable, Codable, Identifiable {
         }
     }
 
+    var usesCurlCredential: Bool {
+        // codex 走 codexbar 适配层，不再走 curl 粘贴流程
+        self == .glm
+    }
+
     /// 老 chatGPTCredential keychain account，用于一次性迁移
     static let legacyChatGPTKeychainAccount = "chatGPTCredential"
 

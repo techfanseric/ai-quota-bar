@@ -28,6 +28,10 @@ final class UsageService {
         }
     }
 
+    func prepareChatGPTCredentialsForStorage(_ credentials: [(id: String, name: String, credentialInput: String)]) throws -> String {
+        try ChatGPTCredentialCollection.storageString(from: credentials)
+    }
+
     private func decodeMiniMaxUsageData(from data: Data) throws -> UsageData {
         let decoder = JSONDecoder()
         let response = try decoder.decode(MiniMaxUsageAPIResponse.self, from: data)
