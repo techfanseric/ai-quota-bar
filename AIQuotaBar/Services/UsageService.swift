@@ -53,7 +53,9 @@ final class UsageService {
                 valueSuffix: nil,
                 detailText: nil,
                 currentIntervalRemainingPercent: model.currentIntervalRemainingPercent,
-                weeklyRemainingPercent: model.currentWeeklyRemainingPercent
+                weeklyRemainingPercent: model.currentWeeklyRemainingPercent,
+                progressBarPercentOverride: nil,
+                progressBarRightText: nil
             )
         }
         let trackedModelCount = max(models.count, 1)
@@ -121,7 +123,9 @@ final class UsageService {
             valueSuffix: normalized.valueSuffix,
             detailText: glmDetailText(for: limit, used: normalized.used, total: normalized.total),
             currentIntervalRemainingPercent: nil,
-            weeklyRemainingPercent: nil
+            weeklyRemainingPercent: nil,
+            progressBarPercentOverride: nil,
+            progressBarRightText: nil
         )
     }
 

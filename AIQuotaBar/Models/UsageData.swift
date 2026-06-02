@@ -119,6 +119,12 @@ struct ModelUsageData: Codable, Identifiable {
     let currentIntervalRemainingPercent: Int?
     /// API 直接返回的周剩余百分比（0-100），为 nil 时回退到按 count 计算
     let weeklyRemainingPercent: Int?
+    /// 覆盖进度条宽度百分比（0-100）。默认按 `currentIntervalPercentageUsed`（已用）计算；
+    /// 设置后用于显示"剩余比例"等反向语义（如 codex credits）。
+    let progressBarPercentOverride: Double?
+    /// 覆盖进度条右侧文本。默认按 `currentIntervalUsageRatioText` 渲染；
+    /// 设置后用于显示"1K tokens"等固定刻度信息。
+    let progressBarRightText: String?
 
     var id: String {
         guard let accountName, !accountName.isEmpty else {
@@ -215,6 +221,22 @@ struct ModelUsageData: Codable, Identifiable {
         }
         guard currentIntervalTotal > 0 else { return 0 }
         return (Double(currentIntervalUsedCount) / Double(currentIntervalTotal)) * 100
+    }
+
+    /// 进度条实际宽度百分比：默认按"已用比例"渲染，credits 这类反向语义可走 `progressBarPercentOverride`。
+    var currentIntervalBarPercent: Double {
+        if let override = progressBarPercentOverride {
+            return min(100, max(0, override))
+        }
+        return currentIntervalPercentageUsed
+    }
+
+    /// 进度条右侧文本：默认按 `currentIntervalUsageRatioText`，credits 这类固定刻度信息可走 `progressBarRightText`。
+    var currentIntervalBarRightText: String {
+        if let override = progressBarRightText, !override.isEmpty {
+            return override
+        }
+        return currentIntervalUsageRatioText
     }
 
     var currentIntervalDuration: TimeInterval? {

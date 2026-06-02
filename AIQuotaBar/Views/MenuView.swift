@@ -299,27 +299,12 @@ private struct ProviderModelsSection: View {
         return groups
     }
 
-    /// 多个 distinct 非空 accountName 才需要子分组头。
-    private var shouldShowAccountSubHeaders: Bool {
-        let namedAccounts = Set(data.models.compactMap { model -> String? in
-            guard let account = model.accountName, !account.isEmpty else { return nil }
-            return account
-        })
-        return namedAccounts.count > 1
-    }
-
     var body: some View {
         let groups = groupedVisibleModels
         VStack(alignment: .leading, spacing: 0) {
-            if !shouldShowAccountSubHeaders {
-                providerHeader
-            }
+            providerHeader(groups: groups)
 
             ForEach(Array(groups.enumerated()), id: \.offset) { groupIndex, group in
-                if shouldShowAccountSubHeaders {
-                    accountSubHeader(for: group)
-                }
-
                 let rows = group.models
                 ForEach(Array(rows.enumerated()), id: \.element.id) { index, model in
                     ModelRow(
@@ -385,60 +370,31 @@ private struct ProviderModelsSection: View {
     }
 
     @ViewBuilder
-    private var providerHeader: some View {
-        HStack {
+    private func providerHeader(groups: [(accountName: String?, models: [ModelUsageData])]) -> some View {
+        HStack(alignment: .firstTextBaseline) {
             Text(data.provider.displayName)
                 .font(.system(size: 11, weight: .semibold))
                 .foregroundStyle(.secondary)
 
             Spacer()
 
-            Text(language.menuBarCompactText(ready: data.readyModelsCount, total: data.modelCount))
-                .font(.system(size: 10, weight: .medium, design: .rounded))
-                .foregroundStyle(.secondary)
-        }
-        .padding(.horizontal, 8)
-        .padding(.top, 6)
-        .padding(.bottom, 2)
-    }
-
-    @ViewBuilder
-    private func accountSubHeader(for group: (accountName: String?, models: [ModelUsageData])) -> some View {
-        let anchor = group.models.first
-        let parsed = parseDetail(anchor?.detailText)
-        let plan = parsed.plan
-        let source = parsed.source
-        let timestampText = shortClockText(from: data.timestamp)
-
-        HStack(spacing: 6) {
-            Text(group.accountName ?? data.provider.displayName)
-                .font(.system(size: 11, weight: .semibold))
-                .foregroundStyle(.secondary)
-                .lineLimit(1)
-
-            if let plan, !plan.isEmpty {
-                Text("(\(plan))")
-                    .font(.system(size: 10))
-                    .foregroundStyle(.tertiary)
-                    .lineLimit(1)
+            VStack(alignment: .trailing, spacing: 2) {
+                ForEach(Array(groups.enumerated()), id: \.offset) { _, group in
+                    if let accountName = group.accountName, !accountName.isEmpty {
+                        let ready = group.models.filter(\.isCurrentIntervalAvailable).count
+                        let total = max(group.models.count, 1)
+                        Text("\(accountName) · \(ready)/\(total)")
+                            .font(.system(size: 10, weight: .medium, design: .rounded))
+                            .foregroundStyle(.secondary)
+                            .lineLimit(1)
+                    } else {
+                        Text(language.menuBarCompactText(ready: data.readyModelsCount, total: data.modelCount))
+                            .font(.system(size: 10, weight: .medium, design: .rounded))
+                            .foregroundStyle(.secondary)
+                            .lineLimit(1)
+                    }
+                }
             }
-
-            Spacer()
-
-            if let source, !source.isEmpty {
-                Text(source)
-                    .font(.system(size: 10, weight: .medium, design: .rounded))
-                    .foregroundStyle(.secondary)
-                    .lineLimit(1)
-
-                Text("·")
-                    .font(.system(size: 10))
-                    .foregroundStyle(.tertiary)
-            }
-
-            Text(timestampText)
-                .font(.system(size: 10, weight: .medium, design: .rounded))
-                .foregroundStyle(.secondary)
         }
         .padding(.horizontal, 8)
         .padding(.top, 6)
@@ -586,7 +542,7 @@ private struct ModelRow: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
             HStack(spacing: 8) {
-                Text(model.displayName)
+                Text(model.modelName)
                     .font(.system(size: 11, weight: .medium))
                     .lineLimit(1)
 
@@ -611,10 +567,10 @@ private struct ModelRow: View {
                             .fill(Color.primary.opacity(0.08))
                             .frame(height: 5)
 
-                        if model.currentIntervalPercentageUsed > 0 {
+                        if model.currentIntervalBarPercent > 0 {
                             Capsule()
                                 .fill(tint)
-                                .frame(width: geo.size.width * model.currentIntervalPercentageUsed / 100, height: 5)
+                                .frame(width: geo.size.width * model.currentIntervalBarPercent / 100, height: 5)
                         }
                     }
                 }
@@ -651,7 +607,7 @@ private struct ModelRow: View {
 
                 Spacer()
 
-                Text(model.currentIntervalUsageRatioText)
+                Text(model.currentIntervalBarRightText)
                     .font(.system(size: 10, design: .rounded))
                     .foregroundStyle(.secondary)
             }
@@ -667,6 +623,10 @@ private struct ModelRow: View {
     }
 
     private var tint: Color {
+        // 反向语义（credits）：使用中性的 secondary 颜色，避免被"已用%==100"的规则染红
+        if model.progressBarPercentOverride != nil {
+            return .secondary
+        }
         if model.currentIntervalPercentageUsed >= 100 { return .red }
         if model.currentIntervalPercentageUsed >= 80 { return .orange }
         if model.currentIntervalPercentageUsed > 0 && model.currentIntervalPercentageRemaining <= warningThreshold { return .orange }

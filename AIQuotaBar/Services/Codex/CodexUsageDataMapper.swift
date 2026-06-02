@@ -110,8 +110,16 @@ enum CodexUsageDataMapper {
             valueSuffix: "%",
             detailText: detail,
             currentIntervalRemainingPercent: remainingPercent,
-            weeklyRemainingPercent: nil)
+            weeklyRemainingPercent: nil,
+            progressBarPercentOverride: nil,
+            progressBarRightText: nil)
     }
+
+    /// codexbar 用 1000 作为 credits 进度条的固定满刻度，
+    /// 渲染时按 `percent = (creditsRemaining / 1000) * 100` 计算。
+    /// 这里沿用同一全刻度，并通过 `progressBarPercentOverride`
+    /// 走"剩余比例"渲染（与默认"已用比例"方向相反），保证满额度时显示完整条。
+    private static let creditsFullScale: Double = 1000
 
     private static func makeCreditsModel(
         remaining: Double,
@@ -124,15 +132,14 @@ enum CodexUsageDataMapper {
             planType: planType,
             sourceLabel: sourceLabel,
             endTime: nil)
+        let percentLeft = min(100, max(0, (remaining / creditsFullScale) * 100))
+        let scaleText = "\(UsageFormatter.tokenCountString(Int(creditsFullScale))) tokens"
 
-        // 修复：plan 原文 `currentIntervalUsed: intRemaining > 0 ? 0 : 1` 是错的。
-        // `ModelUsageData.currentIntervalUsed` 在 `UsageData.swift:108` 注释里明确承载
-        // "剩余" 语义（`currentIntervalRemaining` 直接返回它），这里必须把真实剩余数字填入。
         return ModelUsageData(
             provider: .codex,
             accountName: accountName,
             modelName: "Credits",
-            currentIntervalTotal: 1,
+            currentIntervalTotal: Int(creditsFullScale),
             currentIntervalUsed: intRemaining,
             weeklyTotal: 0,
             weeklyUsed: 0,
@@ -141,10 +148,12 @@ enum CodexUsageDataMapper {
             endTime: nil,
             weeklyStartTime: nil,
             weeklyEndTime: nil,
-            valueSuffix: nil,
+            valueSuffix: " left",
             detailText: detail,
             currentIntervalRemainingPercent: nil,
-            weeklyRemainingPercent: nil)
+            weeklyRemainingPercent: nil,
+            progressBarPercentOverride: percentLeft,
+            progressBarRightText: scaleText)
     }
 
     private static func makeNotConfiguredPlaceholder(
@@ -171,7 +180,9 @@ enum CodexUsageDataMapper {
             valueSuffix: nil,
             detailText: "Codex not configured — run `codex` to sign in",
             currentIntervalRemainingPercent: 0,
-            weeklyRemainingPercent: nil)
+            weeklyRemainingPercent: nil,
+            progressBarPercentOverride: nil,
+            progressBarRightText: nil)
     }
 
     private static func makeDetailText(
