@@ -12,6 +12,7 @@ struct SettingsView: View {
     @State private var glmCredentialInputID = UUID()
     @State private var refreshInterval: Int = 60
     @State private var warningThreshold: Double = 20
+    @State private var warningThresholdEnabled: Bool = false
     @State private var autoRefreshOnLaunch: Bool = false
     @State private var launchAtLogin: Bool = false
     @State private var cloudSyncEnabled: Bool = false
@@ -166,14 +167,20 @@ struct SettingsView: View {
                 }
 
                 VStack(alignment: .leading, spacing: 12) {
-                    HStack {
-                        Text(language.text(.lowQuotaWarning))
-                            .font(.system(size: 14, weight: .semibold))
-                        Spacer()
-                        ValueBadge(text: "\(Int(warningThreshold))%")
+                    Toggle(isOn: $warningThresholdEnabled) {
+                        HStack {
+                            Text(language.text(.lowQuotaWarning))
+                                .font(.system(size: 14, weight: .semibold))
+                            Spacer()
+                            if warningThresholdEnabled {
+                                ValueBadge(text: "\(Int(warningThreshold))%")
+                            }
+                        }
                     }
 
-                    Slider(value: $warningThreshold, in: 1...100, step: 1)
+                    if warningThresholdEnabled {
+                        Slider(value: $warningThreshold, in: 1...100, step: 1)
+                    }
 
                     Text(language.text(.lowQuotaWarningDescription))
                         .font(.system(size: 12))
@@ -407,6 +414,7 @@ struct SettingsView: View {
         glmCredentialInputID = UUID()
         refreshInterval = viewModel.refreshInterval
         warningThreshold = viewModel.warningThreshold
+        warningThresholdEnabled = viewModel.warningThresholdEnabled
         autoRefreshOnLaunch = viewModel.autoRefreshOnLaunch
         launchAtLogin = viewModel.launchAtLogin
         cloudSyncEnabled = viewModel.cloudSyncEnabled
@@ -474,6 +482,7 @@ struct SettingsView: View {
 
         viewModel.refreshInterval = refreshInterval
         viewModel.warningThreshold = warningThreshold
+        viewModel.warningThresholdEnabled = warningThresholdEnabled
         viewModel.autoRefreshOnLaunch = autoRefreshOnLaunch
         viewModel.launchAtLogin = launchAtLogin
         viewModel.cloudSyncEnabled = cloudSyncEnabled

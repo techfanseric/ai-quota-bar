@@ -68,7 +68,8 @@ final class StatusBarController {
             viewModel.$selectedModelName.map { _ in () }.eraseToAnyPublisher(),
             viewModel.$isLoading.map { _ in () }.eraseToAnyPublisher(),
             viewModel.$displayFormat.map { _ in () }.eraseToAnyPublisher(),
-            viewModel.$warningThreshold.map { _ in () }.eraseToAnyPublisher()
+            viewModel.$warningThreshold.map { _ in () }.eraseToAnyPublisher(),
+            viewModel.$warningThresholdEnabled.map { _ in () }.eraseToAnyPublisher()
         )
         .receive(on: DispatchQueue.main)
         .sink { [weak self] _ in

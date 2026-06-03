@@ -1,3 +1,4 @@
+import CodexBarCore
 import Foundation
 
 /// API response model for MiniMax usage data
@@ -258,6 +259,54 @@ struct ModelUsageData: Codable, Identifiable {
     /// 是否处于百分比模式（total=0 但 API 返回了百分比）
     var isCurrentIntervalPercentMode: Bool {
         currentIntervalTotal <= 0 && currentIntervalRemainingPercent != nil
+    }
+
+    /// 当前周期已用时长占总时长的比例（0-1）。nil 时表示无法计算
+    /// （缺起止时间，或 credits 这类反向语义模式）。
+    var currentIntervalElapsedRatio: Double? {
+        guard progressBarPercentOverride == nil else { return nil }
+        guard let startTime, let endTime else { return nil }
+        let duration = endTime.timeIntervalSince(startTime)
+        guard duration > 0 else { return nil }
+        let elapsed = Date().timeIntervalSince(startTime)
+        return min(max(elapsed / duration, 0), 1)
+    }
+
+    /// 匀速消耗情况下"当前应有的已用百分比"（0-100）。
+    /// 用于 Weekly 柱状图 x 轴的 pace tip 位置。
+    var currentIntervalPaceUsedPercent: Double? {
+        guard let ratio = currentIntervalElapsedRatio else { return nil }
+        return ratio * 100
+    }
+
+    /// 匀速消耗情况下"当前应有的剩余值"（与 `currentIntervalYAxisMax` 同量纲）。
+    /// 用于 5h 面积图 y 轴的节奏参考线高度。
+    var currentIntervalPaceRemaining: Double? {
+        guard let ratio = currentIntervalElapsedRatio else { return nil }
+        return currentIntervalYAxisMax * (1 - ratio)
+    }
+
+    /// 节奏快照：复用 codexbar 的 UsagePace.Stage 算法（|delta|≤2 onTrack, ≤6 slightly, ≤12 ahead/behind, >12 far）
+    /// 走 `UsagePace.historical` 走的就是这套 stage 分桶。
+    /// nil 时表示无法计算（缺起止时间 / credits 模式 / 刚开始且已有消耗 —— 跟 codexbar 一致）。
+    var currentIntervalPace: UsagePace? {
+        guard progressBarPercentOverride == nil else { return nil }
+        guard let startTime, let endTime else { return nil }
+        let duration = endTime.timeIntervalSince(startTime)
+        guard duration > 0 else { return nil }
+        let elapsed = min(max(Date().timeIntervalSince(startTime), 0), duration)
+
+        // codexbar 的 guard：elapsed == 0 且 actual > 0 时不计算（刚开始时已用 > 0 是脏数据）
+        let actual = currentIntervalPercentageUsed
+        if elapsed == 0, actual > 0 { return nil }
+
+        let expected = (elapsed / duration) * 100
+        return UsagePace.historical(
+            expectedUsedPercent: expected,
+            actualUsedPercent: actual,
+            etaSeconds: nil,
+            willLastToReset: actual <= expected,
+            runOutProbability: nil)
     }
 
     var isShortCurrentInterval: Bool {
@@ -626,5 +675,19 @@ extension ModelUsageData {
             return "\(minutes)m"
         }
         return String(format: "%.2fh", hours)
+    }
+}
+
+extension UsagePace.Stage {
+    /// 是否"用得比匀速慢"（即 onTrack / behind 系列）。
+    /// 跟 codexbar `paceOnTop` 语义对齐：onTrack / behind → true（ahead 颜色 = 绿），
+    /// ahead 系列 → false（deficit 颜色 = 红）。
+    var isAhead: Bool {
+        switch self {
+        case .onTrack, .slightlyBehind, .behind, .farBehind:
+            return true
+        case .slightlyAhead, .ahead, .farAhead:
+            return false
+        }
     }
 }

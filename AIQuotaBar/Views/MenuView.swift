@@ -1,4 +1,5 @@
 import AppKit
+import CodexBarCore
 import SwiftUI
 
 struct MenuView: View {
@@ -70,7 +71,7 @@ struct MenuView: View {
                         ProviderModelsSection(
                             data: data,
                             language: language,
-                            warningThreshold: viewModel.warningThreshold,
+                            warningThreshold: viewModel.effectiveWarningThreshold,
                             samples: viewModel.samples(for:),
                             onLayoutChange: onLayoutChange
                         )
@@ -539,6 +540,8 @@ private struct ModelRow: View {
     let warningThreshold: Double
     let samples: [ModelQuotaSample]
 
+    @State private var isHovered: Bool = false
+
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
             HStack(spacing: 8) {
@@ -557,7 +560,10 @@ private struct ModelRow: View {
                 QuotaAreaChart(
                     model: model,
                     samples: samples,
-                    tint: tint
+                    tint: tint,
+                    warningThreshold: warningThreshold,
+                    language: language,
+                    isHovered: isHovered
                 )
                 .frame(height: 84)
             } else {
@@ -572,15 +578,40 @@ private struct ModelRow: View {
                                 .fill(tint)
                                 .frame(width: geo.size.width * model.currentIntervalBarPercent / 100, height: 6)
                         }
+
+                        // 天分隔线（周窗口特有：6 道线，按 7 天等分，常驻）
+                        ForEach(Array(weeklyDayMarkerPercents().enumerated()), id: \.offset) { _, percent in
+                            Rectangle()
+                                .fill(Color.primary.opacity(0.20))
+                                .frame(width: 1, height: 8)
+                                .position(
+                                    x: geo.size.width * percent / 100,
+                                    y: geo.size.height / 2
+                                )
+                        }
+
+                        // 节奏指针：onTrack 不画（跟 codexbar 一致）
+                        if let pace = model.currentIntervalPace,
+                           pace.stage != .onTrack,
+                           let pacePercent = model.currentIntervalPaceUsedPercent {
+                            PaceTipStripes(
+                                percent: pacePercent,
+                                width: geo.size.width,
+                                isAhead: pace.stage.isAhead)
+                        }
                     }
+                    .contentShape(Rectangle())
                 }
-                .frame(height: 6)
+                .frame(height: 10)
             }
 
             HStack(spacing: 8) {
-                Text(model.resetTimeText)
-                    .font(.system(size: 10, design: .rounded))
-                    .foregroundStyle(.secondary)
+                // 5h 短窗口不显示 reset 起止时间（pace 文字会顶替左侧位置）
+                if !model.isShortCurrentInterval {
+                    Text(model.resetTimeText)
+                        .font(.system(size: 10, design: .rounded))
+                        .foregroundStyle(.secondary)
+                }
 
                 if model.hasWeeklyLimit {
                     Text("·")
@@ -605,6 +636,16 @@ private struct ModelRow: View {
                     }
                 }
 
+                // 节奏信息：onTrack / 无数据时不显示
+                if let pace = model.currentIntervalPace, pace.stage != .onTrack {
+                    Text("·")
+                        .foregroundStyle(.tertiary)
+
+                    Text(language.paceLabel(stage: pace.stage, deltaPercent: pace.deltaPercent))
+                        .font(.system(size: 10, design: .rounded))
+                        .foregroundStyle(paceLabelColor(paceStage: pace.stage))
+                }
+
                 Spacer()
 
                 Text(model.currentIntervalBarRightText)
@@ -620,6 +661,15 @@ private struct ModelRow: View {
             }
         }
         .padding(10)
+        .contentShape(Rectangle())
+        .onContinuousHover { phase in
+            switch phase {
+            case .active:
+                isHovered = true
+            case .ended:
+                isHovered = false
+            }
+        }
     }
 
     private var tint: Color {
@@ -633,12 +683,63 @@ private struct ModelRow: View {
         if model.currentIntervalPercentageUsed > 0 { return .green }
         return .secondary
     }
+
+    /// 周窗口才画天分隔线：返回 6 个位置（1/7..6/7）
+    private func weeklyDayMarkerPercents() -> [Double] {
+        guard !model.isShortCurrentInterval else { return [] }
+        guard let duration = model.currentIntervalDuration, duration > 0 else { return [] }
+        let totalDays = duration / 86_400
+        let wholeDays = Int(totalDays)
+        guard wholeDays >= 2 else { return [] }
+        return (1..<wholeDays).map { Double($0) * 100.0 / totalDays }
+    }
+
+    /// reset time 行里 pace 文字颜色：reserve（你有余量）用 secondary 灰，
+    /// deficit（你快用完）用红色提醒
+    private func paceLabelColor(paceStage: UsagePace.Stage) -> Color {
+        switch paceStage {
+        case .onTrack, .slightlyBehind, .behind, .farBehind:
+            return .secondary
+        case .slightlyAhead, .ahead, .farAhead:
+            return .red
+        }
+    }
+}
+
+/// 节奏指针：3 段式条纹 marker，参考 codexbar 的 UsageProgressBar.pace tip
+private struct PaceTipStripes: View {
+    let percent: Double
+    let width: CGFloat
+    let isAhead: Bool
+
+    private let stripeWidth: CGFloat = 2
+    private let stripeGap: CGFloat = 1
+    private let totalHeight: CGFloat = 10
+
+    var body: some View {
+        let x = width * percent / 100
+        let color: Color = isAhead ? .green : .red
+
+        HStack(spacing: stripeGap) {
+            Rectangle()
+                .fill(color.opacity(0.30))
+                .frame(width: stripeWidth, height: totalHeight)
+            Rectangle()
+                .fill(color)
+                .frame(width: stripeWidth, height: totalHeight)
+        }
+        .frame(width: stripeWidth * 2 + stripeGap, height: totalHeight)
+        .position(x: x, y: totalHeight / 2)
+    }
 }
 
 private struct QuotaAreaChart: View {
     let model: ModelUsageData
     let samples: [ModelQuotaSample]
     let tint: Color
+    let warningThreshold: Double
+    let language: AppLanguage
+    let isHovered: Bool
 
     @State private var hoverLocation: CGPoint?
 
@@ -650,6 +751,8 @@ private struct QuotaAreaChart: View {
                 Canvas { context, size in
                     drawBackground(context: &context, layout: layout)
                     drawAxes(context: &context, layout: layout)
+                    drawHourlyTicks(context: &context, layout: layout)
+                    drawPaceGuide(context: &context, layout: layout)
                     drawSeries(context: &context, layout: layout)
                     drawHoveredGuide(context: &context, layout: layout)
                 }
@@ -684,11 +787,27 @@ private struct QuotaAreaChart: View {
         context.stroke(axisPath, with: .color(Color.primary.opacity(0.14)), lineWidth: 1)
 
         let yAxisMax = model.currentIntervalYAxisMax
-        let midY = yPosition(forRemaining: yAxisMax / 2, layout: layout)
-        var midline = Path()
-        midline.move(to: CGPoint(x: layout.plotRect.minX, y: midY))
-        midline.addLine(to: CGPoint(x: layout.plotRect.maxX, y: midY))
-        context.stroke(midline, with: .color(Color.primary.opacity(0.06)), style: StrokeStyle(lineWidth: 1, dash: [3, 3]))
+        if yAxisMax > 0, warningThreshold > 0, warningThreshold < 100 {
+            let thresholdY = yPosition(forRemaining: yAxisMax * warningThreshold / 100, layout: layout)
+            var thresholdPath = Path()
+            thresholdPath.move(to: CGPoint(x: layout.plotRect.minX, y: thresholdY))
+            thresholdPath.addLine(to: CGPoint(x: layout.plotRect.maxX, y: thresholdY))
+            context.stroke(
+                thresholdPath,
+                with: .color(Color.orange.opacity(0.45)),
+                style: StrokeStyle(lineWidth: 1, dash: [3, 3]))
+            if isHovered {
+                // label 夹在 plotRect 上下边内，避免被裁
+                let labelHeight: CGFloat = 12
+                let minLabelTopY = layout.plotRect.minY
+                let maxLabelTopY = layout.plotRect.maxY - labelHeight
+                let labelTopY = min(max(thresholdY - 1, minLabelTopY), maxLabelTopY)
+                context.draw(
+                    axisLabel("\(Int(warningThreshold))%"),
+                    at: CGPoint(x: layout.plotRect.minX + 2, y: labelTopY),
+                    anchor: .topLeading)
+            }
+        }
 
         let topLabel = model.isCurrentIntervalPercentMode
             ? axisLabel("100%")
@@ -700,6 +819,63 @@ private struct QuotaAreaChart: View {
             context.draw(axisLabel(axisTimeText(for: startTime)), at: CGPoint(x: layout.plotRect.minX, y: layout.axisLabelY), anchor: .topLeading)
             context.draw(axisLabel(axisTimeText(for: endTime)), at: CGPoint(x: layout.plotRect.maxX, y: layout.axisLabelY), anchor: .topTrailing)
         }
+    }
+
+    /// x 轴整点分隔线：5h 窗口画 4 道（1h..4h），2h 窗口画 1 道（1h），1h 及以下不画
+    /// 虚线常驻，"1h/2h/3h/4h" 文字标签 hover 时才出
+    private func drawHourlyTicks(context: inout GraphicsContext, layout: QuotaChartLayout) {
+        guard let ticks = hourlyTickPositions(), !ticks.isEmpty else { return }
+
+        for tick in ticks {
+            let x = layout.plotRect.minX + layout.plotRect.width * tick.ratio
+            var path = Path()
+            path.move(to: CGPoint(x: x, y: layout.plotRect.minY))
+            path.addLine(to: CGPoint(x: x, y: layout.plotRect.maxY))
+            context.stroke(
+                path,
+                with: .color(Color.primary.opacity(0.10)),
+                style: StrokeStyle(lineWidth: 1, dash: [2, 3]))
+            if isHovered {
+                context.draw(
+                    axisLabel(tick.label),
+                    at: CGPoint(x: x, y: layout.axisLabelY - 11),
+                    anchor: .center)
+            }
+        }
+    }
+
+    private func hourlyTickPositions() -> [(ratio: Double, label: String)]? {
+        guard let startTime = model.startTime, let endTime = model.endTime else { return nil }
+        let duration = endTime.timeIntervalSince(startTime)
+        let totalHours = Int(duration / 3600)
+        guard totalHours >= 2, totalHours <= 24 else { return nil }
+        return (1..<totalHours).map { hour in
+            (ratio: Double(hour) * 3600 / duration, label: "\(hour)h")
+        }
+    }
+
+    /// y 轴匀速参考线：水平虚线常驻（颜色按 ahead/behind 区分）
+    /// 文字标签不在图里显示，统一挪到 reset time 那一行（避免被 Canvas 边缘裁切）
+    /// onTrack 时不画（跟 codexbar 一致）
+    private func drawPaceGuide(context: inout GraphicsContext, layout: QuotaChartLayout) {
+        guard let pace = model.currentIntervalPace, pace.stage != .onTrack else { return }
+        guard let paceRemaining = model.currentIntervalPaceRemaining else { return }
+        let yAxisMax = model.currentIntervalYAxisMax
+        guard yAxisMax > 0 else { return }
+
+        let ratio = paceRemaining / yAxisMax
+        let y = layout.plotRect.maxY - layout.plotRect.height * ratio
+        guard y >= layout.plotRect.minY, y <= layout.plotRect.maxY else { return }
+
+        let color: Color = pace.stage.isAhead ? .green : .red
+
+        var path = Path()
+        path.move(to: CGPoint(x: layout.plotRect.minX, y: y))
+        path.addLine(to: CGPoint(x: layout.plotRect.maxX, y: y))
+        context.stroke(
+            path,
+            with: .color(color.opacity(0.55)),
+            style: StrokeStyle(lineWidth: 1, dash: [3, 3]))
     }
 
     private func drawSeries(context: inout GraphicsContext, layout: QuotaChartLayout) {
