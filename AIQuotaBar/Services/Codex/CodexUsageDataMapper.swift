@@ -74,7 +74,9 @@ enum CodexUsageDataMapper {
             remains: readyCount,
             total: total,
             timestamp: snapshot.updatedAt,
-            models: models)
+            models: models,
+            subscribeTitle: nil,
+            subscribeEndTime: nil)
     }
 
     private static func makeModel(

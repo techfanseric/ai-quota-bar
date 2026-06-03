@@ -14,6 +14,11 @@ struct UsageData: Codable {
     let timestamp: Date
     /// Per-model quota details returned by the API
     let models: [ModelUsageData]
+    /// Optional current Token Plan / subscription title (e.g. "TokenPlanMax").
+    /// Only populated for `.miniMax` provider from the combo/cycle endpoint.
+    let subscribeTitle: String?
+    /// Optional current subscription end date. Only populated for `.miniMax`.
+    let subscribeEndTime: Date?
 
     /// Percentage remaining (0-100)
     var percentageRemaining: Double {
@@ -464,6 +469,37 @@ struct MiniMaxBaseResponse: Decodable {
     enum CodingKeys: String, CodingKey {
         case statusCode = "status_code"
         case statusMessage = "status_msg"
+    }
+}
+
+/// API response model for MiniMax current subscription / plan metadata.
+/// Endpoint: GET https://www.minimaxi.com/v1/api/openplatform/charge/combo/cycle_audio_resource_package?biz_line=2&cycle_type=3&resource_package_type=7
+struct MiniMaxCurrentSubscribe: Decodable {
+    let currentSubscribeTitle: String?
+    /// Milliseconds since 1970-01-01 (UTC). `0` when no active subscription.
+    let currentSubscribeEndTimeTs: Int64?
+    let currentSubscribeComboId: String?
+    let currentSubscribeComboType: Int?
+    let currentSubscribeCycleType: Int?
+    let renewalState: Int?
+    let refundable: Bool?
+
+    enum CodingKeys: String, CodingKey {
+        case currentSubscribeTitle = "current_subscribe_title"
+        case currentSubscribeEndTimeTs = "current_subscribe_end_time_ts"
+        case currentSubscribeComboId = "curr_subscribe_combo_id"
+        case currentSubscribeComboType = "current_subscribe_combo_type"
+        case currentSubscribeCycleType = "current_subscribe_cycle_type"
+        case renewalState = "renewal_state"
+        case refundable = "refundable"
+    }
+}
+
+struct MiniMaxCycleComboResponse: Decodable {
+    let currentSubscribe: MiniMaxCurrentSubscribe?
+
+    enum CodingKeys: String, CodingKey {
+        case currentSubscribe = "current_subscribe"
     }
 }
 

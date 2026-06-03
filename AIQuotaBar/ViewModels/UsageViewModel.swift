@@ -372,12 +372,19 @@ final class UsageViewModel: ObservableObject {
         let models = providerData.flatMap(\.models)
         guard models.isEmpty == false else { return nil }
 
+        let subscribeTitle = providerData
+            .first(where: { $0.provider == .miniMax })?.subscribeTitle
+        let subscribeEndTime = providerData
+            .first(where: { $0.provider == .miniMax })?.subscribeEndTime
+
         return UsageData(
             provider: .miniMax,
             remains: models.filter(\.isCurrentIntervalAvailable).count,
             total: models.count,
             timestamp: timestamp,
-            models: models
+            models: models,
+            subscribeTitle: subscribeTitle,
+            subscribeEndTime: subscribeEndTime
         )
     }
 
