@@ -19,7 +19,6 @@ struct SettingsView: View {
     @State private var cloudSyncEndpointURL: String = ""
     @State private var cloudSyncToken: String = ""
     @State private var appLanguage: AppLanguage = .english
-    @State private var selectedModelName: String = ""
     @State private var miniMaxTestResult: InlineFeedback?
     @State private var glmTestResult: InlineFeedback?
     @State private var cloudSyncTestResult: InlineFeedback?
@@ -61,10 +60,6 @@ struct SettingsView: View {
 
     private var language: AppLanguage {
         appLanguage
-    }
-
-    private var availableModelOptions: [ModelUsageData] {
-        viewModel.availableModels
     }
 
     private var header: some View {
@@ -217,24 +212,6 @@ struct SettingsView: View {
             description: language.text(.appearanceDescription)
         ) {
             VStack(alignment: .leading, spacing: 12) {
-                if !availableModelOptions.isEmpty {
-                    VStack(alignment: .leading, spacing: 10) {
-                        Text(language.text(.modelSelectionLabel))
-                            .font(.system(size: 14, weight: .semibold))
-
-                        Picker(language.text(.modelSelectionPlaceholder), selection: $selectedModelName) {
-                            Text(language.text(.modelSelectionPlaceholder)).tag("")
-                            ForEach(availableModelOptions) { model in
-                                Text("\(model.provider.displayName) · \(model.displayName)").tag(model.id)
-                            }
-                        }
-                        .pickerStyle(.menu)
-                    }
-                }
-
-                Divider()
-                    .padding(.vertical, 4)
-
                 VStack(alignment: .leading, spacing: 10) {
                     Text(language.text(.languageTitle))
                         .font(.system(size: 14, weight: .semibold))
@@ -421,7 +398,6 @@ struct SettingsView: View {
         cloudSyncEndpointURL = viewModel.cloudSyncEndpointURL
         cloudSyncToken = viewModel.cloudSyncToken()
         appLanguage = viewModel.appLanguage
-        selectedModelName = viewModel.selectedModelName ?? ""
     }
 
     private func testConnection(for provider: UsageProvider) async {
@@ -488,7 +464,6 @@ struct SettingsView: View {
         viewModel.cloudSyncEnabled = cloudSyncEnabled
         viewModel.cloudSyncEndpointURL = cloudSyncEndpointURL
         viewModel.appLanguage = appLanguage
-        viewModel.selectedModelName = selectedModelName.isEmpty ? nil : selectedModelName
         CodexService.shared.sourceMode = codexSourceMode
 
         let miniMaxSaved = saveCredential(miniMaxCredential, for: .miniMax)

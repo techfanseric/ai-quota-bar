@@ -26,29 +26,6 @@ struct UsageData: Codable {
         return (Double(remains) / Double(total)) * 100
     }
 
-    /// Formatted remaining display string
-    func formattedRemaining(format: DisplayFormat, language: AppLanguage, warningThreshold: Double) -> String {
-        switch format {
-        case .numberOnly:
-            return language.menuBarCompactText(ready: readyModelsCount, total: modelCount)
-        case .numberWithUnit:
-            return language.readyModelsText(readyModelsCount)
-        case .leveled:
-            if exhaustedModelsCount > 0 {
-                return language.fullModelsText(exhaustedModelsCount)
-            }
-
-            let lowModels = lowModelsCount(threshold: warningThreshold)
-            if lowModels > 0 {
-                return language.lowModelsText(lowModels)
-            }
-
-            return language.readyModelsText(readyModelsCount)
-        case .specificModel:
-            return "—"
-        }
-    }
-
     /// Estimate days until quota exhaustion (simplified)
     private func estimateDaysRemaining() -> Int {
         // Placeholder calculation based on typical usage
@@ -602,23 +579,6 @@ struct GLMSubscriptionItem: Decodable {
     let valid: String?
     let nextRenewTime: String?
     let inCurrentPeriod: Bool?
-}
-
-/// Menu bar display format options
-enum DisplayFormat: Int, CaseIterable, Codable {
-    case numberOnly = 0
-    case numberWithUnit = 1
-    case leveled = 2
-    case specificModel = 3
-
-    var description: String {
-        switch self {
-        case .numberOnly: return "Compact model summary"
-        case .numberWithUnit: return "Model availability summary"
-        case .leveled: return "Risk-aware model summary"
-        case .specificModel: return "Primary model detail"
-        }
-    }
 }
 
 /// Error types for usage fetching

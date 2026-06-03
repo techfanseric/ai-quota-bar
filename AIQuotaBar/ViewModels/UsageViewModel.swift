@@ -25,13 +25,6 @@ final class UsageViewModel: ObservableObject {
         }
     }
 
-    @Published var displayFormat: DisplayFormat {
-        didSet {
-            UserDefaults.standard.set(displayFormat.rawValue, forKey: "displayFormat")
-            updateStatusBarText()
-        }
-    }
-
     @Published var warningThreshold: Double {
         didSet {
             UserDefaults.standard.set(warningThreshold, forKey: "warningThreshold")
@@ -47,13 +40,6 @@ final class UsageViewModel: ObservableObject {
     /// 实际生效的阈值：未启用时返回 0，调用方可以放心用 `> 0` 判断
     var effectiveWarningThreshold: Double {
         warningThresholdEnabled ? warningThreshold : 0
-    }
-
-    @Published var selectedModelName: String? {
-        didSet {
-            UserDefaults.standard.set(selectedModelName, forKey: "selectedModelName")
-            updateStatusBarText()
-        }
     }
 
     @Published var autoRefreshOnLaunch: Bool {
@@ -97,13 +83,19 @@ final class UsageViewModel: ObservableObject {
         return menuBarCandidateModels(from: data.models, now: Date())
     }
 
-    var usedMenuBarModels: [ModelUsageData] {
-        availableModels.filter { $0.currentIntervalUsedCount > 0 && $0.isShortCurrentInterval }
-    }
-
     private func updateStatusBarText() {
         guard let data = usageData else {
-            statusBarText = error != nil ? "—" : "..."
+            if error != nil {
+                statusBarText = "—"
+            } else {
+                // 还没拉到数据(初次启动 / 等待刷新):每个已配置 provider 占一行 "Xxx loading"
+                // 顺序跟正常态对齐:codex 优先,再 minimax,再 glm
+                let displayOrder: [UsageProvider] = [.codex, .miniMax, .glm]
+                let placeholders = displayOrder
+                    .filter { configuredProviders.contains($0) }
+                    .map { "\($0.displayName) loading" }
+                statusBarText = placeholders.isEmpty ? "..." : placeholders.joined(separator: "\n")
+            }
             return
         }
 
@@ -144,12 +136,7 @@ final class UsageViewModel: ObservableObject {
     /// 选 status bar 主显示 model:
     /// - codex 选 "5h" model(显示 5h 短周期剩余%/reset)
     /// - 其他 provider 取 candidates 第一个(已按 reset 排序)
-    /// - 如果 user 在 menu 选过别的非 5h model,优先用 user 的选择
     private func pickPrimary(from candidates: [ModelUsageData]) -> ModelUsageData? {
-        if let modelID = selectedModelName,
-           let model = candidates.first(where: { $0.id == modelID }) {
-            return model
-        }
         if let codex = candidates.first(where: { $0.provider == .codex && $0.modelName.localizedCaseInsensitiveContains("5h") }) {
             return codex
         }
@@ -208,7 +195,6 @@ final class UsageViewModel: ObservableObject {
 
     init() {
         self.refreshInterval = UserDefaults.standard.object(forKey: "refreshInterval") as? Int ?? 60
-        self.displayFormat = DisplayFormat(rawValue: UserDefaults.standard.integer(forKey: "displayFormat")) ?? .leveled
         self.warningThreshold = UserDefaults.standard.double(forKey: "warningThreshold") > 0
             ? UserDefaults.standard.double(forKey: "warningThreshold")
             : 20.0
@@ -217,7 +203,6 @@ final class UsageViewModel: ObservableObject {
         self.appLanguage = UserDefaults.standard.string(forKey: AppLanguage.storageKey)
             .flatMap(AppLanguage.init(rawValue:))
             ?? AppLanguage.fallback
-        self.selectedModelName = UserDefaults.standard.string(forKey: "selectedModelName")
         self.launchAtLogin = UserDefaults.standard.object(forKey: "launchAtLogin") as? Bool ?? false
         let cloudSyncSettings = CloudSyncSettings.current
         self.cloudSyncEnabled = cloudSyncSettings.isEnabled
@@ -356,22 +341,6 @@ final class UsageViewModel: ObservableObject {
             .filter { $0.timestamp >= startTime && $0.timestamp <= endTime }
             .sorted { $0.timestamp < $1.timestamp }
 #endif
-    }
-
-    func switchToNextUsedModel() {
-        let models = usedMenuBarModels
-        guard models.isEmpty == false else { return }
-
-        if let selectedModelName,
-           let currentIndex = models.firstIndex(where: { $0.id == selectedModelName }) {
-            let nextIndex = models.index(after: currentIndex) == models.endIndex
-                ? models.startIndex
-                : models.index(after: currentIndex)
-            self.selectedModelName = models[nextIndex].id
-            return
-        }
-
-        selectedModelName = models[0].id
     }
 
     // MARK: - Private Methods
