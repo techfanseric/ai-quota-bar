@@ -38,6 +38,7 @@ final class StatusBarController {
             statusView.autoresizingMask = [.width, .height]
             button.addSubview(statusView)
             updateStatusItem()
+            installActiveScreenObservers(button: button)
         }
 
         viewModel.$statusBarText
@@ -125,6 +126,48 @@ final class StatusBarController {
         (NSApp.delegate as? AppDelegate)?.openSettings()
     }
 
+    // MARK: - Active screen dimming
+
+    /// 监听"激活屏变化"和"window 跨屏",让 statusView 跟随系统半透明规范:
+    /// 非激活屏 0.5 opacity(NSScreen.main 在 macOS 14+ 是用户当前激活屏)。
+    private func installActiveScreenObservers(button: NSStatusBarButton) {
+        let refresh = { [weak self, weak button] in
+            guard let button else { return }
+            // 优先用 button 所在 window 的 screen;fallback 走 NSScreen.screens 几何
+            let screen = button.window?.screen ?? self?.screenContaining(button: button)
+            let isActive = (screen == NSScreen.main)
+            NSLog("[menubar-dim] screen=%@ main=%@ isActive=%d", String(describing: screen), String(describing: NSScreen.main), isActive ? 1 : 0)
+            self?.statusView.applyDim(isOnActiveScreen: isActive)
+        }
+        NotificationCenter.default.addObserver(
+            forName: NSApplication.didChangeScreenParametersNotification,
+            object: nil, queue: .main
+        ) { _ in refresh() }
+
+        if let win = button.window {
+            NotificationCenter.default.addObserver(
+                forName: NSWindow.didChangeScreenNotification,
+                object: win, queue: .main
+            ) { _ in refresh() }
+        }
+    }
+
+    /// NSStatusItem.button 在某些 macOS 版本上无 window — 用 button 的全局 frame 反查 screen
+    private func screenContaining(button: NSStatusBarButton) -> NSScreen? {
+        // button 自身坐标 = window 坐标(NSStatusItem 没挪移);取 frame.origin 在 NSScreen.screens 里查找
+        let origin = button.convert(button.bounds, to: nil).origin
+        let originOnScreen: NSPoint
+        if let win = button.window {
+            originOnScreen = win.convertPoint(toScreen: origin)
+        } else {
+            originOnScreen = origin
+        }
+        for screen in NSScreen.screens where screen.frame.contains(originOnScreen) {
+            return screen
+        }
+        return nil
+    }
+
     // MARK: - Status item rendering
 
     private func updateStatusItem() {
@@ -191,5 +234,21 @@ private final class StatusBarTwoLineView: NSView {
 
     func setLine2(_ text: String) {
         line2Field.stringValue = text
+    }
+
+    override func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+        // macOS 14+ 把 NSStatusItem.button 挂在 NSScreen 自己的 NSStatusBarWindow 上;
+        // 系统对 button 内置的 template image/title 会自动 dim 到 ~0.5 opacity,
+        // 但 addSubview 的自定义 NSView 不在系统 dim 列表里,要自己处理。
+        if let screen = window?.screen {
+            applyDim(isOnActiveScreen: screen == NSScreen.main)
+        }
+    }
+
+    func applyDim(isOnActiveScreen: Bool) {
+        // 跟系统行为对齐:非激活屏 0.5 opacity
+        wantsLayer = true
+        layer?.opacity = isOnActiveScreen ? 1.0 : 0.5
     }
 }
