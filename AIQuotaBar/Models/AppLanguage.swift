@@ -55,8 +55,8 @@ enum AppLanguage: String, CaseIterable, Codable, Identifiable {
             case .refreshOnLaunch: return "Refresh on launch"
             case .refreshOnLaunchDescription: return "Immediately fetch quota after the menu bar item appears."
             case .appearanceEyebrow: return "Appearance"
-            case .appearanceTitle: return "Menu bar display"
-            case .appearanceDescription: return "Pick how much detail should appear in the compact status item."
+            case .appearanceTitle: return "Language"
+            case .appearanceDescription: return "Choose the language used across the app."
             case .languageTitle: return "App language"
             case .languageDescription: return "Choose the language used by the app interface."
             case .changesApply: return "Changes apply as soon as you save them."
@@ -118,8 +118,6 @@ enum AppLanguage: String, CaseIterable, Codable, Identifiable {
             case .errorKeychain: return "Keychain access error"
             case .errorNotConfigured: return "API key not configured"
             case .unknownError: return "Unknown error"
-            case .modelSelectionLabel: return "Display model"
-            case .modelSelectionPlaceholder: return "Select a model"
             case .launchAtLogin: return "Launch at login"
             case .launchAtLoginDescription: return "Automatically start AIQuotaBar when you log in."
             }
@@ -145,8 +143,8 @@ enum AppLanguage: String, CaseIterable, Codable, Identifiable {
             case .refreshOnLaunch: return "启动时刷新"
             case .refreshOnLaunchDescription: return "菜单栏应用启动后立刻请求一次最新额度。"
             case .appearanceEyebrow: return "外观"
-            case .appearanceTitle: return "菜单栏显示"
-            case .appearanceDescription: return "决定菜单栏这个紧凑状态位里显示多少信息。"
+            case .appearanceTitle: return "语言"
+            case .appearanceDescription: return "选择应用所使用的语言。"
             case .languageTitle: return "界面语言"
             case .languageDescription: return "选择应用界面的显示语言。"
             case .changesApply: return "保存后会立即生效。"
@@ -208,8 +206,6 @@ enum AppLanguage: String, CaseIterable, Codable, Identifiable {
             case .errorKeychain: return "钥匙串访问失败"
             case .errorNotConfigured: return "尚未配置 API Key"
             case .unknownError: return "未知错误"
-            case .modelSelectionLabel: return "显示模型"
-            case .modelSelectionPlaceholder: return "选择模型"
             case .launchAtLogin: return "登录时启动"
             case .launchAtLoginDescription: return "登录时自动启动 AIQuotaBar。"
             }
@@ -971,71 +967,6 @@ enum AppText {
     case errorKeychain
     case errorNotConfigured
     case unknownError
-    case modelSelectionLabel
-    case modelSelectionPlaceholder
     case launchAtLogin
     case launchAtLoginDescription
-}
-
-extension DisplayFormat {
-    func title(language: AppLanguage) -> String {
-        switch (self, language) {
-        case (.numberOnly, .english):
-            return "Compact"
-        case (.numberWithUnit, .english):
-            return "Detailed"
-        case (.leveled, .english):
-            return "Smart"
-        case (.specificModel, .english):
-            return "Primary Model"
-        case (.numberOnly, .simplifiedChinese):
-            return "紧凑"
-        case (.numberWithUnit, .simplifiedChinese):
-            return "详细"
-        case (.leveled, .simplifiedChinese):
-            return "智能"
-        case (.specificModel, .simplifiedChinese):
-            return "主模型"
-        }
-    }
-
-    func caption(language: AppLanguage) -> String {
-        switch (self, language) {
-        case (.numberOnly, .english):
-            return "Show how many models are still available at a glance."
-        case (.numberWithUnit, .english):
-            return "Use a short textual summary of model availability."
-        case (.leveled, .english):
-            return "Switch to warnings automatically when some models are tight."
-        case (.specificModel, .english):
-            return "Show the primary model's remaining count and reset time."
-        case (.numberOnly, .simplifiedChinese):
-            return "用最紧凑的方式显示可用模型数。"
-        case (.numberWithUnit, .simplifiedChinese):
-            return "用简短文案展示模型可用情况。"
-        case (.leveled, .simplifiedChinese):
-            return "平时保持简洁，模型额度紧张时自动切换成提醒语义。"
-        case (.specificModel, .simplifiedChinese):
-            return "显示主模型的剩余次数和重置时间。"
-        }
-    }
-
-    func preview(language: AppLanguage) -> String {
-        switch (self, language) {
-        case (.numberOnly, _):
-            return "4/6"
-        case (.numberWithUnit, .english):
-            return "4 ready"
-        case (.numberWithUnit, .simplifiedChinese):
-            return "4 可用"
-        case (.leveled, .english):
-            return "1 full"
-        case (.leveled, .simplifiedChinese):
-            return "1 已耗尽"
-        case (.specificModel, .english):
-            return "1101/44.40h"
-        case (.specificModel, .simplifiedChinese):
-            return "1101/44.40h"
-        }
-    }
 }

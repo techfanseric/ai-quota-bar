@@ -15,9 +15,7 @@ enum AppMigration {
 
         for key in [
             "refreshInterval",
-            "displayFormat",
             "warningThreshold",
-            "selectedModelName",
             "autoRefreshOnLaunch",
             AppLanguage.storageKey
         ] where currentDefaults.object(forKey: key) == nil {

@@ -31,8 +31,8 @@ final class StatusBarController {
         if let button = statusItem?.button {
             button.target = self
             button.action = #selector(handleStatusItemClick(_:))
-            button.sendAction(on: [.leftMouseUp, .rightMouseUp])
-            button.toolTip = "Left click: details. Right click: switch used model."
+            button.sendAction(on: [.leftMouseUp])
+            button.toolTip = "Click to see usage details."
             statusView.translatesAutoresizingMaskIntoConstraints = true
             statusView.frame = NSRect(x: 0, y: 0, width: 110, height: 22)
             statusView.autoresizingMask = [.width, .height]
@@ -77,9 +77,7 @@ final class StatusBarController {
             viewModel.$providerErrors.map { _ in () }.eraseToAnyPublisher(),
             viewModel.$lastRefreshTime.map { _ in () }.eraseToAnyPublisher(),
             viewModel.$appLanguage.map { _ in () }.eraseToAnyPublisher(),
-            viewModel.$selectedModelName.map { _ in () }.eraseToAnyPublisher(),
             viewModel.$isLoading.map { _ in () }.eraseToAnyPublisher(),
-            viewModel.$displayFormat.map { _ in () }.eraseToAnyPublisher(),
             viewModel.$warningThreshold.map { _ in () }.eraseToAnyPublisher(),
             viewModel.$warningThresholdEnabled.map { _ in () }.eraseToAnyPublisher()
         )
@@ -91,12 +89,7 @@ final class StatusBarController {
     }
 
     @objc private func handleStatusItemClick(_ sender: NSStatusBarButton) {
-        switch NSApp.currentEvent?.type {
-        case .rightMouseUp:
-            viewModel.switchToNextUsedModel()
-        default:
-            showMenu()
-        }
+        showMenu()
     }
 
     private func showMenu() {
