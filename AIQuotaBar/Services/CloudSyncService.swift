@@ -63,11 +63,25 @@ final class CloudSyncService {
 
     private let session: URLSession
     private let encoder: JSONEncoder
+    private let decoder: JSONDecoder
 
     private init(session: URLSession = .shared) {
         self.session = session
         self.encoder = JSONEncoder()
         self.encoder.dateEncodingStrategy = .iso8601
+        self.decoder = JSONDecoder()
+        // server 端 worker 实际写入的是 `2024-01-01T12:34:56.789Z` / `2024-01-01T12:34:56Z` 两种
+        // 变体；用自定义 .custom 比 .iso8601 strategy 更鲁棒
+        self.decoder.dateDecodingStrategy = .custom { decoder in
+            let container = try decoder.singleValueContainer()
+            let raw = try container.decode(String.self)
+            if let date = CloudSyncService.parseISODate(raw) {
+                return date
+            }
+            throw DecodingError.dataCorruptedError(
+                in: container,
+                debugDescription: "Unrecognized ISO8601 date: \(raw)")
+        }
     }
 
     func syncUsageData(_ usageData: UsageData, sampledAt: Date) async throws {
@@ -121,7 +135,6 @@ final class CloudSyncService {
         async let devicesData = data(for: devicesRequest)
         async let samplesData = data(for: samplesRequest)
 
-        let decoder = JSONDecoder()
         let devicesResponse = try decoder.decode(CloudDevicesResponse.self, from: try await devicesData)
         let samplesResponse = try decoder.decode(CloudQuotaSamplesResponse.self, from: try await samplesData)
         let html = remoteDataReportHTML(
@@ -134,6 +147,61 @@ final class CloudSyncService {
             .appendingPathComponent("ai-quota-bar-remote-data.html")
         try html.write(to: reportURL, atomically: true, encoding: .utf8)
         return reportURL
+    }
+
+    /// 拉取最近 N 条云端 quota 样本（worker 端按时间倒序返回），按 `ModelUsageData.id`
+    /// 同款格式分组成 `[modelID: [ModelQuotaSample]]`，供 chart 历史回填。
+    /// server 不支持 `?since=` / `?modelId=`，所以一次拉全量在客户端过滤。
+    func fetchRecentQuotaSamples(limit: Int) async throws -> [String: [ModelQuotaSample]] {
+        let settings = CloudSyncSettings.current
+        guard settings.isEnabled else { throw CloudSyncError.disabled }
+
+        let token = KeychainService.shared.getCloudSyncToken()?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        guard !token.isEmpty else { throw CloudSyncError.missingToken }
+
+        let request = try makeRequest(
+            endpointURLString: settings.endpointURLString,
+            path: "/v1/quota-samples?limit=\(limit)",
+            token: token,
+            method: "GET"
+        )
+
+        let response = try decoder.decode(CloudQuotaSamplesResponse.self, from: try await data(for: request))
+
+        var grouped: [String: [ModelQuotaSample]] = [:]
+        for sample in response.samples {
+            guard let provider = UsageProvider(rawValue: sample.provider) else { continue }
+            let modelID = ModelUsageData.makeID(
+                provider: provider,
+                accountName: sample.accountName,
+                modelName: sample.modelName
+            )
+            let quotaSample = ModelQuotaSample(
+                timestamp: sample.sampledAt,
+                remaining: sample.currentIntervalRemaining,
+                percent: nil
+            )
+            grouped[modelID, default: []].append(quotaSample)
+        }
+        return grouped
+    }
+
+    /// 容错的 ISO8601 解析：worker / 不同 SDK 输出的格式略有不同。
+    private static let iso8601Formatters: [ISO8601DateFormatter] = {
+        let withFractional = ISO8601DateFormatter()
+        withFractional.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        let basic = ISO8601DateFormatter()
+        basic.formatOptions = [.withInternetDateTime]
+        return [withFractional, basic]
+    }()
+
+    static func parseISODate(_ raw: String) -> Date? {
+        for formatter in iso8601Formatters {
+            if let date = formatter.date(from: raw) {
+                return date
+            }
+        }
+        return nil
     }
 
     private func makeRequest(endpointURLString: String, path: String, token: String, method: String) throws -> URLRequest {
@@ -214,14 +282,14 @@ final class CloudSyncService {
         let sampleRows = samples.map { sample in
             """
             <tr>
-              <td>\(escapeHTML(sample.sampledAt))</td>
+              <td>\(escapeHTML(sample.sampledAtDisplayString))</td>
               <td>\(escapeHTML(sample.provider))</td>
               <td>\(escapeHTML(sample.accountName ?? ""))</td>
               <td>\(escapeHTML(sample.modelName))</td>
               <td>\(sample.currentIntervalRemaining)</td>
               <td>\(sample.currentIntervalTotal)</td>
               <td>\(escapeHTML(sample.remainingPercentageText))</td>
-              <td>\(escapeHTML(sample.resetEndTime ?? ""))</td>
+              <td>\(escapeHTML(sample.resetEndTimeDisplayString))</td>
             </tr>
             """
         }.joined(separator: "\n")
@@ -306,13 +374,22 @@ private struct CloudRemoteQuotaSample: Decodable {
     let modelName: String
     let currentIntervalTotal: Int
     let currentIntervalRemaining: Int
-    let resetEndTime: String?
-    let sampledAt: String
+    let resetEndTime: Date?
+    let sampledAt: Date
 
     var remainingPercentageText: String {
         guard currentIntervalTotal > 0 else { return "" }
         let percentage = Double(currentIntervalRemaining) / Double(currentIntervalTotal) * 100
         return String(format: "%.1f%%", percentage)
+    }
+
+    var sampledAtDisplayString: String {
+        CloudSyncService.displayDateFormatter.string(from: sampledAt)
+    }
+
+    var resetEndTimeDisplayString: String {
+        guard let resetEndTime else { return "" }
+        return CloudSyncService.displayDateFormatter.string(from: resetEndTime)
     }
 
     enum CodingKeys: String, CodingKey {
@@ -324,6 +401,16 @@ private struct CloudRemoteQuotaSample: Decodable {
         case resetEndTime = "reset_end_time"
         case sampledAt = "sampled_at"
     }
+}
+
+private extension CloudSyncService {
+    static let displayDateFormatter: DateFormatter = {
+        let formatter = DateFormatter()
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        formatter.dateFormat = "yyyy-MM-dd HH:mm:ss"
+        formatter.timeZone = TimeZone(identifier: "UTC")
+        return formatter
+    }()
 }
 
 private struct CloudUsageSnapshotPayload: Encodable {

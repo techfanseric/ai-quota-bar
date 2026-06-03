@@ -110,10 +110,16 @@ struct ModelUsageData: Codable, Identifiable {
     let progressBarRightText: String?
 
     var id: String {
-        guard let accountName, !accountName.isEmpty else {
-            return "\(provider.rawValue):\(modelName)"
+        Self.makeID(provider: provider, accountName: accountName, modelName: modelName)
+    }
+
+    /// 共享的 id 构造器：本地的 `id` 和云端 restore 时的 id 重建都走这里，
+    /// 避免 MiniMax/GLM 这种无 accountName 的 provider 被构造成 `"provider::modelName"`。
+    static func makeID(provider: UsageProvider, accountName: String?, modelName: String) -> String {
+        if let accountName, !accountName.isEmpty {
+            return "\(provider.rawValue):\(accountName):\(modelName)"
         }
-        return "\(provider.rawValue):\(accountName):\(modelName)"
+        return "\(provider.rawValue):\(modelName)"
     }
 
     var displayName: String {
