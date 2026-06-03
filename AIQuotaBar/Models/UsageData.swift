@@ -732,9 +732,9 @@ extension ModelUsageData {
         return "\(providerInitial):\(remaining) · \(paceDelta) · \(resetText)"
     }
 
-    /// 对比匀速消耗的进度：
-    /// - 正数 = 用得比匀速快（剩余比应有少）
-    /// - 负数 = 用得比匀速慢（剩余比应有多）
+    /// 对比匀速消耗的进度（"省"的方向为正，符合直觉）：
+    /// - 正数 = 用得比匀速慢（剩余比应有多 — ahead / 有余量）
+    /// - 负数 = 用得比匀速快（剩余比应有少 — behind / 快烧完）
     /// 统一走 currentInterval 字段（codex Weekly model 的 currentInterval 就是周限额）
     private func formattedPaceDelta() -> String {
         guard let paceUsed = currentIntervalPaceUsedPercent else { return "0%" }
@@ -743,10 +743,10 @@ extension ModelUsageData {
     }
 
     private func formatDelta(paceUsed: Double, actualUsed: Double) -> String {
-        // delta = actualUsed - paceUsed
-        // 用得多 (actualUsed > paceUsed) → 正数
-        // 用得少 (actualUsed < paceUsed) → 负数
-        let delta = actualUsed - paceUsed
+        // delta = paceUsed - actualUsed
+        // 用得慢 (actualUsed < paceUsed) → 正数（ahead / 省）
+        // 用得快 (actualUsed > paceUsed) → 负数（behind / 烧）
+        let delta = paceUsed - actualUsed
         let rounded = Int(delta.rounded())
         if rounded == 0 { return "0%" }
         return rounded > 0 ? "+\(rounded)%" : "\(rounded)%"
