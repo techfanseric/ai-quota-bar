@@ -1057,6 +1057,16 @@ private struct QuotaAreaChart: View {
         let value: String
         if model.isCurrentIntervalPercentMode {
             value = "\(sample.percent ?? model.currentIntervalRemainingPercent ?? 0)%"
+        } else if let override = model.progressBarPercentOverride {
+            // Codex credits 等用 progressBarPercentOverride 走「剩余比例」渲染，
+            // 视觉上是百分比，tooltip 也对齐成百分比。
+            value = "\(Int(override.rounded()))%"
+        } else if model.currentIntervalRemainingPercent != nil {
+            // Codex 5h 之类：currentIntervalTotal=100 看起来像计数模式，但 API 实际
+            // 只给了 percent。这里 sample.remaining 存的是 percent 数字（比如 60），
+            // 视觉上是百分比，tooltip 也得对齐成百分比。
+            let percent = sample.percent ?? model.currentIntervalRemainingPercent ?? 0
+            value = "\(percent)%"
         } else {
             value = "\(sample.remaining)"
         }
@@ -1096,7 +1106,15 @@ private struct QuotaAreaChart: View {
         let formatter = DateFormatter()
         formatter.timeZone = .current
         formatter.locale = .current
-        formatter.dateFormat = "MM/dd HH:mm:ss"
+        // 短重置（5h 之类）起止在同一天时，省略日期跟 x 轴标签保持一致；
+        // 采样以分钟为刻度，时间精度到分足矣。
+        if let startTime = model.startTime,
+           let endTime = model.endTime,
+           Calendar.current.isDate(startTime, inSameDayAs: endTime) {
+            formatter.dateFormat = "HH:mm"
+        } else {
+            formatter.dateFormat = "MM/dd HH:mm"
+        }
         return formatter.string(from: date)
     }
 }
