@@ -372,22 +372,47 @@ private struct ProviderModelsSection: View {
 
     @ViewBuilder
     private func providerHeader(groups: [(accountName: String?, models: [ModelUsageData])]) -> some View {
+        // source 同 provider 共享(codex OAuth / CLI / Web),取一次即可
+        let (_, source, _) = data.models.first?.parsedDetail ?? (nil, nil, nil)
+
         HStack(alignment: .firstTextBaseline) {
-            Text(data.provider.displayName)
-                .font(.system(size: 11, weight: .semibold))
-                .foregroundStyle(.secondary)
+            // 左侧:Codex OAuth — source 是标题的一部分,用空格
+            HStack(spacing: 4) {
+                Text(data.provider.displayName)
+                    .font(.system(size: 11, weight: .semibold))
+                    .foregroundStyle(.secondary)
+
+                if let source {
+                    Text(source)
+                        .font(.system(size: 11, weight: .semibold))
+                        .foregroundStyle(.tertiary)
+                }
+            }
 
             Spacer()
 
             VStack(alignment: .trailing, spacing: 2) {
                 ForEach(Array(groups.enumerated()), id: \.offset) { _, group in
+                    // plan 跟 accountName 走(不同账号可能 plan 不同)
+                    let (plan, _, _) = group.models.first?.parsedDetail ?? (nil, nil, nil)
                     if let accountName = group.accountName, !accountName.isEmpty {
                         let ready = group.models.filter(\.isCurrentIntervalAvailable).count
                         let total = max(group.models.count, 1)
-                        Text("\(accountName) · \(ready)/\(total)")
-                            .font(.system(size: 10, weight: .medium, design: .rounded))
-                            .foregroundStyle(.secondary)
-                            .lineLimit(1)
+                        // 右侧:user@example.com · 2/2 · Plan Pro
+                        HStack(spacing: 4) {
+                            Text("\(accountName) · \(ready)/\(total)")
+                                .font(.system(size: 10, weight: .medium, design: .rounded))
+                                .foregroundStyle(.secondary)
+                                .lineLimit(1)
+                            if let plan {
+                                Text("·")
+                                    .foregroundStyle(.tertiary)
+                                Text(plan)
+                                    .font(.system(size: 10, weight: .medium, design: .rounded))
+                                    .foregroundStyle(.tertiary)
+                                    .lineLimit(1)
+                            }
+                        }
                     } else if let subtitle = providerHeaderSubtitle() {
                         Text(subtitle)
                             .font(.system(size: 10, weight: .medium, design: .rounded))
@@ -433,25 +458,6 @@ private struct ProviderModelsSection: View {
                 onLayoutChange()
             }
         }
-    }
-
-    /// 把 CodexUsageDataMapper 写入的 detailText（"Plan Pro · oauth · resets 04/08 00:00"）
-    /// 拆出 plan 和 source 两段；找不到就返回 nil。
-    private func parseDetail(_ detailText: String?) -> (plan: String?, source: String?) {
-        guard let detailText, !detailText.isEmpty else { return (nil, nil) }
-        let parts = detailText.components(separatedBy: " · ")
-        var plan: String?
-        var source: String?
-        for part in parts {
-            if part.hasPrefix("Plan "), plan == nil {
-                plan = String(part.dropFirst("Plan ".count))
-            } else if part.hasPrefix("resets "), source == nil {
-                // resets 段不算 source；它出现在最后
-            } else if source == nil, !part.isEmpty {
-                source = part
-            }
-        }
-        return (plan, source)
     }
 
     private func shortClockText(from date: Date) -> String {
@@ -623,17 +629,22 @@ private struct ModelRow: View {
                 .frame(height: 10)
             }
 
-            HStack(spacing: 8) {
-                // 5h 短窗口不显示 reset 起止时间（pace 文字会顶替左侧位置）
-                if !model.isShortCurrentInterval {
-                    Text(model.resetTimeText)
+            HStack(spacing: 4) {
+                // 左侧 resets / reset 时间
+                // 优先用 detailText 里的 "resets MM/dd HH:mm"(codex 完整),
+                // 退化到 resetTimeText(其它 provider,非短窗口才用)
+                if let resetsText {
+                    Text(resetsText)
                         .font(.system(size: 10, design: .rounded))
                         .foregroundStyle(.secondary)
                 }
 
                 if model.hasWeeklyLimit {
-                    Text("·")
-                        .foregroundStyle(.tertiary)
+                    // · 是 reset 时间 ↔ 周信息的分隔符;左侧无 reset 时不画
+                    if resetsText != nil {
+                        Text("·")
+                            .foregroundStyle(.tertiary)
+                    }
 
                     if model.isWeeklyUnlimited {
                         Text(language == .simplifiedChinese ? "周无限制" : "Weekly unlimited")
@@ -656,8 +667,11 @@ private struct ModelRow: View {
 
                 // 节奏信息：onTrack / 无数据时不显示
                 if let pace = model.currentIntervalPace, pace.stage != .onTrack {
-                    Text("·")
-                        .foregroundStyle(.tertiary)
+                    // · 是左侧内容 ↔ pace 的分隔符;左侧空时不画
+                    if resetsText != nil || model.hasWeeklyLimit {
+                        Text("·")
+                            .foregroundStyle(.tertiary)
+                    }
 
                     Text(language.paceLabel(stage: pace.stage, deltaPercent: pace.deltaPercent))
                         .font(.system(size: 10, design: .rounded))
@@ -670,13 +684,6 @@ private struct ModelRow: View {
                     .font(.system(size: 10, design: .rounded))
                     .foregroundStyle(.secondary)
             }
-
-            if let detailText = model.detailText, !detailText.isEmpty {
-                Text(detailText)
-                    .font(.system(size: 9, design: .rounded))
-                    .foregroundStyle(.tertiary)
-                    .lineLimit(2)
-            }
         }
         .padding(10)
         .contentShape(Rectangle())
@@ -688,6 +695,17 @@ private struct ModelRow: View {
                 isHovered = false
             }
         }
+    }
+
+    private var resetsText: String? {
+        // 优先 detailText 里的 "resets MM/dd HH:mm"(codex 完整日期+时间)
+        if let rest = model.parsedDetail.rest,
+           rest.hasPrefix("resets ") {
+            return String(rest.dropFirst("resets ".count))
+        }
+        // 退化到 resetTimeText(其它 provider 仅在非短窗口下)
+        guard !model.isShortCurrentInterval, model.endTime != nil else { return nil }
+        return model.resetTimeText
     }
 
     private var tint: Color {
@@ -872,24 +890,18 @@ private struct QuotaAreaChart: View {
         }
     }
 
-    /// y 轴匀速参考线：水平虚线常驻（颜色按 ahead/behind 区分）
-    /// 文字标签不在图里显示，统一挪到 reset time 那一行（避免被 Canvas 边缘裁切）
-    /// onTrack 时不画（跟 codexbar 一致）
+    /// 匀速消耗参考线：从左上到右下的对角虚线，代表"匀速消耗下 remaining
+    /// 从周期起点 100% 线性下降到周期终点 0% 的轨迹"。颜色按 ahead/behind 区分。
+    /// 文字标签不在图里显示，统一挪到 reset time 那一行（避免被 Canvas 边缘裁切）。
+    /// onTrack 时也常驻 — 这是"参考线"而非"偏差警示线"。
     private func drawPaceGuide(context: inout GraphicsContext, layout: QuotaChartLayout) {
-        guard let pace = model.currentIntervalPace, pace.stage != .onTrack else { return }
-        guard let paceRemaining = model.currentIntervalPaceRemaining else { return }
-        let yAxisMax = model.currentIntervalYAxisMax
-        guard yAxisMax > 0 else { return }
-
-        let ratio = paceRemaining / yAxisMax
-        let y = layout.plotRect.maxY - layout.plotRect.height * ratio
-        guard y >= layout.plotRect.minY, y <= layout.plotRect.maxY else { return }
+        guard let pace = model.currentIntervalPace else { return }
 
         let color: Color = pace.stage.isAhead ? .green : .red
 
         var path = Path()
-        path.move(to: CGPoint(x: layout.plotRect.minX, y: y))
-        path.addLine(to: CGPoint(x: layout.plotRect.maxX, y: y))
+        path.move(to: CGPoint(x: layout.plotRect.minX, y: layout.plotRect.minY))
+        path.addLine(to: CGPoint(x: layout.plotRect.maxX, y: layout.plotRect.maxY))
         context.stroke(
             path,
             with: .color(color.opacity(0.55)),
