@@ -38,6 +38,17 @@ final class UsageViewModel: ObservableObject {
         }
     }
 
+    @Published var warningThresholdEnabled: Bool {
+        didSet {
+            UserDefaults.standard.set(warningThresholdEnabled, forKey: "warningThresholdEnabled")
+        }
+    }
+
+    /// 实际生效的阈值：未启用时返回 0，调用方可以放心用 `> 0` 判断
+    var effectiveWarningThreshold: Double {
+        warningThresholdEnabled ? warningThreshold : 0
+    }
+
     @Published var selectedModelName: String? {
         didSet {
             UserDefaults.standard.set(selectedModelName, forKey: "selectedModelName")
@@ -154,6 +165,7 @@ final class UsageViewModel: ObservableObject {
         self.warningThreshold = UserDefaults.standard.double(forKey: "warningThreshold") > 0
             ? UserDefaults.standard.double(forKey: "warningThreshold")
             : 20.0
+        self.warningThresholdEnabled = UserDefaults.standard.object(forKey: "warningThresholdEnabled") as? Bool ?? false
         self.autoRefreshOnLaunch = UserDefaults.standard.object(forKey: "autoRefreshOnLaunch") as? Bool ?? true
         self.appLanguage = UserDefaults.standard.string(forKey: AppLanguage.storageKey)
             .flatMap(AppLanguage.init(rawValue:))

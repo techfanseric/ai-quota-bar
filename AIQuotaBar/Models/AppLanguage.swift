@@ -1,3 +1,4 @@
+import CodexBarCore
 import Foundation
 
 enum AppLanguage: String, CaseIterable, Codable, Identifiable {
@@ -814,6 +815,47 @@ enum AppLanguage: String, CaseIterable, Codable, Identifiable {
             return "Remote data report opened."
         case .simplifiedChinese:
             return "远程数据报表已打开。"
+        }
+    }
+
+    /// 5h 面积图 y 轴节奏参考线右侧标签。
+    /// percent 非空时显示"匀速 75%"之类；空时只显示"匀速"。
+    func paceGuideLabel(percent: Double?) -> String {
+        switch self {
+        case .english:
+            if let percent { return "Pace \(Int(percent.rounded()))%" }
+            return "Pace"
+        case .simplifiedChinese:
+            if let percent { return "匀速 \(Int(percent.rounded()))%" }
+            return "匀速"
+        }
+    }
+
+    /// 跟 codexbar 的 UsagePaceText 文案完全对齐。
+    /// onTrack → "On pace" / "节奏正常"（不显示 delta）
+    /// ahead（实际 > 预期，deficit）→ "X% in deficit" / "超额 X%"
+    /// behind（实际 < 预期，reserve）→ "X% in reserve" / "余量 X%"
+    func paceLabel(stage: UsagePace.Stage, deltaPercent: Double) -> String {
+        let deltaValue = Int(abs(deltaPercent).rounded())
+        switch self {
+        case .english:
+            switch stage {
+            case .onTrack:
+                return "On pace"
+            case .slightlyAhead, .ahead, .farAhead:
+                return "\(deltaValue)% in deficit"
+            case .slightlyBehind, .behind, .farBehind:
+                return "\(deltaValue)% in reserve"
+            }
+        case .simplifiedChinese:
+            switch stage {
+            case .onTrack:
+                return "节奏正常"
+            case .slightlyAhead, .ahead, .farAhead:
+                return "超额 \(deltaValue)%"
+            case .slightlyBehind, .behind, .farBehind:
+                return "余量 \(deltaValue)%"
+            }
         }
     }
 }
