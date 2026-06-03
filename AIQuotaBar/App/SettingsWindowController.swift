@@ -4,13 +4,13 @@ import SwiftUI
 final class SettingsWindowController: NSWindowController {
     init(viewModel: UsageViewModel) {
         let hostingController = NSHostingController(
-            rootView: SettingsView(viewModel: viewModel)
+            rootView: PreferencesView(viewModel: viewModel)
         )
 
         let window = NSWindow(contentViewController: hostingController)
         window.title = viewModel.appLanguage.text(.preferences)
-        window.setContentSize(NSSize(width: 700, height: 620))
-        window.minSize = NSSize(width: 700, height: 620)
+        window.setContentSize(NSSize(width: PreferencesTab.providersWidth, height: PreferencesTab.windowHeight))
+        window.minSize = NSSize(width: PreferencesTab.providersWidth, height: PreferencesTab.windowHeight)
         window.styleMask = [.titled, .closable, .miniaturizable, .fullSizeContentView]
         window.titleVisibility = .hidden
         window.titlebarAppearsTransparent = true

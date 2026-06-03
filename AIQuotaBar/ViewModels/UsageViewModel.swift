@@ -1,37 +1,40 @@
 import Foundation
 import AppKit
-import Combine
 
 /// Main view model managing usage state and refresh logic
 @MainActor
-final class UsageViewModel: ObservableObject {
+@Observable
+final class UsageViewModel {
     // MARK: - Published State
 
-    @Published var usageData: UsageData?
-    @Published var providerUsageData: [UsageProvider: UsageData] = [:]
-    @Published var providerErrors: [UsageProvider: UsageError] = [:]
-    @Published var error: UsageError?
-    @Published var isLoading: Bool = false
-    @Published var lastRefreshTime: Date?
-    @Published var showWarningPanel: Bool = false
-    @Published private(set) var modelQuotaSamples: [String: [ModelQuotaSample]] = [:]
+    var usageData: UsageData? {
+        didSet { checkThreshold() }
+    }
+    var providerUsageData: [UsageProvider: UsageData] = [:]
+    var providerErrors: [UsageProvider: UsageError] = [:]
+    var error: UsageError?
+    var isLoading: Bool = false
+    var lastRefreshTime: Date?
+    var showWarningPanel: Bool = false
+    private(set) var modelQuotaSamples: [String: [ModelQuotaSample]] = [:]
 
     // MARK: - Settings
 
-    @Published var refreshInterval: Int {
+    var refreshInterval: Int {
         didSet {
             UserDefaults.standard.set(refreshInterval, forKey: "refreshInterval")
             restartTimer()
         }
     }
 
-    @Published var warningThreshold: Double {
+    var warningThreshold: Double {
         didSet {
             UserDefaults.standard.set(warningThreshold, forKey: "warningThreshold")
+            checkThreshold()
         }
     }
 
-    @Published var warningThresholdEnabled: Bool {
+    var warningThresholdEnabled: Bool {
         didSet {
             UserDefaults.standard.set(warningThresholdEnabled, forKey: "warningThresholdEnabled")
         }
@@ -42,33 +45,33 @@ final class UsageViewModel: ObservableObject {
         warningThresholdEnabled ? warningThreshold : 0
     }
 
-    @Published var autoRefreshOnLaunch: Bool {
+    var autoRefreshOnLaunch: Bool {
         didSet {
             UserDefaults.standard.set(autoRefreshOnLaunch, forKey: "autoRefreshOnLaunch")
         }
     }
 
-    @Published var appLanguage: AppLanguage {
+    var appLanguage: AppLanguage {
         didSet {
             UserDefaults.standard.set(appLanguage.rawValue, forKey: AppLanguage.storageKey)
             updateStatusBarText()
         }
     }
 
-    @Published var launchAtLogin: Bool {
+    var launchAtLogin: Bool {
         didSet {
             UserDefaults.standard.set(launchAtLogin, forKey: "launchAtLogin")
             AutoLaunchService.shared.setEnabled(launchAtLogin)
         }
     }
 
-    @Published var cloudSyncEnabled: Bool {
+    var cloudSyncEnabled: Bool {
         didSet {
             saveCloudSyncSettings()
         }
     }
 
-    @Published var cloudSyncEndpointURL: String {
+    var cloudSyncEndpointURL: String {
         didSet {
             saveCloudSyncSettings()
         }
@@ -76,7 +79,7 @@ final class UsageViewModel: ObservableObject {
 
     // MARK: - Computed Properties
 
-    @Published var statusBarText: String = "..."
+    var statusBarText: String = "..."
 
     var availableModels: [ModelUsageData] {
         guard let data = usageData else { return [] }
@@ -189,7 +192,6 @@ final class UsageViewModel: ObservableObject {
     // MARK: - Private
 
     private var timer: Timer?
-    private var cancellables = Set<AnyCancellable>()
 
     // MARK: - Initialization
 
@@ -208,7 +210,6 @@ final class UsageViewModel: ObservableObject {
         self.cloudSyncEnabled = cloudSyncSettings.isEnabled
         self.cloudSyncEndpointURL = cloudSyncSettings.endpointURLString
 
-        setupWarningObserver()
         updateStatusBarText()
     }
 
@@ -374,14 +375,6 @@ final class UsageViewModel: ObservableObject {
 #endif
             }
         }
-    }
-
-    private func setupWarningObserver() {
-        Publishers.CombineLatest($usageData, $warningThreshold)
-            .sink { [weak self] _, _ in
-                self?.checkThreshold()
-            }
-            .store(in: &cancellables)
     }
 
     private func combinedUsageData(from providerData: Dictionary<UsageProvider, UsageData>.Values, timestamp: Date) -> UsageData? {

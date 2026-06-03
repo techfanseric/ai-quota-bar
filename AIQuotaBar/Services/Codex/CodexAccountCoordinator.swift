@@ -1,6 +1,17 @@
 import CodexBarCore
 import Foundation
 
+/// 账号列表摘要：给 Settings 面板渲染用。
+struct CodexAccountDraft: Identifiable, Equatable {
+    let id: String
+    let name: String
+    let email: String
+    let planType: String
+    let sourceLabel: String
+    let lastRefresh: Date?
+    let isActive: Bool
+}
+
 /// 协调 codexbar 的 FileManagedCodexAccountStore，
 /// 为 Settings 面板的账号列表提供数据。
 final class CodexAccountCoordinator {

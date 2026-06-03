@@ -1,6 +1,5 @@
 import AppKit
 import SwiftUI
-import Combine
 
 /// 状态栏显示：两行 NSTextField 直接 addSubview 到 NSStatusBarButton。
 ///
@@ -16,7 +15,6 @@ final class StatusBarController {
     private var menu: NSMenu?
     private var menuItem: NSMenuItem?
     private var hostingView: NSHostingView<MenuView>?
-    private var cancellables = Set<AnyCancellable>()
 
     private let statusView = StatusBarTwoLineView()
 
@@ -41,12 +39,9 @@ final class StatusBarController {
             installActiveScreenObservers(button: button)
         }
 
-        viewModel.$statusBarText
-            .receive(on: DispatchQueue.main)
-            .sink { [weak self] _ in
-                self?.updateStatusItem()
-            }
-            .store(in: &cancellables)
+        observe(viewModel, \.statusBarText) { [weak self] in
+            self?.updateStatusItem()
+        }
     }
 
     private func setupMenu() {
@@ -70,22 +65,24 @@ final class StatusBarController {
         self.menuItem = menuItem
         menu?.addItem(menuItem)
 
-        Publishers.MergeMany(
-            viewModel.$usageData.map { _ in () }.eraseToAnyPublisher(),
-            viewModel.$error.map { _ in () }.eraseToAnyPublisher(),
-            viewModel.$providerUsageData.map { _ in () }.eraseToAnyPublisher(),
-            viewModel.$providerErrors.map { _ in () }.eraseToAnyPublisher(),
-            viewModel.$lastRefreshTime.map { _ in () }.eraseToAnyPublisher(),
-            viewModel.$appLanguage.map { _ in () }.eraseToAnyPublisher(),
-            viewModel.$isLoading.map { _ in () }.eraseToAnyPublisher(),
-            viewModel.$warningThreshold.map { _ in () }.eraseToAnyPublisher(),
-            viewModel.$warningThresholdEnabled.map { _ in () }.eraseToAnyPublisher()
-        )
-        .receive(on: DispatchQueue.main)
-        .sink { [weak self] _ in
+        observeMenuLayoutChanges()
+    }
+
+    /// 持续追踪下拉菜单用到的所有 keyPath，任意一个变化时重算 menu 尺寸。
+    private func observeMenuLayoutChanges() {
+        observeProperties(viewModel) { vm in
+            _ = vm.usageData
+            _ = vm.error
+            _ = vm.providerUsageData
+            _ = vm.providerErrors
+            _ = vm.lastRefreshTime
+            _ = vm.appLanguage
+            _ = vm.isLoading
+            _ = vm.warningThreshold
+            _ = vm.warningThresholdEnabled
+        } onChange: { [weak self] in
             self?.updateMenuLayout()
         }
-        .store(in: &cancellables)
     }
 
     @objc private func handleStatusItemClick(_ sender: NSStatusBarButton) {
@@ -172,6 +169,43 @@ final class StatusBarController {
         let line2 = parts.count > 1 ? parts[1] : ""
         statusView.setLine1(line1)
         statusView.setLine2(line2)
+    }
+}
+
+// MARK: - @Observable 持续追踪桥接
+//
+// `withObservationTracking` 只触发一次回调；要"持续追踪"需在 onChange 里
+// 重新订阅。下面的工具方法把这段样板收拢,避免在调用处散落。
+
+@MainActor
+private func observe<Object: Observable, Value: Equatable>(
+    _ object: Object,
+    _ keyPath: KeyPath<Object, Value>,
+    onChange: @escaping @MainActor () -> Void
+) {
+    withObservationTracking {
+        _ = object[keyPath: keyPath]
+    } onChange: {
+        Task { @MainActor in
+            onChange()
+            observe(object, keyPath, onChange: onChange)
+        }
+    }
+}
+
+@MainActor
+private func observeProperties<Object: Observable>(
+    _ object: Object,
+    access: @escaping @MainActor (Object) -> Void,
+    onChange: @escaping @MainActor () -> Void
+) {
+    withObservationTracking {
+        access(object)
+    } onChange: {
+        Task { @MainActor in
+            onChange()
+            observeProperties(object, access: access, onChange: onChange)
+        }
     }
 }
 
