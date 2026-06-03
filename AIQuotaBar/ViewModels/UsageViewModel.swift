@@ -288,8 +288,9 @@ final class UsageViewModel {
     /// 关键：merge 不是 replace — 用 1s timestamp 去重（对齐 `recordSamples:451` 的 `< 1` 规则），
     /// 否则每次启动都会把第一次 refresh 刚写入的本地样本覆盖掉。
     /// 只补当前 5h 窗口内的样本（`sampledAt >= startTime && <= endTime`），跨窗口不补。
-    /// Codex 5h 这类 `currentIntervalRemainingPercent != nil` 的 model，把 `percent` 复制成 `remaining`
-    /// 让历史 tooltip 也显示当时的 percent，而不是当前的 percent。
+    /// percent 字段优先用云端存的；云端没存（早期 payload）但 model 处于 Codex 5h
+    /// 风格（`valueSuffix == "%"`）时，fallback 把 `remaining` 复制成 `percent`，
+    /// 避免历史 tooltip 显示错。其它 model 不复制（MiniMax 的 `remaining` 是真实计数，不是 percent）。
     /// 全部静默：失败/配置缺失都不打扰用户。
     func restoreFromCloud() async {
         guard isCloudSyncConfigured else { return }
@@ -323,17 +324,23 @@ final class UsageViewModel {
             for sample in existing {
                 merged[Int(sample.timestamp.timeIntervalSince1970)] = sample
             }
-            for var sample in cloudSamples {
+            for sample in cloudSamples {
                 guard sample.timestamp >= startTime, sample.timestamp <= endTime else { continue }
-                // Codex 5h 等：remaining 字段本身就是 percent 数字，复制给 tooltip
-                if model.currentIntervalRemainingPercent != nil {
-                    sample = ModelQuotaSample(
+                let withPercent: ModelQuotaSample
+                if sample.percent != nil {
+                    withPercent = sample
+                } else if model.valueSuffix == "%", model.currentIntervalRemainingPercent != nil {
+                    // 兼容早期 cloud payload（没存 percent）：Codex 5h 的 `remaining`
+                    // 本身就是 percent 数字（valueSuffix=="%" 标识），复制一份给 tooltip。
+                    withPercent = ModelQuotaSample(
                         timestamp: sample.timestamp,
                         remaining: sample.remaining,
                         percent: sample.remaining
                     )
+                } else {
+                    withPercent = sample
                 }
-                merged[Int(sample.timestamp.timeIntervalSince1970)] = sample
+                merged[Int(withPercent.timestamp.timeIntervalSince1970)] = withPercent
             }
 
             if merged.isEmpty == false {

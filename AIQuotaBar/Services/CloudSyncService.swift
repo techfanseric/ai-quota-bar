@@ -179,7 +179,7 @@ final class CloudSyncService {
             let quotaSample = ModelQuotaSample(
                 timestamp: sample.sampledAt,
                 remaining: sample.currentIntervalRemaining,
-                percent: nil
+                percent: sample.currentIntervalRemainingPercent
             )
             grouped[modelID, default: []].append(quotaSample)
         }
@@ -374,6 +374,7 @@ private struct CloudRemoteQuotaSample: Decodable {
     let modelName: String
     let currentIntervalTotal: Int
     let currentIntervalRemaining: Int
+    let currentIntervalRemainingPercent: Int?
     let resetEndTime: Date?
     let sampledAt: Date
 
@@ -398,6 +399,7 @@ private struct CloudRemoteQuotaSample: Decodable {
         case modelName = "model_name"
         case currentIntervalTotal = "current_interval_total"
         case currentIntervalRemaining = "current_interval_remaining"
+        case currentIntervalRemainingPercent = "current_interval_remaining_percent"
         case resetEndTime = "reset_end_time"
         case sampledAt = "sampled_at"
     }
@@ -426,6 +428,7 @@ private struct CloudModelQuotaPayload: Encodable {
     let modelName: String
     let currentIntervalTotal: Int
     let currentIntervalRemaining: Int
+    let currentIntervalRemainingPercent: Int?
     let weeklyTotal: Int
     let weeklyRemaining: Int
     let resetStartTime: Date?
@@ -442,6 +445,7 @@ private struct CloudModelQuotaPayload: Encodable {
         self.modelName = model.modelName
         self.currentIntervalTotal = model.currentIntervalTotal
         self.currentIntervalRemaining = model.currentIntervalRemaining
+        self.currentIntervalRemainingPercent = model.currentIntervalRemainingPercent
         self.weeklyTotal = model.weeklyTotal
         self.weeklyRemaining = model.weeklyRemaining
         self.resetStartTime = model.startTime
