@@ -15,6 +15,9 @@ build:
 app: build
 	@mkdir -p dist/$(PRODUCT)/Contents/{MacOS,Resources}
 	@cp .build/release/$(APP_NAME) dist/$(PRODUCT)/Contents/MacOS/
+	@if [ -d .build/release/$(APP_NAME)_$(APP_NAME).bundle ]; then \
+		cp -R .build/release/$(APP_NAME)_$(APP_NAME).bundle dist/$(PRODUCT)/Contents/Resources/; \
+	fi
 	@rm -rf dist/AppIcon.iconset
 	@mkdir -p dist/AppIcon.iconset
 	@for f in AIQuotaBar/Resources/Assets.xcassets/AppIcon.appiconset/*.png; do \

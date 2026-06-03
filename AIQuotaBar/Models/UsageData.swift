@@ -277,6 +277,30 @@ struct ModelUsageData: Codable, Identifiable {
         return min(max(elapsed / duration, 0), 1)
     }
 
+    /// 周已用时长占周总时长的比例（0-1）。nil 时表示无法计算
+    var weeklyElapsedRatio: Double? {
+        guard let weeklyStartTime, let weeklyEndTime else { return nil }
+        let duration = weeklyEndTime.timeIntervalSince(weeklyStartTime)
+        guard duration > 0 else { return nil }
+        let elapsed = Date().timeIntervalSince(weeklyStartTime)
+        return min(max(elapsed / duration, 0), 1)
+    }
+
+    /// 周已用百分比（0-100），nil 时表示无法计算
+    var weeklyPercentageUsed: Double? {
+        if let percent = weeklyRemainingPercent {
+            return max(0, 100 - Double(percent))
+        }
+        guard weeklyTotal > 0 else { return nil }
+        return (Double(weeklyUsedCount) / Double(weeklyTotal)) * 100
+    }
+
+    /// 匀速消耗情况下"周应有的已用百分比"（0-100）
+    var weeklyPaceUsedPercent: Double? {
+        guard let ratio = weeklyElapsedRatio else { return nil }
+        return ratio * 100
+    }
+
     /// 匀速消耗情况下"当前应有的已用百分比"（0-100）。
     /// 用于 Weekly 柱状图 x 轴的 pace tip 位置。
     var currentIntervalPaceUsedPercent: Double? {
@@ -698,6 +722,36 @@ extension ModelUsageData {
         return "\(remaining)/\(resetText)"
     }
 
+    /// 状态栏单行格式：`<初始>:<剩余%> · <对比匀速消耗%> · <重置时间>`
+    /// - `paceSource`: paceDelta 走哪个 model 的字段(codex 用 Weekly 算 reserve)
+    /// - 剩余%/reset 时间始终用 self(primary,通常是 5h 短周期)
+    func formattedStatusBarLine(providerInitial: String, paceSource: ModelUsageData? = nil) -> String {
+        let remaining = currentIntervalRemainingText
+        let paceDelta = (paceSource ?? self).formattedPaceDelta()
+        let resetText = formatResetTime(endTime: endTime)
+        return "\(providerInitial):\(remaining) · \(paceDelta) · \(resetText)"
+    }
+
+    /// 对比匀速消耗的进度：
+    /// - 正数 = 用得比匀速快（剩余比应有少）
+    /// - 负数 = 用得比匀速慢（剩余比应有多）
+    /// 统一走 currentInterval 字段（codex Weekly model 的 currentInterval 就是周限额）
+    private func formattedPaceDelta() -> String {
+        guard let paceUsed = currentIntervalPaceUsedPercent else { return "0%" }
+        let actualUsed = 100 - currentIntervalPercentageRemaining
+        return formatDelta(paceUsed: paceUsed, actualUsed: actualUsed)
+    }
+
+    private func formatDelta(paceUsed: Double, actualUsed: Double) -> String {
+        // delta = actualUsed - paceUsed
+        // 用得多 (actualUsed > paceUsed) → 正数
+        // 用得少 (actualUsed < paceUsed) → 负数
+        let delta = actualUsed - paceUsed
+        let rounded = Int(delta.rounded())
+        if rounded == 0 { return "0%" }
+        return rounded > 0 ? "+\(rounded)%" : "\(rounded)%"
+    }
+
     private func formatResetTime(endTime: Date?) -> String {
         guard let endTime = endTime else { return "0m" }
         let interval = endTime.timeIntervalSince(Date())
@@ -710,7 +764,12 @@ extension ModelUsageData {
             let minutes = Int(interval / 60)
             return "\(minutes)m"
         }
-        return String(format: "%.2fh", hours)
+        if hours < 24 {
+            return String(format: "%.1fh", hours)
+        }
+        // >= 1 天：用 d 单位，避免 "105.0h" 占太多字符
+        let days = hours / 24.0
+        return String(format: "%.1fd", days)
     }
 }
 

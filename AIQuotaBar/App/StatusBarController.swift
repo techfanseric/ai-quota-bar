@@ -2,6 +2,13 @@ import AppKit
 import SwiftUI
 import Combine
 
+/// 状态栏显示：两行 NSTextField 直接 addSubview 到 NSStatusBarButton。
+///
+/// 第一行：剩余百分比（如 "60%"）
+/// 第二行：重置时间（如 "2h"）
+///
+/// 不用 button.image + NSImage(SVG) 那条路，brand icon 渲染对 template image / dark mode
+/// / 光栅化的边角太多；用 stats 项目的 addSubview 模式更稳。
 @MainActor
 final class StatusBarController {
     let viewModel = UsageViewModel()
@@ -11,28 +18,32 @@ final class StatusBarController {
     private var hostingView: NSHostingView<MenuView>?
     private var cancellables = Set<AnyCancellable>()
 
+    private let statusView = StatusBarTwoLineView()
+
     init() {
         setupStatusItem()
         setupMenu()
     }
 
     private func setupStatusItem() {
-        statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
+        statusItem = NSStatusBar.system.statusItem(withLength: 110)
 
         if let button = statusItem?.button {
-            button.title = viewModel.statusBarText
-            button.font = NSFont.monospacedDigitSystemFont(ofSize: 12, weight: .regular)
             button.target = self
             button.action = #selector(handleStatusItemClick(_:))
             button.sendAction(on: [.leftMouseUp, .rightMouseUp])
             button.toolTip = "Left click: details. Right click: switch used model."
+            statusView.translatesAutoresizingMaskIntoConstraints = true
+            statusView.frame = NSRect(x: 0, y: 0, width: 110, height: 22)
+            statusView.autoresizingMask = [.width, .height]
+            button.addSubview(statusView)
+            updateStatusItem()
         }
 
-        // Observe status bar text changes
         viewModel.$statusBarText
             .receive(on: DispatchQueue.main)
-            .sink { [weak self] text in
-                self?.statusItem?.button?.title = text
+            .sink { [weak self] _ in
+                self?.updateStatusItem()
             }
             .store(in: &cancellables)
     }
@@ -112,5 +123,73 @@ final class StatusBarController {
 
     private func openSettings() {
         (NSApp.delegate as? AppDelegate)?.openSettings()
+    }
+
+    // MARK: - Status item rendering
+
+    private func updateStatusItem() {
+        // 解析 viewModel.statusBarText:两行用 "\n" 分隔
+        // 每行格式: "M:85%·-69%·1.5h"
+        let text = viewModel.statusBarText
+        let parts = text.split(separator: "\n", maxSplits: 1, omittingEmptySubsequences: false).map(String.init)
+        let line1 = parts.first ?? text
+        let line2 = parts.count > 1 ? parts[1] : ""
+        statusView.setLine1(line1)
+        statusView.setLine2(line2)
+    }
+}
+
+/// 两行 NSTextField 容器。直接 addSubview 到 NSStatusBarButton。
+@MainActor
+private final class StatusBarTwoLineView: NSView {
+    private let line1Field = NSTextField(labelWithString: "...")
+    private let line2Field = NSTextField(labelWithString: "")
+
+    private let font: NSFont = {
+        // 9pt 偏小被截；用 10pt 跟 codexbar 看起来更接近
+        NSFont.monospacedDigitSystemFont(ofSize: 10, weight: .medium)
+    }()
+
+    override init(frame frameRect: NSRect) {
+        super.init(frame: frameRect)
+        setUpLabels()
+    }
+
+    required init?(coder: NSCoder) {
+        super.init(coder: coder)
+        setUpLabels()
+    }
+
+    private func setUpLabels() {
+        wantsLayer = false
+        addSubview(line1Field)
+        addSubview(line2Field)
+        for label in [line1Field, line2Field] {
+            label.font = font
+            label.textColor = .labelColor
+            label.backgroundColor = .clear
+            label.drawsBackground = false
+            label.isBordered = false
+            label.isEditable = false
+            label.isSelectable = false
+            label.cell?.lineBreakMode = .byClipping
+            label.alignment = .left
+        }
+    }
+
+    override func layout() {
+        super.layout()
+        // 两行：上半行 / 下半行；按 frame 高度均分
+        let lineHeight = bounds.height / 2
+        line1Field.frame = NSRect(x: 0, y: lineHeight, width: bounds.width, height: lineHeight)
+        line2Field.frame = NSRect(x: 0, y: 0, width: bounds.width, height: lineHeight)
+    }
+
+    func setLine1(_ text: String) {
+        line1Field.stringValue = text
+    }
+
+    func setLine2(_ text: String) {
+        line2Field.stringValue = text
     }
 }

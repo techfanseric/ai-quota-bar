@@ -108,17 +108,64 @@ final class UsageViewModel: ObservableObject {
         }
 
         let now = Date()
+        let candidates = menuBarCandidateModels(from: data.models, now: now)
 
-        // Always use primary model format - show selected model while it is usable,
-        // then fall back to the usable model whose reset arrives soonest.
-        if let modelID = selectedModelName,
-           let model = data.models.first(where: { $0.id == modelID }),
-           isMenuBarCandidate(model, now: now) {
-            statusBarText = model.formattedMenuBarText(language: appLanguage)
-        } else if let firstAvailable = preferredMenuBarFallbackModels(from: data.models, now: now).first {
-            statusBarText = firstAvailable.formattedMenuBarText(language: appLanguage)
+        // 状态栏两行：每行一个 provider 的状态
+        // codex: primary 用 5h model(显示 5h 剩余% 和 5h reset),
+        //         paceDelta 从 Weekly model 算(周限额 reserve)
+        let primary: ModelUsageData? = pickPrimary(from: candidates)
+
+        var secondary: ModelUsageData?
+        if let primary {
+            let remainingCandidates = candidates.filter { $0.provider != primary.provider }
+            secondary = pickPrimary(from: remainingCandidates)
         } else {
-            statusBarText = "—"
+            secondary = candidates.dropFirst().first
+        }
+
+        var lines: [String] = []
+        if let primary {
+            // codex 时 paceSource 传 weekly model(用周限额算 paceDelta)
+            let paceSource: ModelUsageData? = (primary.provider == .codex) ? weeklyModel(in: candidates) : nil
+            lines.append(primary.formattedStatusBarLine(
+                providerInitial: providerInitial(primary.provider),
+                paceSource: paceSource))
+        }
+        if let secondary {
+            let paceSource: ModelUsageData? = (secondary.provider == .codex) ? weeklyModel(in: candidates) : nil
+            lines.append(secondary.formattedStatusBarLine(
+                providerInitial: providerInitial(secondary.provider),
+                paceSource: paceSource))
+        }
+
+        statusBarText = lines.isEmpty ? "—" : lines.joined(separator: "\n")
+    }
+
+    /// 选 status bar 主显示 model:
+    /// - codex 选 "5h" model(显示 5h 短周期剩余%/reset)
+    /// - 其他 provider 取 candidates 第一个(已按 reset 排序)
+    /// - 如果 user 在 menu 选过别的非 5h model,优先用 user 的选择
+    private func pickPrimary(from candidates: [ModelUsageData]) -> ModelUsageData? {
+        if let modelID = selectedModelName,
+           let model = candidates.first(where: { $0.id == modelID }) {
+            return model
+        }
+        if let codex = candidates.first(where: { $0.provider == .codex && $0.modelName.localizedCaseInsensitiveContains("5h") }) {
+            return codex
+        }
+        return candidates.first
+    }
+
+    /// 从 candidates 里找 codex 的 "Weekly" model(用来算周限额 paceDelta)
+    private func weeklyModel(in candidates: [ModelUsageData]) -> ModelUsageData? {
+        candidates.first(where: { $0.provider == .codex && $0.modelName.localizedCaseInsensitiveContains("Weekly") })
+    }
+
+    private func providerInitial(_ provider: UsageProvider) -> String {
+        switch provider {
+        case .miniMax: return "M"
+        case .codex: return "C"
+        case .glm: return "G"
         }
     }
 
