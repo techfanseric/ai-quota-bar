@@ -707,6 +707,30 @@ extension ModelUsageData {
         return currentIntervalTotal > 0 && currentIntervalRemaining <= 0
     }
 
+    /// 把 CodexUsageDataMapper 写入的 detailText（"Plan Pro · OAuth · resets 04/08 00:00"）
+    /// 拆成三段供 section header / model 行复用：
+    /// - plan: 形如 "Plan Pro"
+    /// - source: 形如 "OAuth" / "Codex CLI" / "OpenAI Web"
+    /// - rest: 其它 model 自身段（典型为 "resets ..."），供 model 行单独显示
+    var parsedDetail: (plan: String?, source: String?, rest: String?) {
+        guard let detailText, !detailText.isEmpty else { return (nil, nil, nil) }
+        let parts = detailText.components(separatedBy: " · ")
+        var plan: String?
+        var source: String?
+        var restParts: [String] = []
+        for part in parts where !part.isEmpty {
+            if part.hasPrefix("Plan "), plan == nil {
+                plan = part
+            } else if source == nil, !part.hasPrefix("resets ") {
+                source = part
+            } else {
+                restParts.append(part)
+            }
+        }
+        let rest = restParts.isEmpty ? nil : restParts.joined(separator: " · ")
+        return (plan, source, rest)
+    }
+
     var isFullQuotaUnused: Bool {
         if let percent = currentIntervalRemainingPercent {
             return percent >= 100
