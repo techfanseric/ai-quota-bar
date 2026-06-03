@@ -192,6 +192,7 @@ final class UsageViewModel {
     // MARK: - Private
 
     private var timer: Timer?
+    private var lastCloudRestoreAt: Date?
 
     // MARK: - Initialization
 
@@ -260,6 +261,96 @@ final class UsageViewModel {
         checkThreshold()
 
         isLoading = false
+
+        // 节流触发云恢复：首次 refresh 必然触发，之后每 10 分钟跨多个 refresh 周期再触发一次。
+        // 不阻塞 refresh，restore 在自己的 task 里跑；失败也跟普通 refresh 错误一样静默。
+        let elapsedSinceLastRestore = lastCloudRestoreAt.map { Date().timeIntervalSince($0) } ?? .greatestFiniteMagnitude
+        let shouldTriggerRestore = isCloudSyncConfigured
+            && elapsedSinceLastRestore >= Self.cloudRestoreThrottleInterval
+        if shouldTriggerRestore {
+            await restoreFromCloud()
+        }
+    }
+
+    /// 云同步是否处于"配置好"状态：开关打开、endpoint 非空、token 存在。
+    /// 全部命中才会触发云恢复；任一缺失就 no-op，不报错、不记日志。
+    private var isCloudSyncConfigured: Bool {
+        guard cloudSyncEnabled else { return false }
+        let endpoint = cloudSyncEndpointURL.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !endpoint.isEmpty else { return false }
+        let token = KeychainService.shared.getCloudSyncToken()?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        return !token.isEmpty
+    }
+
+    private static let cloudRestoreThrottleInterval: TimeInterval = 600
+
+    /// 从云端拉取最近一批 quota 样本，按 `modelID` 合并到 `modelQuotaSamples`。
+    /// 关键：merge 不是 replace — 用 1s timestamp 去重（对齐 `recordSamples:451` 的 `< 1` 规则），
+    /// 否则每次启动都会把第一次 refresh 刚写入的本地样本覆盖掉。
+    /// 只补当前 5h 窗口内的样本（`sampledAt >= startTime && <= endTime`），跨窗口不补。
+    /// Codex 5h 这类 `currentIntervalRemainingPercent != nil` 的 model，把 `percent` 复制成 `remaining`
+    /// 让历史 tooltip 也显示当时的 percent，而不是当前的 percent。
+    /// 全部静默：失败/配置缺失都不打扰用户。
+    func restoreFromCloud() async {
+        guard isCloudSyncConfigured else { return }
+
+        let shortModels = providerUsageSections
+            .flatMap(\.models)
+            .filter(\.isShortCurrentInterval)
+        guard !shortModels.isEmpty else { return }
+
+        let startedAt = Date()
+        let samplesByID: [String: [ModelQuotaSample]]
+        do {
+            samplesByID = try await CloudSyncService.shared.fetchRecentQuotaSamples(limit: 2000)
+        } catch {
+#if DEBUG
+            print("Cloud restore failed: \(error.localizedDescription)")
+#endif
+            return
+        }
+
+        var next = modelQuotaSamples
+        var totalRestored = 0
+        var restoredModels = 0
+
+        for model in shortModels {
+            guard let startTime = model.startTime, let endTime = model.endTime else { continue }
+            let existing = next[model.id] ?? []
+            let cloudSamples = samplesByID[model.id] ?? []
+
+            var merged: [Int: ModelQuotaSample] = [:]
+            for sample in existing {
+                merged[Int(sample.timestamp.timeIntervalSince1970)] = sample
+            }
+            for var sample in cloudSamples {
+                guard sample.timestamp >= startTime, sample.timestamp <= endTime else { continue }
+                // Codex 5h 等：remaining 字段本身就是 percent 数字，复制给 tooltip
+                if model.currentIntervalRemainingPercent != nil {
+                    sample = ModelQuotaSample(
+                        timestamp: sample.timestamp,
+                        remaining: sample.remaining,
+                        percent: sample.remaining
+                    )
+                }
+                merged[Int(sample.timestamp.timeIntervalSince1970)] = sample
+            }
+
+            if merged.isEmpty == false {
+                let sorted = merged.values.sorted { $0.timestamp < $1.timestamp }
+                next[model.id] = sorted
+                totalRestored += sorted.count
+                restoredModels += 1
+            }
+        }
+
+        modelQuotaSamples = next
+        lastCloudRestoreAt = Date()
+
+#if DEBUG
+        let elapsedMs = Int(Date().timeIntervalSince(startedAt) * 1000)
+        print("Cloud restore: \(totalRestored) samples for \(restoredModels) models (after \(elapsedMs)ms)")
+#endif
     }
 
     func startAutoRefresh() {
