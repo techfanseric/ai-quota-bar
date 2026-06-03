@@ -3,7 +3,7 @@ import CodexBarCore
 import SwiftUI
 
 struct MenuView: View {
-    @ObservedObject var viewModel: UsageViewModel
+    @Bindable var viewModel: UsageViewModel
     var onOpenSettings: () -> Void
     var onLayoutChange: () -> Void = {}
 

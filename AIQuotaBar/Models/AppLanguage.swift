@@ -37,6 +37,21 @@ enum AppLanguage: String, CaseIterable, Codable, Identifiable {
             switch key {
             case .preferences: return "Preferences"
             case .preferencesSubtitle: return "Tune refresh behavior, menu bar density, and the provider credential used by the monitor."
+            case .tabGeneral: return "General"
+            case .tabProviders: return "Providers"
+            case .tabAbout: return "About"
+            case .providersTitle: return "Providers"
+            case .systemTitle: return "System"
+            case .usageTitle: return "Usage"
+            case .cloudSyncTitle: return "Cloud sync"
+            case .cloudSyncEnabled: return "Enable cloud sync"
+            case .cloudSyncEnabledDescription: return "Upload compact quota snapshots to your own Cloudflare D1 worker."
+            case .cloudSyncEndpoint: return "Worker URL"
+            case .cloudSyncToken: return "Sync token"
+            case .cloudSyncTest: return "Test cloud sync"
+            case .cloudSyncOpenData: return "View remote data"
+            case .appTitle: return "About"
+            case .appDescription: return "AI Quota Bar keeps your menu bar in sync with the latest coding plan quota."
             case .tabConnection: return "Connection"
             case .tabBehavior: return "Behavior"
             case .tabAppearance: return "Appearance"
@@ -125,6 +140,21 @@ enum AppLanguage: String, CaseIterable, Codable, Identifiable {
             switch key {
             case .preferences: return "偏好设置"
             case .preferencesSubtitle: return "调整刷新策略、菜单栏显示密度，以及监控器使用的服务商凭据。"
+            case .tabGeneral: return "通用"
+            case .tabProviders: return "服务商"
+            case .tabAbout: return "关于"
+            case .providersTitle: return "服务商"
+            case .systemTitle: return "系统"
+            case .usageTitle: return "用量"
+            case .cloudSyncTitle: return "云同步"
+            case .cloudSyncEnabled: return "启用云同步"
+            case .cloudSyncEnabledDescription: return "将精简额度快照上传到你自己的 Cloudflare D1 Worker。"
+            case .cloudSyncEndpoint: return "Worker 地址"
+            case .cloudSyncToken: return "同步令牌"
+            case .cloudSyncTest: return "测试云同步"
+            case .cloudSyncOpenData: return "查看远程数据"
+            case .appTitle: return "关于"
+            case .appDescription: return "AI Quota Bar 帮你把最新编程额度实时同步到菜单栏。"
             case .tabConnection: return "连接"
             case .tabBehavior: return "行为"
             case .tabAppearance: return "外观"
@@ -886,6 +916,21 @@ enum AppLanguage: String, CaseIterable, Codable, Identifiable {
 enum AppText {
     case preferences
     case preferencesSubtitle
+    case tabGeneral
+    case tabProviders
+    case tabAbout
+    case providersTitle
+    case systemTitle
+    case usageTitle
+    case cloudSyncTitle
+    case cloudSyncEnabled
+    case cloudSyncEnabledDescription
+    case cloudSyncEndpoint
+    case cloudSyncToken
+    case cloudSyncTest
+    case cloudSyncOpenData
+    case appTitle
+    case appDescription
     case tabConnection
     case tabBehavior
     case tabAppearance

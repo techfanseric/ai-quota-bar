@@ -1,21 +1,11 @@
 import SwiftUI
 
-/// 供 Settings 面板渲染的 Codex 账号摘要
-struct CodexAccountDraft: Identifiable {
-    let id: String
-    var name: String
-    var email: String
-    var planType: String
-    var sourceLabel: String
-    var lastRefresh: Date?
-    var isActive: Bool
-}
-
-/// Settings 面板中的 Codex 配置段
-struct CodexSection: View {
+/// codexbar 风格的 Codex 配置 section：title + source mode picker + 账号列表。
+@MainActor
+struct CodexSettingsSection: View {
     let language: AppLanguage
     @Binding var sourceMode: CodexDataSourceMode
-    @Binding var accounts: [CodexAccountDraft]
+    let accounts: [CodexAccountDraft]
     let onAdd: () -> Void
     let onRemove: (String) -> Void
     let onRefresh: (String) -> Void
@@ -25,33 +15,29 @@ struct CodexSection: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
-            HStack {
-                Text(UsageProvider.codex.displayName)
-                    .font(.system(size: 14, weight: .semibold))
-
-                Spacer()
-
-                Picker(language.codexSourceModeLabel(), selection: $sourceMode) {
-                    ForEach(CodexDataSourceMode.allCases) { mode in
-                        Text(language.codexSourceModeDisplayName(mode)).tag(mode)
-                    }
+            PreferencePickerRow(
+                title: language.codexSourceModeLabel(),
+                subtitle: nil,
+                selection: $sourceMode,
+                maxWidth: 200
+            ) {
+                ForEach(CodexDataSourceMode.allCases) { mode in
+                    Text(language.codexSourceModeDisplayName(mode)).tag(mode)
                 }
-                .pickerStyle(.menu)
-                .frame(width: 160)
-                .onChange(of: sourceMode) { _, newMode in
-                    onSourceModeChange(newMode)
-                }
+            }
+            .onChange(of: sourceMode) { _, newMode in
+                onSourceModeChange(newMode)
             }
 
             Text(language.codexAccountsHelpText())
-                .font(.system(size: 12))
-                .foregroundStyle(.secondary)
+                .font(.footnote)
+                .foregroundStyle(.tertiary)
                 .fixedSize(horizontal: false, vertical: true)
 
             if accounts.isEmpty {
                 Text(language.codexAccountEmptyStateText())
-                    .font(.system(size: 12))
-                    .foregroundStyle(.secondary)
+                    .font(.footnote)
+                    .foregroundStyle(.tertiary)
                     .padding(.vertical, 4)
             } else {
                 VStack(alignment: .leading, spacing: 10) {
@@ -103,26 +89,26 @@ private struct CodexAccountRow: View {
                 }
 
                 Text(displayName)
-                    .font(.system(size: 13, weight: .medium))
+                    .font(.subheadline.weight(.medium))
                     .lineLimit(1)
 
                 Spacer()
 
                 Text(account.sourceLabel)
-                    .font(.system(size: 11, weight: .medium))
+                    .font(.footnote)
                     .foregroundStyle(.secondary)
             }
 
             HStack(spacing: 12) {
                 if !account.planType.isEmpty {
                     Text("Plan \(account.planType.capitalized)")
-                        .font(.system(size: 11))
+                        .font(.footnote)
                         .foregroundStyle(.secondary)
                 }
 
                 if let last = account.lastRefresh {
                     Text(language.codexLastRefreshedText(last))
-                        .font(.system(size: 11))
+                        .font(.footnote)
                         .foregroundStyle(.secondary)
                 }
 
