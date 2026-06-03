@@ -5,6 +5,7 @@ final class UsageService {
     static let shared = UsageService()
 
     private let miniMaxAPIURL = "https://www.minimaxi.com/v1/api/openplatform/coding_plan/remains"
+    private let miniMaxSubscribeAPIURL = "https://www.minimaxi.com/v1/api/openplatform/charge/combo/cycle_audio_resource_package?biz_line=2&cycle_type=3&resource_package_type=7"
 
     private init() {}
 
@@ -28,7 +29,7 @@ final class UsageService {
         }
     }
 
-    private func decodeMiniMaxUsageData(from data: Data) throws -> UsageData {
+    private func decodeMiniMaxUsageData(from data: Data, subscribe: MiniMaxCurrentSubscribe? = nil) throws -> UsageData {
         let decoder = JSONDecoder()
         let response = try decoder.decode(MiniMaxUsageAPIResponse.self, from: data)
 
@@ -61,12 +62,22 @@ final class UsageService {
         let trackedModelCount = max(models.count, 1)
         let readyModelsCount = models.filter(\.isCurrentIntervalAvailable).count
 
+        let trimmedTitle = subscribe?.currentSubscribeTitle?
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        let subscribeTitle: String? = (trimmedTitle?.isEmpty ?? true) ? nil : trimmedTitle
+        let subscribeEndTime: Date? = {
+            guard let ts = subscribe?.currentSubscribeEndTimeTs, ts > 0 else { return nil }
+            return date(fromMilliseconds: ts)
+        }()
+
         return UsageData(
             provider: .miniMax,
             remains: readyModelsCount,
             total: trackedModelCount,
             timestamp: Date(),
-            models: models
+            models: models,
+            subscribeTitle: subscribeTitle,
+            subscribeEndTime: subscribeEndTime
         )
     }
 
@@ -93,7 +104,9 @@ final class UsageService {
             remains: readyModelsCount,
             total: trackedModelCount,
             timestamp: Date(),
-            models: models
+            models: models,
+            subscribeTitle: nil,
+            subscribeEndTime: nil
         )
     }
 
@@ -235,29 +248,59 @@ final class UsageService {
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         request.timeoutInterval = 30
 
+        async let subscribeTask: MiniMaxCurrentSubscribe? = fetchMiniMaxSubscribe(apiKey: apiKey)
+
         let (data, response): (Data, URLResponse)
         do {
             (data, response) = try await URLSession.shared.data(for: request)
         } catch {
+            _ = await subscribeTask
             throw UsageError.networkError(error)
         }
 
         guard let httpResponse = response as? HTTPURLResponse else {
+            _ = await subscribeTask
             throw UsageError.invalidResponse
         }
 
         guard (200...299).contains(httpResponse.statusCode) else {
+            _ = await subscribeTask
             let language = AppLanguage.current
             let message = String(data: data, encoding: .utf8) ?? language.text(.unknownError)
             throw UsageError.apiError(language.apiStatusMessage(statusCode: httpResponse.statusCode, message: message))
         }
 
+        let subscribe = await subscribeTask
+
         do {
-            return try decodeMiniMaxUsageData(from: data)
+            return try decodeMiniMaxUsageData(from: data, subscribe: subscribe)
         } catch let usageError as UsageError {
             throw usageError
         } catch {
             throw UsageError.invalidResponse
+        }
+    }
+
+    /// 拉取当前订阅信息（套餐名 + 到期日）。失败时返回 nil，不影响主接口。
+    private func fetchMiniMaxSubscribe(apiKey: String) async -> MiniMaxCurrentSubscribe? {
+        guard let url = URL(string: miniMaxSubscribeAPIURL) else { return nil }
+
+        var request = URLRequest(url: url)
+        request.httpMethod = "GET"
+        request.setValue(authorizationHeaderValue(for: apiKey), forHTTPHeaderField: "Authorization")
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.timeoutInterval = 15
+
+        do {
+            let (data, response) = try await URLSession.shared.data(for: request)
+            guard let httpResponse = response as? HTTPURLResponse,
+                  (200...299).contains(httpResponse.statusCode) else {
+                return nil
+            }
+            let decoded = try JSONDecoder().decode(MiniMaxCycleComboResponse.self, from: data)
+            return decoded.currentSubscribe
+        } catch {
+            return nil
         }
     }
 

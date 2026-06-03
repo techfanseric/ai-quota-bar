@@ -662,6 +662,33 @@ enum AppLanguage: String, CaseIterable, Codable, Identifiable {
         }
     }
 
+    /// MiniMax providerHeader 右侧的套餐副标题。
+    /// title 取 `-` 前的部分（API 原值通常是 "TokenPlanMax-年度会员" 这种）；
+    /// endTime 为 nil 时只显示套餐名；title 全空时返回 nil 让上层走默认 ready/total。
+    func miniMaxSubscribeSubtitle(title: String, endTime: Date?) -> String? {
+        let trimmedTitle = title.trimmingCharacters(in: .whitespacesAndNewlines)
+        let shortTitle = trimmedTitle.components(separatedBy: "-").first?
+            .trimmingCharacters(in: .whitespacesAndNewlines) ?? trimmedTitle
+        guard !shortTitle.isEmpty else { return nil }
+
+        guard let endTime else {
+            return shortTitle
+        }
+
+        let formatter = DateFormatter()
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        formatter.timeZone = TimeZone(identifier: "Asia/Shanghai")
+        formatter.dateFormat = "yyyy-MM-dd"
+        let dateText = formatter.string(from: endTime)
+
+        switch self {
+        case .english:
+            return "\(shortTitle) · expires \(dateText)"
+        case .simplifiedChinese:
+            return "\(shortTitle) · 到期 \(dateText)"
+        }
+    }
+
     func specificModelStatus(for model: ModelUsageData?) -> String {
         guard let model = model else { return "—" }
         let remaining = model.currentIntervalRemaining

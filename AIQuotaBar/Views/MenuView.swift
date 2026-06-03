@@ -388,6 +388,11 @@ private struct ProviderModelsSection: View {
                             .font(.system(size: 10, weight: .medium, design: .rounded))
                             .foregroundStyle(.secondary)
                             .lineLimit(1)
+                    } else if let subtitle = providerHeaderSubtitle() {
+                        Text(subtitle)
+                            .font(.system(size: 10, weight: .medium, design: .rounded))
+                            .foregroundStyle(.secondary)
+                            .lineLimit(1)
                     } else {
                         Text(language.menuBarCompactText(ready: data.readyModelsCount, total: data.modelCount))
                             .font(.system(size: 10, weight: .medium, design: .rounded))
@@ -400,6 +405,19 @@ private struct ProviderModelsSection: View {
         .padding(.horizontal, 8)
         .padding(.top, 6)
         .padding(.bottom, 2)
+    }
+
+    /// providerHeader 右侧用的副标题（当前只对 MiniMax 显示套餐 + 到期日）。
+    /// 返回 nil 时 caller 走默认 ready/total。
+    private func providerHeaderSubtitle() -> String? {
+        guard data.provider == .miniMax,
+              let title = data.subscribeTitle, !title.isEmpty else {
+            return nil
+        }
+        return language.miniMaxSubscribeSubtitle(
+            title: title,
+            endTime: data.subscribeEndTime
+        )
     }
 
     private func sortedMenuModels(_ models: [ModelUsageData]) -> [ModelUsageData] {
