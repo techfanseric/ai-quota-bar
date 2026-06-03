@@ -20,7 +20,10 @@ let package = Package(
                 .product(name: "CodexBarCore", package: "codexbar")
             ],
             path: "AIQuotaBar",
-            exclude: ["Resources/Assets.xcassets", "Tests"]
+            exclude: ["Resources/Assets.xcassets", "Tests"],
+            resources: [
+                .process("Resources")
+            ]
         ),
         .testTarget(
             name: "AIQuotaBarTests",
