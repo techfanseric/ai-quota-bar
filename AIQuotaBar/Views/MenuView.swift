@@ -396,11 +396,9 @@ private struct ProviderModelsSection: View {
                     // plan 跟 accountName 走(不同账号可能 plan 不同)
                     let (plan, _, _) = group.models.first?.parsedDetail ?? (nil, nil, nil)
                     if let accountName = group.accountName, !accountName.isEmpty {
-                        let ready = group.models.filter(\.isCurrentIntervalAvailable).count
-                        let total = max(group.models.count, 1)
-                        // 右侧:user@example.com · 2/2 · Plan Pro
+                        // 右侧:user@example.com · Plan Pro
                         HStack(spacing: 4) {
-                            Text("\(accountName) · \(ready)/\(total)")
+                            Text(accountName)
                                 .font(.system(size: 10, weight: .medium, design: .rounded))
                                 .foregroundStyle(.secondary)
                                 .lineLimit(1)
@@ -630,22 +628,15 @@ private struct ModelRow: View {
             }
 
             HStack(spacing: 4) {
-                // 左侧 resets / reset 时间
-                // 优先用 detailText 里的 "resets MM/dd HH:mm"(codex 完整),
-                // 退化到 resetTimeText(其它 provider,非短窗口才用)
-                if let resetsText {
-                    Text(resetsText)
-                        .font(.system(size: 10, design: .rounded))
-                        .foregroundStyle(.secondary)
-                }
+                // 左侧:xx left / x/y 这种"还剩多少"的最直接信息
+                Text(model.currentIntervalBarRightText)
+                    .font(.system(size: 10, design: .rounded))
+                    .foregroundStyle(.secondary)
 
+                Spacer()
+
+                // 右侧:周信息 · 节奏偏差 · reset 时间(resets 放最右)
                 if model.hasWeeklyLimit {
-                    // · 是 reset 时间 ↔ 周信息的分隔符;左侧无 reset 时不画
-                    if resetsText != nil {
-                        Text("·")
-                            .foregroundStyle(.tertiary)
-                    }
-
                     if model.isWeeklyUnlimited {
                         Text(language == .simplifiedChinese ? "周无限制" : "Weekly unlimited")
                             .font(.system(size: 10, design: .rounded))
@@ -665,10 +656,9 @@ private struct ModelRow: View {
                     }
                 }
 
-                // 节奏信息：onTrack / 无数据时不显示
-                if let pace = model.currentIntervalPace, pace.stage != .onTrack {
-                    // · 是左侧内容 ↔ pace 的分隔符;左侧空时不画
-                    if resetsText != nil || model.hasWeeklyLimit {
+                if let pace = paceForLabel {
+                    // · 在 weekly 和 pace 之间(weekly 存在时)
+                    if model.hasWeeklyLimit {
                         Text("·")
                             .foregroundStyle(.tertiary)
                     }
@@ -678,11 +668,17 @@ private struct ModelRow: View {
                         .foregroundStyle(paceLabelColor(paceStage: pace.stage))
                 }
 
-                Spacer()
+                if let resetsText {
+                    // · 在 pace 和 resets 之间(左侧有 weekly 或 pace 时)
+                    if model.hasWeeklyLimit || hasPace {
+                        Text("·")
+                            .foregroundStyle(.tertiary)
+                    }
 
-                Text(model.currentIntervalBarRightText)
-                    .font(.system(size: 10, design: .rounded))
-                    .foregroundStyle(.secondary)
+                    Text(resetsText)
+                        .font(.system(size: 10, design: .rounded))
+                        .foregroundStyle(.secondary)
+                }
             }
         }
         .padding(10)
@@ -707,6 +703,14 @@ private struct ModelRow: View {
         guard !model.isShortCurrentInterval, model.endTime != nil else { return nil }
         return model.resetTimeText
     }
+
+    /// 节奏信息:onTrack / 无数据时为 nil。
+    private var paceForLabel: UsagePace? {
+        guard let pace = model.currentIntervalPace, pace.stage != .onTrack else { return nil }
+        return pace
+    }
+
+    private var hasPace: Bool { paceForLabel != nil }
 
     private var tint: Color {
         // 反向语义（credits）：使用中性的 secondary 颜色，避免被"已用%==100"的规则染红
