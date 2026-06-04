@@ -17,6 +17,7 @@ final class StatusBarController {
     private var hostingView: NSHostingView<MenuView>?
 
     private let statusView = StatusBarTwoLineView()
+    private var screenObserverTokens: [NSObjectProtocol] = []
 
     init() {
         setupStatusItem()
@@ -127,19 +128,32 @@ final class StatusBarController {
             // 优先用 button 所在 window 的 screen;fallback 走 NSScreen.screens 几何
             let screen = button.window?.screen ?? self?.screenContaining(button: button)
             let isActive = (screen == NSScreen.main)
+#if DEBUG
             NSLog("[menubar-dim] screen=%@ main=%@ isActive=%d", String(describing: screen), String(describing: NSScreen.main), isActive ? 1 : 0)
+#endif
             self?.statusView.applyDim(isOnActiveScreen: isActive)
         }
-        NotificationCenter.default.addObserver(
+        let paramsToken = NotificationCenter.default.addObserver(
             forName: NSApplication.didChangeScreenParametersNotification,
             object: nil, queue: .main
         ) { _ in refresh() }
+        screenObserverTokens.append(paramsToken)
 
         if let win = button.window {
-            NotificationCenter.default.addObserver(
+            let winToken = NotificationCenter.default.addObserver(
                 forName: NSWindow.didChangeScreenNotification,
                 object: win, queue: .main
             ) { _ in refresh() }
+            screenObserverTokens.append(winToken)
+        }
+    }
+
+    deinit {
+        // 单例场景下不会真跑,但单测 / 未来替换会用到 —— 显式 removeObserver
+        // 避免 zombie observer 留存。`NotificationCenter.removeObserver` 自身线程安全。
+        let tokens = screenObserverTokens
+        for token in tokens {
+            NotificationCenter.default.removeObserver(token)
         }
     }
 

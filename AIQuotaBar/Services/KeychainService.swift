@@ -205,6 +205,8 @@ final class KeychainService {
         } catch {
             // JSON 损坏时 **绝不缓存空 dict** —— 下次 save 会用空 dict 覆盖原始数据，
             // 造成所有 provider 凭据同时丢失。返回空但保留现场，等用户或迁移逻辑介入。
+            // release 构建也要打 log（用 NSLog → Console.app 可见），避免用户完全看不到症状。
+            NSLog("KeychainService.credentialStore: failed to decode %@: %@. Original keychain entry will NOT be auto-overwritten by next save; user/migration logic must intervene.", credentialStoreAccount, error.localizedDescription)
 #if DEBUG
             print("KeychainService.credentialStore: failed to decode \(credentialStoreAccount): \(error.localizedDescription)")
 #endif
