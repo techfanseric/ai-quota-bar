@@ -82,6 +82,7 @@ struct MenuView: View {
                             language: language,
                             warningThreshold: viewModel.effectiveWarningThreshold,
                             samples: viewModel.samples(for:),
+                            viewModel: viewModel,
                             onLayoutChange: onLayoutChange
                         )
                     }
@@ -267,6 +268,7 @@ private struct ProviderModelsSection: View {
     let language: AppLanguage
     let warningThreshold: Double
     let samples: (ModelUsageData) -> [ModelQuotaSample]
+    let viewModel: UsageViewModel
     let onLayoutChange: () -> Void
 
     @State private var showsFullQuotaModels = false
@@ -321,7 +323,8 @@ private struct ProviderModelsSection: View {
                         model: model,
                         language: language,
                         warningThreshold: warningThreshold,
-                        samples: samples(model)
+                        samples: samples(model),
+                        viewModel: viewModel
                     )
 
                     if !(index == rows.count - 1 && groupIndex == groups.count - 1) {
@@ -353,7 +356,8 @@ private struct ProviderModelsSection: View {
                         models: exhaustedModels,
                         language: language,
                         warningThreshold: warningThreshold,
-                        samples: samples
+                        samples: samples,
+                        viewModel: viewModel
                     )
                 }
             }
@@ -372,7 +376,8 @@ private struct ProviderModelsSection: View {
                         models: fullQuotaModels,
                         language: language,
                         warningThreshold: warningThreshold,
-                        samples: samples
+                        samples: samples,
+                        viewModel: viewModel
                     )
                 }
             }
@@ -505,6 +510,7 @@ private struct ModelsRows: View {
     let language: AppLanguage
     let warningThreshold: Double
     let samples: (ModelUsageData) -> [ModelQuotaSample]
+    let viewModel: UsageViewModel
 
     var body: some View {
         ForEach(Array(models.enumerated()), id: \.element.id) { index, model in
@@ -512,7 +518,8 @@ private struct ModelsRows: View {
                 model: model,
                 language: language,
                 warningThreshold: warningThreshold,
-                samples: samples(model)
+                samples: samples(model),
+                viewModel: viewModel
             )
 
             if index < models.count - 1 {
@@ -570,6 +577,7 @@ private struct ModelRow: View {
     let language: AppLanguage
     let warningThreshold: Double
     let samples: [ModelQuotaSample]
+    let viewModel: UsageViewModel
 
     @State private var isHovered: Bool = false
 
@@ -597,6 +605,14 @@ private struct ModelRow: View {
                     isHovered: isHovered
                 )
                 .frame(height: 84)
+                if !cycles.isEmpty {
+                    ModelUtilizationBarsView(
+                        cycles: cycles,
+                        cycleLabel: language.modelUtilizationShortCycleLabel(),
+                        tint: tint,
+                        isHovered: isHovered
+                    )
+                }
             } else {
                 GeometryReader { geo in
                     ZStack(alignment: .leading) {
@@ -634,6 +650,14 @@ private struct ModelRow: View {
                     .contentShape(Rectangle())
                 }
                 .frame(height: 10)
+                if !cycles.isEmpty {
+                    ModelUtilizationBarsView(
+                        cycles: cycles,
+                        cycleLabel: language.modelUtilizationLongCycleLabel(),
+                        tint: tint,
+                        isHovered: isHovered
+                    )
+                }
             }
 
             HStack(spacing: 4) {
@@ -720,6 +744,12 @@ private struct ModelRow: View {
     }
 
     private var hasPace: Bool { paceForLabel != nil }
+
+    /// 跨周期 utilization 柱图数据：短周期 30 个 ≈ 6 天，周长周期 12 个 ≈ 3 个月。
+    private var cycles: [(resetsAt: Date, peakPercent: Double)] {
+        let limit = model.isShortCurrentInterval ? 30 : 12
+        return viewModel.utilizationCycles(for: model, limit: limit)
+    }
 
     private var tint: Color {
         // 反向语义（credits）：使用中性的 secondary 颜色，避免被"已用%==100"的规则染红

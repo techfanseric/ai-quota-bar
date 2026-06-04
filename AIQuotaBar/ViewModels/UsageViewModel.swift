@@ -17,6 +17,9 @@ final class UsageViewModel {
     var lastRefreshTime: Date?
     var showWarningPanel: Bool = false
     private(set) var modelQuotaSamples: [String: [ModelQuotaSample]] = [:]
+    private var utilizationHistories: [UsageProvider: ModelUtilizationStoreData] = [:]
+    private let utilizationStore = ModelUtilizationHistoryStore.shared
+    private let utilizationSampleThrottle: TimeInterval = 3600
 
     // MARK: - Settings
 
@@ -76,6 +79,14 @@ final class UsageViewModel {
             saveCloudSyncSettings()
         }
     }
+
+    var utilizationHistoryMode: UtilizationHistoryMode {
+        didSet {
+            UserDefaults.standard.set(utilizationHistoryMode.rawValue, forKey: Self.utilizationHistoryModeKey)
+        }
+    }
+
+    private static let utilizationHistoryModeKey = "utilizationHistoryMode"
 
     // MARK: - Computed Properties
 
@@ -209,7 +220,11 @@ final class UsageViewModel {
         let cloudSyncSettings = CloudSyncSettings.current
         self.cloudSyncEnabled = cloudSyncSettings.isEnabled
         self.cloudSyncEndpointURL = cloudSyncSettings.endpointURLString
+        self.utilizationHistoryMode = UserDefaults.standard.string(forKey: Self.utilizationHistoryModeKey)
+            .flatMap(UtilizationHistoryMode.init(rawValue:))
+            ?? .includeCurrent
 
+        loadUtilizationHistories()
         updateStatusBarText()
     }
 
@@ -240,6 +255,7 @@ final class UsageViewModel {
             do {
                 let data = try await UsageService.shared.fetchUsage(provider: provider)
                 nextProviderData[provider] = data
+                recordUtilizationSamples(for: provider, data: data, capturedAt: sampleTimestamp)
             } catch let usError as UsageError {
                 nextProviderErrors[provider] = usError
             } catch {
@@ -344,6 +360,14 @@ final class UsageViewModel {
 #endif
     }
 
+    /// 跨周期 utilization 柱图数据：按 `resetsAt` 分组取 peak usedPercent，倒序排列。
+    /// 模式由 `utilizationHistoryMode` 决定是否包含当前 in-progress 周期。
+    /// `limit` 默认 30（约 6 天的 5h 周期），周长周期调用方传 12（约 3 个月）。
+    func utilizationCycles(for model: ModelUsageData, limit: Int = 30, now: Date = Date()) -> [(resetsAt: Date, peakPercent: Double)] {
+        let history = utilizationHistories[model.provider]?.histories[model.id]
+        return history?.cycles(limit: limit, now: now, mode: utilizationHistoryMode) ?? []
+    }
+
     // MARK: - Private Methods
 
     private func restartTimer() {
@@ -352,6 +376,51 @@ final class UsageViewModel {
             Task { @MainActor [weak self] in
                 await self?.refresh()
             }
+        }
+    }
+
+    /// init 同步预加载所有 provider 的历史（文件小可接受）。
+    private func loadUtilizationHistories() {
+        for provider in UsageProvider.allCases {
+            utilizationHistories[provider] = utilizationStore.load(for: provider)
+        }
+    }
+
+    /// 把单次成功刷新的 model 状态写入历史：1h 节流、append-only、整体落盘。
+    /// 仅在 `currentIntervalRemainingPercent` 或 `currentIntervalTotal > 0` 时才计算 usedPercent。
+    private func recordUtilizationSamples(for provider: UsageProvider, data: UsageData, capturedAt: Date) {
+        var store = utilizationHistories[provider] ?? ModelUtilizationStoreData()
+        var dirty = false
+
+        for model in data.models {
+            guard let endTime = model.endTime else { continue }
+
+            let usedPercent: Double
+            if let percent = model.currentIntervalRemainingPercent {
+                usedPercent = max(0, min(100, 100 - Double(percent)))
+            } else if model.currentIntervalTotal > 0 {
+                usedPercent = max(0, min(100, Double(model.currentIntervalUsedCount) / Double(model.currentIntervalTotal) * 100))
+            } else {
+                continue
+            }
+
+            var history = store.histories[model.id] ?? ModelUtilizationHistory(modelId: model.id)
+            if let last = history.entries.last,
+               capturedAt.timeIntervalSince(last.capturedAt) < utilizationSampleThrottle {
+                continue
+            }
+            history.entries.append(UtilizationHistoryEntry(
+                capturedAt: capturedAt,
+                usedPercent: usedPercent,
+                resetsAt: endTime
+            ))
+            store.histories[model.id] = history
+            dirty = true
+        }
+
+        if dirty {
+            utilizationHistories[provider] = store
+            utilizationStore.save(store, for: provider)
         }
     }
 

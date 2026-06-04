@@ -900,6 +900,49 @@ enum AppLanguage: String, CaseIterable, Codable, Identifiable {
         }
     }
 
+    /// 跨周期柱图 X 轴 label：5h 短周期用。
+    func modelUtilizationShortCycleLabel() -> String {
+        switch self {
+        case .english: return "5h cycles"
+        case .simplifiedChinese: return "5 小时周期"
+        }
+    }
+
+    /// 跨周期柱图 X 轴 label：周长周期用。
+    func modelUtilizationLongCycleLabel() -> String {
+        switch self {
+        case .english: return "Week cycles"
+        case .simplifiedChinese: return "周周期"
+        }
+    }
+
+    /// 周期历史模式选择器的标题（General → Behavior 区块里）。
+    func utilizationHistoryModeLabel() -> String {
+        switch self {
+        case .english: return "Cycle history"
+        case .simplifiedChinese: return "周期历史"
+        }
+    }
+
+    /// 周期历史模式的详细说明：明确两种模式的差异，避免再次产生误会。
+    func utilizationHistoryModeDescription() -> String {
+        switch self {
+        case .english:
+            return "Controls the per-model cycle history chart. \"Include current\" adds the in-progress cycle as the rightmost bar, so the chart shows up as soon as the first sample is recorded. \"Completed only\" hides the entire chart until the first cycle ends (5h or 7d), giving a clean historical view."
+        case .simplifiedChinese:
+            return "控制每个 model 周期历史柱图的显示内容。「包含当前周期」会把当前进行中的周期作为最右一根柱，采集到首个样本后立即可见；「仅已结束周期」会在第一个周期结束（5 小时或 7 天）前整段柱图都不渲染，画面更纯净。"
+        }
+    }
+
+    func utilizationHistoryModeDisplayName(_ mode: UtilizationHistoryMode) -> String {
+        switch (self, mode) {
+        case (.english, .includeCurrent): return "Include current"
+        case (.english, .completedOnly): return "Completed only"
+        case (.simplifiedChinese, .includeCurrent): return "包含当前周期"
+        case (.simplifiedChinese, .completedOnly): return "仅已结束周期"
+        }
+    }
+
     /// 跟 codexbar 的 UsagePaceText 文案完全对齐。
     /// onTrack → "On pace" / "节奏正常"（不显示 delta）
     /// ahead（实际 > 预期，deficit）→ "X% in deficit" / "超额 X%"
