@@ -251,15 +251,32 @@ final class UsageViewModel {
         var nextProviderErrors: [UsageProvider: UsageError] = [:]
         let sampleTimestamp = Date()
 
-        for provider in providers {
-            do {
-                let data = try await UsageService.shared.fetchUsage(provider: provider)
-                nextProviderData[provider] = data
-                recordUtilizationSamples(for: provider, data: data, capturedAt: sampleTimestamp)
-            } catch let usError as UsageError {
-                nextProviderErrors[provider] = usError
-            } catch {
-                nextProviderErrors[provider] = .networkError(error)
+        // 并行 fetch：3 个 provider 全开时延迟从 ~30s 降到 ~10s（取最慢的）。
+        // recordUtilizationSamples 必须保持 main-actor 同步语义，所以放在 for await 块里。
+        await withTaskGroup(of: (UsageProvider, Result<UsageData, Error>).self) { group in
+            for provider in providers {
+                group.addTask {
+                    do {
+                        let data = try await UsageService.shared.fetchUsage(provider: provider)
+                        return (provider, .success(data))
+                    } catch {
+                        return (provider, .failure(error))
+                    }
+                }
+            }
+            for await (provider, result) in group {
+                if Task.isCancelled { break }
+                switch result {
+                case .success(let data):
+                    nextProviderData[provider] = data
+                    recordUtilizationSamples(for: provider, data: data, capturedAt: sampleTimestamp)
+                case .failure(let error):
+                    if let usError = error as? UsageError {
+                        nextProviderErrors[provider] = usError
+                    } else {
+                        nextProviderErrors[provider] = .networkError(error)
+                    }
+                }
             }
         }
 
@@ -462,9 +479,18 @@ final class UsageViewModel {
         }
     }
 
+    /// 跟 StatusBarController displayOrder 对齐：codex 优先。
+    /// `combinedUsageData` 输出的 `provider` 字段是"哪个 provider 在结果里最重要"，
+    /// 跟数据真实来源保持一致。`WarningPanelController` 等下游仍按自己逻辑取订阅信息。
+    private static let combinedProviderPriority: [UsageProvider] = [.codex, .miniMax, .glm]
+
     private func combinedUsageData(from providerData: Dictionary<UsageProvider, UsageData>.Values, timestamp: Date) -> UsageData? {
         let models = providerData.flatMap(\.models)
         guard models.isEmpty == false else { return nil }
+
+        let primaryProvider = Self.combinedProviderPriority
+            .first(where: { provider in providerData.contains(where: { $0.provider == provider }) })
+            ?? .codex
 
         let subscribeTitle = providerData
             .first(where: { $0.provider == .miniMax })?.subscribeTitle
@@ -472,7 +498,7 @@ final class UsageViewModel {
             .first(where: { $0.provider == .miniMax })?.subscribeEndTime
 
         return UsageData(
-            provider: .miniMax,
+            provider: primaryProvider,
             remains: models.filter(\.isCurrentIntervalAvailable).count,
             total: models.count,
             timestamp: timestamp,

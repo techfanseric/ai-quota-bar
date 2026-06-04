@@ -42,6 +42,21 @@ final class ModelUtilizationHistoryStore {
         self.decoder = decoder
     }
 
+    /// 测试专用 init：注入临时目录，避免污染真实 Application Support 路径。
+    /// production 仍走 `static let shared` + private init。
+    init(directoryURL: URL, fileManager: FileManager = .default) {
+        self.fileManager = fileManager
+        self.directoryURL = directoryURL
+
+        let encoder = JSONEncoder()
+        encoder.dateEncodingStrategy = .iso8601
+        self.encoder = encoder
+
+        let decoder = JSONDecoder()
+        decoder.dateDecodingStrategy = .iso8601
+        self.decoder = decoder
+    }
+
     func fileURL(for provider: UsageProvider) -> URL {
         directoryURL.appendingPathComponent("\(provider.rawValue).json")
     }
@@ -57,12 +72,17 @@ final class ModelUtilizationHistoryStore {
         do {
             data = try Data(contentsOf: url)
         } catch {
-            backupCorruptFile(at: url, reason: "read failed: \(error.localizedDescription)")
+            // 读失败（权限/文件被占用/磁盘挂载异常）≠ 文件损坏。
+            // 这种情况 move 到 corrupt/ 是过度反应——下次 load 还有机会读到，
+            // 而 move 之后 save 会用空 store 覆盖原路径，把数据锁死在用户看不到的备份里。
+            // 这里只 log 一下 + 返回空，不动文件。
+#if DEBUG
+            print("ModelUtilizationHistoryStore: read failed for \(provider.rawValue), keeping file intact: \(error.localizedDescription)")
+#endif
             return ModelUtilizationStoreData()
         }
 
-        // 用 [String: Any] 试 decode 一遍，提取 version 后再走强类型 decode，
-        // 避免 schema 不匹配时整段文件被丢。
+        // 解析 / 版本不匹配 / 强类型 decode 失败才视为"内容不可用"，move 到 corrupt/ 保留现场。
         guard let raw = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
             backupCorruptFile(at: url, reason: "JSON parse failed")
             return ModelUtilizationStoreData()

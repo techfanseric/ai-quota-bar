@@ -466,9 +466,6 @@ private struct ProviderModelsSection: View {
     private func notifyLayoutChange() {
         DispatchQueue.main.async {
             onLayoutChange()
-            DispatchQueue.main.async {
-                onLayoutChange()
-            }
         }
     }
 
