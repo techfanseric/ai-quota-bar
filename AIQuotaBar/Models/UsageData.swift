@@ -238,9 +238,15 @@ struct ModelUsageData: Codable, Identifiable {
         return 0
     }
 
-    /// 是否处于百分比模式（total=0 但 API 返回了百分比）
+    /// 是否处于百分比模式。
+    /// 两个等价信号：
+    /// 1. `valueSuffix == "%"` — codex 5h/weekly、GLM percentage 分支显式设置，count 字段语义就是百分比
+    /// 2. `currentIntervalRemainingPercent != nil` — MiniMax 等 API 直接返回百分比；
+    ///    此时即使 valueSuffix 为 nil，count 字段也常常是 0 或不对齐，必须走 percent 渲染
+    /// 旧判定 (1) 太窄，导致 MiniMax 走 else 分支显示 0 数字；现以 (2) 补全。
     var isCurrentIntervalPercentMode: Bool {
-        currentIntervalTotal <= 0 && currentIntervalRemainingPercent != nil
+        valueSuffix == "%"
+            || currentIntervalRemainingPercent != nil
     }
 
     /// 当前周期已用时长占总时长的比例（0-1）。nil 时表示无法计算

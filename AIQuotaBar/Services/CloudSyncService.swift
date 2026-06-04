@@ -63,34 +63,168 @@ final class CloudSyncService {
 
     private let session: URLSession
     private let encoder: JSONEncoder
+    private let queue: CloudSyncQueue
 
     private init(session: URLSession = .shared) {
         self.session = session
-        self.encoder = JSONEncoder()
-        self.encoder.dateEncodingStrategy = .iso8601
+        let encoder = JSONEncoder()
+        encoder.dateEncodingStrategy = .iso8601
+        self.encoder = encoder
+        self.queue = CloudSyncQueue()
     }
 
-    func syncUsageData(_ usageData: UsageData, sampledAt: Date) async throws {
+    /// 同步当前 quota 快照 + 跨周期 utilization 历史到云端。
+    /// - 历史项可空；为空时 payload 仍可成功（服务端忽略）。
+    /// - 失败时不抛给上层 — 由调用方通过 `lastSyncStatus` 查询；
+    ///   失败 payload 已落盘到 `CloudSyncQueue`，下次调用时自动重试。
+    /// - 启动时 `flushPendingQueue()` 先把堆积的 payload 推上去。
+    func syncUsageData(
+        _ usageData: UsageData,
+        sampledAt: Date,
+        utilizationHistories: [UsageProvider: ModelUtilizationStoreData]? = nil
+    ) async {
         let settings = CloudSyncSettings.current
-        guard settings.isEnabled else { throw CloudSyncError.disabled }
+        guard settings.isEnabled else { return }
 
         let token = KeychainService.shared.getCloudSyncToken()?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-        guard !token.isEmpty else { throw CloudSyncError.missingToken }
+        guard !token.isEmpty else {
+            recordFailure(reason: .missingToken)
+            return
+        }
 
-        let request = try makeRequest(
-            endpointURLString: settings.endpointURLString,
-            path: "/v1/quota-samples",
-            token: token,
-            method: "POST"
-        )
+        let request: URLRequest
+        do {
+            request = try makeRequest(
+                endpointURLString: settings.endpointURLString,
+                path: "/v1/quota-samples",
+                token: token,
+                method: "POST"
+            )
+        } catch {
+            recordFailure(reason: .invalidEndpoint, error: error)
+            return
+        }
+
+        var historiesPayload: [String: [String: CloudUtilizationHistoryPayload]]?
+        if let utilizationHistories {
+            var byProvider: [String: [String: CloudUtilizationHistoryPayload]] = [:]
+            for (provider, store) in utilizationHistories {
+                var byModel: [String: CloudUtilizationHistoryPayload] = [:]
+                for (modelId, history) in store.historiesOrEmpty {
+                    byModel[modelId] = CloudUtilizationHistoryPayload(history: history)
+                }
+                byProvider[provider.rawValue] = byModel
+            }
+            historiesPayload = byProvider
+        }
 
         let payload = CloudUsageSnapshotPayload(
             deviceID: settings.deviceID,
             sampledAt: sampledAt,
-            models: usageData.models.map { CloudModelQuotaPayload(model: $0) }
+            models: usageData.models.map { CloudModelQuotaPayload(model: $0) },
+            utilizationHistories: historiesPayload
         )
 
-        try await send(request: request, body: try encoder.encode(payload))
+        let body: Data
+        do {
+            body = try encoder.encode(payload)
+        } catch {
+            recordFailure(reason: .encodingFailed, error: error)
+            return
+        }
+
+        do {
+            try await sendWithRetry(request: request, body: body)
+            recordSuccess(at: Date())
+        } catch {
+            // 重试用尽，落盘到队列等下次刷新再推
+            queue.enqueue(payload: payload)
+            recordFailure(reason: .network, error: error)
+        }
+    }
+
+    /// 启动时主动 flush 一次堆积队列（fire-and-forget，失败不重入队列避免死循环）
+    func flushPendingQueue() async {
+        let settings = CloudSyncSettings.current
+        guard settings.isEnabled else { return }
+        let token = KeychainService.shared.getCloudSyncToken()?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        guard !token.isEmpty else { return }
+
+        let request: URLRequest
+        do {
+            request = try makeRequest(
+                endpointURLString: settings.endpointURLString,
+                path: "/v1/quota-samples",
+                token: token,
+                method: "POST"
+            )
+        } catch {
+            return
+        }
+
+        await queue.flush { [encoder, session] payload in
+            let body = try encoder.encode(payload)
+            var req = request
+            req.httpBody = body
+            let (data, response) = try await session.data(for: req)
+            guard let http = response as? HTTPURLResponse, (200...299).contains(http.statusCode) else {
+                let status = (response as? HTTPURLResponse)?.statusCode ?? -1
+                let message = String(data: data, encoding: .utf8) ?? ""
+                throw CloudSyncError.serverError(status, message)
+            }
+        }
+    }
+
+    /// 同步状态：UI 可读 `lastSyncStatus` 显示 "Last sync: 2m ago" 或 "Failed: 5m ago"
+    private(set) var lastSyncStatus: CloudSyncStatus = .idle
+
+    private func recordSuccess(at date: Date) {
+        lastSyncStatus = .success(at: date)
+    }
+
+    private func recordFailure(reason: CloudSyncFailureReason, error: Error? = nil) {
+        lastSyncStatus = .failure(at: Date(), reason: reason, error: error)
+#if DEBUG
+        if let error {
+            print("CloudSync failure: \(reason) — \(error.localizedDescription)")
+        } else {
+            print("CloudSync failure: \(reason)")
+        }
+#endif
+    }
+
+    /// 重试 3 次：1s, 4s, 16s 指数退避
+    private func sendWithRetry(request: URLRequest, body: Data) async throws {
+        let backoffs: [UInt64] = [1, 4, 16]
+        var lastError: Error?
+
+        for attempt in 0...backoffs.count {
+            var req = request
+            req.httpBody = body
+            do {
+                let (data, response) = try await session.data(for: req)
+                guard let http = response as? HTTPURLResponse else {
+                    throw CloudSyncError.invalidResponse
+                }
+                if (200...299).contains(http.statusCode) {
+                    return
+                }
+                let message = String(data: data, encoding: .utf8) ?? ""
+                lastError = CloudSyncError.serverError(http.statusCode, message)
+                // 4xx 不重试
+                if (400...499).contains(http.statusCode) {
+                    throw lastError!
+                }
+            } catch {
+                lastError = error
+            }
+
+            if attempt < backoffs.count {
+                try? await Task.sleep(nanoseconds: backoffs[attempt] * 1_000_000_000)
+            }
+        }
+
+        throw lastError ?? CloudSyncError.invalidResponse
     }
 
     func testConnection(endpointURLString: String, token: String) async throws {
@@ -326,13 +460,17 @@ private struct CloudRemoteQuotaSample: Decodable {
     }
 }
 
-private struct CloudUsageSnapshotPayload: Encodable {
+struct CloudUsageSnapshotPayload: Codable {
     let deviceID: String
     let sampledAt: Date
     let models: [CloudModelQuotaPayload]
+    /// 跨周期 utilization 历史：key = provider.rawValue，
+    /// value = `modelId -> CloudUtilizationHistoryPayload`。
+    /// 旧服务端忽略未知字段，向后兼容；新服务端用来重建用户历史。
+    let utilizationHistories: [String: [String: CloudUtilizationHistoryPayload]]?
 }
 
-private struct CloudModelQuotaPayload: Encodable {
+struct CloudModelQuotaPayload: Codable {
     let provider: String
     let accountName: String?
     let modelID: String
