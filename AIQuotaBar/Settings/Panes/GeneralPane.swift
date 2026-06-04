@@ -96,6 +96,17 @@ struct GeneralPane: View {
                 subtitle: language.text(.launchAtLoginDescription),
                 isOn: $viewModel.launchAtLogin
             )
+
+            PreferencePickerRow(
+                title: language.utilizationHistoryModeLabel(),
+                subtitle: language.utilizationHistoryModeDescription(),
+                selection: $viewModel.utilizationHistoryMode,
+                maxWidth: 220
+            ) {
+                ForEach(UtilizationHistoryMode.allCases) { mode in
+                    Text(language.utilizationHistoryModeDisplayName(mode)).tag(mode)
+                }
+            }
         }
     }
 
