@@ -48,5 +48,15 @@ struct ModelUtilizationHistory: Codable, Equatable {
 /// 磁盘文件内容：以 provider 为粒度，内部按 `modelId` 嵌套。
 /// `modelId` 已含 provider+accountName+modelName，多账号天然隔离。
 struct ModelUtilizationStoreData: Codable, Equatable {
-    var histories: [String: ModelUtilizationHistory] = [:]
+    /// 旧版本 JSON 缺此字段或显式为 null 时，decode 仍要成功 ——
+    /// `histories` 可选，缺失视为空。
+    var histories: [String: ModelUtilizationHistory]?
+
+    init(histories: [String: ModelUtilizationHistory] = [:]) {
+        self.histories = histories
+    }
+
+    var historiesOrEmpty: [String: ModelUtilizationHistory] {
+        histories ?? [:]
+    }
 }

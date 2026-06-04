@@ -605,14 +605,6 @@ private struct ModelRow: View {
                     isHovered: isHovered
                 )
                 .frame(height: 84)
-                if !cycles.isEmpty {
-                    ModelUtilizationBarsView(
-                        cycles: cycles,
-                        cycleLabel: language.modelUtilizationShortCycleLabel(),
-                        tint: tint,
-                        isHovered: isHovered
-                    )
-                }
             } else {
                 GeometryReader { geo in
                     ZStack(alignment: .leading) {
@@ -650,14 +642,6 @@ private struct ModelRow: View {
                     .contentShape(Rectangle())
                 }
                 .frame(height: 10)
-                if !cycles.isEmpty {
-                    ModelUtilizationBarsView(
-                        cycles: cycles,
-                        cycleLabel: language.modelUtilizationLongCycleLabel(),
-                        tint: tint,
-                        isHovered: isHovered
-                    )
-                }
             }
 
             HStack(spacing: 4) {
@@ -712,6 +696,18 @@ private struct ModelRow: View {
                         .font(.system(size: 10, design: .rounded))
                         .foregroundStyle(.secondary)
                 }
+            }
+
+            // 跨周期 utilization 柱图放最底：与图表 + 文字行形成"当前 → 元信息 → 历史"三段式
+            if !cycles.isEmpty {
+                ModelUtilizationBarsView(
+                    cycles: cycles,
+                    cycleLabel: model.isShortCurrentInterval
+                        ? language.modelUtilizationShortCycleLabel()
+                        : language.modelUtilizationLongCycleLabel(),
+                    tint: tint,
+                    isHovered: isHovered
+                )
             }
         }
         .padding(10)
@@ -1135,7 +1131,16 @@ private struct QuotaAreaChart: View {
         let formatter = DateFormatter()
         formatter.timeZone = .current
         formatter.locale = .current
-        formatter.dateFormat = "MM/dd HH:mm:ss"
+
+        // 短重置窗口（≤ 24h）起止通常在同一天，省掉日期避免 callout 显得过宽；
+        // 分钟级精度对 hover 已经够用，秒级噪声反而干扰阅读。
+        if let startTime = model.startTime,
+           Calendar.current.isDate(date, inSameDayAs: startTime) {
+            formatter.dateFormat = "HH:mm"
+        } else {
+            formatter.dateFormat = "MM/dd HH:mm"
+        }
+
         return formatter.string(from: date)
     }
 }

@@ -21,6 +21,7 @@ final class StatusBarController {
     init() {
         setupStatusItem()
         setupMenu()
+        viewModel.flushPendingCloudSyncQueue()
     }
 
     private func setupStatusItem() {

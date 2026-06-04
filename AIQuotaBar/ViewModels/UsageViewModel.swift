@@ -364,7 +364,7 @@ final class UsageViewModel {
     /// 模式由 `utilizationHistoryMode` 决定是否包含当前 in-progress 周期。
     /// `limit` 默认 30（约 6 天的 5h 周期），周长周期调用方传 12（约 3 个月）。
     func utilizationCycles(for model: ModelUsageData, limit: Int = 30, now: Date = Date()) -> [(resetsAt: Date, peakPercent: Double)] {
-        let history = utilizationHistories[model.provider]?.histories[model.id]
+        let history = utilizationHistories[model.provider]?.historiesOrEmpty[model.id]
         return history?.cycles(limit: limit, now: now, mode: utilizationHistoryMode) ?? []
     }
 
@@ -404,7 +404,7 @@ final class UsageViewModel {
                 continue
             }
 
-            var history = store.histories[model.id] ?? ModelUtilizationHistory(modelId: model.id)
+            var history = store.historiesOrEmpty[model.id] ?? ModelUtilizationHistory(modelId: model.id)
             if let last = history.entries.last,
                capturedAt.timeIntervalSince(last.capturedAt) < utilizationSampleThrottle {
                 continue
@@ -414,7 +414,9 @@ final class UsageViewModel {
                 usedPercent: usedPercent,
                 resetsAt: endTime
             ))
-            store.histories[model.id] = history
+            var histories = store.historiesOrEmpty
+            histories[model.id] = history
+            store.histories = histories
             dirty = true
         }
 
@@ -435,14 +437,22 @@ final class UsageViewModel {
     private func syncUsageDataToCloud(_ usageData: UsageData, sampledAt: Date) {
         guard cloudSyncEnabled else { return }
 
-        Task {
-            do {
-                try await CloudSyncService.shared.syncUsageData(usageData, sampledAt: sampledAt)
-            } catch {
-#if DEBUG
-                print("Cloud sync failed: \(error.localizedDescription)")
-#endif
-            }
+        let historiesSnapshot = utilizationHistories
+
+        Task { @MainActor in
+            await CloudSyncService.shared.syncUsageData(
+                usageData,
+                sampledAt: sampledAt,
+                utilizationHistories: historiesSnapshot
+            )
+        }
+    }
+
+    /// App 启动时主动 flush 一次堆积队列（fire-and-forget）
+    func flushPendingCloudSyncQueue() {
+        guard cloudSyncEnabled else { return }
+        Task { @MainActor in
+            await CloudSyncService.shared.flushPendingQueue()
         }
     }
 

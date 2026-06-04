@@ -67,10 +67,12 @@ struct ModelUtilizationBarsView: View {
                 context.fill(usedPath, with: .color(tint))
             }
 
-            // 柱顶百分比（N ≤ 12 才显示，避免重叠；hover 时才出现）
+            // 柱顶百分比：柱高 = 周期内 peak used%，label 显示对应的 left 额度（100 - used），
+            // 与 codexbar `PlanUtilizationHistoryChartMenuView` 语义对齐 —— "用剩多少"。
             if showLabels, isHovered {
+                let leftPercent = max(0, min(100, 100 - cycle.peakPercent))
                 let label = context.resolve(
-                    Text("\(Int(cycle.peakPercent.rounded()))%")
+                    Text("\(Int(leftPercent.rounded()))%")
                         .font(.system(size: Self.topPercentFontSize))
                         .foregroundColor(.secondary)
                 )
