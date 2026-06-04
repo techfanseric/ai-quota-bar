@@ -1,3 +1,4 @@
+import CodexBarCore
 import SwiftUI
 
 /// codexbar 风格的 Codex 配置 section：title + source mode picker + 账号列表。
@@ -100,8 +101,8 @@ private struct CodexAccountRow: View {
             }
 
             HStack(spacing: 12) {
-                if !account.planType.isEmpty {
-                    Text("Plan \(account.planType.capitalized)")
+                if let planDisplay = CodexPlanFormatting.displayName(account.planType) {
+                    Text(planDisplay)
                         .font(.footnote)
                         .foregroundStyle(.secondary)
                 }

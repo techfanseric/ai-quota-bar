@@ -667,9 +667,9 @@ extension ModelUsageData {
         return currentIntervalTotal > 0 && currentIntervalRemaining <= 0
     }
 
-    /// 把 CodexUsageDataMapper 写入的 detailText（"Plan Pro · OAuth · resets 04/08 00:00"）
+    /// 把 CodexUsageDataMapper 写入的 detailText（"Pro 20x · OAuth · resets 04/08 00:00"）
     /// 拆成三段供 section header / model 行复用：
-    /// - plan: 形如 "Plan Pro"
+    /// - plan: 形如 "Pro 20x"（用 CodexPlanFormatting 生成的展示名，不再带 "Plan " 前缀）
     /// - source: 形如 "OAuth" / "Codex CLI" / "OpenAI Web"
     /// - rest: 其它 model 自身段（典型为 "resets ..."），供 model 行单独显示
     var parsedDetail: (plan: String?, source: String?, rest: String?) {
@@ -679,9 +679,11 @@ extension ModelUsageData {
         var source: String?
         var restParts: [String] = []
         for part in parts where !part.isEmpty {
-            if part.hasPrefix("Plan "), plan == nil {
+            if part.hasPrefix("resets ") {
+                restParts.append(part)
+            } else if Self.looksLikeCodexPlanName(part), plan == nil {
                 plan = part
-            } else if source == nil, !part.hasPrefix("resets ") {
+            } else if source == nil {
                 source = part
             } else {
                 restParts.append(part)
@@ -689,6 +691,19 @@ extension ModelUsageData {
         }
         let rest = restParts.isEmpty ? nil : restParts.joined(separator: " · ")
         return (plan, source, rest)
+    }
+
+    /// 判断 detailText 段落是否像 Codex plan 展示名。
+    /// 覆盖 CodexPlanFormatting 输出的常见形态：Pro / Pro 20x / Pro 5x / Plus / Team / Enterprise。
+    private static func looksLikeCodexPlanName(_ part: String) -> Bool {
+        let lower = part.lowercased()
+        if lower == "pro" || lower == "plus" || lower == "team" || lower == "enterprise" {
+            return true
+        }
+        if lower.hasPrefix("pro ") || lower.hasPrefix("pro_") || lower.hasPrefix("pro-") {
+            return true
+        }
+        return false
     }
 
     var isFullQuotaUnused: Bool {

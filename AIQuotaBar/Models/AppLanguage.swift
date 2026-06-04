@@ -652,6 +652,22 @@ enum AppLanguage: String, CaseIterable, Codable, Identifiable {
         }
     }
 
+    func updatedAgoText(from date: Date, now: Date = Date()) -> String {
+        let minutes = Int((now.timeIntervalSince(date) / 60).rounded(.down))
+        switch self {
+        case .english:
+            if minutes < 1 {
+                return "Updated just now"
+            }
+            return "Updated \(minutes)m ago"
+        case .simplifiedChinese:
+            if minutes < 1 {
+                return "刚刚更新"
+            }
+            return "\(minutes) 分钟前更新"
+        }
+    }
+
     func updateCheckFailedText(_ message: String) -> String {
         switch self {
         case .english:

@@ -39,11 +39,20 @@ struct MenuView: View {
         if !sections.isEmpty {
             VStack(spacing: 0) {
                 HStack(spacing: 8) {
-                    Text("\(sections.count) providers · \(sections.map(\.modelCount).reduce(0, +)) models")
+                    Text("\(sections.count) Providers · \(sections.map(\.modelCount).reduce(0, +)) Models")
                         .font(.system(size: 11, weight: .semibold))
                         .foregroundStyle(.secondary)
 
                     Spacer()
+
+                    if let lastRefresh = viewModel.lastRefreshTime {
+                        TimelineView(.periodic(from: .now, by: 30)) { context in
+                            Text(language.updatedAgoText(from: lastRefresh, now: context.date))
+                                .font(.system(size: 11, weight: .regular))
+                                .foregroundStyle(.tertiary)
+                                .lineLimit(1)
+                        }
+                    }
 
                     Button {
                         Task { await viewModel.refresh() }
@@ -396,7 +405,7 @@ private struct ProviderModelsSection: View {
                     // plan 跟 accountName 走(不同账号可能 plan 不同)
                     let (plan, _, _) = group.models.first?.parsedDetail ?? (nil, nil, nil)
                     if let accountName = group.accountName, !accountName.isEmpty {
-                        // 右侧:user@example.com · Plan Pro
+                        // 右侧:user@example.com · Pro 20x
                         HStack(spacing: 4) {
                             Text(accountName)
                                 .font(.system(size: 10, weight: .medium, design: .rounded))

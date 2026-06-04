@@ -193,9 +193,8 @@ enum CodexUsageDataMapper {
         endTime: Date?) -> String?
     {
         var parts: [String] = []
-        if let planType, !planType.isEmpty {
-            let capitalized = planType.prefix(1).uppercased() + planType.dropFirst()
-            parts.append("Plan \(capitalized)")
+        if let planDisplay = CodexPlanFormatting.displayName(planType) {
+            parts.append(planDisplay)
         }
         if let sourceLabel, !sourceLabel.isEmpty {
             parts.append(prettySourceLabel(sourceLabel))
