@@ -58,6 +58,11 @@ struct CloudSyncSettings {
     }
 }
 
+/// 同步状态机：`@Observable` 让 view（如 `GeneralPane`）能 watch 变化。
+/// 所有写入都在 `@MainActor` 上下文（调用方均为 `UsageViewModel` 的 main-actor 方法），
+/// 避免跨 actor 访问 `lastSyncStatus`。
+@MainActor
+@Observable
 final class CloudSyncService {
     static let shared = CloudSyncService()
 
@@ -65,12 +70,17 @@ final class CloudSyncService {
     private let encoder: JSONEncoder
     private let queue: CloudSyncQueue
 
+    /// view 可读：`Last sync: 2m ago` 或 `Failed: 5m ago`
+    private(set) var lastSyncStatus: CloudSyncStatus = .idle
+
     private init(session: URLSession = .shared) {
         self.session = session
         let encoder = JSONEncoder()
         encoder.dateEncodingStrategy = .iso8601
         self.encoder = encoder
         self.queue = CloudSyncQueue()
+        // 启动时恢复上次状态：跨重启保留"上次同步 Xm ago"上下文
+        self.lastSyncStatus = Self.loadPersistedStatus()
     }
 
     /// 同步当前 quota 快照 + 跨周期 utilization 历史到云端。
@@ -176,14 +186,16 @@ final class CloudSyncService {
     }
 
     /// 同步状态：UI 可读 `lastSyncStatus` 显示 "Last sync: 2m ago" 或 "Failed: 5m ago"
-    private(set) var lastSyncStatus: CloudSyncStatus = .idle
+    private static let persistedStatusKey = "cloudSync.lastStatusSnapshot.v1"
 
     private func recordSuccess(at date: Date) {
         lastSyncStatus = .success(at: date)
+        Self.persistStatus(lastSyncStatus)
     }
 
     private func recordFailure(reason: CloudSyncFailureReason, error: Error? = nil) {
         lastSyncStatus = .failure(at: Date(), reason: reason, error: error)
+        Self.persistStatus(lastSyncStatus)
 #if DEBUG
         if let error {
             print("CloudSync failure: \(reason) — \(error.localizedDescription)")
@@ -193,12 +205,59 @@ final class CloudSyncService {
 #endif
     }
 
+    /// 把 status 快照落 UserDefaults。
+    /// Error 不入快照（不可 Codable），重启后显示 reason 文本即可。
+    private static func persistStatus(_ status: CloudSyncStatus) {
+        let snapshot: StatusSnapshot?
+        switch status {
+        case .idle:
+            snapshot = nil
+        case .success(let date):
+            snapshot = StatusSnapshot(kind: "success", date: date, reason: nil)
+        case .failure(let date, let reason, _):
+            snapshot = StatusSnapshot(kind: "failure", date: date, reason: reason.rawValue)
+        }
+        if let snapshot {
+            if let data = try? JSONEncoder().encode(snapshot) {
+                UserDefaults.standard.set(data, forKey: persistedStatusKey)
+            }
+        } else {
+            UserDefaults.standard.removeObject(forKey: persistedStatusKey)
+        }
+    }
+
+    private static func loadPersistedStatus() -> CloudSyncStatus {
+        guard let data = UserDefaults.standard.data(forKey: persistedStatusKey),
+              let snapshot = try? JSONDecoder().decode(StatusSnapshot.self, from: data) else {
+            return .idle
+        }
+        switch snapshot.kind {
+        case "success":
+            return .success(at: snapshot.date)
+        case "failure":
+            let reason = snapshot.reason.flatMap(CloudSyncFailureReason.init(rawValue:)) ?? .network
+            return .failure(at: snapshot.date, reason: reason, error: nil)
+        default:
+            return .idle
+        }
+    }
+
+    private struct StatusSnapshot: Codable {
+        let kind: String
+        let date: Date
+        let reason: String?
+    }
+
     /// 重试 3 次：1s, 4s, 16s 指数退避
+    /// 任务被 cancel 时 sleep 会抛 `CancellationError`，立即退出不再重试，
+    /// 避免用户切 endpoint / disable cloud sync 后还在后台跑 21s。
     private func sendWithRetry(request: URLRequest, body: Data) async throws {
         let backoffs: [UInt64] = [1, 4, 16]
         var lastError: Error?
 
         for attempt in 0...backoffs.count {
+            try Task.checkCancellation()
+
             var req = request
             req.httpBody = body
             do {
@@ -215,6 +274,8 @@ final class CloudSyncService {
                 if (400...499).contains(http.statusCode) {
                     throw lastError!
                 }
+            } catch is CancellationError {
+                throw CancellationError()
             } catch {
                 lastError = error
             }

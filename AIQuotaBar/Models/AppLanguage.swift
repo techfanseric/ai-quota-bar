@@ -50,6 +50,7 @@ enum AppLanguage: String, CaseIterable, Codable, Identifiable {
             case .cloudSyncToken: return "Sync token"
             case .cloudSyncTest: return "Test cloud sync"
             case .cloudSyncOpenData: return "View remote data"
+            case .cloudSyncStatusIdle: return "Cloud backup has not run yet."
             case .appTitle: return "About"
             case .appDescription: return "AI Quota Bar keeps your menu bar in sync with the latest coding plan quota."
             case .tabConnection: return "Connection"
@@ -153,6 +154,7 @@ enum AppLanguage: String, CaseIterable, Codable, Identifiable {
             case .cloudSyncToken: return "同步令牌"
             case .cloudSyncTest: return "测试云同步"
             case .cloudSyncOpenData: return "查看远程数据"
+            case .cloudSyncStatusIdle: return "云端备份尚未运行。"
             case .appTitle: return "关于"
             case .appDescription: return "AI Quota Bar 帮你把最新编程额度实时同步到菜单栏。"
             case .tabConnection: return "连接"
@@ -869,6 +871,24 @@ enum AppLanguage: String, CaseIterable, Codable, Identifiable {
         }
     }
 
+    func cloudSyncStatusSuccess(relative: String) -> String {
+        switch self {
+        case .english:
+            return "Last sync \(relative)."
+        case .simplifiedChinese:
+            return "上次同步 \(relative)。"
+        }
+    }
+
+    func cloudSyncStatusFailure(relative: String, detail: String) -> String {
+        switch self {
+        case .english:
+            return "Last sync failed \(relative): \(detail)"
+        case .simplifiedChinese:
+            return "上次同步失败（\(relative)）：\(detail)"
+        }
+    }
+
     func cloudSyncViewDataText() -> String {
         switch self {
         case .english:
@@ -988,6 +1008,7 @@ enum AppText {
     case cloudSyncToken
     case cloudSyncTest
     case cloudSyncOpenData
+    case cloudSyncStatusIdle
     case appTitle
     case appDescription
     case tabConnection

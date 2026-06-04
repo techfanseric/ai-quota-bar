@@ -178,6 +178,10 @@ struct GeneralPane: View {
                     InlineFeedbackView(feedback: cloudSyncTestResult)
                 }
             }
+
+            if viewModel.cloudSyncEnabled {
+                CloudSyncStatusLine(status: viewModel.cloudSyncStatus, language: language)
+            }
         }
     }
 
@@ -246,6 +250,53 @@ struct GeneralPane: View {
             }
             .buttonStyle(.borderedProminent)
             .controlSize(.large)
+        }
+    }
+}
+
+@MainActor
+private struct CloudSyncStatusLine: View {
+    let status: CloudSyncStatus
+    let language: AppLanguage
+
+    private static let relativeFormatter: RelativeDateTimeFormatter = {
+        let f = RelativeDateTimeFormatter()
+        f.unitsStyle = .short
+        return f
+    }()
+
+    var body: some View {
+        HStack(spacing: 6) {
+            Circle()
+                .fill(dotColor)
+                .frame(width: 6, height: 6)
+
+            Text(text)
+                .font(.footnote)
+                .foregroundStyle(.secondary)
+                .lineLimit(2)
+        }
+    }
+
+    private var dotColor: Color {
+        switch status {
+        case .idle: return .secondary
+        case .success: return .green
+        case .failure: return .red
+        }
+    }
+
+    private var text: String {
+        switch status {
+        case .idle:
+            return language.text(.cloudSyncStatusIdle)
+        case .success(let date):
+            let relative = Self.relativeFormatter.localizedString(for: date, relativeTo: Date())
+            return language.cloudSyncStatusSuccess(relative: relative)
+        case .failure(let date, let reason, let error):
+            let relative = Self.relativeFormatter.localizedString(for: date, relativeTo: Date())
+            let detail = error?.localizedDescription ?? reason.rawValue
+            return language.cloudSyncStatusFailure(relative: relative, detail: detail)
         }
     }
 }

@@ -340,6 +340,12 @@ final class UsageViewModel {
         KeychainService.shared.getCloudSyncToken() ?? ""
     }
 
+    /// 云端同步状态：proxy 自 `CloudSyncService.shared.lastSyncStatus`。
+    /// 设置面板的 `CloudSyncStatusLine` 实时显示"上次同步 Xm ago" / "失败 Ym ago"。
+    var cloudSyncStatus: CloudSyncStatus {
+        CloudSyncService.shared.lastSyncStatus
+    }
+
     func testCloudSync(endpointURL: String, token: String) async throws {
         try await CloudSyncService.shared.testConnection(endpointURLString: endpointURL, token: token)
     }
@@ -409,7 +415,7 @@ final class UsageViewModel {
                capturedAt.timeIntervalSince(last.capturedAt) < utilizationSampleThrottle {
                 continue
             }
-            history.entries.append(UtilizationHistoryEntry(
+            history.append(UtilizationHistoryEntry(
                 capturedAt: capturedAt,
                 usedPercent: usedPercent,
                 resetsAt: endTime

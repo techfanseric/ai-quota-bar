@@ -7,6 +7,11 @@ final class KeychainService {
 
     static let service = "com.techfanseric.aiquotabar"
 
+    /// Keychain `providerCredentials` 条目 decode 失败时发出 ——
+    /// 调用方可以选择降级提示用户（"凭据存储损坏"），但不要清空 Keychain。
+    static let didFailToDecodeCredentials = Notification.Name("KeychainService.didFailToDecodeCredentials")
+    static let credentialsDecodeErrorUserInfoKey = "error"
+
     private let credentialStoreAccount = "providerCredentials"
     private let cloudSyncTokenKey = "cloudSyncToken"
     private let legacyServices = ["com.minimax.usagemonitor"]
@@ -179,15 +184,37 @@ final class KeychainService {
         var result: AnyObject?
         let status = SecItemCopyMatching(query as CFDictionary, &result)
 
-        guard status == errSecSuccess,
-              let data = result as? Data,
-              let store = try? JSONDecoder().decode([String: String].self, from: data) else {
-            cachedCredentialStore = [:]
+        guard status == errSecSuccess else {
+            // errSecItemNotFound 是常见路径（首次启动无凭据），无需 cache 或 log。
+            // 其他 status（如 errSecAuthFailed / errSecInteractionNotAllowed）也不 cache，
+            // 下次调用可以重试，避免误把瞬时错误当永久状态。
             return [:]
         }
 
-        cachedCredentialStore = store
-        return store
+        guard let data = result as? Data else {
+#if DEBUG
+            print("KeychainService.credentialStore: unexpected result type for \(credentialStoreAccount)")
+#endif
+            return [:]
+        }
+
+        do {
+            let store = try JSONDecoder().decode([String: String].self, from: data)
+            cachedCredentialStore = store
+            return store
+        } catch {
+            // JSON 损坏时 **绝不缓存空 dict** —— 下次 save 会用空 dict 覆盖原始数据，
+            // 造成所有 provider 凭据同时丢失。返回空但保留现场，等用户或迁移逻辑介入。
+#if DEBUG
+            print("KeychainService.credentialStore: failed to decode \(credentialStoreAccount): \(error.localizedDescription)")
+#endif
+            NotificationCenter.default.post(
+                name: Self.didFailToDecodeCredentials,
+                object: nil,
+                userInfo: [Self.credentialsDecodeErrorUserInfoKey: error]
+            )
+            return [:]
+        }
     }
 
     private func saveCredentialStore(_ store: [String: String]) -> Bool {
