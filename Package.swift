@@ -11,7 +11,7 @@ let package = Package(
         )
     ],
     dependencies: [
-        .package(path: "../../../codexbar")
+        .package(path: "../codexbar")
     ],
     targets: [
         .executableTarget(
