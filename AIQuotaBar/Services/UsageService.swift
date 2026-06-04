@@ -222,18 +222,23 @@ final class UsageService {
             // codexbar 自管凭证（~/.codex + ~/.codexbar），不在 Keychain；
             // 直接交给适配层处理，未配置会在内部抛 .unauthorized。
             return try await CodexService.shared.fetchUsage()
-        default:
+        case .miniMax, .glm:
             guard let credential = KeychainService.shared.getCredential(for: provider) else {
                 throw UsageError.notConfigured
             }
-            switch provider {
-            case .miniMax:
-                return try await fetchMiniMaxUsage(apiKey: credential)
-            case .glm:
-                return try await fetchGLMUsage(credentialInput: credential)
-            case .codex:
-                return try await CodexService.shared.fetchUsage()
-            }
+            return try await fetchCredentialBasedUsage(provider: provider, credential: credential)
+        }
+    }
+
+    private func fetchCredentialBasedUsage(provider: UsageProvider, credential: String) async throws -> UsageData {
+        switch provider {
+        case .miniMax:
+            return try await fetchMiniMaxUsage(apiKey: credential)
+        case .glm:
+            return try await fetchGLMUsage(credentialInput: credential)
+        case .codex:
+            // 外层 switch 已把 .codex 走 CodexService，这里不可达
+            return try await CodexService.shared.fetchUsage()
         }
     }
 

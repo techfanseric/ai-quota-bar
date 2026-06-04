@@ -281,7 +281,9 @@ final class CloudSyncService {
             }
 
             if attempt < backoffs.count {
-                try? await Task.sleep(nanoseconds: backoffs[attempt] * 1_000_000_000)
+                // 用 try 而非 try?：让 cancel 立即抛 CancellationError，循环立即退出，
+                // 避免用户切 endpoint / disable cloud sync 后还在后台跑 21s 退避。
+                try await Task.sleep(nanoseconds: backoffs[attempt] * 1_000_000_000)
             }
         }
 
