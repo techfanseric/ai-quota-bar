@@ -146,6 +146,10 @@ final class CloudSyncService {
         do {
             try await sendWithRetry(request: request, body: body)
             recordSuccess(at: Date())
+        } catch is CancellationError {
+            // 用户禁用云同步 / 切换 endpoint 等场景:不记录失败、不 enqueue payload,
+            // 避免 UI 显示 "失败 Ym ago" 和队列堆积虚假任务
+            return
         } catch {
             // 重试用尽，落盘到队列等下次刷新再推
             queue.enqueue(payload: payload)

@@ -265,7 +265,12 @@ final class UsageViewModel {
                 }
             }
             for await (provider, result) in group {
-                if Task.isCancelled { break }
+                if Task.isCancelled {
+                    // 显式 cancel 兄弟子任务:fetchUsage 内部不调 checkCancellation,
+                    // URLSession 也不会自动 abort,只能靠 task 取消让闭包内 await 抛 CancellationError
+                    group.cancelAll()
+                    break
+                }
                 switch result {
                 case .success(let data):
                     nextProviderData[provider] = data
