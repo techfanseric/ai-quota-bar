@@ -4,8 +4,13 @@ import Foundation
 /// 失败的 payload 落盘到 `~/Library/Application Support/com.techfanseric.aiquotabar/sync-queue/`
 /// 下次 `syncUsageData` 成功后再 flush，避免网络抖动丢一条快照。
 ///
-/// 队列是 best-effort：磁盘失败时静默吞错，最多堆积几十 KB，无清理需求。
+/// 队列有上限（`maxQueueSize`）：网络长期挂掉时无界堆积会占满磁盘。
+/// 超限时按修改时间丢最旧的文件，保留最新的若干条。
 final class CloudSyncQueue {
+    /// 队列容量上限：50 条 ≈ 50KB 不到 1MB，足够覆盖一周断网。
+    /// 超了说明用户一直没联网，老数据意义不大。
+    static let maxQueueSize = 50
+
     private let directoryURL: URL
     private let fileManager: FileManager
     private let encoder: JSONEncoder
@@ -29,9 +34,11 @@ final class CloudSyncQueue {
     }
 
     /// 把 payload 写到队列目录。每个文件用 UUID 命名避免重名。
+    /// 入队前先 trim 超限文件（按修改时间丢最旧的）。
     func enqueue(payload: CloudUsageSnapshotPayload) {
         do {
             try fileManager.createDirectory(at: directoryURL, withIntermediateDirectories: true)
+            trimIfNeeded()
             let data = try encoder.encode(payload)
             let url = directoryURL.appendingPathComponent("\(UUID().uuidString).json")
             let options: Data.WritingOptions = [.atomic]
@@ -40,6 +47,30 @@ final class CloudSyncQueue {
 #if DEBUG
             print("CloudSyncQueue enqueue failed: \(error.localizedDescription)")
 #endif
+        }
+    }
+
+    /// 按修改时间排序，删到 `maxQueueSize` 以下。
+    private func trimIfNeeded() {
+        guard let files = try? fileManager.contentsOfDirectory(
+            at: directoryURL,
+            includingPropertiesForKeys: [.contentModificationDateKey],
+            options: [.skipsHiddenFiles]
+        ) else { return }
+
+        let jsonFiles = files.filter { $0.pathExtension == "json" }
+        guard jsonFiles.count >= Self.maxQueueSize else { return }
+
+        // 按修改时间升序排，最旧的在前面
+        let sorted = jsonFiles.sorted { lhs, rhs in
+            let lhsDate = (try? lhs.resourceValues(forKeys: [.contentModificationDateKey]).contentModificationDate) ?? .distantPast
+            let rhsDate = (try? rhs.resourceValues(forKeys: [.contentModificationDateKey]).contentModificationDate) ?? .distantPast
+            return lhsDate < rhsDate
+        }
+
+        let toRemove = sorted.count - Self.maxQueueSize + 1  // +1 给即将写入的新文件留位
+        for file in sorted.prefix(max(toRemove, 0)) {
+            try? fileManager.removeItem(at: file)
         }
     }
 
