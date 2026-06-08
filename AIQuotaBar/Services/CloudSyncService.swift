@@ -327,6 +327,19 @@ final class CloudSyncService {
         return try decoder.decode(CloudDeleteDataResponse.self, from: responseData)
     }
 
+    func fetchRemoteUsageData(limit: Int = 500) async throws -> [UsageProvider: UsageData] {
+        let request = try makeRequest(
+            endpointURLString: CloudSyncSettings.defaultEndpointURLString,
+            path: "/v1/quota-samples?limit=\(limit)",
+            token: CloudSyncSettings.defaultServiceToken,
+            method: "GET"
+        )
+        let responseData = try await data(for: request)
+        let decoder = JSONDecoder()
+        let response = try decoder.decode(CloudQuotaSamplesResponse.self, from: responseData)
+        return remoteUsageData(from: response.samples)
+    }
+
     func makeRemoteDataReport(endpointURLString: String, token: String, limit: Int = 300) async throws -> URL {
         let devicesRequest = try makeRequest(
             endpointURLString: endpointURLString,
@@ -376,16 +389,15 @@ final class CloudSyncService {
 
         if shouldFetchCloud {
             do {
-                let deviceID = Self.queryEscaped(CloudSyncSettings.current.deviceID)
                 let devicesRequest = try makeRequest(
                     endpointURLString: endpointURLString,
-                    path: "/v1/devices?device_id=\(deviceID)",
+                    path: "/v1/devices",
                     token: trimmedToken,
                     method: "GET"
                 )
                 let samplesRequest = try makeRequest(
                     endpointURLString: endpointURLString,
-                    path: "/v1/quota-samples?limit=\(limit)&device_id=\(deviceID)",
+                    path: "/v1/quota-samples?limit=\(limit)",
                     token: trimmedToken,
                     method: "GET"
                 )
@@ -425,6 +437,60 @@ final class CloudSyncService {
 
     private static func queryEscaped(_ value: String) -> String {
         value.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? value
+    }
+
+    private func remoteUsageData(from samples: [CloudRemoteQuotaSample]) -> [UsageProvider: UsageData] {
+        let latestByModel = Dictionary(grouping: samples) { sample in
+            sample.modelID ?? "\(sample.provider):\(sample.accountName ?? ""):\(sample.modelName)"
+        }
+        .compactMapValues { rows in
+            rows.sorted { lhs, rhs in lhs.sampledDate > rhs.sampledDate }.first
+        }
+
+        let models = latestByModel.values.compactMap { sample -> ModelUsageData? in
+            guard let provider = UsageProvider(rawValue: sample.provider) else { return nil }
+            let endTime = sample.resetEndDate
+            let remaining = max(0, sample.currentIntervalRemaining)
+            let total = max(0, sample.currentIntervalTotal)
+            let percent = sample.valueSuffix == "%" || total == 100 ? remaining : nil
+            return ModelUsageData(
+                provider: provider,
+                accountName: sample.accountName,
+                modelName: sample.modelName,
+                currentIntervalTotal: total,
+                currentIntervalUsed: remaining,
+                weeklyTotal: sample.weeklyTotal,
+                weeklyUsed: sample.weeklyRemaining,
+                remainsTime: endTime.map { Int($0.timeIntervalSince(Date()) * 1000) } ?? 0,
+                startTime: sample.resetStartDate,
+                endTime: endTime,
+                weeklyStartTime: sample.weeklyStartDate,
+                weeklyEndTime: sample.weeklyEndDate,
+                valueSuffix: sample.valueSuffix,
+                detailText: sample.cloudDetailText,
+                currentIntervalRemainingPercent: percent,
+                weeklyRemainingPercent: nil,
+                progressBarPercentOverride: nil,
+                progressBarRightText: nil,
+                sampledAt: sample.sampledDate)
+        }
+
+        let grouped = Dictionary(grouping: models, by: \.provider)
+        return grouped.mapValues { providerModels in
+            let latestTimestamp = providerModels
+                .compactMap { model in
+                    latestByModel[model.id]?.sampledDate
+                }
+                .max() ?? Date()
+            return UsageData(
+                provider: providerModels.first?.provider ?? .codex,
+                remains: providerModels.filter(\.isCurrentIntervalAvailable).count,
+                total: providerModels.count,
+                timestamp: latestTimestamp,
+                models: providerModels,
+                subscribeTitle: nil,
+                subscribeEndTime: nil)
+        }
     }
 
     private func makeRequest(endpointURLString: String, path: String, token: String, method: String) throws -> URLRequest {
@@ -836,14 +902,115 @@ private struct CloudRemoteQuotaSample: Decodable {
     let modelName: String
     let currentIntervalTotal: Int
     let currentIntervalRemaining: Int
+    let weeklyTotal: Int
+    let weeklyRemaining: Int
+    let resetStartTime: String?
     let resetEndTime: String?
+    let weeklyStartTime: String?
+    let weeklyEndTime: String?
+    let valueSuffix: String?
+    let detailText: String?
     let sampledAt: String
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        self.deviceID = try container.decodeIfPresent(String.self, forKey: .deviceID)
+        self.provider = try container.decode(String.self, forKey: .provider)
+        self.accountName = try container.decodeIfPresent(String.self, forKey: .accountName)
+        self.modelID = try container.decodeIfPresent(String.self, forKey: .modelID)
+        self.modelName = try container.decode(String.self, forKey: .modelName)
+        self.currentIntervalTotal = try container.decodeIfPresent(Int.self, forKey: .currentIntervalTotal) ?? 0
+        self.currentIntervalRemaining = try container.decodeIfPresent(Int.self, forKey: .currentIntervalRemaining) ?? 0
+        self.weeklyTotal = try container.decodeIfPresent(Int.self, forKey: .weeklyTotal) ?? 0
+        self.weeklyRemaining = try container.decodeIfPresent(Int.self, forKey: .weeklyRemaining) ?? 0
+        self.resetStartTime = try container.decodeIfPresent(String.self, forKey: .resetStartTime)
+        self.resetEndTime = try container.decodeIfPresent(String.self, forKey: .resetEndTime)
+        self.weeklyStartTime = try container.decodeIfPresent(String.self, forKey: .weeklyStartTime)
+        self.weeklyEndTime = try container.decodeIfPresent(String.self, forKey: .weeklyEndTime)
+        self.valueSuffix = try container.decodeIfPresent(String.self, forKey: .valueSuffix)
+        self.detailText = try container.decodeIfPresent(String.self, forKey: .detailText)
+        self.sampledAt = try container.decode(String.self, forKey: .sampledAt)
+    }
 
     var remainingPercentageText: String {
         guard currentIntervalTotal > 0 else { return "" }
         let percentage = Double(currentIntervalRemaining) / Double(currentIntervalTotal) * 100
         return String(format: "%.1f%%", percentage)
     }
+
+    var sampledDate: Date {
+        Self.date(from: sampledAt) ?? .distantPast
+    }
+
+    var resetStartDate: Date? {
+        Self.date(from: resetStartTime)
+    }
+
+    var resetEndDate: Date? {
+        Self.date(from: resetEndTime)
+    }
+
+    var weeklyStartDate: Date? {
+        Self.date(from: weeklyStartTime)
+    }
+
+    var weeklyEndDate: Date? {
+        Self.date(from: weeklyEndTime)
+    }
+
+    var cloudDetailText: String? {
+        let parts = (detailText ?? "")
+            .components(separatedBy: " · ")
+            .filter { !$0.isEmpty && !Self.isLocalSourceLabel($0) }
+        guard !parts.isEmpty else { return "Cloud" }
+
+        var nextParts: [String] = []
+        var insertedCloud = false
+        for part in parts {
+            if part.hasPrefix("resets ") {
+                if !insertedCloud {
+                    nextParts.append("Cloud")
+                    insertedCloud = true
+                }
+                nextParts.append(part)
+            } else {
+                nextParts.append(part)
+            }
+        }
+        if !insertedCloud {
+            nextParts.append("Cloud")
+        }
+        return nextParts.joined(separator: " · ")
+    }
+
+    private static func isLocalSourceLabel(_ value: String) -> Bool {
+        switch value.lowercased() {
+        case "oauth", "codex cli", "openai web", "cli", "web", "cloud":
+            return true
+        default:
+            return false
+        }
+    }
+
+    private static func date(from value: String?) -> Date? {
+        guard let value, !value.isEmpty else { return nil }
+        if let date = iso8601WithFractionalSeconds.date(from: value) {
+            return date
+        }
+        return iso8601.date(from: value)
+    }
+
+    private static let iso8601: ISO8601DateFormatter = {
+        let formatter = ISO8601DateFormatter()
+        formatter.formatOptions = [.withInternetDateTime]
+        return formatter
+    }()
+
+    private static let iso8601WithFractionalSeconds: ISO8601DateFormatter = {
+        let formatter = ISO8601DateFormatter()
+        formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        return formatter
+    }()
 
     enum CodingKeys: String, CodingKey {
         case deviceID = "device_id"
@@ -853,7 +1020,14 @@ private struct CloudRemoteQuotaSample: Decodable {
         case modelName = "model_name"
         case currentIntervalTotal = "current_interval_total"
         case currentIntervalRemaining = "current_interval_remaining"
+        case weeklyTotal = "weekly_total"
+        case weeklyRemaining = "weekly_remaining"
+        case resetStartTime = "reset_start_time"
         case resetEndTime = "reset_end_time"
+        case weeklyStartTime = "weekly_start_time"
+        case weeklyEndTime = "weekly_end_time"
+        case valueSuffix = "value_suffix"
+        case detailText = "detail_text"
         case sampledAt = "sampled_at"
     }
 }

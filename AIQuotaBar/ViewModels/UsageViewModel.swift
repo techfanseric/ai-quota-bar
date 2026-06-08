@@ -11,6 +11,8 @@ final class UsageViewModel {
         didSet { checkThreshold() }
     }
     var providerUsageData: [UsageProvider: UsageData] = [:]
+    var cloudProviderUsageData: [UsageProvider: UsageData] = [:]
+    var cloudUsageLoadError: String?
     var providerErrors: [UsageProvider: UsageError] = [:]
     var error: UsageError?
     var isLoading: Bool = false
@@ -191,7 +193,46 @@ final class UsageViewModel {
     }
 
     var providerUsageSections: [UsageData] {
-        UsageProvider.allCases.compactMap { providerUsageData[$0] }
+        guard !isLoading || !providerUsageData.isEmpty else { return [] }
+        let localDataByProvider = providerUsageData.mapValues { data in
+            data.withModels(accountScopedLocalModels(data.models))
+        }
+        let remoteCloudModels = cloudProviderUsageData.values
+            .flatMap(\.models)
+            .filter { !$0.isCloudNoiseModel }
+        let remoteCloudModelKeys = Set(remoteCloudModels.map(\.quotaIdentityKey))
+        let localModelKeys = Set(localDataByProvider.values.flatMap(\.models).map(\.quotaIdentityKey))
+        let historyCloudModels = supplementalCloudModelsFromHistory(excluding: localModelKeys.union(remoteCloudModelKeys))
+        let cloudModels = remoteCloudModels + historyCloudModels
+        let cloudModelKeys = Set(cloudModels.map(\.quotaIdentityKey))
+
+        return UsageProvider.allCases
+            .compactMap { provider -> UsageData? in
+                let localModels = (localDataByProvider[provider]?.models ?? []).map { model in
+                    cloudModelKeys.contains(model.quotaIdentityKey)
+                        ? model.withDetailSource("Mix")
+                        : model
+                }
+                let providerCloudModels = cloudModels.filter { $0.provider == provider }
+                let cloudOnlyModels = providerCloudModels.filter { model in
+                    !localModelKeys.contains(model.quotaIdentityKey)
+                        && !model.isCloudNoiseModel
+                }
+                let models = localModels + cloudOnlyModels
+                guard !models.isEmpty else { return nil }
+
+                let baseData = localDataByProvider[provider]
+                    ?? cloudProviderUsageData[provider]
+                    ?? UsageData(
+                        provider: provider,
+                        remains: models.filter(\.isCurrentIntervalAvailable).count,
+                        total: models.count,
+                        timestamp: Date(),
+                        models: models,
+                        subscribeTitle: nil,
+                        subscribeEndTime: nil)
+                return baseData.withModels(models)
+            }
     }
 
     // MARK: - Private
@@ -219,6 +260,11 @@ final class UsageViewModel {
 
         loadUtilizationHistories()
         updateStatusBarText()
+        if cloudSyncEnabled {
+            Task { @MainActor in
+                await refreshCloudUsageData()
+            }
+        }
     }
 
     // MARK: - Public Methods
@@ -230,19 +276,28 @@ final class UsageViewModel {
         error = nil
         providerErrors = [:]
 
-        let providers = configuredProviders
+        let allConfiguredProviders = configuredProviders
+        let providers = allConfiguredProviders.filter(shouldFetchProvider)
+        let skippedProviders = allConfiguredProviders.filter { !shouldFetchProvider($0) }
         guard providers.isEmpty == false else {
-            usageData = nil
-            providerUsageData = [:]
-            error = .notConfigured
+            providerErrors = [:]
+            usageData = combinedUsageData(from: providerUsageData.values, timestamp: lastRefreshTime ?? Date())
+            error = providerUsageData.isEmpty ? .notConfigured : nil
+            await refreshCloudUsageData()
             updateStatusBarText()
             isLoading = false
             return
         }
 
         var nextProviderData: [UsageProvider: UsageData] = [:]
+        var fetchedProviderData: [UsageProvider: UsageData] = [:]
         var nextProviderErrors: [UsageProvider: UsageError] = [:]
         let sampleTimestamp = Date()
+        for provider in skippedProviders {
+            if let previous = providerUsageData[provider] {
+                nextProviderData[provider] = previous
+            }
+        }
 
         // 并行 fetch：3 个 provider 全开时延迟从 ~30s 降到 ~10s（取最慢的）。
         // recordUtilizationSamples 必须保持 main-actor 同步语义，所以放在 for await 块里。
@@ -267,8 +322,12 @@ final class UsageViewModel {
                 switch result {
                 case .success(let data):
                     nextProviderData[provider] = data
+                    fetchedProviderData[provider] = data
                     recordUtilizationSamples(for: provider, data: data, capturedAt: sampleTimestamp)
                 case .failure(let error):
+                    if let previous = providerUsageData[provider] {
+                        nextProviderData[provider] = previous
+                    }
                     if let usError = error as? UsageError {
                         nextProviderErrors[provider] = usError
                     } else {
@@ -285,12 +344,24 @@ final class UsageViewModel {
         if let usageData {
             lastRefreshTime = sampleTimestamp
             recordSamples(from: usageData, timestamp: sampleTimestamp)
-            syncUsageDataToCloud(usageData, sampledAt: sampleTimestamp)
+            if let freshlyFetchedUsageData = combinedUsageData(from: fetchedProviderData.values, timestamp: sampleTimestamp) {
+                syncUsageDataToCloud(freshlyFetchedUsageData, sampledAt: sampleTimestamp)
+            }
         }
+        await refreshCloudUsageData()
         updateStatusBarText()
         checkThreshold()
 
         isLoading = false
+    }
+
+    private func shouldFetchProvider(_ provider: UsageProvider) -> Bool {
+        switch provider {
+        case .codex:
+            return CodexAppPresence.isRunning
+        case .miniMax, .glm:
+            return true
+        }
     }
 
     func startAutoRefresh() {
@@ -359,6 +430,10 @@ final class UsageViewModel {
             modelQuotaSamples: modelQuotaSamples,
             utilizationHistories: utilizationHistories
         )
+    }
+
+    func clearCloudUsageData() {
+        cloudProviderUsageData = [:]
     }
 
     func clearLocalUsageData() {
@@ -472,20 +547,123 @@ final class UsageViewModel {
     }
 
     private func utilizationHistoryLookupIDs(for model: ModelUsageData) -> [String] {
-        guard model.isCodexFiveHourHistoryWindow else { return [model.id] }
-        if model.isCodexSlidingFiveHourExtraWindow {
-            return model.codexFiveHourCanonicalHistoryID.map { [$0] } ?? []
-        }
-        return uniqueHistoryIDs([model.codexFiveHourCanonicalHistoryID, model.id].compactMap { $0 })
+        [model.id]
     }
 
     private func shouldRecordUtilizationHistory(for model: ModelUsageData) -> Bool {
-        !model.isCodexSlidingFiveHourExtraWindow
+        true
     }
 
-    private func uniqueHistoryIDs(_ ids: [String]) -> [String] {
-        var seen: Set<String> = []
-        return ids.filter { seen.insert($0).inserted }
+    private func accountScopedLocalModels(_ models: [ModelUsageData]) -> [ModelUsageData] {
+        let codexAccountNames = Set(models
+            .filter { $0.provider == .codex }
+            .compactMap { model -> String? in
+                let normalized = model.normalizedAccountName
+                guard !normalized.isEmpty else { return nil }
+                return model.accountName?.trimmingCharacters(in: .whitespacesAndNewlines)
+            })
+        guard !codexAccountNames.isEmpty else { return models }
+
+        if codexAccountNames.count == 1, let accountName = codexAccountNames.first {
+            return models.map { model in
+                if model.provider == .codex, model.normalizedAccountName.isEmpty {
+                    return model.withAccountName(accountName)
+                }
+                return model
+            }
+        }
+
+        return models.filter { model in
+            if model.provider == .codex, model.normalizedAccountName.isEmpty {
+                return false
+            }
+            return true
+        }
+    }
+
+    private func supplementalCloudModelsFromHistory(excluding existingKeys: Set<String>) -> [ModelUsageData] {
+        utilizationHistories.values
+            .flatMap(\.historiesOrEmpty)
+            .compactMap { _, history in
+                supplementalCloudModel(from: history, excluding: existingKeys)
+            }
+    }
+
+    private func supplementalCloudModel(
+        from history: ModelUtilizationHistory,
+        excluding existingKeys: Set<String>) -> ModelUsageData?
+    {
+        guard let parsed = parseHistoryModelID(history.modelId),
+              !parsed.accountName.isEmpty,
+              let latest = history.entries.sorted(by: { $0.capturedAt > $1.capturedAt }).first else {
+            return nil
+        }
+
+        let remainingPercent = Int(max(0, min(100, 100 - latest.usedPercent)).rounded())
+        let key = [
+            parsed.provider.rawValue,
+            parsed.accountName.trimmingCharacters(in: .whitespacesAndNewlines).lowercased(),
+            parsed.modelName.trimmingCharacters(in: .whitespacesAndNewlines).lowercased(),
+        ].joined(separator: ":")
+        guard !existingKeys.contains(key) else { return nil }
+
+        let endTime = latest.resetsAt
+        let startTime = endTime.flatMap { reset in
+            inferredHistoryDuration(for: parsed.modelName).map { reset.addingTimeInterval(-$0) }
+        }
+
+        return ModelUsageData(
+            provider: parsed.provider,
+            accountName: parsed.accountName,
+            modelName: parsed.modelName,
+            currentIntervalTotal: 100,
+            currentIntervalUsed: remainingPercent,
+            weeklyTotal: 0,
+            weeklyUsed: 0,
+            remainsTime: endTime.map { Int($0.timeIntervalSince(Date()) * 1000) } ?? 0,
+            startTime: startTime,
+            endTime: endTime,
+            weeklyStartTime: nil,
+            weeklyEndTime: nil,
+            valueSuffix: "%",
+            detailText: "Cloud" + historyResetDetail(endTime),
+            currentIntervalRemainingPercent: remainingPercent,
+            weeklyRemainingPercent: nil,
+            progressBarPercentOverride: nil,
+            progressBarRightText: nil,
+            sampledAt: latest.capturedAt)
+    }
+
+    private func parseHistoryModelID(_ id: String) -> (provider: UsageProvider, accountName: String, modelName: String)? {
+        let parts = id.split(separator: ":", omittingEmptySubsequences: false).map(String.init)
+        guard parts.count >= 3,
+              let provider = UsageProvider(rawValue: parts[0]) else {
+            return nil
+        }
+        let accountName = parts[1]
+        let modelName = parts.dropFirst(2).joined(separator: ":")
+        guard !accountName.isEmpty, !modelName.isEmpty else { return nil }
+        return (provider, accountName, modelName)
+    }
+
+    private func inferredHistoryDuration(for modelName: String) -> TimeInterval? {
+        let lower = modelName.lowercased()
+        if lower.contains("weekly") || lower == "weekly" {
+            return 7 * 24 * 3600
+        }
+        if lower.contains("5h") || lower.contains("5-hour") || lower.contains("5 hour") {
+            return 5 * 3600
+        }
+        return nil
+    }
+
+    private func historyResetDetail(_ endTime: Date?) -> String {
+        guard let endTime else { return "" }
+        let formatter = DateFormatter()
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        formatter.timeZone = TimeZone(identifier: "Asia/Shanghai")
+        formatter.dateFormat = "MM/dd HH:mm"
+        return " · resets \(formatter.string(from: endTime))"
     }
 
     private func saveCloudSyncSettings() {
@@ -494,6 +672,29 @@ final class UsageViewModel {
             endpointURLString: CloudSyncSettings.defaultEndpointURLString,
             deviceID: CloudSyncSettings.current.deviceID
         ).save()
+        if cloudSyncEnabled {
+            Task { @MainActor in
+                await refreshCloudUsageData()
+            }
+        } else {
+            cloudProviderUsageData = [:]
+        }
+    }
+
+    private func refreshCloudUsageData() async {
+        guard cloudSyncEnabled else {
+            cloudProviderUsageData = [:]
+            return
+        }
+
+        do {
+            cloudProviderUsageData = try await CloudSyncService.shared.fetchRemoteUsageData()
+            cloudUsageLoadError = nil
+        } catch {
+            // Cloud rows are supplemental. Keep local quota usable if remote history cannot load.
+            cloudProviderUsageData = [:]
+            cloudUsageLoadError = error.localizedDescription
+        }
     }
 
     private func syncUsageDataToCloud(_ usageData: UsageData, sampledAt: Date) {
@@ -551,6 +752,12 @@ final class UsageViewModel {
         models
             .filter { isMenuBarCandidate($0, now: now) }
             .sorted { lhs, rhs in
+                let lhsSourcePriority = menuBarSourcePriority(lhs.parsedDetail.source)
+                let rhsSourcePriority = menuBarSourcePriority(rhs.parsedDetail.source)
+                if lhsSourcePriority != rhsSourcePriority {
+                    return lhsSourcePriority < rhsSourcePriority
+                }
+
                 let lhsReset = lhs.endTime ?? .distantFuture
                 let rhsReset = rhs.endTime ?? .distantFuture
 
@@ -574,6 +781,17 @@ final class UsageViewModel {
         guard model.isCurrentIntervalAvailable else { return false }
         guard let endTime = model.endTime else { return true }
         return endTime > now
+    }
+
+    private func menuBarSourcePriority(_ source: String?) -> Int {
+        switch source {
+        case "OAuth", "Mix", "Codex CLI", "OpenAI Web":
+            return 0
+        case "Cloud":
+            return 1
+        default:
+            return 0
+        }
     }
 
     private func recordSamples(from data: UsageData, timestamp: Date) {

@@ -69,6 +69,17 @@ struct UsageData: Codable {
         sortedModels(warningThreshold: 20).first
     }
 
+    func withModels(_ nextModels: [ModelUsageData]) -> UsageData {
+        UsageData(
+            provider: provider,
+            remains: nextModels.filter(\.isCurrentIntervalAvailable).count,
+            total: nextModels.count,
+            timestamp: timestamp,
+            models: nextModels,
+            subscribeTitle: subscribeTitle,
+            subscribeEndTime: subscribeEndTime)
+    }
+
     private func sortWeight(for model: ModelUsageData, warningThreshold: Double) -> (Int, Double, String) {
         let severity: Int
         if !model.isCurrentIntervalAvailable {
@@ -108,6 +119,8 @@ struct ModelUsageData: Codable, Identifiable {
     /// 覆盖进度条右侧文本。默认按 `currentIntervalUsageRatioText` 渲染；
     /// 设置后用于显示"1K tokens"等固定刻度信息。
     let progressBarRightText: String?
+    /// 该条 quota 数据的采样时间。实时本机数据为 nil；Cloud/历史补全数据用于判断新鲜度。
+    let sampledAt: Date?
 
     var id: String {
         guard let accountName, !accountName.isEmpty else {
@@ -119,6 +132,90 @@ struct ModelUsageData: Codable, Identifiable {
     var displayName: String {
         guard let accountName, !accountName.isEmpty else { return modelName }
         return "\(accountName) · \(modelName)"
+    }
+
+    var normalizedAccountName: String {
+        (accountName ?? "").trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+    }
+
+    var quotaIdentityKey: String {
+        [
+            provider.rawValue,
+            normalizedAccountName,
+            modelName.trimmingCharacters(in: .whitespacesAndNewlines).lowercased(),
+        ].joined(separator: ":")
+    }
+
+    var isCloudNoiseModel: Bool {
+        guard parsedDetail.source == "Cloud" else { return false }
+        if provider == .codex {
+            let name = modelName.lowercased()
+            return name == "credits"
+        }
+        return false
+    }
+
+    func withDetailSource(_ source: String) -> ModelUsageData {
+        let detail = detailTextWithSource(source)
+        return copy(accountName: accountName, detailText: detail)
+    }
+
+    func withAccountName(_ nextAccountName: String) -> ModelUsageData {
+        copy(accountName: nextAccountName, detailText: detailText)
+    }
+
+    private func copy(accountName nextAccountName: String?, detailText nextDetailText: String?) -> ModelUsageData {
+        return ModelUsageData(
+            provider: provider,
+            accountName: nextAccountName,
+            modelName: modelName,
+            currentIntervalTotal: currentIntervalTotal,
+            currentIntervalUsed: currentIntervalUsed,
+            weeklyTotal: weeklyTotal,
+            weeklyUsed: weeklyUsed,
+            remainsTime: remainsTime,
+            startTime: startTime,
+            endTime: endTime,
+            weeklyStartTime: weeklyStartTime,
+            weeklyEndTime: weeklyEndTime,
+            valueSuffix: valueSuffix,
+            detailText: nextDetailText,
+            currentIntervalRemainingPercent: currentIntervalRemainingPercent,
+            weeklyRemainingPercent: weeklyRemainingPercent,
+            progressBarPercentOverride: progressBarPercentOverride,
+            progressBarRightText: progressBarRightText,
+            sampledAt: sampledAt)
+    }
+
+    private func detailTextWithSource(_ source: String) -> String? {
+        guard let detailText, !detailText.isEmpty else { return source }
+        let parts = detailText.components(separatedBy: " · ")
+        var nextParts: [String] = []
+        var didReplaceSource = false
+
+        for part in parts where !part.isEmpty {
+            if Self.looksLikeSourceName(part), !didReplaceSource {
+                nextParts.append(source)
+                didReplaceSource = true
+            } else {
+                nextParts.append(part)
+            }
+        }
+
+        if !didReplaceSource {
+            let insertIndex = nextParts.firstIndex { $0.hasPrefix("resets ") } ?? nextParts.endIndex
+            nextParts.insert(source, at: insertIndex)
+        }
+        return nextParts.joined(separator: " · ")
+    }
+
+    private static func looksLikeSourceName(_ part: String) -> Bool {
+        switch part.lowercased() {
+        case "oauth", "codex cli", "openai web", "cli", "web", "cloud", "mix":
+            return true
+        default:
+            return false
+        }
     }
 
     // 剩余 = API 返回的 usage_count
@@ -339,16 +436,15 @@ struct ModelUsageData: Codable, Identifiable {
     }
 
     var isCodexSlidingFiveHourExtraWindow: Bool {
-        guard provider == .codex, isCodexFiveHourHistoryWindow else { return false }
-        return modelName.lowercased() != "5h"
+        false
     }
 
     var codexFiveHourCanonicalHistoryID: String? {
         guard provider == .codex, isCodexFiveHourHistoryWindow else { return nil }
         if let accountName, !accountName.isEmpty {
-            return "\(provider.rawValue):\(accountName):5h"
+            return "\(provider.rawValue):\(accountName):\(modelName)"
         }
-        return "\(provider.rawValue):5h"
+        return "\(provider.rawValue):\(modelName)"
     }
 
     // 周是否满的（已用为0 = 没用过）

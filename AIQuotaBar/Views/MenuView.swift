@@ -38,8 +38,9 @@ struct MenuView: View {
         let sections = viewModel.providerUsageSections
         if !sections.isEmpty {
             VStack(spacing: 0) {
+                let providerCount = Set(sections.map(\.provider)).count
                 HStack(spacing: 8) {
-                    Text("\(sections.count) Providers · \(sections.map(\.modelCount).reduce(0, +)) Models")
+                    Text("\(providerCount) Providers · \(sections.map(\.modelCount).reduce(0, +)) Models")
                         .font(.system(size: 11, weight: .semibold))
                         .foregroundStyle(.secondary)
 
@@ -67,7 +68,21 @@ struct MenuView: View {
                 .padding(.horizontal, 4)
                 .padding(.bottom, 8)
 
-                ForEach(sections, id: \.provider) { data in
+                if let cloudError = viewModel.cloudUsageLoadError {
+                    HStack(spacing: 6) {
+                        Image(systemName: "icloud.slash")
+                            .font(.system(size: 10, weight: .medium))
+                        Text("Cloud data unavailable: \(cloudError)")
+                            .font(.system(size: 10))
+                            .lineLimit(2)
+                        Spacer()
+                    }
+                    .foregroundStyle(.tertiary)
+                    .padding(.horizontal, 8)
+                    .padding(.bottom, 6)
+                }
+
+                ForEach(Array(sections.enumerated()), id: \.offset) { _, data in
                     if data.provider == .codex && data.models.isEmpty {
                         MenuPlaceholderCard(
                             icon: "terminal.fill",
@@ -88,11 +103,15 @@ struct MenuView: View {
                     }
                 }
 
-                if !viewModel.providerErrors.isEmpty {
+                let visibleProviders = Set(sections.map(\.provider))
+                let visibleProviderErrors = UsageProvider.allCases.filter {
+                    viewModel.providerErrors[$0] != nil && !visibleProviders.contains($0)
+                }
+                if !visibleProviderErrors.isEmpty {
                     Divider()
                         .padding(.vertical, 4)
 
-                    ForEach(UsageProvider.allCases.filter { viewModel.providerErrors[$0] != nil }) { provider in
+                    ForEach(visibleProviderErrors) { provider in
                         if let error = viewModel.providerErrors[provider] {
                             HStack(spacing: 8) {
                                 Image(systemName: "exclamationmark.triangle.fill")
@@ -275,49 +294,111 @@ private struct ProviderModelsSection: View {
     @State private var showsExhaustedModels = false
 
     private var visibleModels: [ModelUsageData] {
-        sortedMenuModels(data.models).filter {
-            !$0.isExhaustedCurrentInterval && !$0.isFullQuotaUnused
+        return sortedMenuModels(data.models).filter {
+            isVisibleInlineModel($0)
         }
     }
 
     private var exhaustedModels: [ModelUsageData] {
-        sortedMenuModels(data.models).filter(\.isExhaustedCurrentInterval)
+        return sortedMenuModels(data.models).filter {
+            hasVisibleContent(for: $0) && !isVisibleInlineModel($0) && $0.isExhaustedCurrentInterval
+        }
     }
 
     private var fullQuotaModels: [ModelUsageData] {
-        sortedMenuModels(data.models).filter(\.isFullQuotaUnused)
+        return sortedMenuModels(data.models).filter {
+            hasVisibleContent(for: $0) && !isVisibleInlineModel($0) && $0.isFullQuotaUnused
+        }
     }
 
     /// 按 `accountName` 分组（nil/空归入 nil bucket）。
-    /// 返回的顺序：nil 桶最后，已命名的桶按字典序升序。
-    private var groupedVisibleModels: [(accountName: String?, models: [ModelUsageData])] {
+    /// 返回的顺序：本机/Mix 账号优先；Cloud-only 账号按最近采样时间倒序；nil 桶最后。
+    private var groupedVisibleModels: [AccountModelGroup] {
         let named = Dictionary(grouping: visibleModels) { model -> String? in
             guard let account = model.accountName, !account.isEmpty else { return nil }
             return account
         }
-        let sortedNames = named.keys
-            .compactMap { $0 }
-            .sorted { $0.localizedStandardCompare($1) == .orderedAscending }
 
-        var groups: [(accountName: String?, models: [ModelUsageData])] = []
-        for name in sortedNames {
-            if let bucketModels = named[name] {
-                groups.append((name, sortedMenuModels(bucketModels)))
+        return named
+            .map { accountName, models in
+                AccountModelGroup(accountName: accountName, models: sortedMenuModels(models))
+            }
+            .sorted { isAccountGroup($0, orderedBefore: $1) }
+    }
+
+    private struct AccountModelGroup {
+        let accountName: String?
+        let models: [ModelUsageData]
+    }
+
+    private func isVisibleInlineModel(_ model: ModelUsageData) -> Bool {
+        guard hasVisibleContent(for: model) else { return false }
+        if !hasRenderableCurrentWindow(for: model) {
+            return true
+        }
+        return !model.isExhaustedCurrentInterval && !model.isFullQuotaUnused
+    }
+
+    private func hasVisibleContent(for model: ModelUsageData) -> Bool {
+        hasRenderableCurrentWindow(for: model) || !utilizationCycles(for: model).isEmpty
+    }
+
+    private func hasRenderableCurrentWindow(for model: ModelUsageData) -> Bool {
+        if model.parsedDetail.source == "Cloud",
+           let sampledAt = model.sampledAt,
+           Date().timeIntervalSince(sampledAt) > 3600 {
+            return false
+        }
+        guard let startTime = model.startTime, let endTime = model.endTime else { return true }
+        let now = Date()
+        return startTime <= now && now <= endTime
+    }
+
+    private func utilizationCycles(for model: ModelUsageData) -> [(resetsAt: Date, peakPercent: Double)] {
+        let limit = model.isShortCurrentInterval ? 30 : 12
+        return viewModel.utilizationCycles(for: model, limit: limit)
+    }
+
+    private func isAccountGroup(_ lhs: AccountModelGroup, orderedBefore rhs: AccountModelGroup) -> Bool {
+        let lhsAccountPriority = lhs.accountName == nil ? 1 : 0
+        let rhsAccountPriority = rhs.accountName == nil ? 1 : 0
+        if lhsAccountPriority != rhsAccountPriority {
+            return lhsAccountPriority < rhsAccountPriority
+        }
+
+        let lhsSourcePriority = accountSourcePriority(lhs.models)
+        let rhsSourcePriority = accountSourcePriority(rhs.models)
+        if lhsSourcePriority != rhsSourcePriority {
+            return lhsSourcePriority < rhsSourcePriority
+        }
+
+        if lhsSourcePriority > 0 {
+            let lhsDate = lhs.models.compactMap(\.sampledAt).max() ?? .distantPast
+            let rhsDate = rhs.models.compactMap(\.sampledAt).max() ?? .distantPast
+            if lhsDate != rhsDate {
+                return lhsDate > rhsDate
             }
         }
-        if let unassigned = named[nil], !unassigned.isEmpty {
-            groups.append((nil, sortedMenuModels(unassigned)))
-        }
-        return groups
+
+        return (lhs.accountName ?? "").localizedStandardCompare(rhs.accountName ?? "") == .orderedAscending
+    }
+
+    private func accountSourcePriority(_ models: [ModelUsageData]) -> Int {
+        models.contains { model in
+            let source = model.parsedDetail.source ?? ""
+            return source != "Cloud"
+        } ? 0 : 1
     }
 
     var body: some View {
         let groups = groupedVisibleModels
         VStack(alignment: .leading, spacing: 0) {
-            providerHeader(groups: groups)
+            providerHeader()
 
             ForEach(Array(groups.enumerated()), id: \.offset) { groupIndex, group in
                 let rows = group.models
+                accountHeader(group)
+
                 ForEach(Array(rows.enumerated()), id: \.element.id) { index, model in
                     ModelRow(
                         model: model,
@@ -385,18 +466,15 @@ private struct ProviderModelsSection: View {
     }
 
     @ViewBuilder
-    private func providerHeader(groups: [(accountName: String?, models: [ModelUsageData])]) -> some View {
-        // source 同 provider 共享(codex OAuth / CLI / Web),取一次即可
-        let (_, source, _) = data.models.first?.parsedDetail ?? (nil, nil, nil)
-
+    private func providerHeader() -> some View {
         HStack(alignment: .firstTextBaseline) {
-            // 左侧:Codex OAuth — source 是标题的一部分,用空格
             HStack(spacing: 4) {
                 Text(data.provider.displayName)
                     .font(.system(size: 11, weight: .semibold))
                     .foregroundStyle(.secondary)
 
-                if let source {
+                if data.provider != .codex,
+                   let source = providerSourceSummary() {
                     Text(source)
                         .font(.system(size: 11, weight: .semibold))
                         .foregroundStyle(.tertiary)
@@ -405,43 +483,46 @@ private struct ProviderModelsSection: View {
 
             Spacer()
 
-            VStack(alignment: .trailing, spacing: 2) {
-                ForEach(Array(groups.enumerated()), id: \.offset) { _, group in
-                    // plan 跟 accountName 走(不同账号可能 plan 不同)
-                    let (plan, _, _) = group.models.first?.parsedDetail ?? (nil, nil, nil)
-                    if let accountName = group.accountName, !accountName.isEmpty {
-                        // 右侧:user@example.com · Pro 20x
-                        HStack(spacing: 4) {
-                            Text(accountName)
-                                .font(.system(size: 10, weight: .medium, design: .rounded))
-                                .foregroundStyle(.secondary)
-                                .lineLimit(1)
-                            if let plan {
-                                Text("·")
-                                    .foregroundStyle(.tertiary)
-                                Text(plan)
-                                    .font(.system(size: 10, weight: .medium, design: .rounded))
-                                    .foregroundStyle(.tertiary)
-                                    .lineLimit(1)
-                            }
-                        }
-                    } else if let subtitle = providerHeaderSubtitle() {
-                        Text(subtitle)
-                            .font(.system(size: 10, weight: .medium, design: .rounded))
-                            .foregroundStyle(.secondary)
-                            .lineLimit(1)
-                    } else {
-                        Text(language.menuBarCompactText(ready: data.readyModelsCount, total: data.modelCount))
-                            .font(.system(size: 10, weight: .medium, design: .rounded))
-                            .foregroundStyle(.secondary)
-                            .lineLimit(1)
-                    }
-                }
-            }
+            Text(providerHeaderSubtitle() ?? providerCountSummary())
+                .font(.system(size: 10, weight: .medium, design: .rounded))
+                .foregroundStyle(.secondary)
+                .lineLimit(1)
         }
         .padding(.horizontal, 8)
         .padding(.top, 6)
         .padding(.bottom, 2)
+    }
+
+    @ViewBuilder
+    private func accountHeader(_ group: AccountModelGroup) -> some View {
+        if data.provider == .codex || group.accountName != nil {
+            HStack(alignment: .firstTextBaseline, spacing: 6) {
+                Text(accountSourceSummary(group.models))
+                    .font(.system(size: 10, weight: .semibold))
+                    .foregroundStyle(.tertiary)
+
+                Spacer()
+
+                HStack(spacing: 4) {
+                    Text(group.accountName ?? "Unknown account")
+                        .font(.system(size: 10, weight: .medium, design: .rounded))
+                        .foregroundStyle(.secondary)
+                        .lineLimit(1)
+
+                    if let plan = accountPlanSummary(group.models) {
+                        Text("·")
+                            .foregroundStyle(.tertiary)
+                        Text(plan)
+                            .font(.system(size: 10, weight: .medium, design: .rounded))
+                            .foregroundStyle(.tertiary)
+                            .lineLimit(1)
+                    }
+                }
+            }
+            .padding(.horizontal, 8)
+            .padding(.top, 8)
+            .padding(.bottom, 2)
+        }
     }
 
     /// providerHeader 右侧用的副标题（当前只对 MiniMax 显示套餐 + 到期日）。
@@ -455,6 +536,54 @@ private struct ProviderModelsSection: View {
             title: title,
             endTime: data.subscribeEndTime
         )
+    }
+
+    private func providerCountSummary() -> String {
+        guard data.provider == .codex else {
+            return language.menuBarCompactText(ready: data.readyModelsCount, total: data.modelCount)
+        }
+
+        let accountGroups = Dictionary(grouping: data.models) { model in
+            model.normalizedAccountName
+        }
+        .filter { !$0.key.isEmpty }
+
+        let activeAccounts = accountGroups.values.filter { models in
+            models.contains { model in
+                let source = model.parsedDetail.source ?? ""
+                if source != "Cloud" {
+                    return true
+                }
+                guard let sampledAt = model.sampledAt else { return false }
+                return Date().timeIntervalSince(sampledAt) <= 3600
+            }
+        }.count
+
+        return "\(activeAccounts)/\(accountGroups.count)"
+    }
+
+    private func providerSourceSummary() -> String? {
+        sourceSummary(for: data.models)
+    }
+
+    private func accountSourceSummary(_ models: [ModelUsageData]) -> String {
+        sourceSummary(for: models) ?? "Local"
+    }
+
+    private func sourceSummary(for models: [ModelUsageData]) -> String? {
+        let sources = Set(models.compactMap { $0.parsedDetail.source })
+        if sources.contains("Mix") { return "Mix" }
+        if sources.contains("OAuth") { return "OAuth" }
+        if sources.contains("Codex CLI") { return "Codex CLI" }
+        if sources.contains("OpenAI Web") { return "OpenAI Web" }
+        if sources.contains("Cloud") { return "Cloud" }
+        return nil
+    }
+
+    private func accountPlanSummary(_ models: [ModelUsageData]) -> String? {
+        models.lazy
+            .compactMap { $0.parsedDetail.plan }
+            .first
     }
 
     private func sortedMenuModels(_ models: [ModelUsageData]) -> [ModelUsageData] {
@@ -535,8 +664,8 @@ private extension ModelUsageData {
             return lhsAccount < rhsAccount
         }
 
-        let lhsIntervalPriority = isShortCurrentInterval ? 0 : 1
-        let rhsIntervalPriority = other.isShortCurrentInterval ? 0 : 1
+        let lhsIntervalPriority = menuModelPriority
+        let rhsIntervalPriority = other.menuModelPriority
         if lhsIntervalPriority != rhsIntervalPriority {
             return lhsIntervalPriority < rhsIntervalPriority
         }
@@ -555,6 +684,16 @@ private extension ModelUsageData {
             return ""
         }
         return accountName.localizedLowercase
+    }
+
+    private var menuModelPriority: Int {
+        let name = modelName.lowercased()
+        if name == "5h" { return 0 }
+        if name == "weekly" { return 1 }
+        if name.contains("spark") && isShortCurrentInterval { return 2 }
+        if name.contains("spark") && name.contains("weekly") { return 3 }
+        if isShortCurrentInterval { return 4 }
+        return 5
     }
 }
 
@@ -587,111 +726,115 @@ private struct ModelRow: View {
 
                 Spacer()
 
-                Text(model.currentIntervalRemainingText)
-                    .font(.system(size: 13, weight: .semibold, design: .rounded))
-                    .foregroundStyle(tint)
+                if isCurrentWindow {
+                    Text(model.currentIntervalRemainingText)
+                        .font(.system(size: 13, weight: .semibold, design: .rounded))
+                        .foregroundStyle(tint)
+                }
             }
 
-            if model.isShortCurrentInterval {
-                QuotaAreaChart(
-                    model: model,
-                    samples: samples,
-                    tint: tint,
-                    warningThreshold: warningThreshold,
-                    language: language,
-                    isHovered: isHovered
-                )
-                .frame(height: 84)
-            } else {
-                GeometryReader { geo in
-                    ZStack(alignment: .leading) {
-                        Capsule()
-                            .fill(Color.primary.opacity(0.22))
-                            .frame(height: 6)
-
-                        if model.currentIntervalBarPercent > 0 {
+            if isCurrentWindow {
+                if model.isShortCurrentInterval {
+                    QuotaAreaChart(
+                        model: model,
+                        samples: samples,
+                        tint: tint,
+                        warningThreshold: warningThreshold,
+                        language: language,
+                        isHovered: isHovered
+                    )
+                    .frame(height: 84)
+                } else {
+                    GeometryReader { geo in
+                        ZStack(alignment: .leading) {
                             Capsule()
-                                .fill(tint)
-                                .frame(width: geo.size.width * model.currentIntervalBarPercent / 100, height: 6)
-                        }
+                                .fill(Color.primary.opacity(0.22))
+                                .frame(height: 6)
 
-                        // 天分隔线（周窗口特有：6 道线，按 7 天等分，常驻）
-                        ForEach(Array(weeklyDayMarkerPercents().enumerated()), id: \.offset) { _, percent in
-                            Rectangle()
-                                .fill(Color.primary.opacity(0.20))
-                                .frame(width: 1, height: 8)
-                                .position(
-                                    x: geo.size.width * percent / 100,
-                                    y: geo.size.height / 2
-                                )
-                        }
+                            if model.currentIntervalBarPercent > 0 {
+                                Capsule()
+                                    .fill(tint)
+                                    .frame(width: geo.size.width * model.currentIntervalBarPercent / 100, height: 6)
+                            }
 
-                        // 节奏指针：onTrack 不画（跟 codexbar 一致）
-                        if let pace = model.currentIntervalPace,
-                           pace.stage != .onTrack,
-                           let pacePercent = model.currentIntervalPaceUsedPercent {
-                            PaceTipStripes(
-                                percent: pacePercent,
-                                width: geo.size.width,
-                                isAhead: pace.stage.isAhead)
+                            // 天分隔线（周窗口特有：6 道线，按 7 天等分，常驻）
+                            ForEach(Array(weeklyDayMarkerPercents().enumerated()), id: \.offset) { _, percent in
+                                Rectangle()
+                                    .fill(Color.primary.opacity(0.20))
+                                    .frame(width: 1, height: 8)
+                                    .position(
+                                        x: geo.size.width * percent / 100,
+                                        y: geo.size.height / 2
+                                    )
+                            }
+
+                            // 节奏指针：onTrack 不画（跟 codexbar 一致）
+                            if let pace = model.currentIntervalPace,
+                               pace.stage != .onTrack,
+                               let pacePercent = model.currentIntervalPaceUsedPercent {
+                                PaceTipStripes(
+                                    percent: pacePercent,
+                                    width: geo.size.width,
+                                    isAhead: pace.stage.isAhead)
+                            }
                         }
+                        .contentShape(Rectangle())
                     }
-                    .contentShape(Rectangle())
-                }
-                .frame(height: 10)
-            }
-
-            HStack(spacing: 4) {
-                // 左侧:xx left / x/y 这种"还剩多少"的最直接信息
-                Text(model.currentIntervalBarRightText)
-                    .font(.system(size: 10, design: .rounded))
-                    .foregroundStyle(.secondary)
-
-                Spacer()
-
-                // 右侧:周信息 · 节奏偏差 · reset 时间(resets 放最右)
-                if model.hasWeeklyLimit {
-                    if model.isWeeklyUnlimited {
-                        Text(language == .simplifiedChinese ? "周无限制" : "Weekly unlimited")
-                            .font(.system(size: 10, design: .rounded))
-                            .foregroundStyle(.secondary)
-                    } else if model.isWeeklyFull {
-                        Text(language.weeklyUnusedText())
-                            .font(.system(size: 10, design: .rounded))
-                            .foregroundStyle(.secondary)
-                    } else if let percent = model.weeklyRemainingPercent, model.weeklyTotal <= 0 {
-                        Text("周 \(percent)%")
-                            .font(.system(size: 10, design: .rounded))
-                            .foregroundStyle(.secondary)
-                    } else {
-                        Text("周 \(model.weeklyRemaining)/\(model.weeklyTotal)")
-                            .font(.system(size: 10, design: .rounded))
-                            .foregroundStyle(.secondary)
-                    }
+                    .frame(height: 10)
                 }
 
-                if let pace = paceForLabel {
-                    // · 在 weekly 和 pace 之间(weekly 存在时)
-                    if model.hasWeeklyLimit {
-                        Text("·")
-                            .foregroundStyle(.tertiary)
-                    }
-
-                    Text(language.paceLabel(stage: pace.stage, deltaPercent: pace.deltaPercent))
-                        .font(.system(size: 10, design: .rounded))
-                        .foregroundStyle(paceLabelColor(paceStage: pace.stage))
-                }
-
-                if let resetsText {
-                    // · 在 pace 和 resets 之间(左侧有 weekly 或 pace 时)
-                    if model.hasWeeklyLimit || hasPace {
-                        Text("·")
-                            .foregroundStyle(.tertiary)
-                    }
-
-                    Text(resetsText)
+                HStack(spacing: 4) {
+                    // 左侧:xx left / x/y 这种"还剩多少"的最直接信息
+                    Text(model.currentIntervalBarRightText)
                         .font(.system(size: 10, design: .rounded))
                         .foregroundStyle(.secondary)
+
+                    Spacer()
+
+                    // 右侧:周信息 · 节奏偏差 · reset 时间(resets 放最右)
+                    if model.hasWeeklyLimit {
+                        if model.isWeeklyUnlimited {
+                            Text(language == .simplifiedChinese ? "周无限制" : "Weekly unlimited")
+                                .font(.system(size: 10, design: .rounded))
+                                .foregroundStyle(.secondary)
+                        } else if model.isWeeklyFull {
+                            Text(language.weeklyUnusedText())
+                                .font(.system(size: 10, design: .rounded))
+                                .foregroundStyle(.secondary)
+                        } else if let percent = model.weeklyRemainingPercent, model.weeklyTotal <= 0 {
+                            Text("周 \(percent)%")
+                                .font(.system(size: 10, design: .rounded))
+                                .foregroundStyle(.secondary)
+                        } else {
+                            Text("周 \(model.weeklyRemaining)/\(model.weeklyTotal)")
+                                .font(.system(size: 10, design: .rounded))
+                                .foregroundStyle(.secondary)
+                        }
+                    }
+
+                    if let pace = paceForLabel {
+                        // · 在 weekly 和 pace 之间(weekly 存在时)
+                        if model.hasWeeklyLimit {
+                            Text("·")
+                                .foregroundStyle(.tertiary)
+                        }
+
+                        Text(language.paceLabel(stage: pace.stage, deltaPercent: pace.deltaPercent))
+                            .font(.system(size: 10, design: .rounded))
+                            .foregroundStyle(paceLabelColor(paceStage: pace.stage))
+                    }
+
+                    if let resetsText {
+                        // · 在 pace 和 resets 之间(左侧有 weekly 或 pace 时)
+                        if model.hasWeeklyLimit || hasPace {
+                            Text("·")
+                                .foregroundStyle(.tertiary)
+                        }
+
+                        Text(resetsText)
+                            .font(.system(size: 10, design: .rounded))
+                            .foregroundStyle(.secondary)
+                    }
                 }
             }
 
@@ -718,6 +861,17 @@ private struct ModelRow: View {
                 isHovered = false
             }
         }
+    }
+
+    private var isCurrentWindow: Bool {
+        if model.parsedDetail.source == "Cloud",
+           let sampledAt = model.sampledAt,
+           Date().timeIntervalSince(sampledAt) > 3600 {
+            return false
+        }
+        guard let startTime = model.startTime, let endTime = model.endTime else { return true }
+        let now = Date()
+        return startTime <= now && now <= endTime
     }
 
     private var resetsText: String? {
