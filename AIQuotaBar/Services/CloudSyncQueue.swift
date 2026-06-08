@@ -50,6 +50,18 @@ final class CloudSyncQueue {
         }
     }
 
+    func clearAll() {
+        guard let files = try? fileManager.contentsOfDirectory(
+            at: directoryURL,
+            includingPropertiesForKeys: nil,
+            options: [.skipsHiddenFiles]
+        ) else { return }
+
+        for file in files {
+            try? fileManager.removeItem(at: file)
+        }
+    }
+
     /// 按修改时间排序，删到 `maxQueueSize` 以下。
     private func trimIfNeeded() {
         guard let files = try? fileManager.contentsOfDirectory(

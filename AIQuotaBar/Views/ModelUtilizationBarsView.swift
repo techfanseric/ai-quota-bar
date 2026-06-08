@@ -59,8 +59,9 @@ struct ModelUtilizationBarsView: View {
     }
 
     private func drawBars(context: inout GraphicsContext, size: CGSize) {
+        let orderedCycles = displayCycles
         for bar in bars(in: size) {
-            let cycle = cycles[bar.index]
+            let cycle = orderedCycles[bar.index]
             let heightFraction = max(0, min(1, cycle.peakPercent / 100))
             let usedHeight = bar.trackRect.height * CGFloat(heightFraction)
             let barTopY = bar.trackRect.maxY - usedHeight
@@ -93,7 +94,11 @@ struct ModelUtilizationBarsView: View {
     }
 
     private var n: Int {
-        cycles.count
+        displayCycles.count
+    }
+
+    private var displayCycles: [(resetsAt: Date, peakPercent: Double)] {
+        cycles.sorted { $0.resetsAt < $1.resetsAt }
     }
 
     private func bars(in size: CGSize) -> [CycleBar] {
@@ -109,7 +114,7 @@ struct ModelUtilizationBarsView: View {
         let totalBarsWidth = barWidth * CGFloat(n) + totalGapWidth
         let startX = (plotWidth - totalBarsWidth) / 2
 
-        return cycles.indices.map { index in
+        return displayCycles.indices.map { index in
             let x = startX + CGFloat(index) * (barWidth + Self.gap)
             let trackRect = CGRect(x: x, y: plotTop, width: barWidth, height: plotHeight)
             return CycleBar(index: index, trackRect: trackRect)
@@ -145,27 +150,30 @@ struct ModelUtilizationBarsView: View {
     }
 
     private func cycleHoverText(for index: Int) -> String {
-        guard cycles.indices.contains(index) else { return "" }
-        let leftPercent = max(0, min(100, 100 - cycles[index].peakPercent))
+        let orderedCycles = displayCycles
+        guard orderedCycles.indices.contains(index) else { return "" }
+        let leftPercent = max(0, min(100, 100 - orderedCycles[index].peakPercent))
         return "\(cycleTimeRangeText(for: index)) · \(Int(leftPercent.rounded()))%"
     }
 
     private func cycleTimeRangeText(for index: Int) -> String {
-        let end = cycles[index].resetsAt
+        let orderedCycles = displayCycles
+        let end = orderedCycles[index].resetsAt
         let start = cycleStart(for: index, end: end)
         return compactTimeRangeText(from: start, to: end)
     }
 
     private func cycleStart(for index: Int, end: Date) -> Date {
-        if cycles.indices.contains(index + 1) {
-            return cycles[index + 1].resetsAt
+        let orderedCycles = displayCycles
+        if orderedCycles.indices.contains(index - 1) {
+            return orderedCycles[index - 1].resetsAt
         }
 
         let inferredDuration: TimeInterval
         if let cycleDuration, cycleDuration > 0 {
             inferredDuration = cycleDuration
-        } else if cycles.indices.contains(index - 1) {
-            inferredDuration = cycles[index - 1].resetsAt.timeIntervalSince(end)
+        } else if orderedCycles.indices.contains(index + 1) {
+            inferredDuration = orderedCycles[index + 1].resetsAt.timeIntervalSince(end)
         } else {
             inferredDuration = 0
         }

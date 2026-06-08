@@ -114,6 +114,18 @@ final class ModelUtilizationHistoryStore {
         }
     }
 
+    func clear(for provider: UsageProvider) {
+        let url = fileURL(for: provider)
+        guard fileManager.fileExists(atPath: url.path) else { return }
+        try? fileManager.removeItem(at: url)
+    }
+
+    func clearAll() {
+        for provider in UsageProvider.allCases {
+            clear(for: provider)
+        }
+    }
+
     private func backupCorruptFile(at url: URL, reason: String) {
         guard let backupDir = ensureCorruptBackupDirectory() else { return }
         let timestamp = Int(Date().timeIntervalSince1970)

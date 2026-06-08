@@ -105,6 +105,45 @@ final class CodexUsageDataMapperTests: XCTestCase {
         XCTAssertEqual(data.models[0].currentIntervalRemainingPercent, 40)
     }
 
+    func testCodexFiveHourExtraUsesCanonicalHistoryIDButDoesNotRecordSlidingHistory() {
+        let window = RateWindow(
+            usedPercent: 0,
+            windowMinutes: 300,
+            resetsAt: Date(timeIntervalSince1970: 1_700_000_000),
+            resetDescription: nil,
+            nextRegenPercent: nil)
+        let named = NamedRateWindow(
+            id: "spark",
+            title: "Codex Spark 5-hour",
+            window: window)
+        let snapshot = UsageSnapshot(
+            primary: nil,
+            secondary: nil,
+            tertiary: nil,
+            extraRateWindows: [named],
+            kiroUsage: nil,
+            providerCost: nil,
+            zaiUsage: nil,
+            minimaxUsage: nil,
+            updatedAt: Date(),
+            identity: ProviderIdentitySnapshot(
+                providerID: .codex,
+                accountEmail: "user@example.com",
+                accountOrganization: nil,
+                loginMethod: "pro"))
+
+        let data = CodexUsageDataMapper.mapToUsageData(
+            snapshot: snapshot,
+            credits: nil,
+            sourceLabel: "oauth")
+        let model = data.models[0]
+
+        XCTAssertEqual(model.id, "codex:user@example.com:Codex Spark 5-hour")
+        XCTAssertEqual(model.codexFiveHourCanonicalHistoryID, "codex:user@example.com:5h")
+        XCTAssertTrue(model.isCodexFiveHourHistoryWindow)
+        XCTAssertTrue(model.isCodexSlidingFiveHourExtraWindow)
+    }
+
     func testMapsCreditsAsExtraModel() {
         let snapshot = UsageSnapshot(
             primary: nil,
