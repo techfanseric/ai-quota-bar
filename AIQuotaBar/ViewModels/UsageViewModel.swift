@@ -74,12 +74,6 @@ final class UsageViewModel {
         }
     }
 
-    var cloudSyncEndpointURL: String {
-        didSet {
-            saveCloudSyncSettings()
-        }
-    }
-
     var utilizationHistoryMode: UtilizationHistoryMode {
         didSet {
             UserDefaults.standard.set(utilizationHistoryMode.rawValue, forKey: Self.utilizationHistoryModeKey)
@@ -219,7 +213,6 @@ final class UsageViewModel {
         self.launchAtLogin = UserDefaults.standard.object(forKey: "launchAtLogin") as? Bool ?? false
         let cloudSyncSettings = CloudSyncSettings.current
         self.cloudSyncEnabled = cloudSyncSettings.isEnabled
-        self.cloudSyncEndpointURL = cloudSyncSettings.endpointURLString
         self.utilizationHistoryMode = UserDefaults.standard.string(forKey: Self.utilizationHistoryModeKey)
             .flatMap(UtilizationHistoryMode.init(rawValue:))
             ?? .includeCurrent
@@ -350,16 +343,35 @@ final class UsageViewModel {
         return try await UsageService.shared.testConnection(credential: credential, provider: provider)
     }
 
-    func saveCloudSyncToken(_ token: String) -> Bool {
-        let trimmedToken = token.trimmingCharacters(in: .whitespacesAndNewlines)
-        if trimmedToken.isEmpty {
-            return KeychainService.shared.deleteCloudSyncToken()
-        }
-        return KeychainService.shared.saveCloudSyncToken(trimmedToken)
+    func effectiveCloudSyncEndpointURL() -> String {
+        CloudSyncSettings.defaultEndpointURLString
     }
 
-    func cloudSyncToken() -> String {
-        KeychainService.shared.getCloudSyncToken() ?? ""
+    func effectiveCloudSyncToken() -> String {
+        CloudSyncSettings.defaultServiceToken
+    }
+
+    func dataReportSnapshot() -> DataReportSnapshot {
+        DataReportSnapshot(
+            generatedAt: Date(),
+            usageData: usageData,
+            providerUsageData: providerUsageData,
+            modelQuotaSamples: modelQuotaSamples,
+            utilizationHistories: utilizationHistories
+        )
+    }
+
+    func clearLocalUsageData() {
+        usageData = nil
+        providerUsageData = [:]
+        providerErrors = [:]
+        error = nil
+        lastRefreshTime = nil
+        modelQuotaSamples = [:]
+        utilizationHistories = [:]
+        utilizationStore.clearAll()
+        CloudSyncService.shared.clearPendingQueue()
+        updateStatusBarText()
     }
 
     /// 云端同步状态：proxy 自 `CloudSyncService.shared.lastSyncStatus`。
@@ -392,7 +404,11 @@ final class UsageViewModel {
     /// 模式由 `utilizationHistoryMode` 决定是否包含当前 in-progress 周期。
     /// `limit` 默认 30（约 6 天的 5h 周期），周长周期调用方传 12（约 3 个月）。
     func utilizationCycles(for model: ModelUsageData, limit: Int = 30, now: Date = Date()) -> [(resetsAt: Date, peakPercent: Double)] {
-        let history = utilizationHistories[model.provider]?.historiesOrEmpty[model.id]
+        let histories = utilizationHistories[model.provider]?.historiesOrEmpty ?? [:]
+        let history = utilizationHistoryLookupIDs(for: model)
+            .lazy
+            .compactMap { histories[$0] }
+            .first
         return history?.cycles(limit: limit, now: now, mode: utilizationHistoryMode) ?? []
     }
 
@@ -421,6 +437,7 @@ final class UsageViewModel {
         var dirty = false
 
         for model in data.models {
+            guard shouldRecordUtilizationHistory(for: model) else { continue }
             guard let endTime = model.endTime else { continue }
 
             let usedPercent: Double
@@ -454,10 +471,27 @@ final class UsageViewModel {
         }
     }
 
+    private func utilizationHistoryLookupIDs(for model: ModelUsageData) -> [String] {
+        guard model.isCodexFiveHourHistoryWindow else { return [model.id] }
+        if model.isCodexSlidingFiveHourExtraWindow {
+            return model.codexFiveHourCanonicalHistoryID.map { [$0] } ?? []
+        }
+        return uniqueHistoryIDs([model.codexFiveHourCanonicalHistoryID, model.id].compactMap { $0 })
+    }
+
+    private func shouldRecordUtilizationHistory(for model: ModelUsageData) -> Bool {
+        !model.isCodexSlidingFiveHourExtraWindow
+    }
+
+    private func uniqueHistoryIDs(_ ids: [String]) -> [String] {
+        var seen: Set<String> = []
+        return ids.filter { seen.insert($0).inserted }
+    }
+
     private func saveCloudSyncSettings() {
         CloudSyncSettings(
             isEnabled: cloudSyncEnabled,
-            endpointURLString: cloudSyncEndpointURL,
+            endpointURLString: CloudSyncSettings.defaultEndpointURLString,
             deviceID: CloudSyncSettings.current.deviceID
         ).save()
     }

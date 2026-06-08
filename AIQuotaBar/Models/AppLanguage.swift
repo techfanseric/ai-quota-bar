@@ -45,11 +45,9 @@ enum AppLanguage: String, CaseIterable, Codable, Identifiable {
             case .usageTitle: return "Usage"
             case .cloudSyncTitle: return "Cloud sync"
             case .cloudSyncEnabled: return "Enable cloud sync"
-            case .cloudSyncEnabledDescription: return "Upload compact quota snapshots to your own Cloudflare D1 worker."
-            case .cloudSyncEndpoint: return "Worker URL"
-            case .cloudSyncToken: return "Sync token"
+            case .cloudSyncEnabledDescription: return "Back up compact quota snapshots with the built-in cloud service. Custom servers are optional."
             case .cloudSyncTest: return "Test cloud sync"
-            case .cloudSyncOpenData: return "View remote data"
+            case .cloudSyncOpenData: return "View data"
             case .cloudSyncStatusIdle: return "Cloud backup has not run yet."
             case .appTitle: return "About"
             case .appDescription: return "AI Quota Bar keeps your menu bar in sync with the latest coding plan quota."
@@ -149,11 +147,9 @@ enum AppLanguage: String, CaseIterable, Codable, Identifiable {
             case .usageTitle: return "用量"
             case .cloudSyncTitle: return "云同步"
             case .cloudSyncEnabled: return "启用云同步"
-            case .cloudSyncEnabledDescription: return "将精简额度快照上传到你自己的 Cloudflare D1 Worker。"
-            case .cloudSyncEndpoint: return "Worker 地址"
-            case .cloudSyncToken: return "同步令牌"
+            case .cloudSyncEnabledDescription: return "使用内置云服务备份精简额度快照；自定义服务器是可选项。"
             case .cloudSyncTest: return "测试云同步"
-            case .cloudSyncOpenData: return "查看远程数据"
+            case .cloudSyncOpenData: return "查看数据"
             case .cloudSyncStatusIdle: return "云端备份尚未运行。"
             case .appTitle: return "关于"
             case .appDescription: return "AI Quota Bar 帮你把最新编程额度实时同步到菜单栏。"
@@ -820,36 +816,9 @@ enum AppLanguage: String, CaseIterable, Codable, Identifiable {
     func cloudSyncEnableDescriptionText() -> String {
         switch self {
         case .english:
-            return "Each successful refresh uploads a compact history snapshot in the background."
+            return "Each successful refresh uploads a compact history snapshot to AI Quota Bar's built-in cloud service in the background."
         case .simplifiedChinese:
-            return "每次成功刷新后，会在后台上传一份精简历史快照。"
-        }
-    }
-
-    func cloudSyncEndpointText() -> String {
-        switch self {
-        case .english:
-            return "Worker URL"
-        case .simplifiedChinese:
-            return "Worker 地址"
-        }
-    }
-
-    func cloudSyncTokenText() -> String {
-        switch self {
-        case .english:
-            return "Sync token"
-        case .simplifiedChinese:
-            return "同步令牌"
-        }
-    }
-
-    func cloudSyncTokenPlaceholderText() -> String {
-        switch self {
-        case .english:
-            return "Stored in Keychain"
-        case .simplifiedChinese:
-            return "保存在钥匙串"
+            return "每次成功刷新后，会在后台把精简历史快照上传到 AI Quota Bar 内置云服务。"
         }
     }
 
@@ -892,18 +861,90 @@ enum AppLanguage: String, CaseIterable, Codable, Identifiable {
     func cloudSyncViewDataText() -> String {
         switch self {
         case .english:
-            return "View remote data"
+            return "View data"
         case .simplifiedChinese:
-            return "查看远程数据"
+            return "查看数据"
         }
     }
 
     func cloudSyncReportOpenedText() -> String {
         switch self {
         case .english:
-            return "Remote data report opened."
+            return "Data report opened."
         case .simplifiedChinese:
-            return "远程数据报表已打开。"
+            return "数据报表已打开。"
+        }
+    }
+
+    func dataManagementDescriptionText() -> String {
+        switch self {
+        case .english:
+            return "Manage recorded usage data. Credentials and preferences are not deleted."
+        case .simplifiedChinese:
+            return "管理已记录的用量数据。不会删除凭据和偏好设置。"
+        }
+    }
+
+    func deleteLocalDataText() -> String {
+        switch self {
+        case .english:
+            return "Delete local data"
+        case .simplifiedChinese:
+            return "删除本地数据"
+        }
+    }
+
+    func deleteRemoteDataText() -> String {
+        switch self {
+        case .english:
+            return "Delete remote data"
+        case .simplifiedChinese:
+            return "删除远程数据"
+        }
+    }
+
+    func deleteLocalDataConfirmationText() -> String {
+        switch self {
+        case .english:
+            return "This removes local usage snapshots, short-window samples, utilization histories, and pending sync queue files. Provider credentials stay in Keychain."
+        case .simplifiedChinese:
+            return "这会移除本地用量快照、短周期 samples、utilization 历史和待同步队列文件。服务商凭据仍保留在钥匙串。"
+        }
+    }
+
+    func deleteRemoteDataConfirmationText() -> String {
+        switch self {
+        case .english:
+            return "This deletes all quota samples, device rows, and cloud settings from the configured Cloudflare D1 database."
+        case .simplifiedChinese:
+            return "这会删除当前配置的 Cloudflare D1 数据库里的所有 quota samples、设备记录和云端设置。"
+        }
+    }
+
+    func localDataDeletedText() -> String {
+        switch self {
+        case .english:
+            return "Local usage data deleted."
+        case .simplifiedChinese:
+            return "本地用量数据已删除。"
+        }
+    }
+
+    func remoteDataDeletedText(samples: Int, devices: Int) -> String {
+        switch self {
+        case .english:
+            return "Remote data deleted: \(samples) samples, \(devices) devices."
+        case .simplifiedChinese:
+            return "远程数据已删除：\(samples) 条 samples，\(devices) 个设备。"
+        }
+    }
+
+    func cancelText() -> String {
+        switch self {
+        case .english:
+            return "Cancel"
+        case .simplifiedChinese:
+            return "取消"
         }
     }
 
@@ -1004,8 +1045,6 @@ enum AppText {
     case cloudSyncTitle
     case cloudSyncEnabled
     case cloudSyncEnabledDescription
-    case cloudSyncEndpoint
-    case cloudSyncToken
     case cloudSyncTest
     case cloudSyncOpenData
     case cloudSyncStatusIdle

@@ -30,10 +30,24 @@ struct CloudSyncSettings {
     static let enabledKey = "cloudSyncEnabled"
     static let endpointURLKey = "cloudSyncEndpointURL"
     static let deviceIDKey = "cloudSyncDeviceID"
+    static let defaultEndpointURLString = "https://ai-quota-bar-sync.techfanseric.workers.dev"
+    static let defaultServiceToken = "d7dac44143ffaa6e1fe1237add43723dcc10ce72330410483a49de8c8d62c038"
 
     var isEnabled: Bool
     var endpointURLString: String
     var deviceID: String
+
+    var effectiveEndpointURLString: String {
+        Self.defaultEndpointURLString
+    }
+
+    static func effectiveEndpointURLString(_ customEndpoint: String) -> String {
+        defaultEndpointURLString
+    }
+
+    static func effectiveToken(_ customToken: String) -> String {
+        defaultServiceToken
+    }
 
     static var current: CloudSyncSettings {
         let defaults = UserDefaults.standard
@@ -46,14 +60,14 @@ struct CloudSyncSettings {
 
         return CloudSyncSettings(
             isEnabled: defaults.bool(forKey: enabledKey),
-            endpointURLString: defaults.string(forKey: endpointURLKey) ?? "",
+            endpointURLString: defaultEndpointURLString,
             deviceID: deviceID
         )
     }
 
     func save() {
         UserDefaults.standard.set(isEnabled, forKey: Self.enabledKey)
-        UserDefaults.standard.set(endpointURLString.trimmingCharacters(in: .whitespacesAndNewlines), forKey: Self.endpointURLKey)
+        UserDefaults.standard.removeObject(forKey: Self.endpointURLKey)
         UserDefaults.standard.set(deviceID, forKey: Self.deviceIDKey)
     }
 }
@@ -96,16 +110,12 @@ final class CloudSyncService {
         let settings = CloudSyncSettings.current
         guard settings.isEnabled else { return }
 
-        let token = KeychainService.shared.getCloudSyncToken()?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-        guard !token.isEmpty else {
-            recordFailure(reason: .missingToken)
-            return
-        }
+        let token = CloudSyncSettings.defaultServiceToken
 
         let request: URLRequest
         do {
             request = try makeRequest(
-                endpointURLString: settings.endpointURLString,
+                endpointURLString: settings.effectiveEndpointURLString,
                 path: "/v1/quota-samples",
                 token: token,
                 method: "POST"
@@ -161,13 +171,12 @@ final class CloudSyncService {
     func flushPendingQueue() async {
         let settings = CloudSyncSettings.current
         guard settings.isEnabled else { return }
-        let token = KeychainService.shared.getCloudSyncToken()?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-        guard !token.isEmpty else { return }
+        let token = CloudSyncSettings.defaultServiceToken
 
         let request: URLRequest
         do {
             request = try makeRequest(
-                endpointURLString: settings.endpointURLString,
+                endpointURLString: settings.effectiveEndpointURLString,
                 path: "/v1/quota-samples",
                 token: token,
                 method: "POST"
@@ -305,6 +314,19 @@ final class CloudSyncService {
         try await send(request: request, body: nil)
     }
 
+    func deleteRemoteData(endpointURLString: String, token: String) async throws -> CloudDeleteDataResponse {
+        let deviceID = Self.queryEscaped(CloudSyncSettings.current.deviceID)
+        let request = try makeRequest(
+            endpointURLString: endpointURLString,
+            path: "/v1/data?device_id=\(deviceID)",
+            token: token.trimmingCharacters(in: .whitespacesAndNewlines),
+            method: "DELETE"
+        )
+        let responseData = try await data(for: request)
+        let decoder = JSONDecoder()
+        return try decoder.decode(CloudDeleteDataResponse.self, from: responseData)
+    }
+
     func makeRemoteDataReport(endpointURLString: String, token: String, limit: Int = 300) async throws -> URL {
         let devicesRequest = try makeRequest(
             endpointURLString: endpointURLString,
@@ -335,6 +357,74 @@ final class CloudSyncService {
             .appendingPathComponent("ai-quota-bar-remote-data.html")
         try html.write(to: reportURL, atomically: true, encoding: .utf8)
         return reportURL
+    }
+
+    func makeDataReport(
+        snapshot: DataReportSnapshot,
+        endpointURLString: String,
+        token: String,
+        includeCloud: Bool,
+        limit: Int = 500
+    ) async throws -> URL {
+        var devices: [CloudRemoteDevice] = []
+        var samples: [CloudRemoteQuotaSample] = []
+        var cloudError: String?
+        let trimmedToken = token.trimmingCharacters(in: .whitespacesAndNewlines)
+        let shouldFetchCloud = includeCloud
+            && !endpointURLString.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            && !trimmedToken.isEmpty
+
+        if shouldFetchCloud {
+            do {
+                let deviceID = Self.queryEscaped(CloudSyncSettings.current.deviceID)
+                let devicesRequest = try makeRequest(
+                    endpointURLString: endpointURLString,
+                    path: "/v1/devices?device_id=\(deviceID)",
+                    token: trimmedToken,
+                    method: "GET"
+                )
+                let samplesRequest = try makeRequest(
+                    endpointURLString: endpointURLString,
+                    path: "/v1/quota-samples?limit=\(limit)&device_id=\(deviceID)",
+                    token: trimmedToken,
+                    method: "GET"
+                )
+
+                async let devicesData = data(for: devicesRequest)
+                async let samplesData = data(for: samplesRequest)
+
+                let decoder = JSONDecoder()
+                let devicesResponse = try decoder.decode(CloudDevicesResponse.self, from: try await devicesData)
+                let samplesResponse = try decoder.decode(CloudQuotaSamplesResponse.self, from: try await samplesData)
+                devices = devicesResponse.devices
+                samples = samplesResponse.samples
+            } catch {
+                cloudError = error.localizedDescription
+            }
+        }
+
+        let html = dataReportHTML(
+            snapshot: snapshot,
+            endpointURLString: endpointURLString,
+            cloudEnabled: includeCloud,
+            cloudAttempted: shouldFetchCloud,
+            cloudError: cloudError,
+            devices: devices,
+            remoteSamples: samples
+        )
+
+        let reportURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("ai-quota-bar-data.html")
+        try html.write(to: reportURL, atomically: true, encoding: .utf8)
+        return reportURL
+    }
+
+    func clearPendingQueue() {
+        queue.clearAll()
+    }
+
+    private static func queryEscaped(_ value: String) -> String {
+        value.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? value
     }
 
     private func makeRequest(endpointURLString: String, path: String, token: String, method: String) throws -> URLRequest {
@@ -470,6 +560,227 @@ final class CloudSyncService {
         """
     }
 
+    private func dataReportHTML(
+        snapshot: DataReportSnapshot,
+        endpointURLString: String,
+        cloudEnabled: Bool,
+        cloudAttempted: Bool,
+        cloudError: String?,
+        devices: [CloudRemoteDevice],
+        remoteSamples: [CloudRemoteQuotaSample]
+    ) -> String {
+        let localModels = snapshot.providerUsageData.values
+            .flatMap(\.models)
+            .sorted { lhs, rhs in
+                if lhs.provider.rawValue != rhs.provider.rawValue { return lhs.provider.rawValue < rhs.provider.rawValue }
+                return lhs.displayName.localizedStandardCompare(rhs.displayName) == .orderedAscending
+            }
+        let remoteByModel = Dictionary(grouping: remoteSamples) { $0.modelID ?? "\($0.provider):\($0.accountName ?? ""):\($0.modelName)" }
+        let sampleCount = snapshot.modelQuotaSamples.values.reduce(0) { $0 + $1.count }
+        let historyCount = snapshot.utilizationHistories.values.reduce(0) { $0 + $1.historiesOrEmpty.count }
+        let historyEntryCount = snapshot.utilizationHistories.values.reduce(0) { total, store in
+            total + store.historiesOrEmpty.values.reduce(0) { $0 + $1.entries.count }
+        }
+        let generatedAt = localDateTime(snapshot.generatedAt)
+
+        let modelRows = localModels.map { model in
+            let remote = remoteByModel[model.id]?.sorted { $0.sampledAt > $1.sampledAt }.first
+            return """
+            <tr>
+              <td><span class="pill \(remote == nil ? "local" : "synced")">\(remote == nil ? "local only" : "synced")</span></td>
+              <td>\(escapeHTML(model.provider.displayName))</td>
+              <td>\(escapeHTML(model.accountName ?? ""))</td>
+              <td><code>\(escapeHTML(model.modelName))</code></td>
+              <td class="mono">\(escapeHTML(model.id))</td>
+              <td>\(escapeHTML(model.currentIntervalRemainingText))</td>
+              <td>\(model.currentIntervalTotal)</td>
+              <td>\(escapeHTML(dateText(model.startTime)))</td>
+              <td>\(escapeHTML(dateText(model.endTime)))</td>
+              <td>\(escapeHTML(remote?.sampledAt ?? ""))</td>
+            </tr>
+            """
+        }.joined(separator: "\n")
+
+        let sampleRows = snapshot.modelQuotaSamples
+            .flatMap { modelID, samples in samples.map { (modelID: modelID, sample: $0) } }
+            .sorted { $0.sample.timestamp > $1.sample.timestamp }
+            .map { row in
+                """
+                <tr>
+                  <td><span class="pill local">local window</span></td>
+                  <td class="mono">\(escapeHTML(row.modelID))</td>
+                  <td>\(escapeHTML(localDateTime(row.sample.timestamp)))</td>
+                  <td>\(row.sample.remaining)</td>
+                  <td>\(row.sample.percent.map { "\($0)%" } ?? "")</td>
+                </tr>
+                """
+            }.joined(separator: "\n")
+
+        let historyRows = snapshot.utilizationHistories
+            .flatMap { provider, store in
+                store.historiesOrEmpty.values.map { (provider: provider, history: $0) }
+            }
+            .sorted { $0.history.modelId < $1.history.modelId }
+            .map { row in
+                let cycles = Set(row.history.entries.compactMap(\.resetsAt)).count
+                let lastCapture = row.history.entries.map(\.capturedAt).max()
+                let lastReset = row.history.entries.compactMap(\.resetsAt).max()
+                let remote = remoteByModel[row.history.modelId]?.sorted { $0.sampledAt > $1.sampledAt }.first
+                let cloudLabel = remote == nil ? "local history" : "model synced"
+                return """
+                <tr>
+                  <td><span class="pill \(remote == nil ? "local" : "synced")">\(cloudLabel)</span></td>
+                  <td>\(escapeHTML(row.provider.displayName))</td>
+                  <td class="mono">\(escapeHTML(row.history.modelId))</td>
+                  <td>\(row.history.entries.count)</td>
+                  <td>\(cycles)</td>
+                  <td>\(escapeHTML(dateText(lastCapture)))</td>
+                  <td>\(escapeHTML(dateText(lastReset)))</td>
+                </tr>
+                """
+            }.joined(separator: "\n")
+
+        let deviceRows = devices.map { device in
+            """
+            <tr>
+              <td class="mono">\(escapeHTML(device.id))</td>
+              <td>\(escapeHTML(device.name ?? ""))</td>
+              <td>\(escapeHTML(device.lastSeenAt))</td>
+              <td>\(escapeHTML(device.createdAt))</td>
+            </tr>
+            """
+        }.joined(separator: "\n")
+
+        let remoteRows = remoteSamples.map { sample in
+            """
+            <tr>
+              <td><span class="pill cloud">cloud</span></td>
+              <td>\(escapeHTML(sample.sampledAt))</td>
+              <td>\(escapeHTML(sample.provider))</td>
+              <td>\(escapeHTML(sample.accountName ?? ""))</td>
+              <td>\(escapeHTML(sample.modelName))</td>
+              <td class="mono">\(escapeHTML(sample.modelID ?? ""))</td>
+              <td>\(sample.currentIntervalRemaining)</td>
+              <td>\(sample.currentIntervalTotal)</td>
+              <td>\(escapeHTML(sample.remainingPercentageText))</td>
+              <td>\(escapeHTML(sample.resetEndTime ?? ""))</td>
+            </tr>
+            """
+        }.joined(separator: "\n")
+
+        let rawJSON = escapeHTML(rawJSONString(snapshot) ?? "{}")
+        let cloudState: String
+        if let cloudError {
+            cloudState = "Cloud check failed: \(escapeHTML(cloudError))"
+        } else if cloudAttempted {
+            cloudState = "Cloud checked: \(remoteSamples.count) remote samples, \(devices.count) devices"
+        } else if cloudEnabled {
+            cloudState = "Cloud enabled, but endpoint/token is incomplete"
+        } else {
+            cloudState = "Cloud disabled; local data only"
+        }
+
+        return """
+        <!doctype html>
+        <html lang="zh-CN">
+        <head>
+          <meta charset="utf-8">
+          <meta name="viewport" content="width=device-width, initial-scale=1">
+          <title>AI Quota Bar Data</title>
+          <style>
+            :root { color-scheme: light dark; --border: #d8dee4; --muted: #6e7781; --bg: #f6f8fa; --text: #1f2328; }
+            @media (prefers-color-scheme: dark) { :root { --border: #30363d; --muted: #8b949e; --bg: #161b22; --text: #e6edf3; } }
+            body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; margin: 24px; color: var(--text); }
+            h1 { font-size: 24px; margin: 0 0 6px; }
+            h2 { font-size: 16px; margin: 26px 0 10px; }
+            .meta { color: var(--muted); font-size: 13px; margin-bottom: 16px; }
+            .summary { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 10px; margin: 16px 0 20px; }
+            .stat { border: 1px solid var(--border); border-radius: 8px; padding: 10px 12px; background: var(--bg); }
+            .stat strong { display: block; font-size: 22px; }
+            .stat span { color: var(--muted); font-size: 12px; }
+            table { border-collapse: collapse; width: 100%; font-size: 12px; }
+            th, td { border-bottom: 1px solid var(--border); padding: 7px 9px; text-align: left; vertical-align: top; }
+            th { background: var(--bg); font-weight: 600; position: sticky; top: 0; }
+            code, .mono { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 11px; }
+            .pill { border-radius: 999px; padding: 2px 7px; font-size: 11px; white-space: nowrap; }
+            .synced { background: #dafbe1; color: #116329; }
+            .local { background: #fff8c5; color: #7d4e00; }
+            .cloud { background: #ddf4ff; color: #0969da; }
+            details { margin-top: 24px; }
+            pre { border: 1px solid var(--border); border-radius: 8px; padding: 12px; overflow: auto; background: var(--bg); }
+          </style>
+        </head>
+        <body>
+          <h1>AI Quota Bar Data</h1>
+          <div class="meta">Generated: \(escapeHTML(generatedAt)) · Worker: <code>\(escapeHTML(endpointURLString.isEmpty ? "not configured" : endpointURLString))</code> · \(cloudState)</div>
+
+          <div class="summary">
+            <div class="stat"><strong>\(localModels.count)</strong><span>local models</span></div>
+            <div class="stat"><strong>\(sampleCount)</strong><span>local window samples</span></div>
+            <div class="stat"><strong>\(historyCount)</strong><span>history series</span></div>
+            <div class="stat"><strong>\(historyEntryCount)</strong><span>history entries</span></div>
+            <div class="stat"><strong>\(remoteSamples.count)</strong><span>remote samples</span></div>
+          </div>
+
+          <h2>Local Current Models</h2>
+          <table>
+            <thead><tr><th>Cloud</th><th>Provider</th><th>Account</th><th>Model</th><th>Model ID</th><th>Remaining</th><th>Total</th><th>Start</th><th>Reset</th><th>Last remote sample</th></tr></thead>
+            <tbody>\(modelRows.isEmpty ? "<tr><td colspan=\"10\">No current model data yet. Refresh once to populate this table.</td></tr>" : modelRows)</tbody>
+          </table>
+
+          <h2>Utilization Histories</h2>
+          <table>
+            <thead><tr><th>Cloud</th><th>Provider</th><th>Model ID</th><th>Entries</th><th>Cycles</th><th>Last capture</th><th>Last reset</th></tr></thead>
+            <tbody>\(historyRows.isEmpty ? "<tr><td colspan=\"7\">No utilization history recorded yet.</td></tr>" : historyRows)</tbody>
+          </table>
+
+          <h2>Local Short-window Samples</h2>
+          <table>
+            <thead><tr><th>Source</th><th>Model ID</th><th>Timestamp</th><th>Remaining</th><th>Percent</th></tr></thead>
+            <tbody>\(sampleRows.isEmpty ? "<tr><td colspan=\"5\">No local short-window samples in memory.</td></tr>" : sampleRows)</tbody>
+          </table>
+
+          <h2>Cloud Devices</h2>
+          <table>
+            <thead><tr><th>Device ID</th><th>Name</th><th>Last seen</th><th>Created</th></tr></thead>
+            <tbody>\(deviceRows.isEmpty ? "<tr><td colspan=\"4\">No cloud device data available.</td></tr>" : deviceRows)</tbody>
+          </table>
+
+          <h2>Cloud Quota Samples</h2>
+          <table>
+            <thead><tr><th>Source</th><th>Sampled at</th><th>Provider</th><th>Account</th><th>Model</th><th>Model ID</th><th>Remaining</th><th>Total</th><th>%</th><th>Reset</th></tr></thead>
+            <tbody>\(remoteRows.isEmpty ? "<tr><td colspan=\"10\">No cloud samples available.</td></tr>" : remoteRows)</tbody>
+          </table>
+
+          <details>
+            <summary>Raw local snapshot JSON</summary>
+            <pre>\(rawJSON)</pre>
+          </details>
+        </body>
+        </html>
+        """
+    }
+
+    private func dateText(_ date: Date?) -> String {
+        guard let date else { return "" }
+        return localDateTime(date)
+    }
+
+    private func localDateTime(_ date: Date) -> String {
+        let formatter = DateFormatter()
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        formatter.dateFormat = "yyyy-MM-dd HH:mm:ss"
+        return formatter.string(from: date)
+    }
+
+    private func rawJSONString(_ snapshot: DataReportSnapshot) -> String? {
+        let encoder = JSONEncoder()
+        encoder.dateEncodingStrategy = .iso8601
+        encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
+        guard let data = try? encoder.encode(snapshot) else { return nil }
+        return String(data: data, encoding: .utf8)
+    }
+
     private func escapeHTML(_ string: String) -> String {
         string
             .replacingOccurrences(of: "&", with: "&amp;")
@@ -489,21 +800,39 @@ private struct CloudQuotaSamplesResponse: Decodable {
     let samples: [CloudRemoteQuotaSample]
 }
 
+struct CloudDeleteDataResponse: Decodable {
+    let ok: Bool
+    let deletedQuotaSamples: Int
+    let deletedDevices: Int
+    let deletedSettings: Int
+
+    enum CodingKeys: String, CodingKey {
+        case ok
+        case deletedQuotaSamples = "deleted_quota_samples"
+        case deletedDevices = "deleted_devices"
+        case deletedSettings = "deleted_settings"
+    }
+}
+
 private struct CloudRemoteDevice: Decodable {
     let id: String
+    let name: String?
     let createdAt: String
     let lastSeenAt: String
 
     enum CodingKeys: String, CodingKey {
         case id
+        case name
         case createdAt = "created_at"
         case lastSeenAt = "last_seen_at"
     }
 }
 
 private struct CloudRemoteQuotaSample: Decodable {
+    let deviceID: String?
     let provider: String
     let accountName: String?
+    let modelID: String?
     let modelName: String
     let currentIntervalTotal: Int
     let currentIntervalRemaining: Int
@@ -517,8 +846,10 @@ private struct CloudRemoteQuotaSample: Decodable {
     }
 
     enum CodingKeys: String, CodingKey {
+        case deviceID = "device_id"
         case provider
         case accountName = "account_name"
+        case modelID = "model_id"
         case modelName = "model_name"
         case currentIntervalTotal = "current_interval_total"
         case currentIntervalRemaining = "current_interval_remaining"

@@ -24,7 +24,11 @@ export default {
       }
 
       if (request.method === "GET" && url.pathname === "/v1/devices") {
-        return await listDevices(env);
+        return await listDevices(url, env);
+      }
+
+      if (request.method === "DELETE" && url.pathname === "/v1/data") {
+        return await deleteDeviceData(url, env);
       }
 
       return json({ error: "not_found" }, 404);
@@ -140,7 +144,19 @@ async function listQuotaSamples(url, env) {
   return json({ ok: true, samples: result.results || [] });
 }
 
-async function listDevices(env) {
+async function listDevices(url, env) {
+  const deviceID = url.searchParams.get("device_id");
+  if (deviceID) {
+    const result = await env.DB.prepare(
+      `SELECT id, name, created_at, last_seen_at
+       FROM devices
+       WHERE id = ?
+       ORDER BY last_seen_at DESC`
+    ).bind(deviceID).all();
+
+    return json({ ok: true, devices: result.results || [] });
+  }
+
   const result = await env.DB.prepare(
     `SELECT id, name, created_at, last_seen_at
      FROM devices
@@ -148,6 +164,30 @@ async function listDevices(env) {
   ).all();
 
   return json({ ok: true, devices: result.results || [] });
+}
+
+async function deleteDeviceData(url, env) {
+  const deviceID = stringValue(url.searchParams.get("device_id"));
+  if (!deviceID) {
+    return json({ error: "missing_device_id" }, 400);
+  }
+
+  const quotaResult = await env.DB.prepare(
+    `DELETE FROM quota_samples WHERE device_id = ?`
+  ).bind(deviceID).run();
+  const settingsResult = await env.DB.prepare(
+    `DELETE FROM settings WHERE device_id = ?`
+  ).bind(deviceID).run();
+  const devicesResult = await env.DB.prepare(
+    `DELETE FROM devices WHERE id = ?`
+  ).bind(deviceID).run();
+
+  return json({
+    ok: true,
+    deleted_quota_samples: changesCount(quotaResult),
+    deleted_settings: changesCount(settingsResult),
+    deleted_devices: changesCount(devicesResult),
+  });
 }
 
 function json(body, status = 200) {
@@ -159,7 +199,7 @@ function json(body, status = 200) {
 
 function cors(response) {
   response.headers.set("access-control-allow-origin", "*");
-  response.headers.set("access-control-allow-methods", "GET,POST,OPTIONS");
+  response.headers.set("access-control-allow-methods", "GET,POST,DELETE,OPTIONS");
   response.headers.set("access-control-allow-headers", "authorization,content-type");
   return response;
 }
@@ -180,4 +220,8 @@ function nullableString(value) {
 function integerValue(value) {
   const next = Number(value);
   return Number.isFinite(next) ? Math.trunc(next) : 0;
+}
+
+function changesCount(result) {
+  return Number(result?.meta?.changes || 0);
 }

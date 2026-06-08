@@ -326,6 +326,31 @@ struct ModelUsageData: Codable, Identifiable {
         return currentIntervalDuration < 86_400
     }
 
+    var isCodexFiveHourHistoryWindow: Bool {
+        guard provider == .codex,
+              let currentIntervalDuration,
+              (4.5 * 3600 ... 5.5 * 3600).contains(currentIntervalDuration) else {
+            return false
+        }
+        let normalizedName = modelName.lowercased()
+        return normalizedName == "5h"
+            || normalizedName.contains("5-hour")
+            || normalizedName.contains("5 hour")
+    }
+
+    var isCodexSlidingFiveHourExtraWindow: Bool {
+        guard provider == .codex, isCodexFiveHourHistoryWindow else { return false }
+        return modelName.lowercased() != "5h"
+    }
+
+    var codexFiveHourCanonicalHistoryID: String? {
+        guard provider == .codex, isCodexFiveHourHistoryWindow else { return nil }
+        if let accountName, !accountName.isEmpty {
+            return "\(provider.rawValue):\(accountName):5h"
+        }
+        return "\(provider.rawValue):5h"
+    }
+
     // 周是否满的（已用为0 = 没用过）
     var isWeeklyFull: Bool {
         hasWeeklyLimit && weeklyUsedCount == 0

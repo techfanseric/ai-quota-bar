@@ -8,6 +8,10 @@ struct GeneralPane: View {
     @State private var cloudSyncTestResult: InlineFeedback?
     @State private var isTestingCloudSync: Bool = false
     @State private var isOpeningCloudData: Bool = false
+    @State private var isDeletingLocalData: Bool = false
+    @State private var isDeletingRemoteData: Bool = false
+    @State private var isConfirmingLocalDelete: Bool = false
+    @State private var isConfirmingRemoteDelete: Bool = false
 
     private var language: AppLanguage { viewModel.appLanguage }
 
@@ -133,21 +137,6 @@ struct GeneralPane: View {
                 isOn: $viewModel.cloudSyncEnabled
             )
 
-            VStack(alignment: .leading, spacing: 5) {
-                TextField(
-                    language.text(.cloudSyncEndpoint),
-                    text: $viewModel.cloudSyncEndpointURL
-                )
-                .textFieldStyle(.roundedBorder)
-                .disabled(!viewModel.cloudSyncEnabled)
-                .opacity(viewModel.cloudSyncEnabled ? 1 : 0.5)
-
-                SecureField(language.text(.cloudSyncToken), text: cloudSyncTokenBinding)
-                    .textFieldStyle(.roundedBorder)
-                    .disabled(!viewModel.cloudSyncEnabled)
-                    .opacity(viewModel.cloudSyncEnabled ? 1 : 0.5)
-            }
-
             HStack(spacing: 10) {
                 Button {
                     Task { await testCloudSync() }
@@ -159,13 +148,13 @@ struct GeneralPane: View {
                 .disabled(!viewModel.cloudSyncEnabled || isTestingCloudSync)
 
                 Button {
-                    Task { await openCloudSyncDataReport() }
+                    Task { await openDataReport() }
                 } label: {
                     Label(language.text(.cloudSyncOpenData), systemImage: "doc.text.magnifyingglass")
                 }
                 .buttonStyle(.bordered)
                 .controlSize(.small)
-                .disabled(!viewModel.cloudSyncEnabled || isOpeningCloudData)
+                .disabled(isOpeningCloudData)
 
                 if isTestingCloudSync || isOpeningCloudData {
                     ProgressView()
@@ -179,20 +168,74 @@ struct GeneralPane: View {
                 }
             }
 
+            Divider()
+
+            VStack(alignment: .leading, spacing: 8) {
+                Text(language.dataManagementDescriptionText())
+                    .font(.footnote)
+                    .foregroundStyle(.tertiary)
+                    .fixedSize(horizontal: false, vertical: true)
+
+                HStack(spacing: 10) {
+                    Button(role: .destructive) {
+                        isConfirmingLocalDelete = true
+                    } label: {
+                        Label(language.deleteLocalDataText(), systemImage: "trash")
+                    }
+                    .buttonStyle(.bordered)
+                    .controlSize(.small)
+                    .disabled(isDeletingLocalData || isDeletingRemoteData)
+
+                    Button(role: .destructive) {
+                        isConfirmingRemoteDelete = true
+                    } label: {
+                        Label(language.deleteRemoteDataText(), systemImage: "icloud.slash")
+                    }
+                    .buttonStyle(.bordered)
+                    .controlSize(.small)
+                    .disabled(isDeletingRemoteData)
+
+                    if isDeletingLocalData || isDeletingRemoteData {
+                        ProgressView()
+                            .controlSize(.small)
+                    }
+                }
+            }
+
             if viewModel.cloudSyncEnabled {
                 CloudSyncStatusLine(status: viewModel.cloudSyncStatus, language: language)
             }
         }
-    }
-
-    /// SecureField 直写会清空 token 后无法恢复明文，所以用本地 @State 缓存，保存时再写回。
-    @State private var cloudSyncTokenDraft: String = ""
-
-    private var cloudSyncTokenBinding: Binding<String> {
-        Binding(
-            get: { cloudSyncTokenDraft.isEmpty ? viewModel.cloudSyncToken() : cloudSyncTokenDraft },
-            set: { cloudSyncTokenDraft = $0 }
-        )
+        .confirmationDialog(
+            language.deleteLocalDataText(),
+            isPresented: $isConfirmingLocalDelete,
+            titleVisibility: .visible
+        ) {
+            Button(language.deleteLocalDataText(), role: .destructive) {
+                deleteLocalData()
+            }
+            Button(role: .cancel) {
+            } label: {
+                Text(language.cancelText())
+            }
+        } message: {
+            Text(language.deleteLocalDataConfirmationText())
+        }
+        .confirmationDialog(
+            language.deleteRemoteDataText(),
+            isPresented: $isConfirmingRemoteDelete,
+            titleVisibility: .visible
+        ) {
+            Button(language.deleteRemoteDataText(), role: .destructive) {
+                Task { await deleteRemoteData() }
+            }
+            Button(role: .cancel) {
+            } label: {
+                Text(language.cancelText())
+            }
+        } message: {
+            Text(language.deleteRemoteDataConfirmationText())
+        }
     }
 
     private func testCloudSync() async {
@@ -200,8 +243,8 @@ struct GeneralPane: View {
         cloudSyncTestResult = nil
         do {
             try await viewModel.testCloudSync(
-                endpointURL: viewModel.cloudSyncEndpointURL,
-                token: viewModel.cloudSyncToken().isEmpty ? cloudSyncTokenDraft : viewModel.cloudSyncToken()
+                endpointURL: viewModel.effectiveCloudSyncEndpointURL(),
+                token: viewModel.effectiveCloudSyncToken()
             )
             cloudSyncTestResult = InlineFeedback(
                 kind: .success,
@@ -216,13 +259,15 @@ struct GeneralPane: View {
         isTestingCloudSync = false
     }
 
-    private func openCloudSyncDataReport() async {
+    private func openDataReport() async {
         isOpeningCloudData = true
         cloudSyncTestResult = nil
         do {
-            let reportURL = try await CloudSyncService.shared.makeRemoteDataReport(
-                endpointURLString: viewModel.cloudSyncEndpointURL,
-                token: viewModel.cloudSyncToken().isEmpty ? cloudSyncTokenDraft : viewModel.cloudSyncToken()
+            let reportURL = try await CloudSyncService.shared.makeDataReport(
+                snapshot: viewModel.dataReportSnapshot(),
+                endpointURLString: viewModel.effectiveCloudSyncEndpointURL(),
+                token: viewModel.effectiveCloudSyncToken(),
+                includeCloud: viewModel.cloudSyncEnabled
             )
             await MainActor.run {
                 NSWorkspace.shared.open(reportURL)
@@ -238,6 +283,41 @@ struct GeneralPane: View {
             )
         }
         isOpeningCloudData = false
+    }
+
+    private func deleteLocalData() {
+        isDeletingLocalData = true
+        cloudSyncTestResult = nil
+        viewModel.clearLocalUsageData()
+        cloudSyncTestResult = InlineFeedback(
+            kind: .success,
+            message: language.localDataDeletedText()
+        )
+        isDeletingLocalData = false
+    }
+
+    private func deleteRemoteData() async {
+        isDeletingRemoteData = true
+        cloudSyncTestResult = nil
+        do {
+            let result = try await CloudSyncService.shared.deleteRemoteData(
+                endpointURLString: viewModel.effectiveCloudSyncEndpointURL(),
+                token: viewModel.effectiveCloudSyncToken()
+            )
+            cloudSyncTestResult = InlineFeedback(
+                kind: .success,
+                message: language.remoteDataDeletedText(
+                    samples: result.deletedQuotaSamples,
+                    devices: result.deletedDevices
+                )
+            )
+        } catch {
+            cloudSyncTestResult = InlineFeedback(
+                kind: .error,
+                message: error.localizedDescription
+            )
+        }
+        isDeletingRemoteData = false
     }
 
     // MARK: - QUIT
