@@ -702,6 +702,7 @@ private struct ModelRow: View {
                     cycleLabel: model.isShortCurrentInterval
                         ? language.modelUtilizationShortCycleLabel()
                         : language.modelUtilizationLongCycleLabel(),
+                    cycleDuration: model.currentIntervalDuration,
                     tint: tint,
                     isHovered: isHovered
                 )
