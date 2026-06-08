@@ -114,7 +114,8 @@ enum CodexUsageDataMapper {
             currentIntervalRemainingPercent: remainingPercent,
             weeklyRemainingPercent: nil,
             progressBarPercentOverride: nil,
-            progressBarRightText: nil)
+            progressBarRightText: nil,
+            sampledAt: nil)
     }
 
     /// codexbar 用 1000 作为 credits 进度条的固定满刻度，
@@ -155,7 +156,8 @@ enum CodexUsageDataMapper {
             currentIntervalRemainingPercent: nil,
             weeklyRemainingPercent: nil,
             progressBarPercentOverride: percentLeft,
-            progressBarRightText: scaleText)
+            progressBarRightText: scaleText,
+            sampledAt: nil)
     }
 
     private static func makeNotConfiguredPlaceholder(
@@ -184,7 +186,8 @@ enum CodexUsageDataMapper {
             currentIntervalRemainingPercent: 0,
             weeklyRemainingPercent: nil,
             progressBarPercentOverride: nil,
-            progressBarRightText: nil)
+            progressBarRightText: nil,
+            sampledAt: nil)
     }
 
     private static func makeDetailText(

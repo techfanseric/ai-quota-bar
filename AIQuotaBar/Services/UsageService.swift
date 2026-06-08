@@ -56,7 +56,8 @@ final class UsageService {
                 currentIntervalRemainingPercent: model.currentIntervalRemainingPercent,
                 weeklyRemainingPercent: model.currentWeeklyRemainingPercent,
                 progressBarPercentOverride: nil,
-                progressBarRightText: nil
+                progressBarRightText: nil,
+                sampledAt: nil
             )
         }
         let trackedModelCount = max(models.count, 1)
@@ -138,7 +139,8 @@ final class UsageService {
             currentIntervalRemainingPercent: nil,
             weeklyRemainingPercent: nil,
             progressBarPercentOverride: nil,
-            progressBarRightText: nil
+            progressBarRightText: nil,
+            sampledAt: nil
         )
     }
 

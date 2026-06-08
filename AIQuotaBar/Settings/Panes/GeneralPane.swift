@@ -304,6 +304,7 @@ struct GeneralPane: View {
                 endpointURLString: viewModel.effectiveCloudSyncEndpointURL(),
                 token: viewModel.effectiveCloudSyncToken()
             )
+            viewModel.clearCloudUsageData()
             cloudSyncTestResult = InlineFeedback(
                 kind: .success,
                 message: language.remoteDataDeletedText(

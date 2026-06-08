@@ -124,9 +124,17 @@ async function listQuotaSamples(url, env) {
 
   if (!deviceID) {
     const result = await env.DB.prepare(
-      `SELECT *
+      `SELECT quota_samples.*
        FROM quota_samples
-       ORDER BY sampled_at DESC
+       INNER JOIN (
+         SELECT provider, model_id, MAX(sampled_at) AS sampled_at
+         FROM quota_samples
+         GROUP BY provider, model_id
+       ) latest
+         ON latest.provider = quota_samples.provider
+        AND latest.model_id = quota_samples.model_id
+        AND latest.sampled_at = quota_samples.sampled_at
+       ORDER BY quota_samples.sampled_at DESC
        LIMIT ?`
     ).bind(limit).all();
 
@@ -134,10 +142,19 @@ async function listQuotaSamples(url, env) {
   }
 
   const result = await env.DB.prepare(
-    `SELECT *
+    `SELECT quota_samples.*
      FROM quota_samples
-     WHERE device_id = ?
-     ORDER BY sampled_at DESC
+     INNER JOIN (
+       SELECT device_id, provider, model_id, MAX(sampled_at) AS sampled_at
+       FROM quota_samples
+       WHERE device_id = ?
+       GROUP BY device_id, provider, model_id
+     ) latest
+       ON latest.device_id = quota_samples.device_id
+      AND latest.provider = quota_samples.provider
+      AND latest.model_id = quota_samples.model_id
+      AND latest.sampled_at = quota_samples.sampled_at
+     ORDER BY quota_samples.sampled_at DESC
      LIMIT ?`
   ).bind(deviceID, limit).all();
 

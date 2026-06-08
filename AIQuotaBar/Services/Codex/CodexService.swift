@@ -35,6 +35,10 @@ final class CodexService {
 
     /// 拉取当前 source mode 下的 Codex usage
     func fetchUsage() async throws -> UsageData {
+        guard CodexAppPresence.isRunning else {
+            throw UsageError.apiError("Codex app is not running; usage refresh skipped.")
+        }
+
         let context = makeContext(sourceMode: sourceMode)
         do {
             let result = try await descriptor.fetch(context: context)

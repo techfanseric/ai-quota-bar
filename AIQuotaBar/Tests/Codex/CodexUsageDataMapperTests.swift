@@ -105,7 +105,7 @@ final class CodexUsageDataMapperTests: XCTestCase {
         XCTAssertEqual(data.models[0].currentIntervalRemainingPercent, 40)
     }
 
-    func testCodexFiveHourExtraUsesCanonicalHistoryIDButDoesNotRecordSlidingHistory() {
+    func testCodexSparkFiveHourUsesIndependentHistoryID() {
         let window = RateWindow(
             usedPercent: 0,
             windowMinutes: 300,
@@ -139,9 +139,9 @@ final class CodexUsageDataMapperTests: XCTestCase {
         let model = data.models[0]
 
         XCTAssertEqual(model.id, "codex:user@example.com:Codex Spark 5-hour")
-        XCTAssertEqual(model.codexFiveHourCanonicalHistoryID, "codex:user@example.com:5h")
+        XCTAssertEqual(model.codexFiveHourCanonicalHistoryID, "codex:user@example.com:Codex Spark 5-hour")
         XCTAssertTrue(model.isCodexFiveHourHistoryWindow)
-        XCTAssertTrue(model.isCodexSlidingFiveHourExtraWindow)
+        XCTAssertFalse(model.isCodexSlidingFiveHourExtraWindow)
     }
 
     func testMapsCreditsAsExtraModel() {
