@@ -32,4 +32,13 @@ enum UsageProvider: String, CaseIterable, Codable, Identifiable {
     static let legacyChatGPTKeychainAccount = "chatGPTCredential"
 
     static let storageKey = "usageProvider"
+
+    static func cloudProvider(rawValue: String) -> UsageProvider? {
+        switch rawValue.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() {
+        case "chatgpt":
+            return .codex
+        default:
+            return UsageProvider(rawValue: rawValue)
+        }
+    }
 }

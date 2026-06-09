@@ -141,6 +141,7 @@ final class CloudSyncService {
         let payload = CloudUsageSnapshotPayload(
             deviceID: settings.deviceID,
             sampledAt: sampledAt,
+            retentionDays: CloudDataRetentionLimit.current.rawValue,
             models: usageData.models.map { CloudModelQuotaPayload(model: $0) },
             utilizationHistories: historiesPayload
         )
@@ -340,6 +341,41 @@ final class CloudSyncService {
         token: String,
         limit: Int = 500
     ) async throws -> [CloudRemoteAccountSummary] {
+        do {
+            let request = try makeRequest(
+                endpointURLString: endpointURLString,
+                path: "/v1/account-summaries?limit=\(limit)",
+                token: token.trimmingCharacters(in: .whitespacesAndNewlines),
+                method: "GET"
+            )
+            let responseData = try await data(for: request)
+            let decoder = JSONDecoder()
+            let response = try decoder.decode(CloudAccountSummariesResponse.self, from: responseData)
+            let summaries = response.accounts.compactMap { account -> CloudRemoteAccountSummary? in
+                guard let provider = UsageProvider.cloudProvider(rawValue: account.provider) else { return nil }
+                return CloudRemoteAccountSummary(
+                    provider: provider,
+                    accountName: account.accountName,
+                    latestSampledAt: CloudRemoteQuotaSample.date(from: account.latestSampledAt) ?? .distantPast,
+                    sampleCount: account.sampleCount,
+                    modelCount: account.modelCount
+                )
+            }
+            if !summaries.isEmpty {
+                return summaries.sorted { lhs, rhs in
+                    if lhs.provider.rawValue != rhs.provider.rawValue {
+                        return lhs.provider.rawValue < rhs.provider.rawValue
+                    }
+                    if lhs.latestSampledAt != rhs.latestSampledAt {
+                        return lhs.latestSampledAt > rhs.latestSampledAt
+                    }
+                    return lhs.accountName.localizedStandardCompare(rhs.accountName) == .orderedAscending
+                }
+            }
+        } catch {
+            // Older sync services do not expose account summaries. Fall back to latest samples.
+        }
+
         let request = try makeRequest(
             endpointURLString: endpointURLString,
             path: "/v1/quota-samples?limit=\(limit)",
@@ -359,7 +395,7 @@ final class CloudSyncService {
 
         return grouped.values.compactMap { samples in
             guard let first = samples.first,
-                  let provider = UsageProvider(rawValue: first.provider) else {
+                  let provider = UsageProvider.cloudProvider(rawValue: first.provider) else {
                 return nil
             }
             let accountName = (first.accountName ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
@@ -438,6 +474,7 @@ final class CloudSyncService {
     ) async throws -> URL {
         var devices: [CloudRemoteDevice] = []
         var samples: [CloudRemoteQuotaSample] = []
+        var accountSummaries: [CloudRemoteAccountDataSummary] = []
         var cloudError: String?
         let trimmedToken = token.trimmingCharacters(in: .whitespacesAndNewlines)
         let shouldFetchCloud = includeCloud
@@ -467,6 +504,22 @@ final class CloudSyncService {
                 let samplesResponse = try decoder.decode(CloudQuotaSamplesResponse.self, from: try await samplesData)
                 devices = devicesResponse.devices
                 samples = samplesResponse.samples
+
+                do {
+                    let accountsRequest = try makeRequest(
+                        endpointURLString: endpointURLString,
+                        path: "/v1/account-summaries?limit=500",
+                        token: trimmedToken,
+                        method: "GET"
+                    )
+                    let accountsResponse = try decoder.decode(
+                        CloudAccountSummariesResponse.self,
+                        from: try await data(for: accountsRequest)
+                    )
+                    accountSummaries = accountsResponse.accounts
+                } catch {
+                    cloudError = "Account summaries unavailable: \(error.localizedDescription)"
+                }
             } catch {
                 cloudError = error.localizedDescription
             }
@@ -479,6 +532,7 @@ final class CloudSyncService {
             cloudAttempted: shouldFetchCloud,
             cloudError: cloudError,
             devices: devices,
+            accountSummaries: accountSummaries,
             remoteSamples: samples
         )
 
@@ -505,7 +559,7 @@ final class CloudSyncService {
         }
 
         let models = latestByModel.values.compactMap { sample -> ModelUsageData? in
-            guard let provider = UsageProvider(rawValue: sample.provider) else { return nil }
+            guard let provider = UsageProvider.cloudProvider(rawValue: sample.provider) else { return nil }
             let endTime = sample.resetEndDate
             let remaining = max(0, sample.currentIntervalRemaining)
             let total = max(0, sample.currentIntervalTotal)
@@ -683,6 +737,7 @@ final class CloudSyncService {
         cloudAttempted: Bool,
         cloudError: String?,
         devices: [CloudRemoteDevice],
+        accountSummaries: [CloudRemoteAccountDataSummary],
         remoteSamples: [CloudRemoteQuotaSample]
     ) -> String {
         let localModels = snapshot.providerUsageData.values
@@ -698,6 +753,41 @@ final class CloudSyncService {
             total + store.historiesOrEmpty.values.reduce(0) { $0 + $1.entries.count }
         }
         let generatedAt = localDateTime(snapshot.generatedAt)
+
+        let accountRows = accountSummaries.map { account in
+            """
+            <tr class="filter-row" data-source="cloud" data-provider="\(escapeHTML(account.displayProviderRawValue))" data-account="\(escapeHTML(account.accountName))" data-search="\(escapeHTML(account.searchText))">
+              <td><span class="pill cloud">cloud</span></td>
+              <td>\(escapeHTML(account.displayProviderName))</td>
+              <td>\(escapeHTML(account.displayAccountName))</td>
+              <td>\(account.sampleCount)</td>
+              <td>\(account.modelCount)</td>
+              <td>\(escapeHTML(account.earliestSampledAt))</td>
+              <td>\(escapeHTML(account.latestSampledAt))</td>
+            </tr>
+            """
+        }.joined(separator: "\n")
+
+        let providerOptions = Set(
+            localModels.map { $0.provider.rawValue }
+            + remoteSamples.map(\.provider)
+            + accountSummaries.map(\.displayProviderRawValue)
+        )
+        .filter { !$0.isEmpty }
+        .sorted()
+        .map { "<option value=\"\(escapeHTML($0))\">\(escapeHTML($0))</option>" }
+        .joined(separator: "\n")
+
+        let accountOptions = Set(
+            localModels.compactMap(\.accountName)
+            + remoteSamples.compactMap(\.accountName)
+            + accountSummaries.map(\.accountName)
+        )
+        .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+        .filter { !$0.isEmpty }
+        .sorted { $0.localizedStandardCompare($1) == .orderedAscending }
+        .map { "<option value=\"\(escapeHTML($0))\">\(escapeHTML($0))</option>" }
+        .joined(separator: "\n")
 
         let modelRows = localModels.map { model in
             let remote = remoteByModel[model.id]?.sorted { $0.sampledAt > $1.sampledAt }.first
@@ -716,7 +806,7 @@ final class CloudSyncService {
                 cloudLabel = remote == nil ? "local only" : "synced"
             }
             return """
-            <tr>
+            <tr class="filter-row" data-source="\(escapeHTML(cloudLabel))" data-provider="\(escapeHTML(model.provider.rawValue))" data-account="\(escapeHTML(model.accountName ?? ""))" data-search="\(escapeHTML([cloudLabel, model.provider.rawValue, model.accountName ?? "", model.modelName, model.id].joined(separator: " ")))">
               <td><span class="pill \(cloudClass)">\(cloudLabel)</span></td>
               <td>\(escapeHTML(model.provider.displayName))</td>
               <td>\(escapeHTML(model.accountName ?? ""))</td>
@@ -736,7 +826,7 @@ final class CloudSyncService {
             .sorted { $0.sample.timestamp > $1.sample.timestamp }
             .map { row in
                 """
-                <tr>
+                <tr class="filter-row" data-source="local" data-provider="" data-account="" data-search="\(escapeHTML([row.modelID, localDateTime(row.sample.timestamp)].joined(separator: " ")))">
                   <td><span class="pill local">local window</span></td>
                   <td class="mono">\(escapeHTML(row.modelID))</td>
                   <td>\(escapeHTML(localDateTime(row.sample.timestamp)))</td>
@@ -758,7 +848,7 @@ final class CloudSyncService {
                 let remote = remoteByModel[row.history.modelId]?.sorted { $0.sampledAt > $1.sampledAt }.first
                 let cloudLabel = remote == nil ? "local history" : "model synced"
                 return """
-                <tr>
+                <tr class="filter-row" data-source="\(escapeHTML(cloudLabel))" data-provider="\(escapeHTML(row.provider.rawValue))" data-account="\(escapeHTML(accountNameFromModelID(row.history.modelId)))" data-search="\(escapeHTML([cloudLabel, row.provider.rawValue, row.history.modelId].joined(separator: " ")))">
                   <td><span class="pill \(remote == nil ? "local" : "synced")">\(cloudLabel)</span></td>
                   <td>\(escapeHTML(row.provider.displayName))</td>
                   <td class="mono">\(escapeHTML(row.history.modelId))</td>
@@ -783,7 +873,7 @@ final class CloudSyncService {
 
         let remoteRows = remoteSamples.map { sample in
             """
-            <tr>
+            <tr class="filter-row" data-source="cloud" data-provider="\(escapeHTML(sample.provider))" data-account="\(escapeHTML(sample.accountName ?? ""))" data-search="\(escapeHTML(sample.searchText))">
               <td><span class="pill cloud">cloud</span></td>
               <td>\(escapeHTML(sample.sampledAt))</td>
               <td>\(escapeHTML(sample.provider))</td>
@@ -828,6 +918,11 @@ final class CloudSyncService {
             .stat { border: 1px solid var(--border); border-radius: 8px; padding: 10px 12px; background: var(--bg); }
             .stat strong { display: block; font-size: 22px; }
             .stat span { color: var(--muted); font-size: 12px; }
+            .filters { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; border: 1px solid var(--border); border-radius: 8px; padding: 10px; background: var(--bg); margin: 12px 0 20px; }
+            .filters input, .filters select { font: inherit; font-size: 12px; padding: 6px 8px; border: 1px solid var(--border); border-radius: 6px; background: Canvas; color: var(--text); }
+            .filters input { min-width: 260px; }
+            .filters button { font: inherit; font-size: 12px; padding: 6px 10px; border: 1px solid var(--border); border-radius: 6px; background: Canvas; color: var(--text); }
+            .filter-count { color: var(--muted); font-size: 12px; margin-left: auto; }
             table { border-collapse: collapse; width: 100%; font-size: 12px; }
             th, td { border-bottom: 1px solid var(--border); padding: 7px 9px; text-align: left; vertical-align: top; }
             th { background: var(--bg); font-weight: 600; position: sticky; top: 0; }
@@ -851,7 +946,35 @@ final class CloudSyncService {
             <div class="stat"><strong>\(historyCount)</strong><span>history series</span></div>
             <div class="stat"><strong>\(historyEntryCount)</strong><span>history entries</span></div>
             <div class="stat"><strong>\(remoteSamples.count)</strong><span>remote samples</span></div>
+            <div class="stat"><strong>\(accountSummaries.count)</strong><span>cloud accounts</span></div>
           </div>
+
+          <div class="filters">
+            <input id="search" type="search" placeholder="Filter account, provider, model, source...">
+            <select id="sourceFilter">
+              <option value="">All sources</option>
+              <option value="cloud">Cloud</option>
+              <option value="mix">Mix</option>
+              <option value="local">Local</option>
+              <option value="synced">Synced</option>
+            </select>
+            <select id="providerFilter">
+              <option value="">All providers</option>
+              \(providerOptions)
+            </select>
+            <select id="accountFilter">
+              <option value="">All accounts</option>
+              \(accountOptions)
+            </select>
+            <button type="button" id="resetFilters">Reset</button>
+            <span class="filter-count" id="filterCount"></span>
+          </div>
+
+          <h2>Cloud Account Summary</h2>
+          <table>
+            <thead><tr><th>Source</th><th>Provider</th><th>Account</th><th>Samples</th><th>Models</th><th>Earliest sample</th><th>Latest sample</th></tr></thead>
+            <tbody>\(accountRows.isEmpty ? "<tr><td colspan=\"7\">No cloud account summary available.</td></tr>" : accountRows)</tbody>
+          </table>
 
           <h2>Current Models</h2>
           <table>
@@ -887,6 +1010,55 @@ final class CloudSyncService {
             <summary>Raw local snapshot JSON</summary>
             <pre>\(rawJSON)</pre>
           </details>
+          <script>
+            const search = document.getElementById('search');
+            const sourceFilter = document.getElementById('sourceFilter');
+            const providerFilter = document.getElementById('providerFilter');
+            const accountFilter = document.getElementById('accountFilter');
+            const resetFilters = document.getElementById('resetFilters');
+            const filterCount = document.getElementById('filterCount');
+            const rows = Array.from(document.querySelectorAll('.filter-row'));
+
+            function normalized(value) {
+              return (value || '').toLowerCase();
+            }
+
+            function applyFilters() {
+              const query = normalized(search.value).trim();
+              const source = normalized(sourceFilter.value);
+              const provider = normalized(providerFilter.value);
+              const account = normalized(accountFilter.value);
+              let visible = 0;
+
+              for (const row of rows) {
+                const rowSource = normalized(row.dataset.source);
+                const rowProvider = normalized(row.dataset.provider);
+                const rowAccount = normalized(row.dataset.account);
+                const rowSearch = normalized(row.dataset.search);
+                const matches =
+                  (!query || rowSearch.includes(query)) &&
+                  (!source || rowSource.includes(source)) &&
+                  (!provider || rowProvider === provider) &&
+                  (!account || rowAccount === account);
+                row.hidden = !matches;
+                if (matches) visible += 1;
+              }
+              filterCount.textContent = `${visible}/${rows.length} rows`;
+            }
+
+            for (const control of [search, sourceFilter, providerFilter, accountFilter]) {
+              control.addEventListener('input', applyFilters);
+              control.addEventListener('change', applyFilters);
+            }
+            resetFilters.addEventListener('click', () => {
+              search.value = '';
+              sourceFilter.value = '';
+              providerFilter.value = '';
+              accountFilter.value = '';
+              applyFilters();
+            });
+            applyFilters();
+          </script>
         </body>
         </html>
         """
@@ -895,6 +1067,12 @@ final class CloudSyncService {
     private func dateText(_ date: Date?) -> String {
         guard let date else { return "" }
         return localDateTime(date)
+    }
+
+    private func accountNameFromModelID(_ id: String) -> String {
+        let parts = id.split(separator: ":", omittingEmptySubsequences: false).map(String.init)
+        guard parts.count >= 3 else { return "" }
+        return parts[1]
     }
 
     private func localDateTime(_ date: Date) -> String {
@@ -929,6 +1107,55 @@ private struct CloudDevicesResponse: Decodable {
 private struct CloudQuotaSamplesResponse: Decodable {
     let ok: Bool
     let samples: [CloudRemoteQuotaSample]
+}
+
+private struct CloudAccountSummariesResponse: Decodable {
+    let ok: Bool
+    let accounts: [CloudRemoteAccountDataSummary]
+}
+
+private struct CloudRemoteAccountDataSummary: Decodable {
+    let provider: String
+    let accountName: String
+    let sampleCount: Int
+    let modelCount: Int
+    let earliestSampledAt: String
+    let latestSampledAt: String
+
+    enum CodingKeys: String, CodingKey {
+        case provider
+        case accountName = "account_name"
+        case sampleCount = "sample_count"
+        case modelCount = "model_count"
+        case earliestSampledAt = "earliest_sampled_at"
+        case latestSampledAt = "latest_sampled_at"
+    }
+
+    var displayAccountName: String {
+        accountName.isEmpty ? "No account" : accountName
+    }
+
+    var displayProviderRawValue: String {
+        UsageProvider.cloudProvider(rawValue: provider)?.rawValue ?? provider
+    }
+
+    var displayProviderName: String {
+        UsageProvider.cloudProvider(rawValue: provider)?.displayName ?? provider
+    }
+
+    var searchText: String {
+        [
+            "cloud",
+            provider,
+            displayProviderRawValue,
+            displayProviderName,
+            accountName,
+            "\(sampleCount)",
+            "\(modelCount)",
+            earliestSampledAt,
+            latestSampledAt
+        ].joined(separator: " ")
+    }
 }
 
 struct CloudDeleteDataResponse: Decodable {
@@ -1064,6 +1291,18 @@ private struct CloudRemoteQuotaSample: Decodable {
         return nextParts.joined(separator: " · ")
     }
 
+    var searchText: String {
+        [
+            "cloud",
+            provider,
+            accountName ?? "",
+            modelName,
+            modelID ?? "",
+            sampledAt,
+            resetEndTime ?? ""
+        ].joined(separator: " ")
+    }
+
     private static func isLocalSourceLabel(_ value: String) -> Bool {
         switch value.lowercased() {
         case "oauth", "codex cli", "openai web", "cli", "web", "cloud":
@@ -1073,7 +1312,7 @@ private struct CloudRemoteQuotaSample: Decodable {
         }
     }
 
-    private static func date(from value: String?) -> Date? {
+    static func date(from value: String?) -> Date? {
         guard let value, !value.isEmpty else { return nil }
         if let date = iso8601WithFractionalSeconds.date(from: value) {
             return date
@@ -1116,6 +1355,7 @@ private struct CloudRemoteQuotaSample: Decodable {
 struct CloudUsageSnapshotPayload: Codable {
     let deviceID: String
     let sampledAt: Date
+    let retentionDays: Int?
     let models: [CloudModelQuotaPayload]
     /// 跨周期 utilization 历史：key = provider.rawValue，
     /// value = `modelId -> CloudUtilizationHistoryPayload`。
