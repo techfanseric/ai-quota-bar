@@ -4,6 +4,7 @@ import SwiftUI
 struct InlineFeedback: Equatable {
     enum Kind: Equatable {
         case success
+        case warning
         case error
     }
 
@@ -29,6 +30,7 @@ struct InlineFeedbackView: View {
     private var symbolName: String {
         switch feedback.kind {
         case .success: return "checkmark.circle.fill"
+        case .warning: return "exclamationmark.triangle.fill"
         case .error: return "xmark.octagon.fill"
         }
     }
@@ -36,6 +38,7 @@ struct InlineFeedbackView: View {
     private var color: Color {
         switch feedback.kind {
         case .success: return .green
+        case .warning: return .orange
         case .error: return .red
         }
     }

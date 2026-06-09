@@ -453,10 +453,13 @@ final class UsageViewModel {
     }
 
     func dataReportSnapshot() -> DataReportSnapshot {
-        DataReportSnapshot(
+        let displayedProviderUsageData = Dictionary(
+            uniqueKeysWithValues: providerUsageSections.map { ($0.provider, $0) }
+        )
+        return DataReportSnapshot(
             generatedAt: Date(),
             usageData: usageData,
-            providerUsageData: providerUsageData,
+            providerUsageData: displayedProviderUsageData,
             modelQuotaSamples: modelQuotaSamples,
             utilizationHistories: utilizationHistories
         )
@@ -473,7 +476,7 @@ final class UsageViewModel {
     func loadedCloudRemoteAccountSummaries() -> [CloudRemoteAccountSummary] {
         let explicitCloudModels = cloudProviderUsageData.values
             .flatMap(\.models)
-        let displayedCloudModels = providerUsageData.values
+        let displayedCloudModels = providerUsageSections
             .flatMap(\.models)
             .filter { model in
                 let source = model.parsedDetail.source
@@ -536,10 +539,6 @@ final class UsageViewModel {
     /// 设置面板的 `CloudSyncStatusLine` 实时显示"上次同步 Xm ago" / "失败 Ym ago"。
     var cloudSyncStatus: CloudSyncStatus {
         CloudSyncService.shared.lastSyncStatus
-    }
-
-    func testCloudSync(endpointURL: String, token: String) async throws {
-        try await CloudSyncService.shared.testConnection(endpointURLString: endpointURL, token: token)
     }
 
     func samples(for model: ModelUsageData) -> [ModelQuotaSample] {

@@ -38,6 +38,8 @@ enum AppLanguage: String, CaseIterable, Codable, Identifiable {
             case .preferences: return "Preferences"
             case .preferencesSubtitle: return "Tune refresh behavior, menu bar density, and the provider credential used by the monitor."
             case .tabGeneral: return "General"
+            case .tabUsage: return "Usage"
+            case .tabSync: return "Sync"
             case .tabProviders: return "Providers"
             case .tabAbout: return "About"
             case .providersTitle: return "Providers"
@@ -46,7 +48,6 @@ enum AppLanguage: String, CaseIterable, Codable, Identifiable {
             case .cloudSyncTitle: return "Cloud sync"
             case .cloudSyncEnabled: return "Enable cloud sync"
             case .cloudSyncEnabledDescription: return "Back up compact quota snapshots with the built-in cloud service. Custom servers are optional."
-            case .cloudSyncTest: return "Test cloud sync"
             case .cloudSyncOpenData: return "View data"
             case .cloudSyncStatusIdle: return "Cloud backup has not run yet."
             case .appTitle: return "About"
@@ -140,6 +141,8 @@ enum AppLanguage: String, CaseIterable, Codable, Identifiable {
             case .preferences: return "偏好设置"
             case .preferencesSubtitle: return "调整刷新策略、菜单栏显示密度，以及监控器使用的服务商凭据。"
             case .tabGeneral: return "通用"
+            case .tabUsage: return "用量"
+            case .tabSync: return "同步"
             case .tabProviders: return "服务商"
             case .tabAbout: return "关于"
             case .providersTitle: return "服务商"
@@ -148,7 +151,6 @@ enum AppLanguage: String, CaseIterable, Codable, Identifiable {
             case .cloudSyncTitle: return "云同步"
             case .cloudSyncEnabled: return "启用云同步"
             case .cloudSyncEnabledDescription: return "使用内置云服务备份精简额度快照；自定义服务器是可选项。"
-            case .cloudSyncTest: return "测试云同步"
             case .cloudSyncOpenData: return "查看数据"
             case .cloudSyncStatusIdle: return "云端备份尚未运行。"
             case .appTitle: return "关于"
@@ -822,24 +824,6 @@ enum AppLanguage: String, CaseIterable, Codable, Identifiable {
         }
     }
 
-    func cloudSyncTestText() -> String {
-        switch self {
-        case .english:
-            return "Test cloud backup"
-        case .simplifiedChinese:
-            return "测试云端备份"
-        }
-    }
-
-    func cloudSyncTestSuccessText() -> String {
-        switch self {
-        case .english:
-            return "Cloud backup is reachable."
-        case .simplifiedChinese:
-            return "云端备份连接正常。"
-        }
-    }
-
     func cloudSyncStatusSuccess(relative: String) -> String {
         switch self {
         case .english:
@@ -876,6 +860,51 @@ enum AppLanguage: String, CaseIterable, Codable, Identifiable {
         }
     }
 
+    func usageRefreshSectionTitle() -> String {
+        switch self {
+        case .english:
+            return "Refresh"
+        case .simplifiedChinese:
+            return "刷新"
+        }
+    }
+
+    func usageHistorySectionTitle() -> String {
+        switch self {
+        case .english:
+            return "History"
+        case .simplifiedChinese:
+            return "历史"
+        }
+    }
+
+    func cloudVisibilitySectionTitle() -> String {
+        switch self {
+        case .english:
+            return "Cloud display"
+        case .simplifiedChinese:
+            return "云端显示"
+        }
+    }
+
+    func cloudVisibilitySectionDescription() -> String {
+        switch self {
+        case .english:
+            return "Controls how long pure Cloud account visuals stay visible when the latest report is old. Local and Mix accounts are not affected."
+        case .simplifiedChinese:
+            return "控制纯 Cloud 账号的上报数据变旧后，界面上的曲线、柱图和 cycles 保留多久。本机和 Mix 账号不受影响。"
+        }
+    }
+
+    func cloudAccountDataSectionTitle() -> String {
+        switch self {
+        case .english:
+            return "Account data"
+        case .simplifiedChinese:
+            return "账号数据"
+        }
+    }
+
     func dataManagementDescriptionText() -> String {
         switch self {
         case .english:
@@ -897,9 +926,9 @@ enum AppLanguage: String, CaseIterable, Codable, Identifiable {
     func deleteRemoteDataText() -> String {
         switch self {
         case .english:
-            return "Delete remote data"
+            return "Delete all cloud data"
         case .simplifiedChinese:
-            return "删除远程数据"
+            return "删除全部云端数据"
         }
     }
 
@@ -915,9 +944,9 @@ enum AppLanguage: String, CaseIterable, Codable, Identifiable {
     func deleteRemoteAccountDataDescriptionText() -> String {
         switch self {
         case .english:
-            return "Delete Cloud samples for one provider account. Other accounts, local data, credentials, and preferences are kept."
+            return "Select one provider account and remove only that account's Cloud samples. Local data, other accounts, credentials, and preferences are kept."
         case .simplifiedChinese:
-            return "按服务商账号删除 Cloud samples。其他账号、本地数据、凭据和偏好设置都会保留。"
+            return "选择一个服务商账号，只删除这个账号的 Cloud samples。本地数据、其他账号、凭据和偏好设置都会保留。"
         }
     }
 
@@ -951,9 +980,9 @@ enum AppLanguage: String, CaseIterable, Codable, Identifiable {
     func deleteRemoteDataConfirmationText() -> String {
         switch self {
         case .english:
-            return "This deletes all quota samples, device rows, and cloud settings from the configured Cloudflare D1 database."
+            return "This deletes all quota samples, device rows, and cloud settings from AI Quota Bar's built-in cloud service."
         case .simplifiedChinese:
-            return "这会删除当前配置的 Cloudflare D1 数据库里的所有 quota samples、设备记录和云端设置。"
+            return "这会删除 AI Quota Bar 内置云服务里的全部 quota samples、设备记录和云端设置。"
         }
     }
 
@@ -990,6 +1019,42 @@ enum AppLanguage: String, CaseIterable, Codable, Identifiable {
             return "Cloud data deleted for \(accountName): \(samples) samples."
         case .simplifiedChinese:
             return "\(accountName) 的云端数据已删除：\(samples) 条 samples。"
+        }
+    }
+
+    func advancedCleanupSectionTitle() -> String {
+        switch self {
+        case .english:
+            return "Advanced cleanup"
+        case .simplifiedChinese:
+            return "高级清理"
+        }
+    }
+
+    func advancedCleanupDisclosureText() -> String {
+        switch self {
+        case .english:
+            return "Show local and all-cloud delete actions"
+        case .simplifiedChinese:
+            return "显示本地和全量云端删除操作"
+        }
+    }
+
+    func advancedCleanupDescriptionText() -> String {
+        switch self {
+        case .english:
+            return "These actions affect broad data scopes. They do not delete provider credentials or app preferences."
+        case .simplifiedChinese:
+            return "这些操作影响范围更大，但不会删除服务商凭据或应用偏好设置。"
+        }
+    }
+
+    func cloudAccountDeleteUnavailableText() -> String {
+        switch self {
+        case .english:
+            return "Account-level cloud deletion is not available on the current cloud service yet. Try again after the sync service is updated."
+        case .simplifiedChinese:
+            return "当前云同步服务还不支持按账号删除。等云端服务更新后再试。"
         }
     }
 
@@ -1154,6 +1219,8 @@ enum AppText {
     case preferences
     case preferencesSubtitle
     case tabGeneral
+    case tabUsage
+    case tabSync
     case tabProviders
     case tabAbout
     case providersTitle
@@ -1162,7 +1229,6 @@ enum AppText {
     case cloudSyncTitle
     case cloudSyncEnabled
     case cloudSyncEnabledDescription
-    case cloudSyncTest
     case cloudSyncOpenData
     case cloudSyncStatusIdle
     case appTitle

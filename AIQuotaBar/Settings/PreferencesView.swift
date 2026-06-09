@@ -17,6 +17,20 @@ struct PreferencesView: View {
                 }
                 .tag(PreferencesTab.general)
 
+            UsagePane(viewModel: viewModel)
+                .tabItem {
+                    Label(viewModel.appLanguage.text(.tabUsage),
+                          systemImage: PreferencesTab.usage.systemImage)
+                }
+                .tag(PreferencesTab.usage)
+
+            SyncPane(viewModel: viewModel)
+                .tabItem {
+                    Label(viewModel.appLanguage.text(.tabSync),
+                          systemImage: PreferencesTab.sync.systemImage)
+                }
+                .tag(PreferencesTab.sync)
+
             ProvidersPane(viewModel: viewModel)
                 .tabItem {
                     Label(viewModel.appLanguage.text(.tabProviders),

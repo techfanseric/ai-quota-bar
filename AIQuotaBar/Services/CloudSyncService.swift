@@ -303,17 +303,6 @@ final class CloudSyncService {
         throw lastError ?? CloudSyncError.invalidResponse
     }
 
-    func testConnection(endpointURLString: String, token: String) async throws {
-        let request = try makeRequest(
-            endpointURLString: endpointURLString,
-            path: "/v1/health",
-            token: token.trimmingCharacters(in: .whitespacesAndNewlines),
-            method: "GET"
-        )
-
-        try await send(request: request, body: nil)
-    }
-
     func deleteRemoteData(endpointURLString: String, token: String) async throws -> CloudDeleteDataResponse {
         let deviceID = Self.queryEscaped(CloudSyncSettings.current.deviceID)
         let request = try makeRequest(
@@ -593,13 +582,6 @@ final class CloudSyncService {
         return request
     }
 
-    private func send(request: URLRequest, body: Data?) async throws {
-        var request = request
-        request.httpBody = body
-
-        _ = try await data(for: request)
-    }
-
     private func data(for request: URLRequest) async throws -> Data {
         let data: Data
         let response: URLResponse
@@ -719,9 +701,23 @@ final class CloudSyncService {
 
         let modelRows = localModels.map { model in
             let remote = remoteByModel[model.id]?.sorted { $0.sampledAt > $1.sampledAt }.first
+            let source = model.parsedDetail.source
+            let cloudClass: String
+            let cloudLabel: String
+            switch source {
+            case "Cloud":
+                cloudClass = "cloud"
+                cloudLabel = remote == nil ? "cloud cached" : "cloud"
+            case "Mix":
+                cloudClass = "mix"
+                cloudLabel = "mix"
+            default:
+                cloudClass = remote == nil ? "local" : "synced"
+                cloudLabel = remote == nil ? "local only" : "synced"
+            }
             return """
             <tr>
-              <td><span class="pill \(remote == nil ? "local" : "synced")">\(remote == nil ? "local only" : "synced")</span></td>
+              <td><span class="pill \(cloudClass)">\(cloudLabel)</span></td>
               <td>\(escapeHTML(model.provider.displayName))</td>
               <td>\(escapeHTML(model.accountName ?? ""))</td>
               <td><code>\(escapeHTML(model.modelName))</code></td>
@@ -840,6 +836,7 @@ final class CloudSyncService {
             .synced { background: #dafbe1; color: #116329; }
             .local { background: #fff8c5; color: #7d4e00; }
             .cloud { background: #ddf4ff; color: #0969da; }
+            .mix { background: #f0e7ff; color: #6639ba; }
             details { margin-top: 24px; }
             pre { border: 1px solid var(--border); border-radius: 8px; padding: 12px; overflow: auto; background: var(--bg); }
           </style>
@@ -849,14 +846,14 @@ final class CloudSyncService {
           <div class="meta">Generated: \(escapeHTML(generatedAt)) · Worker: <code>\(escapeHTML(endpointURLString.isEmpty ? "not configured" : endpointURLString))</code> · \(cloudState)</div>
 
           <div class="summary">
-            <div class="stat"><strong>\(localModels.count)</strong><span>local models</span></div>
+            <div class="stat"><strong>\(localModels.count)</strong><span>current models</span></div>
             <div class="stat"><strong>\(sampleCount)</strong><span>local window samples</span></div>
             <div class="stat"><strong>\(historyCount)</strong><span>history series</span></div>
             <div class="stat"><strong>\(historyEntryCount)</strong><span>history entries</span></div>
             <div class="stat"><strong>\(remoteSamples.count)</strong><span>remote samples</span></div>
           </div>
 
-          <h2>Local Current Models</h2>
+          <h2>Current Models</h2>
           <table>
             <thead><tr><th>Cloud</th><th>Provider</th><th>Account</th><th>Model</th><th>Model ID</th><th>Remaining</th><th>Total</th><th>Start</th><th>Reset</th><th>Last remote sample</th></tr></thead>
             <tbody>\(modelRows.isEmpty ? "<tr><td colspan=\"10\">No current model data yet. Refresh once to populate this table.</td></tr>" : modelRows)</tbody>
