@@ -116,6 +116,39 @@ struct GeneralPane: View {
                     Text(language.utilizationHistoryModeDisplayName(mode)).tag(mode)
                 }
             }
+
+            PreferencePickerRow(
+                title: language.cloudCurrentWindowVisibilityLimitLabel(),
+                subtitle: language.cloudCurrentWindowVisibilityLimitDescription(),
+                selection: $viewModel.cloudCurrentWindowVisibilityLimit,
+                maxWidth: 160
+            ) {
+                ForEach(CloudDataVisibilityLimit.allCases) { limit in
+                    Text(language.cloudDataVisibilityLimitDisplayName(limit)).tag(limit)
+                }
+            }
+
+            PreferencePickerRow(
+                title: language.cloudShortCyclesVisibilityLimitLabel(),
+                subtitle: language.cloudShortCyclesVisibilityLimitDescription(),
+                selection: $viewModel.cloudShortCyclesVisibilityLimit,
+                maxWidth: 160
+            ) {
+                ForEach(CloudDataVisibilityLimit.allCases) { limit in
+                    Text(language.cloudDataVisibilityLimitDisplayName(limit)).tag(limit)
+                }
+            }
+
+            PreferencePickerRow(
+                title: language.cloudWeeklyCyclesVisibilityLimitLabel(),
+                subtitle: language.cloudWeeklyCyclesVisibilityLimitDescription(),
+                selection: $viewModel.cloudWeeklyCyclesVisibilityLimit,
+                maxWidth: 160
+            ) {
+                ForEach(CloudDataVisibilityLimit.allCases) { limit in
+                    Text(language.cloudDataVisibilityLimitDisplayName(limit)).tag(limit)
+                }
+            }
         }
     }
 

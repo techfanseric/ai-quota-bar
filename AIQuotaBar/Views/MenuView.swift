@@ -344,9 +344,10 @@ private struct ProviderModelsSection: View {
     }
 
     private func hasRenderableCurrentWindow(for model: ModelUsageData) -> Bool {
-        if model.parsedDetail.source == "Cloud",
+        if isCloudModel(model),
            let sampledAt = model.sampledAt,
-           Date().timeIntervalSince(sampledAt) > 3600 {
+           let interval = viewModel.cloudCurrentWindowVisibilityLimit.interval,
+           Date().timeIntervalSince(sampledAt) > interval {
             return false
         }
         guard let startTime = model.startTime, let endTime = model.endTime else { return true }
@@ -356,7 +357,27 @@ private struct ProviderModelsSection: View {
 
     private func utilizationCycles(for model: ModelUsageData) -> [(resetsAt: Date, peakPercent: Double)] {
         let limit = model.isShortCurrentInterval ? 30 : 12
-        return viewModel.utilizationCycles(for: model, limit: limit)
+        let cycles = viewModel.utilizationCycles(for: model, limit: limit)
+        return filteredCloudCycles(cycles, for: model)
+    }
+
+    private func filteredCloudCycles(
+        _ cycles: [(resetsAt: Date, peakPercent: Double)],
+        for model: ModelUsageData
+    ) -> [(resetsAt: Date, peakPercent: Double)] {
+        guard isCloudModel(model) else { return cycles }
+        let limit = model.isShortCurrentInterval
+            ? viewModel.cloudShortCyclesVisibilityLimit
+            : viewModel.cloudWeeklyCyclesVisibilityLimit
+        guard let interval = limit.interval else { return cycles }
+        let now = Date()
+        return cycles.filter { cycle in
+            now.timeIntervalSince(cycle.resetsAt) <= interval
+        }
+    }
+
+    private func isCloudModel(_ model: ModelUsageData) -> Bool {
+        model.parsedDetail.source == "Cloud"
     }
 
     private func isAccountGroup(_ lhs: AccountModelGroup, orderedBefore rhs: AccountModelGroup) -> Bool {
@@ -555,7 +576,8 @@ private struct ProviderModelsSection: View {
                     return true
                 }
                 guard let sampledAt = model.sampledAt else { return false }
-                return Date().timeIntervalSince(sampledAt) <= 3600
+                guard let interval = viewModel.cloudCurrentWindowVisibilityLimit.interval else { return true }
+                return Date().timeIntervalSince(sampledAt) <= interval
             }
         }.count
 
@@ -866,9 +888,10 @@ private struct ModelRow: View {
     }
 
     private var isCurrentWindow: Bool {
-        if model.parsedDetail.source == "Cloud",
+        if isCloudModel,
            let sampledAt = model.sampledAt,
-           Date().timeIntervalSince(sampledAt) > 3600 {
+           let interval = viewModel.cloudCurrentWindowVisibilityLimit.interval,
+           Date().timeIntervalSince(sampledAt) > interval {
             return false
         }
         guard let startTime = model.startTime, let endTime = model.endTime else { return true }
@@ -902,7 +925,20 @@ private struct ModelRow: View {
     /// 跨周期 utilization 柱图数据：短周期 30 个 ≈ 6 天，周长周期 12 个 ≈ 3 个月。
     private var cycles: [(resetsAt: Date, peakPercent: Double)] {
         let limit = model.isShortCurrentInterval ? 30 : 12
-        return viewModel.utilizationCycles(for: model, limit: limit)
+        let cycles = viewModel.utilizationCycles(for: model, limit: limit)
+        guard isCloudModel else { return cycles }
+        let visibilityLimit = model.isShortCurrentInterval
+            ? viewModel.cloudShortCyclesVisibilityLimit
+            : viewModel.cloudWeeklyCyclesVisibilityLimit
+        guard let interval = visibilityLimit.interval else { return cycles }
+        let now = Date()
+        return cycles.filter { cycle in
+            now.timeIntervalSince(cycle.resetsAt) <= interval
+        }
+    }
+
+    private var isCloudModel: Bool {
+        model.parsedDetail.source == "Cloud"
     }
 
     private var tint: Color {
