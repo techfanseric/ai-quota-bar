@@ -27,6 +27,10 @@ export default {
         return await listQuotaSamples(url, env);
       }
 
+      if (request.method === "GET" && url.pathname === "/v1/account-summaries") {
+        return await listAccountSummaries(url, env);
+      }
+
       if (request.method === "GET" && url.pathname === "/v1/devices") {
         return await listDevices(url, env);
       }
@@ -107,6 +111,7 @@ async function storeQuotaSamples(request, env) {
   const deviceID = String(payload.deviceID || "").trim();
   const sampledAt = String(payload.sampledAt || "").trim();
   const models = Array.isArray(payload.models) ? payload.models : [];
+  const retentionDays = retentionDaysValue(payload.retentionDays);
 
   if (!deviceID || !sampledAt || models.length === 0) {
     return json({ error: "invalid_payload" }, 400);
@@ -173,7 +178,13 @@ async function storeQuotaSamples(request, env) {
   }
 
   await env.DB.batch(statements);
-  return json({ ok: true, inserted: statements.length - 1 });
+  const cleanupResult = await cleanupExpiredQuotaSamples(env, sampledAt, retentionDays);
+  return json({
+    ok: true,
+    inserted: statements.length - 1,
+    retention_days: retentionDays,
+    deleted_expired_quota_samples: changesCount(cleanupResult),
+  });
 }
 
 async function listQuotaSamples(url, env) {
@@ -243,6 +254,25 @@ async function listDevices(url, env) {
   return json({ ok: true, devices: result.results || [] });
 }
 
+async function listAccountSummaries(url, env) {
+  const limit = Math.min(Math.max(Number(url.searchParams.get("limit") || 200), 1), 1000);
+  const result = await env.DB.prepare(
+    `SELECT
+       provider,
+       COALESCE(account_name, '') AS account_name,
+       COUNT(*) AS sample_count,
+       COUNT(DISTINCT COALESCE(model_id, model_name)) AS model_count,
+       MIN(sampled_at) AS earliest_sampled_at,
+       MAX(sampled_at) AS latest_sampled_at
+     FROM quota_samples
+     GROUP BY provider, COALESCE(account_name, '')
+     ORDER BY latest_sampled_at DESC
+     LIMIT ?`
+  ).bind(limit).all();
+
+  return json({ ok: true, accounts: result.results || [] });
+}
+
 async function deleteDeviceData(url, env) {
   const provider = stringValue(url.searchParams.get("provider"));
   const accountName = stringValue(url.searchParams.get("account_name"));
@@ -276,8 +306,8 @@ async function deleteDeviceData(url, env) {
 async function deleteAccountData(provider, accountName, env) {
   const quotaResult = accountName
     ? await env.DB.prepare(
-      `DELETE FROM quota_samples WHERE provider = ? AND account_name = ?`
-    ).bind(provider, accountName).run()
+      `DELETE FROM quota_samples WHERE account_name = ?`
+    ).bind(accountName).run()
     : await env.DB.prepare(
       `DELETE FROM quota_samples WHERE provider = ? AND (account_name IS NULL OR account_name = '')`
     ).bind(provider).run();
@@ -288,6 +318,15 @@ async function deleteAccountData(provider, accountName, env) {
     deleted_settings: 0,
     deleted_devices: 0,
   });
+}
+
+async function cleanupExpiredQuotaSamples(env, sampledAt, retentionDays) {
+  const baseTime = Date.parse(sampledAt);
+  const now = Number.isFinite(baseTime) ? baseTime : Date.now();
+  const cutoff = new Date(now - retentionDays * 24 * 60 * 60 * 1000).toISOString();
+  return await env.DB.prepare(
+    `DELETE FROM quota_samples WHERE sampled_at < ?`
+  ).bind(cutoff).run();
 }
 
 function json(body, status = 200) {
@@ -320,6 +359,14 @@ function nullableString(value) {
 function integerValue(value) {
   const next = Number(value);
   return Number.isFinite(next) ? Math.trunc(next) : 0;
+}
+
+function retentionDaysValue(value) {
+  const next = Number(value);
+  if (!Number.isFinite(next)) {
+    return 30;
+  }
+  return Math.min(Math.max(Math.trunc(next), 1), 180);
 }
 
 function changesCount(result) {

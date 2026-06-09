@@ -860,6 +860,41 @@ enum AppLanguage: String, CaseIterable, Codable, Identifiable {
         }
     }
 
+    func cloudDataRetentionLimitLabel() -> String {
+        switch self {
+        case .english:
+            return "Cloud data retention"
+        case .simplifiedChinese:
+            return "云端数据保留"
+        }
+    }
+
+    func cloudDataRetentionLimitDescription() -> String {
+        switch self {
+        case .english:
+            return "Deletes Cloud samples older than this value during sync. Default is 30 days; maximum is 180 days."
+        case .simplifiedChinese:
+            return "同步时清理早于该范围的 Cloud samples。默认 30 天，最长 180 天。"
+        }
+    }
+
+    func cloudDataRetentionLimitDisplayName(_ limit: CloudDataRetentionLimit) -> String {
+        switch (self, limit) {
+        case (.english, .sevenDays): return "7 days"
+        case (.english, .fourteenDays): return "14 days"
+        case (.english, .thirtyDays): return "30 days"
+        case (.english, .sixtyDays): return "60 days"
+        case (.english, .ninetyDays): return "90 days"
+        case (.english, .oneHundredEightyDays): return "180 days"
+        case (.simplifiedChinese, .sevenDays): return "7 天"
+        case (.simplifiedChinese, .fourteenDays): return "14 天"
+        case (.simplifiedChinese, .thirtyDays): return "30 天"
+        case (.simplifiedChinese, .sixtyDays): return "60 天"
+        case (.simplifiedChinese, .ninetyDays): return "90 天"
+        case (.simplifiedChinese, .oneHundredEightyDays): return "180 天"
+        }
+    }
+
     func usageRefreshSectionTitle() -> String {
         switch self {
         case .english:

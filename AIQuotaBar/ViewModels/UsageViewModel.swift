@@ -100,10 +100,17 @@ final class UsageViewModel {
         }
     }
 
+    var cloudDataRetentionLimit: CloudDataRetentionLimit {
+        didSet {
+            UserDefaults.standard.set(cloudDataRetentionLimit.rawValue, forKey: Self.cloudDataRetentionLimitKey)
+        }
+    }
+
     private static let utilizationHistoryModeKey = "utilizationHistoryMode"
     private static let cloudCurrentWindowVisibilityLimitKey = "cloudCurrentWindowVisibilityLimit"
     private static let cloudShortCyclesVisibilityLimitKey = "cloudShortCyclesVisibilityLimit"
     private static let cloudWeeklyCyclesVisibilityLimitKey = "cloudWeeklyCyclesVisibilityLimit"
+    private static let cloudDataRetentionLimitKey = CloudDataRetentionLimit.storageKey
 
     // MARK: - Computed Properties
 
@@ -287,6 +294,7 @@ final class UsageViewModel {
         self.cloudWeeklyCyclesVisibilityLimit = UserDefaults.standard.string(forKey: Self.cloudWeeklyCyclesVisibilityLimitKey)
             .flatMap(CloudDataVisibilityLimit.init(rawValue:))
             ?? .oneWeek
+        self.cloudDataRetentionLimit = .current
 
         loadUtilizationHistories()
         updateStatusBarText()
@@ -469,6 +477,35 @@ final class UsageViewModel {
         cloudProviderUsageData = [:]
     }
 
+    func clearCloudUsageData(for accountName: String) {
+        let normalizedAccountName = Self.normalizedAccountName(accountName)
+        guard !normalizedAccountName.isEmpty else { return }
+
+        cloudProviderUsageData = cloudProviderUsageData.compactMapValues { data in
+            let models = data.models.filter { model in
+                model.normalizedAccountName != normalizedAccountName
+            }
+            return models.isEmpty ? nil : data.withModels(models)
+        }
+
+        guard !hasLocalAccount(named: normalizedAccountName) else { return }
+
+        modelQuotaSamples = modelQuotaSamples.filter { modelID, _ in
+            Self.normalizedAccountName(Self.accountName(fromModelID: modelID)) != normalizedAccountName
+        }
+
+        for provider in UsageProvider.allCases {
+            guard var store = utilizationHistories[provider] else { continue }
+            let histories = store.historiesOrEmpty.filter { modelID, _ in
+                Self.normalizedAccountName(Self.accountName(fromModelID: modelID)) != normalizedAccountName
+            }
+            guard histories.count != store.historiesOrEmpty.count else { continue }
+            store.histories = histories
+            utilizationHistories[provider] = store
+            utilizationStore.save(store, for: provider)
+        }
+    }
+
     func reloadCloudUsageData() async {
         await refreshCloudUsageData()
     }
@@ -636,6 +673,14 @@ final class UsageViewModel {
         true
     }
 
+    private func hasLocalAccount(named normalizedAccountName: String) -> Bool {
+        providerUsageData.values
+            .flatMap(\.models)
+            .contains { model in
+                model.normalizedAccountName == normalizedAccountName
+            }
+    }
+
     private func accountScopedLocalModels(_ models: [ModelUsageData]) -> [ModelUsageData] {
         let codexAccountNames = Set(models
             .filter { $0.provider == .codex }
@@ -726,6 +771,16 @@ final class UsageViewModel {
         let modelName = parts.dropFirst(2).joined(separator: ":")
         guard !accountName.isEmpty, !modelName.isEmpty else { return nil }
         return (provider, accountName, modelName)
+    }
+
+    private static func accountName(fromModelID id: String) -> String {
+        let parts = id.split(separator: ":", omittingEmptySubsequences: false).map(String.init)
+        guard parts.count >= 3 else { return "" }
+        return parts[1]
+    }
+
+    private static func normalizedAccountName(_ accountName: String) -> String {
+        accountName.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
     }
 
     private func inferredHistoryDuration(for modelName: String) -> TimeInterval? {

@@ -105,6 +105,17 @@ struct SyncPane: View {
                 isOn: $viewModel.cloudSyncEnabled
             )
 
+            PreferencePickerRow(
+                title: language.cloudDataRetentionLimitLabel(),
+                subtitle: language.cloudDataRetentionLimitDescription(),
+                selection: $viewModel.cloudDataRetentionLimit,
+                maxWidth: 160
+            ) {
+                ForEach(CloudDataRetentionLimit.allCases) { limit in
+                    Text(language.cloudDataRetentionLimitDisplayName(limit)).tag(limit)
+                }
+            }
+
             HStack(spacing: 10) {
                 Button {
                     Task { await openDataReport() }
@@ -432,8 +443,13 @@ struct SyncPane: View {
                     samples: result.deletedQuotaSamples
                 )
             )
-            await loadRemoteAccounts(clearFeedback: false)
+            viewModel.clearCloudUsageData(for: account.accountName)
+            remoteAccounts.removeAll { summary in
+                normalizedAccountName(summary.accountName) == normalizedAccountName(account.accountName)
+            }
+            selectFirstRemoteAccountIfNeeded()
             await viewModel.reloadCloudUsageData()
+            await loadRemoteAccounts(clearFeedback: false)
         } catch {
             accountFeedback = InlineFeedback(
                 kind: cloudAccountDeleteFeedbackKind(error),
@@ -461,6 +477,10 @@ struct SyncPane: View {
         if !accounts.contains(where: { $0.id == selectedRemoteAccountID }) {
             selectedRemoteAccountID = accounts.first?.id ?? ""
         }
+    }
+
+    private func normalizedAccountName(_ accountName: String) -> String {
+        accountName.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
     }
 }
 
