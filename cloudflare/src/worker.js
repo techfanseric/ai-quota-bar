@@ -7,6 +7,10 @@ export default {
         return cors(new Response(null, { status: 204 }));
       }
 
+      if (request.method === "GET" && url.pathname === "/v1/app-update") {
+        return await appUpdateManifest(env);
+      }
+
       if (!isAuthorized(request, env)) {
         return json({ error: "unauthorized" }, 401);
       }
@@ -37,6 +41,60 @@ export default {
     }
   },
 };
+
+async function appUpdateManifest(env) {
+  const fallbackVersion = env.APP_LATEST_VERSION || "1.4.1";
+  const fallbackURL = env.APP_RELEASE_URL || `https://github.com/techfanseric/ai-quota-bar/releases/tag/v${fallbackVersion}`;
+  const fallbackDownloadURL = env.APP_DOWNLOAD_URL || `https://github.com/techfanseric/ai-quota-bar/releases/download/v${fallbackVersion}/AIQuotaBar.dmg`;
+
+  try {
+    const response = await fetch("https://api.github.com/repos/techfanseric/ai-quota-bar/releases/latest", {
+      headers: {
+        accept: "application/vnd.github+json",
+        "user-agent": "AIQuotaBar-UpdateProxy",
+      },
+      cf: {
+        cacheTtl: 300,
+        cacheEverything: true,
+      },
+    });
+
+    if (!response.ok) {
+      throw new Error(`github_${response.status}`);
+    }
+
+    const release = await response.json();
+    const version = normalizeVersion(release.tag_name || fallbackVersion);
+    const asset = Array.isArray(release.assets)
+      ? release.assets.find((item) => item && item.name === "AIQuotaBar.dmg")
+      : null;
+
+    return json({
+      ok: true,
+      source: "github-proxy",
+      version,
+      tag: release.tag_name || `v${version}`,
+      release_url: release.html_url || fallbackURL,
+      download_url: asset?.browser_download_url || fallbackDownloadURL,
+      published_at: release.published_at || null,
+    });
+  } catch (error) {
+    return json({
+      ok: true,
+      source: "worker-fallback",
+      version: normalizeVersion(fallbackVersion),
+      tag: `v${normalizeVersion(fallbackVersion)}`,
+      release_url: fallbackURL,
+      download_url: fallbackDownloadURL,
+      warning: error.message,
+    });
+  }
+}
+
+function normalizeVersion(value) {
+  const version = stringValue(value);
+  return version.toLowerCase().startsWith("v") ? version.slice(1) : version;
+}
 
 function isAuthorized(request, env) {
   const expected = env.SYNC_TOKEN || "";
@@ -127,11 +185,12 @@ async function listQuotaSamples(url, env) {
       `SELECT quota_samples.*
        FROM quota_samples
        INNER JOIN (
-         SELECT provider, model_id, MAX(sampled_at) AS sampled_at
+         SELECT provider, COALESCE(account_name, '') AS account_key, model_id, MAX(sampled_at) AS sampled_at
          FROM quota_samples
-         GROUP BY provider, model_id
+         GROUP BY provider, COALESCE(account_name, ''), model_id
        ) latest
          ON latest.provider = quota_samples.provider
+        AND latest.account_key = COALESCE(quota_samples.account_name, '')
         AND latest.model_id = quota_samples.model_id
         AND latest.sampled_at = quota_samples.sampled_at
        ORDER BY quota_samples.sampled_at DESC
@@ -145,13 +204,14 @@ async function listQuotaSamples(url, env) {
     `SELECT quota_samples.*
      FROM quota_samples
      INNER JOIN (
-       SELECT device_id, provider, model_id, MAX(sampled_at) AS sampled_at
+       SELECT device_id, provider, COALESCE(account_name, '') AS account_key, model_id, MAX(sampled_at) AS sampled_at
        FROM quota_samples
        WHERE device_id = ?
-       GROUP BY device_id, provider, model_id
+       GROUP BY device_id, provider, COALESCE(account_name, ''), model_id
      ) latest
        ON latest.device_id = quota_samples.device_id
       AND latest.provider = quota_samples.provider
+      AND latest.account_key = COALESCE(quota_samples.account_name, '')
       AND latest.model_id = quota_samples.model_id
       AND latest.sampled_at = quota_samples.sampled_at
      ORDER BY quota_samples.sampled_at DESC
@@ -184,6 +244,12 @@ async function listDevices(url, env) {
 }
 
 async function deleteDeviceData(url, env) {
+  const provider = stringValue(url.searchParams.get("provider"));
+  const accountName = stringValue(url.searchParams.get("account_name"));
+  if (provider) {
+    return await deleteAccountData(provider, accountName, env);
+  }
+
   const deviceID = stringValue(url.searchParams.get("device_id"));
   if (!deviceID) {
     return json({ error: "missing_device_id" }, 400);
@@ -204,6 +270,23 @@ async function deleteDeviceData(url, env) {
     deleted_quota_samples: changesCount(quotaResult),
     deleted_settings: changesCount(settingsResult),
     deleted_devices: changesCount(devicesResult),
+  });
+}
+
+async function deleteAccountData(provider, accountName, env) {
+  const quotaResult = accountName
+    ? await env.DB.prepare(
+      `DELETE FROM quota_samples WHERE provider = ? AND account_name = ?`
+    ).bind(provider, accountName).run()
+    : await env.DB.prepare(
+      `DELETE FROM quota_samples WHERE provider = ? AND (account_name IS NULL OR account_name = '')`
+    ).bind(provider).run();
+
+  return json({
+    ok: true,
+    deleted_quota_samples: changesCount(quotaResult),
+    deleted_settings: 0,
+    deleted_devices: 0,
   });
 }
 

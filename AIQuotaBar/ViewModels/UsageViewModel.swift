@@ -436,6 +436,59 @@ final class UsageViewModel {
         cloudProviderUsageData = [:]
     }
 
+    func reloadCloudUsageData() async {
+        await refreshCloudUsageData()
+    }
+
+    func loadedCloudRemoteAccountSummaries() -> [CloudRemoteAccountSummary] {
+        let explicitCloudModels = cloudProviderUsageData.values
+            .flatMap(\.models)
+        let displayedCloudModels = providerUsageData.values
+            .flatMap(\.models)
+            .filter { model in
+                let source = model.parsedDetail.source
+                return source == "Cloud" || source == "Mix"
+            }
+        let cloudModels = (explicitCloudModels + displayedCloudModels).filter { model in
+            let accountName = (model.accountName ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+            return !accountName.isEmpty
+        }
+        let grouped = Dictionary(grouping: cloudModels) { model in
+            [
+                model.provider.rawValue,
+                model.normalizedAccountName,
+            ].joined(separator: ":")
+        }
+
+        return grouped.values.compactMap { models in
+            guard let first = models.first,
+                  let accountName = first.accountName?.trimmingCharacters(in: .whitespacesAndNewlines),
+                  !accountName.isEmpty else {
+                return nil
+            }
+            let latestSampledAt = models.compactMap(\.sampledAt).max()
+                ?? cloudProviderUsageData[first.provider]?.timestamp
+                ?? .distantPast
+            let modelCount = Set(models.map(\.quotaIdentityKey)).count
+            return CloudRemoteAccountSummary(
+                provider: first.provider,
+                accountName: accountName,
+                latestSampledAt: latestSampledAt,
+                sampleCount: models.count,
+                modelCount: modelCount
+            )
+        }
+        .sorted { lhs, rhs in
+            if lhs.provider.rawValue != rhs.provider.rawValue {
+                return lhs.provider.rawValue < rhs.provider.rawValue
+            }
+            if lhs.latestSampledAt != rhs.latestSampledAt {
+                return lhs.latestSampledAt > rhs.latestSampledAt
+            }
+            return lhs.accountName.localizedStandardCompare(rhs.accountName) == .orderedAscending
+        }
+    }
+
     func clearLocalUsageData() {
         usageData = nil
         providerUsageData = [:]

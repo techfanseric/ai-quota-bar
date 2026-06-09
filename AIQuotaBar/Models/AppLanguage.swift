@@ -107,7 +107,7 @@ enum AppLanguage: String, CaseIterable, Codable, Identifiable {
             case .settings: return "Settings"
             case .updatesEyebrow: return "Updates"
             case .updatesTitle: return "App updates"
-            case .updatesDescription: return "Check the latest GitHub release and compare it with your current version."
+            case .updatesDescription: return "Check the latest app version and compare it with your current version."
             case .checkForUpdates: return "Check for updates"
             case .openReleasePage: return "Open release page"
             case .currentVersion: return "Current version"
@@ -209,7 +209,7 @@ enum AppLanguage: String, CaseIterable, Codable, Identifiable {
             case .settings: return "设置"
             case .updatesEyebrow: return "更新"
             case .updatesTitle: return "应用更新"
-            case .updatesDescription: return "检查 GitHub 最新 Release，并与当前版本进行对比。"
+            case .updatesDescription: return "检查应用最新版本，并与当前版本进行对比。"
             case .checkForUpdates: return "检查更新"
             case .openReleasePage: return "打开发布页"
             case .currentVersion: return "当前版本"
@@ -903,6 +903,42 @@ enum AppLanguage: String, CaseIterable, Codable, Identifiable {
         }
     }
 
+    func deleteRemoteAccountDataText() -> String {
+        switch self {
+        case .english:
+            return "Delete account cloud data"
+        case .simplifiedChinese:
+            return "删除账号云端数据"
+        }
+    }
+
+    func deleteRemoteAccountDataDescriptionText() -> String {
+        switch self {
+        case .english:
+            return "Delete Cloud samples for one provider account. Other accounts, local data, credentials, and preferences are kept."
+        case .simplifiedChinese:
+            return "按服务商账号删除 Cloud samples。其他账号、本地数据、凭据和偏好设置都会保留。"
+        }
+    }
+
+    func noRemoteAccountsText() -> String {
+        switch self {
+        case .english:
+            return "No cloud accounts"
+        case .simplifiedChinese:
+            return "没有云端账号"
+        }
+    }
+
+    func refreshText() -> String {
+        switch self {
+        case .english:
+            return "Refresh"
+        case .simplifiedChinese:
+            return "刷新"
+        }
+    }
+
     func deleteLocalDataConfirmationText() -> String {
         switch self {
         case .english:
@@ -921,6 +957,15 @@ enum AppLanguage: String, CaseIterable, Codable, Identifiable {
         }
     }
 
+    func deleteRemoteAccountDataConfirmationText(accountName: String) -> String {
+        switch self {
+        case .english:
+            return "This deletes Cloud quota samples for \(accountName). Local data and other cloud accounts are not deleted."
+        case .simplifiedChinese:
+            return "这会删除 \(accountName) 的 Cloud quota samples。本地数据和其他云端账号不会被删除。"
+        }
+    }
+
     func localDataDeletedText() -> String {
         switch self {
         case .english:
@@ -936,6 +981,15 @@ enum AppLanguage: String, CaseIterable, Codable, Identifiable {
             return "Remote data deleted: \(samples) samples, \(devices) devices."
         case .simplifiedChinese:
             return "远程数据已删除：\(samples) 条 samples，\(devices) 个设备。"
+        }
+    }
+
+    func remoteAccountDataDeletedText(accountName: String, samples: Int) -> String {
+        switch self {
+        case .english:
+            return "Cloud data deleted for \(accountName): \(samples) samples."
+        case .simplifiedChinese:
+            return "\(accountName) 的云端数据已删除：\(samples) 条 samples。"
         }
     }
 
