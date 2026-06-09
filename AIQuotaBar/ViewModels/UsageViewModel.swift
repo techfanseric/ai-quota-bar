@@ -82,7 +82,28 @@ final class UsageViewModel {
         }
     }
 
+    var cloudCurrentWindowVisibilityLimit: CloudDataVisibilityLimit {
+        didSet {
+            UserDefaults.standard.set(cloudCurrentWindowVisibilityLimit.rawValue, forKey: Self.cloudCurrentWindowVisibilityLimitKey)
+        }
+    }
+
+    var cloudShortCyclesVisibilityLimit: CloudDataVisibilityLimit {
+        didSet {
+            UserDefaults.standard.set(cloudShortCyclesVisibilityLimit.rawValue, forKey: Self.cloudShortCyclesVisibilityLimitKey)
+        }
+    }
+
+    var cloudWeeklyCyclesVisibilityLimit: CloudDataVisibilityLimit {
+        didSet {
+            UserDefaults.standard.set(cloudWeeklyCyclesVisibilityLimit.rawValue, forKey: Self.cloudWeeklyCyclesVisibilityLimitKey)
+        }
+    }
+
     private static let utilizationHistoryModeKey = "utilizationHistoryMode"
+    private static let cloudCurrentWindowVisibilityLimitKey = "cloudCurrentWindowVisibilityLimit"
+    private static let cloudShortCyclesVisibilityLimitKey = "cloudShortCyclesVisibilityLimit"
+    private static let cloudWeeklyCyclesVisibilityLimitKey = "cloudWeeklyCyclesVisibilityLimit"
 
     // MARK: - Computed Properties
 
@@ -257,6 +278,15 @@ final class UsageViewModel {
         self.utilizationHistoryMode = UserDefaults.standard.string(forKey: Self.utilizationHistoryModeKey)
             .flatMap(UtilizationHistoryMode.init(rawValue:))
             ?? .includeCurrent
+        self.cloudCurrentWindowVisibilityLimit = UserDefaults.standard.string(forKey: Self.cloudCurrentWindowVisibilityLimitKey)
+            .flatMap(CloudDataVisibilityLimit.init(rawValue:))
+            ?? .oneHour
+        self.cloudShortCyclesVisibilityLimit = UserDefaults.standard.string(forKey: Self.cloudShortCyclesVisibilityLimitKey)
+            .flatMap(CloudDataVisibilityLimit.init(rawValue:))
+            ?? .fiveHours
+        self.cloudWeeklyCyclesVisibilityLimit = UserDefaults.standard.string(forKey: Self.cloudWeeklyCyclesVisibilityLimitKey)
+            .flatMap(CloudDataVisibilityLimit.init(rawValue:))
+            ?? .oneWeek
 
         loadUtilizationHistories()
         updateStatusBarText()

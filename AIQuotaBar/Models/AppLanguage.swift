@@ -1058,6 +1058,69 @@ enum AppLanguage: String, CaseIterable, Codable, Identifiable {
         }
     }
 
+    func cloudCurrentWindowVisibilityLimitLabel() -> String {
+        switch self {
+        case .english: return "Cloud current chart"
+        case .simplifiedChinese: return "Cloud 当前图"
+        }
+    }
+
+    func cloudCurrentWindowVisibilityLimitDescription() -> String {
+        switch self {
+        case .english:
+            return "Hide the current chart for Cloud-only accounts when the latest remote report is older than this value. Mix and local accounts are unaffected."
+        case .simplifiedChinese:
+            return "纯 Cloud 账号的最新云端上报超过这个时间后，隐藏当前曲线/当前柱图。Mix 和本机账号不受影响。"
+        }
+    }
+
+    func cloudShortCyclesVisibilityLimitLabel() -> String {
+        switch self {
+        case .english: return "Cloud 5h cycles"
+        case .simplifiedChinese: return "Cloud 5h cycles"
+        }
+    }
+
+    func cloudShortCyclesVisibilityLimitDescription() -> String {
+        switch self {
+        case .english:
+            return "Hide 5-hour cycle history bars for Cloud-only accounts when the cycle reset time is older than this value."
+        case .simplifiedChinese:
+            return "纯 Cloud 账号的 5h 历史 cycles，如果对应 reset 时间早于这个范围就隐藏。"
+        }
+    }
+
+    func cloudWeeklyCyclesVisibilityLimitLabel() -> String {
+        switch self {
+        case .english: return "Cloud weekly cycles"
+        case .simplifiedChinese: return "Cloud weekly cycles"
+        }
+    }
+
+    func cloudWeeklyCyclesVisibilityLimitDescription() -> String {
+        switch self {
+        case .english:
+            return "Hide weekly cycle history bars for Cloud-only accounts when the cycle reset time is older than this value."
+        case .simplifiedChinese:
+            return "纯 Cloud 账号的 weekly 历史 cycles，如果对应 reset 时间早于这个范围就隐藏。"
+        }
+    }
+
+    func cloudDataVisibilityLimitDisplayName(_ limit: CloudDataVisibilityLimit) -> String {
+        switch (self, limit) {
+        case (.english, .oneHour): return "1 hour"
+        case (.english, .fiveHours): return "5 hours"
+        case (.english, .oneDay): return "1 day"
+        case (.english, .oneWeek): return "1 week"
+        case (.english, .never): return "Never hide"
+        case (.simplifiedChinese, .oneHour): return "1 小时"
+        case (.simplifiedChinese, .fiveHours): return "5 小时"
+        case (.simplifiedChinese, .oneDay): return "1 天"
+        case (.simplifiedChinese, .oneWeek): return "1 周"
+        case (.simplifiedChinese, .never): return "永不隐藏"
+        }
+    }
+
     /// 跟 codexbar 的 UsagePaceText 文案完全对齐。
     /// onTrack → "On pace" / "节奏正常"（不显示 delta）
     /// ahead（实际 > 预期，deficit）→ "X% in deficit" / "超额 X%"
