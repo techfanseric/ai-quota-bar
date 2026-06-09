@@ -9,7 +9,7 @@ struct MenuView: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            ScrollView {
+            ScrollView(.vertical, showsIndicators: false) {
                 modelsList
                     .fixedSize(horizontal: false, vertical: true)
             }
@@ -719,17 +719,19 @@ private struct ModelRow: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
-            HStack(spacing: 8) {
-                Text(model.modelName)
-                    .font(.system(size: 11, weight: .medium))
-                    .lineLimit(1)
+            if !isCyclesOnly {
+                HStack(spacing: 8) {
+                    Text(model.modelName)
+                        .font(.system(size: 11, weight: .medium))
+                        .lineLimit(1)
 
-                Spacer()
+                    Spacer()
 
-                if isCurrentWindow {
-                    Text(model.currentIntervalRemainingText)
-                        .font(.system(size: 13, weight: .semibold, design: .rounded))
-                        .foregroundStyle(tint)
+                    if isCurrentWindow {
+                        Text(model.currentIntervalRemainingText)
+                            .font(.system(size: 13, weight: .semibold, design: .rounded))
+                            .foregroundStyle(tint)
+                    }
                 }
             }
 
@@ -872,6 +874,10 @@ private struct ModelRow: View {
         guard let startTime = model.startTime, let endTime = model.endTime else { return true }
         let now = Date()
         return startTime <= now && now <= endTime
+    }
+
+    private var isCyclesOnly: Bool {
+        !isCurrentWindow && !cycles.isEmpty
     }
 
     private var resetsText: String? {

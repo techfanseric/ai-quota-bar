@@ -327,6 +327,74 @@ final class CloudSyncService {
         return try decoder.decode(CloudDeleteDataResponse.self, from: responseData)
     }
 
+    func deleteRemoteAccountData(
+        provider: UsageProvider,
+        accountName: String,
+        endpointURLString: String,
+        token: String
+    ) async throws -> CloudDeleteDataResponse {
+        let providerValue = Self.queryEscaped(provider.rawValue)
+        let accountValue = Self.queryEscaped(accountName)
+        let request = try makeRequest(
+            endpointURLString: endpointURLString,
+            path: "/v1/data?provider=\(providerValue)&account_name=\(accountValue)",
+            token: token.trimmingCharacters(in: .whitespacesAndNewlines),
+            method: "DELETE"
+        )
+        let responseData = try await data(for: request)
+        let decoder = JSONDecoder()
+        return try decoder.decode(CloudDeleteDataResponse.self, from: responseData)
+    }
+
+    func fetchRemoteAccountSummaries(
+        endpointURLString: String,
+        token: String,
+        limit: Int = 500
+    ) async throws -> [CloudRemoteAccountSummary] {
+        let request = try makeRequest(
+            endpointURLString: endpointURLString,
+            path: "/v1/quota-samples?limit=\(limit)",
+            token: token.trimmingCharacters(in: .whitespacesAndNewlines),
+            method: "GET"
+        )
+        let responseData = try await data(for: request)
+        let decoder = JSONDecoder()
+        let response = try decoder.decode(CloudQuotaSamplesResponse.self, from: responseData)
+
+        let grouped = Dictionary(grouping: response.samples) { sample in
+            [
+                sample.provider.trimmingCharacters(in: .whitespacesAndNewlines).lowercased(),
+                (sample.accountName ?? "").trimmingCharacters(in: .whitespacesAndNewlines).lowercased(),
+            ].joined(separator: ":")
+        }
+
+        return grouped.values.compactMap { samples in
+            guard let first = samples.first,
+                  let provider = UsageProvider(rawValue: first.provider) else {
+                return nil
+            }
+            let accountName = (first.accountName ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+            let latestSampledAt = samples.map(\.sampledDate).max() ?? .distantPast
+            let modelCount = Set(samples.map { $0.modelID ?? $0.modelName }).count
+            return CloudRemoteAccountSummary(
+                provider: provider,
+                accountName: accountName,
+                latestSampledAt: latestSampledAt,
+                sampleCount: samples.count,
+                modelCount: modelCount
+            )
+        }
+        .sorted { lhs, rhs in
+            if lhs.provider.rawValue != rhs.provider.rawValue {
+                return lhs.provider.rawValue < rhs.provider.rawValue
+            }
+            if lhs.latestSampledAt != rhs.latestSampledAt {
+                return lhs.latestSampledAt > rhs.latestSampledAt
+            }
+            return lhs.accountName.localizedStandardCompare(rhs.accountName) == .orderedAscending
+        }
+    }
+
     func fetchRemoteUsageData(limit: Int = 500) async throws -> [UsageProvider: UsageData] {
         let request = try makeRequest(
             endpointURLString: CloudSyncSettings.defaultEndpointURLString,
@@ -877,6 +945,22 @@ struct CloudDeleteDataResponse: Decodable {
         case deletedQuotaSamples = "deleted_quota_samples"
         case deletedDevices = "deleted_devices"
         case deletedSettings = "deleted_settings"
+    }
+}
+
+struct CloudRemoteAccountSummary: Identifiable, Hashable {
+    let provider: UsageProvider
+    let accountName: String
+    let latestSampledAt: Date
+    let sampleCount: Int
+    let modelCount: Int
+
+    var id: String {
+        "\(provider.rawValue):\(accountName.trimmingCharacters(in: .whitespacesAndNewlines).lowercased())"
+    }
+
+    var displayAccountName: String {
+        accountName.isEmpty ? "No account" : accountName
     }
 }
 

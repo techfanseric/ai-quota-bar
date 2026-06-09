@@ -10,8 +10,13 @@ struct GeneralPane: View {
     @State private var isOpeningCloudData: Bool = false
     @State private var isDeletingLocalData: Bool = false
     @State private var isDeletingRemoteData: Bool = false
+    @State private var isLoadingRemoteAccounts: Bool = false
+    @State private var isDeletingRemoteAccountData: Bool = false
     @State private var isConfirmingLocalDelete: Bool = false
     @State private var isConfirmingRemoteDelete: Bool = false
+    @State private var isConfirmingRemoteAccountDelete: Bool = false
+    @State private var remoteAccounts: [CloudRemoteAccountSummary] = []
+    @State private var selectedRemoteAccountID: String = ""
 
     private var language: AppLanguage { viewModel.appLanguage }
 
@@ -176,6 +181,8 @@ struct GeneralPane: View {
                     .foregroundStyle(.tertiary)
                     .fixedSize(horizontal: false, vertical: true)
 
+                remoteAccountManagement
+
                 HStack(spacing: 10) {
                     Button(role: .destructive) {
                         isConfirmingLocalDelete = true
@@ -184,7 +191,7 @@ struct GeneralPane: View {
                     }
                     .buttonStyle(.bordered)
                     .controlSize(.small)
-                    .disabled(isDeletingLocalData || isDeletingRemoteData)
+                    .disabled(isDeletingLocalData || isDeletingRemoteData || isDeletingRemoteAccountData)
 
                     Button(role: .destructive) {
                         isConfirmingRemoteDelete = true
@@ -193,9 +200,9 @@ struct GeneralPane: View {
                     }
                     .buttonStyle(.bordered)
                     .controlSize(.small)
-                    .disabled(isDeletingRemoteData)
+                    .disabled(isDeletingRemoteData || isDeletingRemoteAccountData)
 
-                    if isDeletingLocalData || isDeletingRemoteData {
+                    if isDeletingLocalData || isDeletingRemoteData || isLoadingRemoteAccounts || isDeletingRemoteAccountData {
                         ProgressView()
                             .controlSize(.small)
                     }
@@ -236,6 +243,85 @@ struct GeneralPane: View {
         } message: {
             Text(language.deleteRemoteDataConfirmationText())
         }
+        .confirmationDialog(
+            language.deleteRemoteAccountDataText(),
+            isPresented: $isConfirmingRemoteAccountDelete,
+            titleVisibility: .visible
+        ) {
+            if let account = selectedRemoteAccount {
+                Button(language.deleteRemoteAccountDataText(), role: .destructive) {
+                    Task { await deleteRemoteAccountData(account) }
+                }
+            }
+            Button(role: .cancel) {
+            } label: {
+                Text(language.cancelText())
+            }
+        } message: {
+            Text(language.deleteRemoteAccountDataConfirmationText(accountName: selectedRemoteAccount?.displayAccountName ?? ""))
+        }
+        .task {
+            if viewModel.cloudSyncEnabled, remoteAccounts.isEmpty {
+                await loadRemoteAccounts()
+            }
+        }
+    }
+
+    private var remoteAccountManagement: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Text(language.deleteRemoteAccountDataDescriptionText())
+                .font(.footnote)
+                .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+
+            HStack(spacing: 8) {
+                Picker("", selection: $selectedRemoteAccountID) {
+                    if remoteAccounts.isEmpty {
+                        Text(language.noRemoteAccountsText()).tag("")
+                    } else {
+                        ForEach(remoteAccounts) { account in
+                            Text(remoteAccountLabel(account)).tag(account.id)
+                        }
+                    }
+                }
+                .labelsHidden()
+                .frame(maxWidth: 360)
+                .disabled(remoteAccounts.isEmpty || isLoadingRemoteAccounts || isDeletingRemoteAccountData)
+
+                Button {
+                    Task { await loadRemoteAccounts() }
+                } label: {
+                    Label(language.refreshText(), systemImage: "arrow.clockwise")
+                }
+                .buttonStyle(.bordered)
+                .controlSize(.small)
+                .disabled(!viewModel.cloudSyncEnabled || isLoadingRemoteAccounts || isDeletingRemoteAccountData)
+
+                Button(role: .destructive) {
+                    isConfirmingRemoteAccountDelete = true
+                } label: {
+                    Label(language.deleteRemoteAccountDataText(), systemImage: "person.crop.circle.badge.xmark")
+                }
+                .buttonStyle(.bordered)
+                .controlSize(.small)
+                .disabled(selectedRemoteAccount == nil || isLoadingRemoteAccounts || isDeletingRemoteAccountData)
+            }
+        }
+    }
+
+    private var selectedRemoteAccount: CloudRemoteAccountSummary? {
+        remoteAccounts.first { $0.id == selectedRemoteAccountID }
+    }
+
+    private func remoteAccountLabel(_ account: CloudRemoteAccountSummary) -> String {
+        "\(account.provider.displayName) · \(account.displayAccountName) · \(account.modelCount) models · \(shortDateTime(account.latestSampledAt))"
+    }
+
+    private func shortDateTime(_ date: Date) -> String {
+        let formatter = DateFormatter()
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        formatter.dateFormat = "MM/dd HH:mm"
+        return formatter.string(from: date)
     }
 
     private func testCloudSync() async {
@@ -319,6 +405,88 @@ struct GeneralPane: View {
             )
         }
         isDeletingRemoteData = false
+    }
+
+    private func loadRemoteAccounts() async {
+        guard viewModel.cloudSyncEnabled else { return }
+        isLoadingRemoteAccounts = true
+        cloudSyncTestResult = nil
+        let cachedAccounts = viewModel.loadedCloudRemoteAccountSummaries()
+        if !cachedAccounts.isEmpty {
+            applyRemoteAccounts(cachedAccounts)
+        }
+        do {
+            let accounts = try await CloudSyncService.shared.fetchRemoteAccountSummaries(
+                endpointURLString: viewModel.effectiveCloudSyncEndpointURL(),
+                token: viewModel.effectiveCloudSyncToken()
+            )
+            applyRemoteAccounts(mergeRemoteAccounts(cachedAccounts, accounts))
+        } catch {
+            if cachedAccounts.isEmpty {
+                cloudSyncTestResult = InlineFeedback(
+                    kind: .error,
+                    message: error.localizedDescription
+                )
+            }
+        }
+        isLoadingRemoteAccounts = false
+    }
+
+    private func applyRemoteAccounts(_ accounts: [CloudRemoteAccountSummary]) {
+        remoteAccounts = accounts
+        if !accounts.contains(where: { $0.id == selectedRemoteAccountID }) {
+            selectedRemoteAccountID = accounts.first?.id ?? ""
+        }
+    }
+
+    private func mergeRemoteAccounts(
+        _ cachedAccounts: [CloudRemoteAccountSummary],
+        _ fetchedAccounts: [CloudRemoteAccountSummary]
+    ) -> [CloudRemoteAccountSummary] {
+        var byID: [String: CloudRemoteAccountSummary] = [:]
+        for account in cachedAccounts {
+            byID[account.id] = account
+        }
+        for account in fetchedAccounts {
+            byID[account.id] = account
+        }
+        return byID.values.sorted { lhs, rhs in
+            if lhs.provider.rawValue != rhs.provider.rawValue {
+                return lhs.provider.rawValue < rhs.provider.rawValue
+            }
+            if lhs.latestSampledAt != rhs.latestSampledAt {
+                return lhs.latestSampledAt > rhs.latestSampledAt
+            }
+            return lhs.accountName.localizedStandardCompare(rhs.accountName) == .orderedAscending
+        }
+    }
+
+    private func deleteRemoteAccountData(_ account: CloudRemoteAccountSummary) async {
+        isDeletingRemoteAccountData = true
+        cloudSyncTestResult = nil
+        do {
+            let result = try await CloudSyncService.shared.deleteRemoteAccountData(
+                provider: account.provider,
+                accountName: account.accountName,
+                endpointURLString: viewModel.effectiveCloudSyncEndpointURL(),
+                token: viewModel.effectiveCloudSyncToken()
+            )
+            cloudSyncTestResult = InlineFeedback(
+                kind: .success,
+                message: language.remoteAccountDataDeletedText(
+                    accountName: account.displayAccountName,
+                    samples: result.deletedQuotaSamples
+                )
+            )
+            await loadRemoteAccounts()
+            await viewModel.reloadCloudUsageData()
+        } catch {
+            cloudSyncTestResult = InlineFeedback(
+                kind: .error,
+                message: error.localizedDescription
+            )
+        }
+        isDeletingRemoteAccountData = false
     }
 
     // MARK: - QUIT
