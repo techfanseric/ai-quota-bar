@@ -134,6 +134,17 @@ async function storeQuotaSamples(request, env) {
       continue;
     }
 
+    const currentRemainingPercent = nullableInteger(model.currentIntervalRemainingPercent);
+    const storedCurrentTotal = currentRemainingPercent === null
+      ? integerValue(model.currentIntervalTotal)
+      : 100;
+    const storedCurrentRemaining = currentRemainingPercent === null
+      ? integerValue(model.currentIntervalRemaining)
+      : currentRemainingPercent;
+    const storedValueSuffix = currentRemainingPercent === null
+      ? nullableString(model.valueSuffix)
+      : "%";
+
     statements.push(
       env.DB.prepare(
         `INSERT OR REPLACE INTO quota_samples (
@@ -162,15 +173,15 @@ async function storeQuotaSamples(request, env) {
         nullableString(model.accountName),
         modelID,
         modelName,
-        integerValue(model.currentIntervalTotal),
-        integerValue(model.currentIntervalRemaining),
+        storedCurrentTotal,
+        storedCurrentRemaining,
         integerValue(model.weeklyTotal),
         integerValue(model.weeklyRemaining),
         nullableString(model.resetStartTime),
         nullableString(model.resetEndTime),
         nullableString(model.weeklyStartTime),
         nullableString(model.weeklyEndTime),
-        nullableString(model.valueSuffix),
+        storedValueSuffix,
         nullableString(model.detailText),
         sampledAt
       )
@@ -383,6 +394,11 @@ function nullableString(value) {
 function integerValue(value) {
   const next = Number(value);
   return Number.isFinite(next) ? Math.trunc(next) : 0;
+}
+
+function nullableInteger(value) {
+  const next = Number(value);
+  return Number.isFinite(next) ? Math.trunc(next) : null;
 }
 
 function retentionDaysValue(value) {

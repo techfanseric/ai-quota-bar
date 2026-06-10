@@ -1,6 +1,6 @@
 请实现一个 macOS menu-bar 应用（Swift，macOS 14+），用于监控 MiniMax API 使用量，具体要求：
 
-1. 应用启动后自动调用 MiniMax 余额查询 API（`https://www.minimaxi.com/v1/api/openplatform/coding_plan/remains`），在菜单栏图标旁边显示剩余额度数字（可自定义刷新间隔，默认每 60 秒自动刷新）。点击菜单栏图标展开下拉菜单，显示详细用量信息。
+1. 应用启动后自动调用 MiniMax 余额查询 API（`https://www.minimaxi.com/v1/api/openplatform/coding_plan/remains`），在菜单栏图标旁边显示剩余额度数字（可自定义刷新间隔，默认每 600 秒自动刷新）。点击菜单栏图标展开下拉菜单，显示详细用量信息。
 2. 菜单栏下拉内容包含：
    - 当前账户剩余额度（tokens/credits）
    - 最近一次刷新时间

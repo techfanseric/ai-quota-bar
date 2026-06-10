@@ -576,7 +576,7 @@ final class CloudSyncService {
             let endTime = sample.resetEndDate
             let remaining = max(0, sample.currentIntervalRemaining)
             let total = max(0, sample.currentIntervalTotal)
-            let percent = sample.valueSuffix == "%" || total == 100 ? remaining : nil
+            let percent = sample.chartPercent
             return ModelUsageData(
                 provider: provider,
                 accountName: sample.accountName,
@@ -1255,8 +1255,10 @@ private struct CloudRemoteQuotaSample: Decodable {
     let modelName: String
     let currentIntervalTotal: Int
     let currentIntervalRemaining: Int
+    let currentIntervalRemainingPercent: Int?
     let weeklyTotal: Int
     let weeklyRemaining: Int
+    let weeklyRemainingPercent: Int?
     let resetStartTime: String?
     let resetEndTime: String?
     let weeklyStartTime: String?
@@ -1274,8 +1276,10 @@ private struct CloudRemoteQuotaSample: Decodable {
         self.modelName = try container.decode(String.self, forKey: .modelName)
         self.currentIntervalTotal = try container.decodeIfPresent(Int.self, forKey: .currentIntervalTotal) ?? 0
         self.currentIntervalRemaining = try container.decodeIfPresent(Int.self, forKey: .currentIntervalRemaining) ?? 0
+        self.currentIntervalRemainingPercent = try container.decodeIfPresent(Int.self, forKey: .currentIntervalRemainingPercent)
         self.weeklyTotal = try container.decodeIfPresent(Int.self, forKey: .weeklyTotal) ?? 0
         self.weeklyRemaining = try container.decodeIfPresent(Int.self, forKey: .weeklyRemaining) ?? 0
+        self.weeklyRemainingPercent = try container.decodeIfPresent(Int.self, forKey: .weeklyRemainingPercent)
         self.resetStartTime = try container.decodeIfPresent(String.self, forKey: .resetStartTime)
         self.resetEndTime = try container.decodeIfPresent(String.self, forKey: .resetEndTime)
         self.weeklyStartTime = try container.decodeIfPresent(String.self, forKey: .weeklyStartTime)
@@ -1292,6 +1296,9 @@ private struct CloudRemoteQuotaSample: Decodable {
     }
 
     var chartPercent: Int? {
+        if let currentIntervalRemainingPercent {
+            return currentIntervalRemainingPercent
+        }
         if valueSuffix == "%" || currentIntervalTotal == 100 {
             return currentIntervalRemaining
         }
@@ -1392,8 +1399,10 @@ private struct CloudRemoteQuotaSample: Decodable {
         case modelName = "model_name"
         case currentIntervalTotal = "current_interval_total"
         case currentIntervalRemaining = "current_interval_remaining"
+        case currentIntervalRemainingPercent = "current_interval_remaining_percent"
         case weeklyTotal = "weekly_total"
         case weeklyRemaining = "weekly_remaining"
+        case weeklyRemainingPercent = "weekly_remaining_percent"
         case resetStartTime = "reset_start_time"
         case resetEndTime = "reset_end_time"
         case weeklyStartTime = "weekly_start_time"
@@ -1422,8 +1431,10 @@ struct CloudModelQuotaPayload: Codable {
     let modelName: String
     let currentIntervalTotal: Int
     let currentIntervalRemaining: Int
+    let currentIntervalRemainingPercent: Int?
     let weeklyTotal: Int
     let weeklyRemaining: Int
+    let weeklyRemainingPercent: Int?
     let resetStartTime: Date?
     let resetEndTime: Date?
     let weeklyStartTime: Date?
@@ -1436,15 +1447,22 @@ struct CloudModelQuotaPayload: Codable {
         self.accountName = model.accountName
         self.modelID = model.id
         self.modelName = model.modelName
-        self.currentIntervalTotal = model.currentIntervalTotal
-        self.currentIntervalRemaining = model.currentIntervalRemaining
+        if let percent = model.currentIntervalRemainingPercent {
+            self.currentIntervalTotal = 100
+            self.currentIntervalRemaining = percent
+        } else {
+            self.currentIntervalTotal = model.currentIntervalTotal
+            self.currentIntervalRemaining = model.currentIntervalRemaining
+        }
+        self.currentIntervalRemainingPercent = model.currentIntervalRemainingPercent
         self.weeklyTotal = model.weeklyTotal
         self.weeklyRemaining = model.weeklyRemaining
+        self.weeklyRemainingPercent = model.weeklyRemainingPercent
         self.resetStartTime = model.startTime
         self.resetEndTime = model.endTime
         self.weeklyStartTime = model.weeklyStartTime
         self.weeklyEndTime = model.weeklyEndTime
-        self.valueSuffix = model.valueSuffix
+        self.valueSuffix = model.currentIntervalRemainingPercent == nil ? model.valueSuffix : "%"
         self.detailText = model.detailText
     }
 }
