@@ -19,8 +19,10 @@ final class UsageViewModel {
     var lastRefreshTime: Date?
     var showWarningPanel: Bool = false
     private(set) var modelQuotaSamples: [String: [ModelQuotaSample]] = [:]
+    private var cloudModelQuotaSamples: [String: [ModelQuotaSample]] = [:]
     private var utilizationHistories: [UsageProvider: ModelUtilizationStoreData] = [:]
     private let utilizationStore = ModelUtilizationHistoryStore.shared
+    private let quotaSampleStore = ModelQuotaSampleStore.shared
     private let utilizationSampleThrottle: TimeInterval = 3600
 
     // MARK: - Settings
@@ -310,6 +312,7 @@ final class UsageViewModel {
         self.cloudDataRetentionLimit = .current
 
         loadUtilizationHistories()
+        modelQuotaSamples = quotaSampleStore.loadAll()
         updateStatusBarText()
         if cloudSyncEnabled {
             Task { @MainActor in
@@ -508,6 +511,7 @@ final class UsageViewModel {
         modelQuotaSamples = modelQuotaSamples.filter { modelID, _ in
             Self.normalizedAccountName(Self.accountName(fromModelID: modelID)) != normalizedAccountName
         }
+        quotaSampleStore.saveAll(modelQuotaSamples)
 
         for provider in UsageProvider.allCases {
             guard var store = utilizationHistories[provider] else { continue }
@@ -581,7 +585,9 @@ final class UsageViewModel {
         error = nil
         lastRefreshTime = nil
         modelQuotaSamples = [:]
+        cloudModelQuotaSamples = [:]
         utilizationHistories = [:]
+        quotaSampleStore.clearAll()
         utilizationStore.clearAll()
         CloudSyncService.shared.clearPendingQueue()
         updateStatusBarText()
@@ -603,7 +609,9 @@ final class UsageViewModel {
 #if DEBUG
         return syntheticMinuteSamples(for: model, startTime: startTime, endTime: endTime)
 #else
-        return (modelQuotaSamples[model.id] ?? [])
+        let localSamples = modelQuotaSamples[model.id] ?? []
+        let remoteSamples = cloudModelQuotaSamples[model.id] ?? []
+        return Self.mergedQuotaSamples(localSamples, remoteSamples)
             .filter { $0.timestamp >= startTime && $0.timestamp <= endTime }
             .sorted { $0.timestamp < $1.timestamp }
 #endif
@@ -830,6 +838,7 @@ final class UsageViewModel {
             }
         } else {
             cloudProviderUsageData = [:]
+            cloudModelQuotaSamples = [:]
         }
     }
 
@@ -841,10 +850,18 @@ final class UsageViewModel {
 
         do {
             cloudProviderUsageData = try await CloudSyncService.shared.fetchRemoteUsageData()
+            do {
+                cloudModelQuotaSamples = try await CloudSyncService.shared.fetchRemoteModelQuotaSamples()
+            } catch {
+                cloudModelQuotaSamples = [:]
+                cloudUsageLoadError = error.localizedDescription
+                return
+            }
             cloudUsageLoadError = nil
         } catch {
             // Cloud rows are supplemental. Keep local quota usable if remote history cannot load.
             cloudProviderUsageData = [:]
+            cloudModelQuotaSamples = [:]
             cloudUsageLoadError = error.localizedDescription
         }
     }
@@ -978,6 +995,15 @@ final class UsageViewModel {
         }
 
         modelQuotaSamples = nextSamples
+        quotaSampleStore.saveAll(modelQuotaSamples)
+    }
+
+    private static func mergedQuotaSamples(_ lhs: [ModelQuotaSample], _ rhs: [ModelQuotaSample]) -> [ModelQuotaSample] {
+        var byTimestamp = Dictionary(uniqueKeysWithValues: lhs.map { ($0.id, $0) })
+        for sample in rhs {
+            byTimestamp[sample.id] = sample
+        }
+        return byTimestamp.values.sorted { $0.timestamp < $1.timestamp }
     }
 
     private func checkThreshold() {

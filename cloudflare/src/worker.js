@@ -190,6 +190,30 @@ async function storeQuotaSamples(request, env) {
 async function listQuotaSamples(url, env) {
   const deviceID = url.searchParams.get("device_id");
   const limit = Math.min(Math.max(Number(url.searchParams.get("limit") || 100), 1), 500);
+  const includeHistory = url.searchParams.get("history") === "1";
+
+  if (includeHistory) {
+    if (deviceID) {
+      const result = await env.DB.prepare(
+        `SELECT quota_samples.*
+         FROM quota_samples
+         WHERE device_id = ?
+         ORDER BY sampled_at DESC
+         LIMIT ?`
+      ).bind(deviceID, limit).all();
+
+      return json({ ok: true, samples: result.results || [] });
+    }
+
+    const result = await env.DB.prepare(
+      `SELECT quota_samples.*
+       FROM quota_samples
+       ORDER BY sampled_at DESC
+       LIMIT ?`
+    ).bind(limit).all();
+
+    return json({ ok: true, samples: result.results || [] });
+  }
 
   if (!deviceID) {
     const result = await env.DB.prepare(
