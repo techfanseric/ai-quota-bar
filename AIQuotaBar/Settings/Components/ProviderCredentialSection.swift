@@ -10,6 +10,7 @@ struct ProviderCredentialSection: View {
     let isTesting: Bool
     let feedback: InlineFeedback?
     let onTest: () -> Void
+    let onSave: () -> Void
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
@@ -26,6 +27,15 @@ struct ProviderCredentialSection: View {
                 .fixedSize(horizontal: false, vertical: true)
 
             HStack(spacing: 10) {
+                Button {
+                    onSave()
+                } label: {
+                    Label(language.text(.saveChanges), systemImage: "checkmark.circle")
+                }
+                .buttonStyle(.borderedProminent)
+                .controlSize(.small)
+                .disabled(isTesting)
+
                 Button {
                     onTest()
                 } label: {

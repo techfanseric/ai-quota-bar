@@ -8,22 +8,16 @@ struct ProvidersPane: View {
 
     @State private var selectedProvider: UsageProvider? = nil
     @State private var miniMaxCredential: String = ""
-    @State private var glmCredential: String = ""
     @State private var miniMaxInputID: UUID = UUID()
-    @State private var glmInputID: UUID = UUID()
     @State private var codexSourceMode: CodexDataSourceMode = .default
     @State private var codexAccounts: [CodexAccountDraft] = []
     @State private var miniMaxTestResult: InlineFeedback? = nil
-    @State private var glmTestResult: InlineFeedback? = nil
     @State private var isTestingMiniMax: Bool = false
-    @State private var isTestingGLM: Bool = false
 
     private var language: AppLanguage { viewModel.appLanguage }
 
     private var availableProviders: [UsageProvider] {
-        viewModel.configuredProviders.isEmpty
-            ? UsageProvider.allCases
-            : viewModel.configuredProviders
+        UsageProvider.allCases
     }
 
     private var currentProvider: UsageProvider {
@@ -42,16 +36,13 @@ struct ProvidersPane: View {
                 provider: currentProvider,
                 viewModel: viewModel,
                 miniMaxCredential: $miniMaxCredential,
-                glmCredential: $glmCredential,
                 codexSourceMode: $codexSourceMode,
                 codexAccounts: codexAccounts,
                 miniMaxTestResult: miniMaxTestResult,
-                glmTestResult: glmTestResult,
                 isTestingMiniMax: isTestingMiniMax,
-                isTestingGLM: isTestingGLM,
                 miniMaxInputID: miniMaxInputID,
-                glmInputID: glmInputID,
                 onTestConnection: testConnection,
+                onSaveCredential: saveCredential,
                 onAddCodexAccount: addCodexAccount,
                 onRemoveCodexAccount: removeCodexAccount,
                 onRefreshCodexAccount: refreshCodexAccount,
@@ -104,6 +95,7 @@ struct ProvidersPane: View {
                         .frame(width: 6, height: 6)
                 }
             }
+            .frame(maxWidth: .infinity, alignment: .leading)
             .padding(.horizontal, 16)
             .padding(.vertical, 8)
             .background(
@@ -111,6 +103,7 @@ struct ProvidersPane: View {
                     ? Color.accentColor.opacity(0.12)
                     : Color.clear
             )
+            .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
     }
@@ -118,8 +111,8 @@ struct ProvidersPane: View {
     private func iconName(for provider: UsageProvider) -> String {
         switch provider {
         case .miniMax: return "circle.hexagongrid"
-        case .glm: return "rectangle.grid.2x2"
         case .codex: return "terminal"
+        case .glm: return "rectangle.grid.2x2"
         }
     }
 
@@ -127,9 +120,7 @@ struct ProvidersPane: View {
 
     private func loadFromViewModel() {
         miniMaxCredential = KeychainService.shared.getCredential(for: .miniMax) ?? ""
-        glmCredential = KeychainService.shared.getCredential(for: .glm) ?? ""
         miniMaxInputID = UUID()
-        glmInputID = UUID()
         codexSourceMode = CodexService.shared.sourceMode
         codexAccounts = CodexAccountCoordinator.shared.listAccountDrafts()
     }
@@ -166,7 +157,14 @@ struct ProvidersPane: View {
     private func saveCredential(_ credential: String, for provider: UsageProvider) -> Bool {
         let trimmedCredential = credential.trimmingCharacters(in: .whitespacesAndNewlines)
         if trimmedCredential.isEmpty {
-            return KeychainService.shared.deleteCredential(for: provider)
+            let success = KeychainService.shared.deleteCredential(for: provider)
+            if success {
+                setFeedback(InlineFeedback(kind: .success, message: language.text(.settingsSaved)), for: provider)
+                Task { await viewModel.refresh() }
+            } else {
+                setFeedback(InlineFeedback(kind: .error, message: language.text(.apiKeySaveFailed)), for: provider)
+            }
+            return success
         }
         let preparedCredential: String
         do {
@@ -180,8 +178,10 @@ struct ProvidersPane: View {
         }
         let success = KeychainService.shared.saveCredential(preparedCredential, for: provider)
         if success {
-            setFeedback(nil, for: provider)
+            setFeedback(InlineFeedback(kind: .success, message: language.text(.settingsSaved)), for: provider)
             Task { await viewModel.refresh() }
+        } else {
+            setFeedback(InlineFeedback(kind: .error, message: language.text(.apiKeySaveFailed)), for: provider)
         }
         return success
     }
@@ -189,24 +189,24 @@ struct ProvidersPane: View {
     private func credentialValue(for provider: UsageProvider) -> String {
         switch provider {
         case .miniMax: return miniMaxCredential
-        case .glm: return glmCredential
         case .codex: return ""
+        case .glm: return ""
         }
     }
 
     private func setFeedback(_ feedback: InlineFeedback?, for provider: UsageProvider) {
         switch provider {
         case .miniMax: miniMaxTestResult = feedback
-        case .glm: glmTestResult = feedback
         case .codex: break
+        case .glm: break
         }
     }
 
     private func setTesting(_ isTesting: Bool, for provider: UsageProvider) {
         switch provider {
         case .miniMax: isTestingMiniMax = isTesting
-        case .glm: isTestingGLM = isTesting
         case .codex: break
+        case .glm: break
         }
     }
 

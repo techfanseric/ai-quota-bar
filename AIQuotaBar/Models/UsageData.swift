@@ -851,11 +851,14 @@ extension ModelUsageData {
     /// 状态栏单行格式：`<初始>:<剩余%> · <对比匀速消耗%> · <重置时间>`
     /// - `paceSource`: paceDelta 走哪个 model 的字段(codex 用 Weekly 算 reserve)
     /// - 剩余%/reset 时间始终用 self(primary,通常是 5h 短周期)
-    func formattedStatusBarLine(providerInitial: String, paceSource: ModelUsageData? = nil) -> String {
+    func formattedStatusBarLine(providerInitial: String? = nil, paceSource: ModelUsageData? = nil) -> String {
         let remaining = currentIntervalRemainingText
         let paceDelta = (paceSource ?? self).formattedPaceDelta()
         let resetText = formatResetTime(endTime: endTime)
-        return "\(providerInitial):\(remaining) · \(paceDelta) · \(resetText)"
+        if let providerInitial, !providerInitial.isEmpty {
+            return "\(providerInitial):\(remaining) · \(paceDelta) · \(resetText)"
+        }
+        return "\(remaining) · \(paceDelta) · \(resetText)"
     }
 
     /// 对比匀速消耗的进度（"省"的方向为正，符合直觉）：

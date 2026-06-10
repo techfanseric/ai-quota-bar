@@ -7,16 +7,13 @@ struct ProviderDetailView: View {
     let provider: UsageProvider
     @Bindable var viewModel: UsageViewModel
     @Binding var miniMaxCredential: String
-    @Binding var glmCredential: String
     @Binding var codexSourceMode: CodexDataSourceMode
     let codexAccounts: [CodexAccountDraft]
     let miniMaxTestResult: InlineFeedback?
-    let glmTestResult: InlineFeedback?
     let isTestingMiniMax: Bool
-    let isTestingGLM: Bool
     let miniMaxInputID: UUID
-    let glmInputID: UUID
     let onTestConnection: (UsageProvider) -> Void
+    let onSaveCredential: (String, UsageProvider) -> Bool
     let onAddCodexAccount: () -> Void
     let onRemoveCodexAccount: (String) -> Void
     let onRefreshCodexAccount: (String) -> Void
@@ -49,17 +46,8 @@ struct ProviderDetailView: View {
                 language: language,
                 isTesting: isTestingMiniMax,
                 feedback: miniMaxTestResult,
-                onTest: { onTestConnection(.miniMax) }
-            )
-        case .glm:
-            ProviderCredentialSection(
-                provider: .glm,
-                credential: $glmCredential,
-                inputID: glmInputID,
-                language: language,
-                isTesting: isTestingGLM,
-                feedback: glmTestResult,
-                onTest: { onTestConnection(.glm) }
+                onTest: { onTestConnection(.miniMax) },
+                onSave: { _ = onSaveCredential(miniMaxCredential, .miniMax) }
             )
         case .codex:
             CodexSettingsSection(
@@ -72,6 +60,8 @@ struct ProviderDetailView: View {
                 onSignOut: onSignOutCodexAccount,
                 onSourceModeChange: onUpdateCodexSourceMode
             )
+        case .glm:
+            EmptyView()
         }
     }
 }
