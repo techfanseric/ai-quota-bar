@@ -285,7 +285,7 @@ final class UsageViewModel {
     // MARK: - Initialization
 
     init() {
-        self.refreshInterval = UserDefaults.standard.object(forKey: "refreshInterval") as? Int ?? 60
+        self.refreshInterval = UserDefaults.standard.object(forKey: "refreshInterval") as? Int ?? 600
         self.warningThreshold = UserDefaults.standard.double(forKey: "warningThreshold") > 0
             ? UserDefaults.standard.double(forKey: "warningThreshold")
             : 20.0
