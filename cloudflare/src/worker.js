@@ -47,7 +47,7 @@ export default {
 };
 
 async function appUpdateManifest(env) {
-  const fallbackVersion = env.APP_LATEST_VERSION || "1.4.1";
+  const fallbackVersion = env.APP_LATEST_VERSION || "1.4.2";
   const fallbackURL = env.APP_RELEASE_URL || `https://github.com/techfanseric/ai-quota-bar/releases/tag/v${fallbackVersion}`;
   const fallbackDownloadURL = env.APP_DOWNLOAD_URL || `https://github.com/techfanseric/ai-quota-bar/releases/download/v${fallbackVersion}/AIQuotaBar.dmg`;
 
