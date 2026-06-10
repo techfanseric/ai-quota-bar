@@ -127,18 +127,24 @@ final class UsageViewModel {
                 statusBarText = "—"
             } else {
                 // 还没拉到数据(初次启动 / 等待刷新):每个已配置 provider 占一行 "Xxx loading"
-                // 顺序跟正常态对齐:codex 优先,再 minimax,再 glm
-                let displayOrder: [UsageProvider] = [.codex, .miniMax, .glm]
+                // 顺序跟正常态对齐:codex 优先,再 minimax
+                let displayOrder: [UsageProvider] = [.codex, .miniMax]
                 let placeholders = displayOrder
                     .filter { configuredProviders.contains($0) }
                     .map { "\($0.displayName) loading" }
-                statusBarText = placeholders.isEmpty ? "..." : placeholders.joined(separator: "\n")
+                if placeholders.count == 1,
+                   let provider = displayOrder.first(where: { configuredProviders.contains($0) }) {
+                    statusBarText = "\(provider.displayName)\nloading"
+                } else {
+                    statusBarText = placeholders.isEmpty ? "..." : placeholders.joined(separator: "\n")
+                }
             }
             return
         }
 
         let now = Date()
         let candidates = menuBarCandidateModels(from: data.models, now: now)
+        let displayedProviders = Set(candidates.map(\.provider))
 
         // 状态栏两行：每行一个 provider 的状态
         // codex: primary 用 5h model(显示 5h 剩余% 和 5h reset),
@@ -157,6 +163,13 @@ final class UsageViewModel {
         if let primary {
             // codex 时 paceSource 传 weekly model(用周限额算 paceDelta)
             let paceSource: ModelUsageData? = (primary.provider == .codex) ? weeklyModel(in: candidates) : nil
+            if displayedProviders.count == 1 {
+                statusBarText = [
+                    primary.provider.displayName,
+                    primary.formattedStatusBarLine(paceSource: paceSource)
+                ].joined(separator: "\n")
+                return
+            }
             lines.append(primary.formattedStatusBarLine(
                 providerInitial: providerInitial(primary.provider),
                 paceSource: paceSource))
@@ -207,7 +220,7 @@ final class UsageViewModel {
     }
 
     /// 判断 provider 是否应该被纳入刷新与下拉菜单。
-    /// MiniMax / GLM 走 Keychain；Codex 由 codexbar 的 managed account store 自管，
+    /// MiniMax 走 Keychain；Codex 由 codexbar 的 managed account store 自管，
     /// 凭证在 `~/.codex`（CLI）或 `~/.codexbar`（managed store）。
     /// 这里始终让 Codex 算 configured：fetch 时 codexbar 自己会返回 unauthorized 之类的错误，
     /// dropdown 不会展示该 section，Settings 仍能进 Codex 段做添加/移除操作。
@@ -397,8 +410,10 @@ final class UsageViewModel {
         switch provider {
         case .codex:
             return CodexAppPresence.isRunning
-        case .miniMax, .glm:
+        case .miniMax:
             return true
+        case .glm:
+            return false
         }
     }
 
@@ -859,7 +874,7 @@ final class UsageViewModel {
     /// 跟 StatusBarController displayOrder 对齐：codex 优先。
     /// `combinedUsageData` 输出的 `provider` 字段是"哪个 provider 在结果里最重要"，
     /// 跟数据真实来源保持一致。`WarningPanelController` 等下游仍按自己逻辑取订阅信息。
-    private static let combinedProviderPriority: [UsageProvider] = [.codex, .miniMax, .glm]
+    private static let combinedProviderPriority: [UsageProvider] = [.codex, .miniMax]
 
     private func combinedUsageData(from providerData: Dictionary<UsageProvider, UsageData>.Values, timestamp: Date) -> UsageData? {
         let models = providerData.flatMap(\.models)

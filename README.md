@@ -2,7 +2,7 @@
 
 A macOS menu bar application for monitoring model coding plan quota across providers.
 
-AI Quota Bar is focused on coding-plan consumption: it tracks the remaining quota for supported AI coding models, shows per-model breakdowns, and warns you before a short-interval or subscription quota runs out. It currently supports MiniMax, GLM/Z.ai, and Codex coding quota snapshots.
+AI Quota Bar is focused on coding-plan consumption: it tracks the remaining quota for supported AI coding models, shows per-model breakdowns, and warns you before a short-interval or subscription quota runs out. It currently supports MiniMax and Codex coding quota snapshots.
 
 ## Features
 
@@ -30,7 +30,7 @@ AI Quota Bar is focused on coding-plan consumption: it tracks the remaining quot
 ## Requirements
 
 - macOS 14+
-- MiniMax API key, GLM quota curl command, Codex CLI installed and signed in (`codex` command available), or any combination of them
+- MiniMax API key, Codex CLI installed and signed in (`codex` command available), or both
 
 ## Build & Run
 
@@ -53,7 +53,7 @@ make install
 
 1. Click the menu bar icon
 2. Select **Settings**
-3. Enter a MiniMax API key, paste a GLM quota curl command, sign in to Codex via the `codex` CLI, or configure multiple providers
+3. Enter a MiniMax API key, sign in to Codex via the `codex` CLI, or configure both providers
 4. Configured providers refresh together and appear as separate sections in the menu
 5. Adjust refresh interval as needed
 
@@ -66,30 +66,6 @@ Left-click the menu bar item to open the detailed dropdown. Right-click it to qu
 ## MiniMax support
 
 For MiniMax, paste the bearer token used by the MiniMax coding plan remains endpoint. The app calls the MiniMax coding plan quota API and maps the returned model quota windows into the menu bar and dropdown views.
-
-## GLM support
-
-For GLM/Z.ai, the quota API is tied to your signed-in web session. You need to copy the request from the official website yourself:
-
-1. Sign in to the official BigModel/Z.ai website in your browser.
-2. Open the coding plan or quota page where your model quota is displayed.
-3. Open the browser developer tools.
-4. Refresh the quota page or trigger the quota query again.
-5. In the Network panel, find the `quota/limit` request.
-6. Copy that request as a curl command.
-7. Paste the full curl command into AI Quota Bar Settings.
-
-The app parses the endpoint URL, `authorization`, `bigmodel-organization`, `bigmodel-project`, and cookie fields, then stores the parsed credential in Keychain.
-
-GLM quota fields are mapped differently from MiniMax:
-
-- `currentValue` means used amount.
-- `usage` means total amount.
-- Remaining amount is calculated as `usage - currentValue`.
-- `TOKENS_LIMIT` is shown as `GLM Tokens (5h)`.
-- `TIME_LIMIT` is shown as `GLM MCP/Search (month)`.
-
-Because the GLM credential comes from your browser session, it may expire. If GLM refresh fails after a while, repeat the steps above and paste a fresh curl command.
 
 ## Codex support
 
@@ -122,7 +98,7 @@ The pre-2.0 single-account ChatGPT/Codex GPT flow (paste session JSON or curl) h
 ## Cloud backup
 
 AI Quota Bar can back up quota snapshots to a Cloudflare D1 database through a small Worker in `cloudflare/`.
-Provider credentials are not uploaded; MiniMax and GLM credentials remain in macOS Keychain, and Codex accounts live in codexbar's managed account store under `~/.codexbar`.
+Provider credentials are not uploaded; MiniMax credentials remain in macOS Keychain, and Codex accounts live in codexbar's managed account store under `~/.codexbar`.
 
 See `cloudflare/README.md` for the Cloudflare setup steps, then paste the deployed Worker URL and sync token into Settings.
 After setup, use **Settings -> Cloud backup -> View remote data** to open a local HTML report of the remote D1 data. The fallback command is `cloudflare/view-remote-data.command`.
