@@ -44,4 +44,5 @@ wrangler deploy
 
 - `GET /v1/health`: checks authentication and Worker availability.
 - `POST /v1/quota-samples`: stores one refresh snapshot.
-- `GET /v1/quota-samples?device_id=...&limit=100`: returns recent samples for inspection.
+- `GET /v1/quota-samples?device_id=...&limit=100`: returns the latest sample per model for inspection.
+- `GET /v1/quota-samples?history=1&limit=500`: returns refresh-history samples for chart reconstruction.

@@ -433,6 +433,19 @@ final class CloudSyncService {
         return remoteUsageData(from: response.samples)
     }
 
+    func fetchRemoteModelQuotaSamples(limit: Int = 500) async throws -> [String: [ModelQuotaSample]] {
+        let request = try makeRequest(
+            endpointURLString: CloudSyncSettings.defaultEndpointURLString,
+            path: "/v1/quota-samples?history=1&limit=\(limit)",
+            token: CloudSyncSettings.defaultServiceToken,
+            method: "GET"
+        )
+        let responseData = try await data(for: request)
+        let decoder = JSONDecoder()
+        let response = try decoder.decode(CloudQuotaSamplesResponse.self, from: responseData)
+        return remoteModelQuotaSamples(from: response.samples)
+    }
+
     func makeRemoteDataReport(endpointURLString: String, token: String, limit: Int = 300) async throws -> URL {
         let devicesRequest = try makeRequest(
             endpointURLString: endpointURLString,
@@ -442,7 +455,7 @@ final class CloudSyncService {
         )
         let samplesRequest = try makeRequest(
             endpointURLString: endpointURLString,
-            path: "/v1/quota-samples?limit=\(limit)",
+            path: "/v1/quota-samples?history=1&limit=\(limit)",
             token: token.trimmingCharacters(in: .whitespacesAndNewlines),
             method: "GET"
         )
@@ -491,7 +504,7 @@ final class CloudSyncService {
                 )
                 let samplesRequest = try makeRequest(
                     endpointURLString: endpointURLString,
-                    path: "/v1/quota-samples?limit=\(limit)",
+                    path: "/v1/quota-samples?history=1&limit=\(limit)",
                     token: trimmedToken,
                     method: "GET"
                 )
@@ -601,6 +614,38 @@ final class CloudSyncService {
                 models: providerModels,
                 subscribeTitle: nil,
                 subscribeEndTime: nil)
+        }
+    }
+
+    private func remoteModelQuotaSamples(from samples: [CloudRemoteQuotaSample]) -> [String: [ModelQuotaSample]] {
+        var result: [String: [ModelQuotaSample]] = [:]
+
+        for sample in samples {
+            guard let modelID = sample.modelID,
+                  let timestamp = CloudRemoteQuotaSample.date(from: sample.sampledAt) else {
+                continue
+            }
+            if let start = sample.resetStartDate, timestamp < start {
+                continue
+            }
+            if let end = sample.resetEndDate, timestamp > end {
+                continue
+            }
+
+            let point = ModelQuotaSample(
+                timestamp: timestamp,
+                remaining: max(0, sample.currentIntervalRemaining),
+                percent: sample.chartPercent
+            )
+            result[modelID, default: []].append(point)
+        }
+
+        return result.mapValues { samples in
+            var byTimestamp: [TimeInterval: ModelQuotaSample] = [:]
+            for sample in samples {
+                byTimestamp[sample.id] = sample
+            }
+            return byTimestamp.values.sorted { $0.timestamp < $1.timestamp }
         }
     }
 
@@ -991,7 +1036,7 @@ final class CloudSyncService {
           <h2>Local Short-window Samples</h2>
           <table>
             <thead><tr><th>Source</th><th>Model ID</th><th>Timestamp</th><th>Remaining</th><th>Percent</th></tr></thead>
-            <tbody>\(sampleRows.isEmpty ? "<tr><td colspan=\"5\">No local short-window samples in memory.</td></tr>" : sampleRows)</tbody>
+            <tbody>\(sampleRows.isEmpty ? "<tr><td colspan=\"5\">No local short-window samples recorded.</td></tr>" : sampleRows)</tbody>
           </table>
 
           <h2>Cloud Devices</h2>
@@ -1244,6 +1289,13 @@ private struct CloudRemoteQuotaSample: Decodable {
         guard currentIntervalTotal > 0 else { return "" }
         let percentage = Double(currentIntervalRemaining) / Double(currentIntervalTotal) * 100
         return String(format: "%.1f%%", percentage)
+    }
+
+    var chartPercent: Int? {
+        if valueSuffix == "%" || currentIntervalTotal == 100 {
+            return currentIntervalRemaining
+        }
+        return nil
     }
 
     var sampledDate: Date {
