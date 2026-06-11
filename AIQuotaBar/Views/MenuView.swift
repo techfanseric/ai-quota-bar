@@ -521,25 +521,50 @@ private struct ProviderModelsSection: View {
     private func accountHeader(_ group: AccountModelGroup) -> some View {
         if data.provider == .codex || group.accountName != nil {
             HStack(alignment: .firstTextBaseline, spacing: 6) {
-                Text(accountSourceSummary(group.models))
-                    .font(.system(size: 10, weight: .semibold))
-                    .foregroundStyle(.tertiary)
+                if data.provider == .codex {
+                    HStack(spacing: 4) {
+                        Text(group.accountName ?? "Unknown account")
+                            .font(.system(size: 10, weight: .medium, design: .rounded))
+                            .foregroundStyle(.secondary)
+                            .lineLimit(1)
+
+                        if let plan = accountPlanSummary(group.models) {
+                            Text("·")
+                                .foregroundStyle(.tertiary)
+                            Text(plan)
+                                .font(.system(size: 10, weight: .medium, design: .rounded))
+                                .foregroundStyle(.tertiary)
+                                .lineLimit(1)
+                        }
+                    }
+                } else {
+                    Text(accountSourceSummary(group.models))
+                        .font(.system(size: 10, weight: .semibold))
+                        .foregroundStyle(.tertiary)
+                }
 
                 Spacer()
 
-                HStack(spacing: 4) {
-                    Text(group.accountName ?? "Unknown account")
-                        .font(.system(size: 10, weight: .medium, design: .rounded))
-                        .foregroundStyle(.secondary)
+                if data.provider == .codex {
+                    Text(accountSourceSummary(group.models))
+                        .font(.system(size: 10, weight: .semibold))
+                        .foregroundStyle(.tertiary)
                         .lineLimit(1)
-
-                    if let plan = accountPlanSummary(group.models) {
-                        Text("·")
-                            .foregroundStyle(.tertiary)
-                        Text(plan)
+                } else {
+                    HStack(spacing: 4) {
+                        Text(group.accountName ?? "Unknown account")
                             .font(.system(size: 10, weight: .medium, design: .rounded))
-                            .foregroundStyle(.tertiary)
+                            .foregroundStyle(.secondary)
                             .lineLimit(1)
+
+                        if let plan = accountPlanSummary(group.models) {
+                            Text("·")
+                                .foregroundStyle(.tertiary)
+                            Text(plan)
+                                .font(.system(size: 10, weight: .medium, design: .rounded))
+                                .foregroundStyle(.tertiary)
+                                .lineLimit(1)
+                        }
                     }
                 }
             }
@@ -1058,7 +1083,8 @@ private struct ModelRow: View {
     /// deficit（你快用完）用红色提醒
     private func paceLabelColor(pace: UsagePace) -> Color {
         if pace.stage == .onTrack {
-            return pace.deltaPercent > 0 ? .red : .secondary
+            let roundedDelta = Int(abs(pace.deltaPercent).rounded())
+            return roundedDelta > 0 && pace.deltaPercent > 0 ? .red : .secondary
         }
 
         switch pace.stage {
