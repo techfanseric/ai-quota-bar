@@ -136,15 +136,11 @@ enum ModelUtilizationCycleMerger {
     }
 
     private static func liveUsedPercent(for model: ModelUsageData) -> Double? {
-        let usedPercent: Double
         if let percent = model.currentIntervalRemainingPercent {
-            usedPercent = clampedPercent(100 - Double(percent))
-        } else if model.currentIntervalTotal > 0 {
-            usedPercent = clampedPercent(Double(model.currentIntervalUsedCount) / Double(model.currentIntervalTotal) * 100)
-        } else {
-            return nil
+            return clampedPercent(100 - Double(percent))
         }
-        return usedPercent > 0 ? usedPercent : nil
+        guard model.currentIntervalTotal > 0 else { return nil }
+        return clampedPercent(Double(model.currentIntervalUsedCount) / Double(model.currentIntervalTotal) * 100)
     }
 
     private static func clampedPercent(_ percent: Double) -> Double {

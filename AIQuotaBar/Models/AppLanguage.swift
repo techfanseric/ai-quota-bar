@@ -1143,9 +1143,9 @@ enum AppLanguage: String, CaseIterable, Codable, Identifiable {
     func utilizationHistoryModeDescription() -> String {
         switch self {
         case .english:
-            return "Controls the per-model cycle history chart. \"Include current\" adds the in-progress cycle as the rightmost bar, so the chart shows up as soon as the first sample is recorded. \"Completed only\" hides the entire chart until the first cycle ends (5h or 7d), giving a clean historical view."
+            return "Controls both 5h and weekly cycle bars. \"Include current\" adds the in-progress cycle as the rightmost bar; \"Completed only\" shows ended cycles only."
         case .simplifiedChinese:
-            return "控制每个 model 周期历史柱图的显示内容。「包含当前周期」会把当前进行中的周期作为最右一根柱，采集到首个样本后立即可见；「仅已结束周期」会在第一个周期结束（5 小时或 7 天）前整段柱图都不渲染，画面更纯净。"
+            return "统一控制 5 小时和周周期柱图。「包含当前周期」会把当前进行中的周期作为最右一根柱；「仅已结束周期」只显示已经结束的周期。"
         }
     }
 
