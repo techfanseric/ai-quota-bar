@@ -931,7 +931,7 @@ private struct ModelRow: View {
 
                     Text(language.paceLabel(stage: pace.stage, deltaPercent: pace.deltaPercent))
                         .font(.system(size: 10, design: .rounded))
-                        .foregroundStyle(paceLabelColor(paceStage: pace.stage))
+                        .foregroundStyle(paceLabelColor(pace: pace))
                 }
 
                 if let resetsText {
@@ -975,9 +975,10 @@ private struct ModelRow: View {
         return model.resetTimeText
     }
 
-    /// 节奏信息:onTrack / 无数据时为 nil。
+    /// 节奏信息：短周期只显示偏离，长周期常驻显示，避免 weekly 行中间空洞。
     private var paceForLabel: UsagePace? {
-        guard let pace = model.currentIntervalPace, pace.stage != .onTrack else { return nil }
+        guard let pace = model.currentIntervalPace else { return nil }
+        guard !model.isShortCurrentInterval || pace.stage != .onTrack else { return nil }
         return pace
     }
 
@@ -1055,8 +1056,12 @@ private struct ModelRow: View {
 
     /// reset time 行里 pace 文字颜色：reserve（你有余量）用 secondary 灰，
     /// deficit（你快用完）用红色提醒
-    private func paceLabelColor(paceStage: UsagePace.Stage) -> Color {
-        switch paceStage {
+    private func paceLabelColor(pace: UsagePace) -> Color {
+        if pace.stage == .onTrack {
+            return pace.deltaPercent > 0 ? .red : .secondary
+        }
+
+        switch pace.stage {
         case .onTrack, .slightlyBehind, .behind, .farBehind:
             return .secondary
         case .slightlyAhead, .ahead, .farAhead:
