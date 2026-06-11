@@ -333,7 +333,11 @@ private struct ProviderModelsSection: View {
 
     private func isVisibleInlineModel(_ model: ModelUsageData) -> Bool {
         guard hasVisibleContent(for: model) else { return false }
+        let hasCycles = !utilizationCycles(for: model).isEmpty
         if !hasRenderableCurrentWindow(for: model) {
+            return true
+        }
+        if model.isFullQuotaUnused && hasCycles {
             return true
         }
         return !model.isExhaustedCurrentInterval && !model.isFullQuotaUnused
