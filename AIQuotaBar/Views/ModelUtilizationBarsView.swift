@@ -67,7 +67,7 @@ struct ModelUtilizationBarsView: View {
             if usedHeight > 0 {
                 let usedRect = CGRect(x: bar.trackRect.minX, y: barTopY, width: bar.trackRect.width, height: usedHeight)
                 let usedPath = Path(roundedRect: usedRect, cornerRadius: Self.barCornerRadius)
-                context.fill(usedPath, with: .color(tint))
+                context.fill(usedPath, with: .color(barTint(for: cycle)))
             }
 
             // 柱顶百分比：柱高 = 周期内 peak used%，label 显示对应的 left 额度（100 - used），
@@ -157,6 +157,10 @@ struct ModelUtilizationBarsView: View {
             return max(0, min(100, currentCycle.leftPercent))
         }
         return max(0, min(100, 100 - cycle.peakPercent))
+    }
+
+    private func barTint(for cycle: (resetsAt: Date, peakPercent: Double)) -> Color {
+        leftPercent(for: cycle) >= 100 ? .secondary : tint
     }
 
     private func cycleTimeRangeText(for index: Int, cycle: (resetsAt: Date, peakPercent: Double)) -> String {
