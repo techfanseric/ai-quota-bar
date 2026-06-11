@@ -1222,7 +1222,7 @@ enum AppLanguage: String, CaseIterable, Codable, Identifiable {
     }
 
     /// 跟 codexbar 的 UsagePaceText 文案完全对齐。
-    /// onTrack → "On pace" / "节奏正常"（不显示 delta）
+    /// onTrack: if rounded delta is non-zero, still show the small reserve/deficit.
     /// ahead（实际 > 预期，deficit）→ "X% in deficit" / "超额 X%"
     /// behind（实际 < 预期，reserve）→ "X% in reserve" / "余量 X%"
     func paceLabel(stage: UsagePace.Stage, deltaPercent: Double) -> String {
@@ -1231,6 +1231,9 @@ enum AppLanguage: String, CaseIterable, Codable, Identifiable {
         case .english:
             switch stage {
             case .onTrack:
+                if deltaValue > 0 {
+                    return deltaPercent > 0 ? "\(deltaValue)% in deficit" : "\(deltaValue)% in reserve"
+                }
                 return "On pace"
             case .slightlyAhead, .ahead, .farAhead:
                 return "\(deltaValue)% in deficit"
@@ -1240,6 +1243,9 @@ enum AppLanguage: String, CaseIterable, Codable, Identifiable {
         case .simplifiedChinese:
             switch stage {
             case .onTrack:
+                if deltaValue > 0 {
+                    return deltaPercent > 0 ? "超额 \(deltaValue)%" : "余量 \(deltaValue)%"
+                }
                 return "节奏正常"
             case .slightlyAhead, .ahead, .farAhead:
                 return "超额 \(deltaValue)%"
