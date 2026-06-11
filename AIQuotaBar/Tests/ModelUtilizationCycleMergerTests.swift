@@ -117,7 +117,7 @@ final class ModelUtilizationCycleMergerTests: XCTestCase {
         XCTAssertTrue(cycles.isEmpty)
     }
 
-    func testIncludeCurrentDoesNotInsertUnusedCycle() {
+    func testIncludeCurrentInsertsUnusedCurrentCycle() {
         let now = Date(timeIntervalSince1970: 1_700_000_000)
         let reset = now.addingTimeInterval(3_600)
         let model = weeklyModel(
@@ -134,7 +134,9 @@ final class ModelUtilizationCycleMergerTests: XCTestCase {
             mode: .includeCurrent
         )
 
-        XCTAssertTrue(cycles.isEmpty)
+        XCTAssertEqual(cycles.count, 1)
+        XCTAssertEqual(cycles[0].resetsAt, reset)
+        XCTAssertEqual(cycles[0].peakPercent, 0)
     }
 
     private func weeklyModel(startTime: Date, endTime: Date, remainingPercent: Int) -> ModelUsageData {
