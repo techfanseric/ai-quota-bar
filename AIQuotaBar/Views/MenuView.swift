@@ -807,68 +807,15 @@ private struct ModelRow: View {
                     .frame(height: 10)
                 }
 
-                HStack(spacing: 4) {
-                    // 左侧:xx left / x/y 这种"还剩多少"的最直接信息
-                    Text(model.currentIntervalBarRightText)
-                        .font(.system(size: 10, design: .rounded))
-                        .foregroundStyle(.secondary)
-
-                    Spacer()
-
-                    // 右侧:周信息 · 节奏偏差 · reset 时间(resets 放最右)
-                    if model.hasWeeklyLimit {
-                        if model.isWeeklyUnlimited {
-                            Text(language == .simplifiedChinese ? "周无限制" : "Weekly unlimited")
-                                .font(.system(size: 10, design: .rounded))
-                                .foregroundStyle(.secondary)
-                        } else if model.isWeeklyFull {
-                            Text(language.weeklyUnusedText())
-                                .font(.system(size: 10, design: .rounded))
-                                .foregroundStyle(.secondary)
-                        } else if let percent = model.weeklyRemainingPercent, model.weeklyTotal <= 0 {
-                            Text("周 \(percent)%")
-                                .font(.system(size: 10, design: .rounded))
-                                .foregroundStyle(.secondary)
-                        } else {
-                            Text("周 \(model.weeklyRemaining)/\(model.weeklyTotal)")
-                                .font(.system(size: 10, design: .rounded))
-                                .foregroundStyle(.secondary)
-                        }
-                    }
-
-                    if let pace = paceForLabel {
-                        // · 在 weekly 和 pace 之间(weekly 存在时)
-                        if model.hasWeeklyLimit {
-                            Text("·")
-                                .foregroundStyle(.tertiary)
-                        }
-
-                        Text(language.paceLabel(stage: pace.stage, deltaPercent: pace.deltaPercent))
-                            .font(.system(size: 10, design: .rounded))
-                            .foregroundStyle(paceLabelColor(paceStage: pace.stage))
-                    }
-
-                    if let resetsText {
-                        // · 在 pace 和 resets 之间(左侧有 weekly 或 pace 时)
-                        if model.hasWeeklyLimit || hasPace {
-                            Text("·")
-                                .foregroundStyle(.tertiary)
-                        }
-
-                        Text(resetsText)
-                            .font(.system(size: 10, design: .rounded))
-                            .foregroundStyle(.secondary)
-                    }
-                }
+                metadataRow
+            } else if isCyclesOnly {
+                metadataRow
             }
 
             // 跨周期 utilization 柱图放最底：与图表 + 文字行形成"当前 → 元信息 → 历史"三段式
             if !cycles.isEmpty {
                 ModelUtilizationBarsView(
                     cycles: cycles,
-                    cycleLabel: model.isShortCurrentInterval
-                        ? language.modelUtilizationShortCycleLabel()
-                        : language.modelUtilizationLongCycleLabel(),
                     cycleDuration: model.currentIntervalDuration,
                     tint: tint,
                     isHovered: isHovered
@@ -883,6 +830,63 @@ private struct ModelRow: View {
                 isHovered = true
             case .ended:
                 isHovered = false
+            }
+        }
+    }
+
+    @ViewBuilder
+    private var metadataRow: some View {
+        if shouldShowMetadataRow {
+            HStack(spacing: 4) {
+                if let cycleInfoText {
+                    Text(cycleInfoText)
+                        .font(.system(size: 10, design: .rounded))
+                        .foregroundStyle(.tertiary)
+                }
+
+                Spacer()
+
+                if model.hasWeeklyLimit {
+                    if model.isWeeklyUnlimited {
+                        Text(language == .simplifiedChinese ? "周无限制" : "Weekly unlimited")
+                            .font(.system(size: 10, design: .rounded))
+                            .foregroundStyle(.secondary)
+                    } else if model.isWeeklyFull {
+                        Text(language.weeklyUnusedText())
+                            .font(.system(size: 10, design: .rounded))
+                            .foregroundStyle(.secondary)
+                    } else if let percent = model.weeklyRemainingPercent, model.weeklyTotal <= 0 {
+                        Text("周 \(percent)%")
+                            .font(.system(size: 10, design: .rounded))
+                            .foregroundStyle(.secondary)
+                    } else {
+                        Text("周 \(model.weeklyRemaining)/\(model.weeklyTotal)")
+                            .font(.system(size: 10, design: .rounded))
+                            .foregroundStyle(.secondary)
+                    }
+                }
+
+                if let pace = paceForLabel {
+                    if model.hasWeeklyLimit {
+                        Text("·")
+                            .foregroundStyle(.tertiary)
+                    }
+
+                    Text(language.paceLabel(stage: pace.stage, deltaPercent: pace.deltaPercent))
+                        .font(.system(size: 10, design: .rounded))
+                        .foregroundStyle(paceLabelColor(paceStage: pace.stage))
+                }
+
+                if let resetsText {
+                    if model.hasWeeklyLimit || hasPace {
+                        Text("·")
+                            .foregroundStyle(.tertiary)
+                    }
+
+                    Text(resetsText)
+                        .font(.system(size: 10, design: .rounded))
+                        .foregroundStyle(.secondary)
+                }
             }
         }
     }
@@ -921,6 +925,18 @@ private struct ModelRow: View {
     }
 
     private var hasPace: Bool { paceForLabel != nil }
+
+    private var shouldShowMetadataRow: Bool {
+        cycleInfoText != nil || model.hasWeeklyLimit || hasPace || resetsText != nil
+    }
+
+    private var cycleInfoText: String? {
+        guard !cycles.isEmpty else { return nil }
+        let label = model.isShortCurrentInterval
+            ? language.modelUtilizationShortCycleLabel()
+            : language.modelUtilizationLongCycleLabel()
+        return "\(label) · left"
+    }
 
     /// 跨周期 utilization 柱图数据：短周期 30 个 ≈ 6 天，周长周期 12 个 ≈ 3 个月。
     private var cycles: [(resetsAt: Date, peakPercent: Double)] {

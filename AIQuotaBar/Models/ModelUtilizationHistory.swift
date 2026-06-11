@@ -88,3 +88,47 @@ struct ModelUtilizationStoreData: Codable, Equatable {
         histories ?? [:]
     }
 }
+
+enum ModelUtilizationCycleMerger {
+    static func mergeLiveCurrentCycle(
+        _ historicalCycles: [(resetsAt: Date, peakPercent: Double)],
+        model: ModelUsageData,
+        limit: Int,
+        now: Date,
+        mode: UtilizationHistoryMode
+    ) -> [(resetsAt: Date, peakPercent: Double)] {
+        guard limit > 0 else { return [] }
+
+        var peakByReset: [Date: Double] = [:]
+        for cycle in historicalCycles {
+            let peakPercent = clampedPercent(cycle.peakPercent)
+            peakByReset[cycle.resetsAt] = max(peakByReset[cycle.resetsAt] ?? 0, peakPercent)
+        }
+
+        if mode == .includeCurrent,
+           let endTime = model.endTime,
+           endTime >= now,
+           model.startTime.map({ $0 <= now }) ?? true,
+           let liveUsedPercent = liveUsedPercent(for: model) {
+            peakByReset[endTime] = liveUsedPercent
+        }
+
+        return peakByReset
+            .map { (resetsAt: $0.key, peakPercent: $0.value) }
+            .sorted { $0.resetsAt > $1.resetsAt }
+            .prefix(limit)
+            .map { $0 }
+    }
+
+    private static func liveUsedPercent(for model: ModelUsageData) -> Double? {
+        if let percent = model.currentIntervalRemainingPercent {
+            return clampedPercent(100 - Double(percent))
+        }
+        guard model.currentIntervalTotal > 0 else { return nil }
+        return clampedPercent(Double(model.currentIntervalUsedCount) / Double(model.currentIntervalTotal) * 100)
+    }
+
+    private static func clampedPercent(_ percent: Double) -> Double {
+        max(0, min(100, percent))
+    }
+}
