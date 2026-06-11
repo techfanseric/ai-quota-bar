@@ -6,6 +6,7 @@ import SwiftUI
 /// 调用方需自行保证 `cycles` 非空（空时整段不渲染，不要 fallback 到占位）。
 struct ModelUtilizationBarsView: View {
     let cycles: [(resetsAt: Date, peakPercent: Double)]
+    let currentCycle: CurrentUtilizationCycle?
     let cycleDuration: TimeInterval?
     let tint: Color
     let isHovered: Bool
@@ -21,6 +22,7 @@ struct ModelUtilizationBarsView: View {
     private static let barTrackOpacity: Double = 0.07
     private static let topPercentFontSize: CGFloat = 6
     private static let longCycleThreshold: TimeInterval = 86_400
+    private static let currentCycleMatchTolerance = ModelUtilizationHistory.resetBoundaryMergeTolerance
 
     var body: some View {
         GeometryReader { geometry in
@@ -71,7 +73,7 @@ struct ModelUtilizationBarsView: View {
             // 柱顶百分比：柱高 = 周期内 peak used%，label 显示对应的 left 额度（100 - used），
             // 与 codexbar `PlanUtilizationHistoryChartMenuView` 语义对齐 —— "用剩多少"。
             if isHovered {
-                let leftPercent = max(0, min(100, 100 - cycle.peakPercent))
+                let leftPercent = leftPercent(for: cycle)
                 let label = context.resolve(
                     Text("\(Int(leftPercent.rounded()))")
                         .font(.system(size: Self.topPercentFontSize))
@@ -143,13 +145,28 @@ struct ModelUtilizationBarsView: View {
     private func cycleHoverText(for index: Int) -> String {
         let orderedCycles = displayCycles
         guard orderedCycles.indices.contains(index) else { return "" }
-        let leftPercent = max(0, min(100, 100 - orderedCycles[index].peakPercent))
-        let timeRangeText = cycleTimeRangeText(for: index)
+        let cycle = orderedCycles[index]
+        let leftPercent = leftPercent(for: cycle)
+        let timeRangeText = cycleTimeRangeText(for: index, cycle: cycle)
         let separator = isLongCycle(index: index) ? " " : " · "
         return "\(timeRangeText)\(separator)\(Int(leftPercent.rounded()))%"
     }
 
-    private func cycleTimeRangeText(for index: Int) -> String {
+    private func leftPercent(for cycle: (resetsAt: Date, peakPercent: Double)) -> Double {
+        if let currentCycle, isCurrentCycle(cycle) {
+            return max(0, min(100, currentCycle.leftPercent))
+        }
+        return max(0, min(100, 100 - cycle.peakPercent))
+    }
+
+    private func cycleTimeRangeText(for index: Int, cycle: (resetsAt: Date, peakPercent: Double)) -> String {
+        if let currentCycle, isCurrentCycle(cycle) {
+            if isLongCycle(start: currentCycle.start, end: currentCycle.end) {
+                return compactDateRangeText(from: currentCycle.start, to: currentCycle.end)
+            }
+            return compactTimeRangeText(from: currentCycle.start, to: currentCycle.end)
+        }
+
         let orderedCycles = displayCycles
         let end = orderedCycles[index].resetsAt
         let start = cycleStart(for: index, end: end)
@@ -159,15 +176,18 @@ struct ModelUtilizationBarsView: View {
         return compactTimeRangeText(from: start, to: end)
     }
 
+    private func isCurrentCycle(_ cycle: (resetsAt: Date, peakPercent: Double)) -> Bool {
+        guard let currentCycle else { return false }
+        return abs(cycle.resetsAt.timeIntervalSince(currentCycle.end)) <= Self.currentCycleMatchTolerance
+    }
+
     private func cycleStart(for index: Int, end: Date) -> Date {
         let orderedCycles = displayCycles
-        if orderedCycles.indices.contains(index - 1) {
-            return orderedCycles[index - 1].resetsAt
-        }
-
         let inferredDuration: TimeInterval
         if let cycleDuration, cycleDuration > 0 {
             inferredDuration = cycleDuration
+        } else if orderedCycles.indices.contains(index - 1) {
+            inferredDuration = end.timeIntervalSince(orderedCycles[index - 1].resetsAt)
         } else if orderedCycles.indices.contains(index + 1) {
             inferredDuration = orderedCycles[index + 1].resetsAt.timeIntervalSince(end)
         } else {
@@ -241,6 +261,12 @@ struct ModelUtilizationBarsView: View {
 private struct CycleBar {
     let index: Int
     let trackRect: CGRect
+}
+
+struct CurrentUtilizationCycle {
+    let start: Date
+    let end: Date
+    let leftPercent: Double
 }
 
 private struct CycleCallout: View {

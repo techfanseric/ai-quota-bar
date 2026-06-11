@@ -13,6 +13,8 @@ struct UtilizationHistoryEntry: Codable, Equatable {
 /// 单个 model 的全部 utilization 历史（以 `modelId` 唯一）。
 /// `entries` append-only，采集时按 `resetsAt` groupBy 即可得出每个完整周期的 peak。
 struct ModelUtilizationHistory: Codable, Equatable {
+    static let resetBoundaryMergeTolerance: TimeInterval = 120
+
     /// 单个 model 历史样本上限：1000 条 × 1h 节流 ≈ 41 天。
     /// 超出按 `capturedAt` 升序丢最旧的（同步调用方在 `append` 后应调 `trimToLimit()`）。
     static let maxEntriesPerModel = 1000
@@ -56,20 +58,29 @@ struct ModelUtilizationHistory: Codable, Equatable {
         let earliestCapture = entries.map(\.capturedAt).min() ?? now
         let effectiveNow = max(now, earliestCapture)
 
-        var peakByReset: [Date: Double] = [:]
-        for entry in entries {
+        var buckets: [CycleBucket] = []
+        for entry in entries.sorted(by: { ($0.resetsAt ?? .distantPast) < ($1.resetsAt ?? .distantPast) }) {
             guard let resetsAt = entry.resetsAt else { continue }
             if mode == .completedOnly, resetsAt > effectiveNow { continue }
-            let current = peakByReset[resetsAt] ?? 0
-            if entry.usedPercent > current {
-                peakByReset[resetsAt] = entry.usedPercent
+            if let index = buckets.lastIndex(where: {
+                abs($0.resetsAt.timeIntervalSince(resetsAt)) <= Self.resetBoundaryMergeTolerance
+            }) {
+                buckets[index].resetsAt = max(buckets[index].resetsAt, resetsAt)
+                buckets[index].peakPercent = max(buckets[index].peakPercent, entry.usedPercent)
+            } else {
+                buckets.append(CycleBucket(resetsAt: resetsAt, peakPercent: entry.usedPercent))
             }
         }
-        return peakByReset
-            .map { (resetsAt: $0.key, peakPercent: $0.value) }
+        return buckets
+            .map { (resetsAt: $0.resetsAt, peakPercent: $0.peakPercent) }
             .sorted { $0.resetsAt > $1.resetsAt }
             .prefix(limit)
             .map { $0 }
+    }
+
+    private struct CycleBucket {
+        var resetsAt: Date
+        var peakPercent: Double
     }
 }
 
@@ -110,6 +121,9 @@ enum ModelUtilizationCycleMerger {
            endTime >= now,
            model.startTime.map({ $0 <= now }) ?? true,
            let liveUsedPercent = liveUsedPercent(for: model) {
+            for reset in peakByReset.keys where abs(reset.timeIntervalSince(endTime)) <= ModelUtilizationHistory.resetBoundaryMergeTolerance {
+                peakByReset.removeValue(forKey: reset)
+            }
             peakByReset[endTime] = liveUsedPercent
         }
 
