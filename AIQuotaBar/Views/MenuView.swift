@@ -816,6 +816,7 @@ private struct ModelRow: View {
             if !cycles.isEmpty {
                 ModelUtilizationBarsView(
                     cycles: cycles,
+                    currentCycle: currentUtilizationCycle,
                     cycleDuration: model.currentIntervalDuration,
                     tint: tint,
                     isHovered: isHovered
@@ -936,6 +937,19 @@ private struct ModelRow: View {
             ? language.modelUtilizationShortCycleLabel()
             : language.modelUtilizationLongCycleLabel()
         return "\(label) · left"
+    }
+
+    private var currentUtilizationCycle: CurrentUtilizationCycle? {
+        guard isCurrentWindow,
+              let startTime = model.startTime,
+              let endTime = model.endTime else {
+            return nil
+        }
+        return CurrentUtilizationCycle(
+            start: startTime,
+            end: endTime,
+            leftPercent: model.currentIntervalPercentageRemaining
+        )
     }
 
     /// 跨周期 utilization 柱图数据：短周期 30 个 ≈ 6 天，周长周期 12 个 ≈ 3 个月。

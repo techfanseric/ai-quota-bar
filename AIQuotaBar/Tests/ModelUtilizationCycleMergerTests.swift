@@ -2,6 +2,31 @@ import XCTest
 @testable import AIQuotaBar
 
 final class ModelUtilizationCycleMergerTests: XCTestCase {
+    func testHistoryCyclesMergeNearbyResetBoundaries() {
+        let reset = Date(timeIntervalSince1970: 1_700_000_000)
+        let history = ModelUtilizationHistory(
+            modelId: "codex:user@example.com:5h",
+            entries: [
+                UtilizationHistoryEntry(
+                    capturedAt: reset.addingTimeInterval(-2_000),
+                    usedPercent: 59,
+                    resetsAt: reset
+                ),
+                UtilizationHistoryEntry(
+                    capturedAt: reset.addingTimeInterval(-1_000),
+                    usedPercent: 8,
+                    resetsAt: reset.addingTimeInterval(20)
+                )
+            ]
+        )
+
+        let cycles = history.cycles(limit: 30, now: reset.addingTimeInterval(1), mode: .includeCurrent)
+
+        XCTAssertEqual(cycles.count, 1)
+        XCTAssertEqual(cycles[0].resetsAt, reset.addingTimeInterval(20))
+        XCTAssertEqual(cycles[0].peakPercent, 59)
+    }
+
     func testIncludeCurrentOverwritesStaleHistoricalCycle() {
         let now = Date(timeIntervalSince1970: 1_700_000_000)
         let reset = now.addingTimeInterval(3_600)
@@ -22,6 +47,29 @@ final class ModelUtilizationCycleMergerTests: XCTestCase {
         XCTAssertEqual(cycles.count, 1)
         XCTAssertEqual(cycles[0].resetsAt, reset)
         XCTAssertEqual(cycles[0].peakPercent, 94)
+    }
+
+    func testIncludeCurrentRemovesNearbyStaleResetBoundary() {
+        let now = Date(timeIntervalSince1970: 1_700_000_000)
+        let reset = now.addingTimeInterval(3_600)
+        let staleResetInSameDisplayedMinute = reset.addingTimeInterval(20)
+        let model = weeklyModel(
+            startTime: reset.addingTimeInterval(-5 * 3_600),
+            endTime: reset,
+            remainingPercent: 44
+        )
+
+        let cycles = ModelUtilizationCycleMerger.mergeLiveCurrentCycle(
+            [(resetsAt: staleResetInSameDisplayedMinute, peakPercent: 8)],
+            model: model,
+            limit: 12,
+            now: now,
+            mode: .includeCurrent
+        )
+
+        XCTAssertEqual(cycles.count, 1)
+        XCTAssertEqual(cycles[0].resetsAt, reset)
+        XCTAssertEqual(cycles[0].peakPercent, 56)
     }
 
     func testCompletedOnlyDoesNotInsertInProgressCycle() {
