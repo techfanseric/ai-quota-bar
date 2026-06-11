@@ -2,6 +2,31 @@ import XCTest
 @testable import AIQuotaBar
 
 final class ModelUtilizationCycleMergerTests: XCTestCase {
+    func testHistoryCyclesIgnoreUnusedSamples() {
+        let reset = Date(timeIntervalSince1970: 1_700_000_000)
+        let history = ModelUtilizationHistory(
+            modelId: "codex:user@example.com:5h",
+            entries: [
+                UtilizationHistoryEntry(
+                    capturedAt: reset.addingTimeInterval(-3_600),
+                    usedPercent: 0,
+                    resetsAt: reset.addingTimeInterval(5 * 3_600)
+                ),
+                UtilizationHistoryEntry(
+                    capturedAt: reset.addingTimeInterval(-1_800),
+                    usedPercent: 12,
+                    resetsAt: reset
+                )
+            ]
+        )
+
+        let cycles = history.cycles(limit: 30, now: reset.addingTimeInterval(1), mode: .includeCurrent)
+
+        XCTAssertEqual(cycles.count, 1)
+        XCTAssertEqual(cycles[0].resetsAt, reset)
+        XCTAssertEqual(cycles[0].peakPercent, 12)
+    }
+
     func testHistoryCyclesMergeNearbyResetBoundaries() {
         let reset = Date(timeIntervalSince1970: 1_700_000_000)
         let history = ModelUtilizationHistory(
@@ -87,6 +112,26 @@ final class ModelUtilizationCycleMergerTests: XCTestCase {
             limit: 12,
             now: now,
             mode: .completedOnly
+        )
+
+        XCTAssertTrue(cycles.isEmpty)
+    }
+
+    func testIncludeCurrentDoesNotInsertUnusedCycle() {
+        let now = Date(timeIntervalSince1970: 1_700_000_000)
+        let reset = now.addingTimeInterval(3_600)
+        let model = weeklyModel(
+            startTime: reset.addingTimeInterval(-5 * 3_600),
+            endTime: reset,
+            remainingPercent: 100
+        )
+
+        let cycles = ModelUtilizationCycleMerger.mergeLiveCurrentCycle(
+            [],
+            model: model,
+            limit: 12,
+            now: now,
+            mode: .includeCurrent
         )
 
         XCTAssertTrue(cycles.isEmpty)
