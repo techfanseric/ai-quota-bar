@@ -626,7 +626,14 @@ final class UsageViewModel {
             .lazy
             .compactMap { histories[$0] }
             .first
-        return history?.cycles(limit: limit, now: now, mode: utilizationHistoryMode) ?? []
+        let historicalCycles = history?.cycles(limit: limit, now: now, mode: utilizationHistoryMode) ?? []
+        return ModelUtilizationCycleMerger.mergeLiveCurrentCycle(
+            historicalCycles,
+            model: model,
+            limit: limit,
+            now: now,
+            mode: utilizationHistoryMode
+        )
     }
 
     // MARK: - Private Methods

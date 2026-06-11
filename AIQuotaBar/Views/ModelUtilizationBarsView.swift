@@ -2,20 +2,17 @@ import SwiftUI
 
 /// 每个 model 现有图表正下方的"跨周期柱图"。
 /// 1 根柱 = 1 个周期（模式决定是否包含当前 in-progress 周期），柱高 = 周期内 peak usedPercent (0-100)。
-/// 整体高度 40pt，宽度自适应，仿 codexbar `PlanUtilizationHistoryChartMenuView` 的双层柱视觉。
+/// 整体高度 30pt，宽度自适应，仿 codexbar `PlanUtilizationHistoryChartMenuView` 的双层柱视觉。
 /// 调用方需自行保证 `cycles` 非空（空时整段不渲染，不要 fallback 到占位）。
 struct ModelUtilizationBarsView: View {
     let cycles: [(resetsAt: Date, peakPercent: Double)]
-    let cycleLabel: String
     let cycleDuration: TimeInterval?
     let tint: Color
     let isHovered: Bool
 
     @State private var hoverLocation: CGPoint?
 
-    private static let totalHeight: CGFloat = 40
-    private static let labelHeight: CGFloat = 9
-    private static let labelSpacing: CGFloat = 2
+    private static let totalHeight: CGFloat = 30
     private static let topReservedForLabel: CGFloat = 10
     private static let gap: CGFloat = 2
     private static let minBarWidth: CGFloat = 3
@@ -23,35 +20,29 @@ struct ModelUtilizationBarsView: View {
     private static let barCornerRadius: CGFloat = 1.5
     private static let barTrackOpacity: Double = 0.07
     private static let topPercentFontSize: CGFloat = 6
+    private static let longCycleThreshold: TimeInterval = 86_400
 
     var body: some View {
-        VStack(alignment: .leading, spacing: Self.labelSpacing) {
-            Text("\(cycleLabel) · left")
-                .font(.system(size: Self.labelHeight))
-                .foregroundStyle(.tertiary)
-                .lineLimit(1)
+        GeometryReader { geometry in
+            let size = geometry.size
 
-            GeometryReader { geometry in
-                let size = geometry.size
-
-                ZStack(alignment: .topLeading) {
-                    Canvas { context, size in
-                        drawBars(context: &context, size: size)
-                    }
-
-                    if let hoveredCycle = hoveredCycle(in: size) {
-                        CycleCallout(text: cycleHoverText(for: hoveredCycle.index))
-                            .position(calloutPosition(for: hoveredCycle.trackRect, size: size))
-                    }
+            ZStack(alignment: .topLeading) {
+                Canvas { context, size in
+                    drawBars(context: &context, size: size)
                 }
-                .contentShape(Rectangle())
-                .onContinuousHover { phase in
-                    switch phase {
-                    case .active(let location):
-                        hoverLocation = location
-                    case .ended:
-                        hoverLocation = nil
-                    }
+
+                if let hoveredCycle = hoveredCycle(in: size) {
+                    CycleCallout(text: cycleHoverText(for: hoveredCycle.index))
+                        .position(calloutPosition(for: hoveredCycle.trackRect, size: size))
+                }
+            }
+            .contentShape(Rectangle())
+            .onContinuousHover { phase in
+                switch phase {
+                case .active(let location):
+                    hoverLocation = location
+                case .ended:
+                    hoverLocation = nil
                 }
             }
         }
@@ -153,13 +144,18 @@ struct ModelUtilizationBarsView: View {
         let orderedCycles = displayCycles
         guard orderedCycles.indices.contains(index) else { return "" }
         let leftPercent = max(0, min(100, 100 - orderedCycles[index].peakPercent))
-        return "\(cycleTimeRangeText(for: index)) · \(Int(leftPercent.rounded()))%"
+        let timeRangeText = cycleTimeRangeText(for: index)
+        let separator = isLongCycle(index: index) ? " " : " · "
+        return "\(timeRangeText)\(separator)\(Int(leftPercent.rounded()))%"
     }
 
     private func cycleTimeRangeText(for index: Int) -> String {
         let orderedCycles = displayCycles
         let end = orderedCycles[index].resetsAt
         let start = cycleStart(for: index, end: end)
+        if isLongCycle(start: start, end: end) {
+            return compactDateRangeText(from: start, to: end)
+        }
         return compactTimeRangeText(from: start, to: end)
     }
 
@@ -179,6 +175,28 @@ struct ModelUtilizationBarsView: View {
         }
 
         return end.addingTimeInterval(-max(inferredDuration, 0))
+    }
+
+    private func isLongCycle(index: Int) -> Bool {
+        let orderedCycles = displayCycles
+        guard orderedCycles.indices.contains(index) else { return false }
+        let end = orderedCycles[index].resetsAt
+        let start = cycleStart(for: index, end: end)
+        return isLongCycle(start: start, end: end)
+    }
+
+    private func isLongCycle(start: Date, end: Date) -> Bool {
+        if end.timeIntervalSince(start) >= Self.longCycleThreshold {
+            return true
+        }
+        return (cycleDuration ?? 0) >= Self.longCycleThreshold
+    }
+
+    private func compactDateRangeText(from start: Date, to end: Date) -> String {
+        let startText = dateText(start)
+        let endText = dateText(end)
+        guard startText != endText else { return startText }
+        return "\(startText)-\(endText)"
     }
 
     private func compactTimeRangeText(from start: Date, to end: Date) -> String {
