@@ -61,6 +61,7 @@ struct ModelUtilizationHistory: Codable, Equatable {
         var buckets: [CycleBucket] = []
         for entry in entries.sorted(by: { ($0.resetsAt ?? .distantPast) < ($1.resetsAt ?? .distantPast) }) {
             guard let resetsAt = entry.resetsAt else { continue }
+            guard entry.usedPercent > 0 else { continue }
             if mode == .completedOnly, resetsAt > effectiveNow { continue }
             if let index = buckets.lastIndex(where: {
                 abs($0.resetsAt.timeIntervalSince(resetsAt)) <= Self.resetBoundaryMergeTolerance
@@ -135,11 +136,15 @@ enum ModelUtilizationCycleMerger {
     }
 
     private static func liveUsedPercent(for model: ModelUsageData) -> Double? {
+        let usedPercent: Double
         if let percent = model.currentIntervalRemainingPercent {
-            return clampedPercent(100 - Double(percent))
+            usedPercent = clampedPercent(100 - Double(percent))
+        } else if model.currentIntervalTotal > 0 {
+            usedPercent = clampedPercent(Double(model.currentIntervalUsedCount) / Double(model.currentIntervalTotal) * 100)
+        } else {
+            return nil
         }
-        guard model.currentIntervalTotal > 0 else { return nil }
-        return clampedPercent(Double(model.currentIntervalUsedCount) / Double(model.currentIntervalTotal) * 100)
+        return usedPercent > 0 ? usedPercent : nil
     }
 
     private static func clampedPercent(_ percent: Double) -> Double {
