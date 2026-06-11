@@ -333,11 +333,10 @@ private struct ProviderModelsSection: View {
 
     private func isVisibleInlineModel(_ model: ModelUsageData) -> Bool {
         guard hasVisibleContent(for: model) else { return false }
-        let hasCycles = !utilizationCycles(for: model).isEmpty
-        if !hasRenderableCurrentWindow(for: model) {
+        if model.isFullQuotaUnused {
             return true
         }
-        if model.isFullQuotaUnused && hasCycles {
+        if !hasRenderableCurrentWindow(for: model) {
             return true
         }
         return !model.isExhaustedCurrentInterval && !model.isFullQuotaUnused
@@ -742,23 +741,32 @@ private struct ModelRow: View {
     let viewModel: UsageViewModel
 
     @State private var isHovered: Bool = false
+    @State private var isFullQuotaExpanded: Bool = false
 
     var body: some View {
+        Group {
+            if model.isFullQuotaUnused && !isFullQuotaExpanded {
+                collapsedFullQuotaRow
+            } else {
+                expandedContent
+            }
+        }
+        .padding(10)
+        .contentShape(Rectangle())
+        .onContinuousHover { phase in
+            switch phase {
+            case .active:
+                isHovered = true
+            case .ended:
+                isHovered = false
+            }
+        }
+    }
+
+    private var expandedContent: some View {
         VStack(alignment: .leading, spacing: 6) {
-            if !isCyclesOnly {
-                HStack(spacing: 8) {
-                    Text(model.modelName)
-                        .font(.system(size: 11, weight: .medium))
-                        .lineLimit(1)
-
-                    Spacer()
-
-                    if isCurrentWindow {
-                        Text(model.currentIntervalRemainingText)
-                            .font(.system(size: 13, weight: .semibold, design: .rounded))
-                            .foregroundStyle(tint)
-                    }
-                }
+            if !isCyclesOnly || model.isFullQuotaUnused {
+                headerRow
             }
 
             if isCurrentWindow {
@@ -822,20 +830,64 @@ private struct ModelRow: View {
                     cycles: cycles,
                     currentCycle: currentUtilizationCycle,
                     cycleDuration: model.currentIntervalDuration,
-                    tint: tint,
+                    tint: cycleTint,
                     isHovered: isHovered
                 )
             }
         }
-        .padding(10)
-        .contentShape(Rectangle())
-        .onContinuousHover { phase in
-            switch phase {
-            case .active:
-                isHovered = true
-            case .ended:
-                isHovered = false
+    }
+
+    private var headerRow: some View {
+        HStack(spacing: 8) {
+            if model.isFullQuotaUnused {
+                Image(systemName: "chevron.down")
+                    .font(.system(size: 9, weight: .semibold))
+                    .foregroundStyle(.secondary)
+                    .frame(width: 10)
             }
+
+            if !isCyclesOnly {
+                Text(model.modelName)
+                    .font(.system(size: 11, weight: .medium))
+                    .lineLimit(1)
+            }
+
+            Spacer()
+
+            if isCurrentWindow {
+                Text(model.currentIntervalRemainingText)
+                    .font(.system(size: 13, weight: .semibold, design: .rounded))
+                    .foregroundStyle(tint)
+            }
+        }
+        .contentShape(Rectangle())
+        .onTapGesture {
+            if model.isFullQuotaUnused {
+                isFullQuotaExpanded = false
+            }
+        }
+    }
+
+    private var collapsedFullQuotaRow: some View {
+        HStack(spacing: 8) {
+            Image(systemName: "chevron.right")
+                .font(.system(size: 9, weight: .semibold))
+                .foregroundStyle(.secondary)
+                .frame(width: 10)
+
+            Text(model.modelName)
+                .font(.system(size: 11, weight: .medium))
+                .lineLimit(1)
+
+            Spacer()
+
+            Text(model.currentIntervalRemainingText)
+                .font(.system(size: 13, weight: .semibold, design: .rounded))
+                .foregroundStyle(tint)
+        }
+        .contentShape(Rectangle())
+        .onTapGesture {
+            isFullQuotaExpanded = true
         }
     }
 
@@ -985,6 +1037,10 @@ private struct ModelRow: View {
         if model.currentIntervalPercentageUsed > 0 && model.currentIntervalPercentageRemaining <= warningThreshold { return .orange }
         if model.currentIntervalPercentageUsed > 0 { return .green }
         return .secondary
+    }
+
+    private var cycleTint: Color {
+        model.progressBarPercentOverride == nil ? .green : .secondary
     }
 
     /// 周窗口才画天分隔线：返回 6 个位置（1/7..6/7）
