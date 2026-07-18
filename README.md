@@ -64,6 +64,10 @@ The menu bar item shows one provider at a time. **Displayed provider** can be se
 
 **Appearance** can be set to Detailed text or Compact ring. For Codex, the compact ring's outer stroke shows Weekly consumption. Its split center circle fills left for deficit and right for reserve. **Pace detail** lets you choose a fine-grained continuous percentage or glanceable staged levels. At startup and during a user-triggered refresh, the ring runs at least one complete self-test pass that sweeps Weekly usage and cycles through deficit, on-pace, and reserve; live data returns after that pass and the refresh have both finished. Background timer refreshes stay visually quiet. If both `chatgpt.com` and `openai.com` are unreachable, the center becomes a no-entry glyph while the last quota ring remains visible. Other providers keep their compact provider initial. Hover the item for the exact quota, pace, reset time, and connectivity state.
 
+![Compact Codex quota ring states](./docs/images/menu-bar-self-test-preview.png)
+
+From left to right: staged deficit, on pace, staged reserve, continuous deficit, continuous reserve, and the OpenAI-unreachable no-entry state. The changing outer stroke demonstrates Weekly consumption across the self-test.
+
 Left-click the menu bar item to open the detailed dropdown. Right-click it to quickly cycle through used short-interval models, which are the models shown with trend charts in the dropdown rather than long-window progress bars.
 
 ## MiniMax support
