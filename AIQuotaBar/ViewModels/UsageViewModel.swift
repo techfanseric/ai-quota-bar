@@ -8,7 +8,10 @@ final class UsageViewModel {
     // MARK: - Published State
 
     var usageData: UsageData? {
-        didSet { checkThreshold() }
+        didSet {
+            checkThreshold()
+            updateStatusBarText()
+        }
     }
     var providerUsageData: [UsageProvider: UsageData] = [:]
     var cloudProviderUsageData: [UsageProvider: UsageData] = [:]
@@ -16,6 +19,7 @@ final class UsageViewModel {
     var providerErrors: [UsageProvider: UsageError] = [:]
     var error: UsageError?
     var isLoading: Bool = false
+    private(set) var isMenuBarSelfTesting: Bool = false
     var lastRefreshTime: Date?
     var showWarningPanel: Bool = false
     private(set) var modelQuotaSamples: [String: [ModelQuotaSample]] = [:]
@@ -38,12 +42,14 @@ final class UsageViewModel {
         didSet {
             UserDefaults.standard.set(warningThreshold, forKey: "warningThreshold")
             checkThreshold()
+            updateStatusBarText()
         }
     }
 
     var warningThresholdEnabled: Bool {
         didSet {
             UserDefaults.standard.set(warningThresholdEnabled, forKey: "warningThresholdEnabled")
+            updateStatusBarText()
         }
     }
 
@@ -69,6 +75,28 @@ final class UsageViewModel {
         didSet {
             UserDefaults.standard.set(launchAtLogin, forKey: "launchAtLogin")
             AutoLaunchService.shared.setEnabled(launchAtLogin)
+        }
+    }
+
+    var menuBarContentSelection: MenuBarContentSelection {
+        didSet {
+            UserDefaults.standard.set(menuBarContentSelection.rawValue, forKey: MenuBarContentSelection.storageKey)
+            updateStatusBarText()
+        }
+    }
+
+    var menuBarAppearance: MenuBarAppearance {
+        didSet {
+            UserDefaults.standard.set(menuBarAppearance.rawValue, forKey: MenuBarAppearance.storageKey)
+            updateStatusBarText()
+        }
+    }
+
+    var menuBarPaceDisplayMode: MenuBarPaceDisplayMode {
+        didSet {
+            UserDefaults.standard.set(
+                menuBarPaceDisplayMode.rawValue,
+                forKey: MenuBarPaceDisplayMode.storageKey)
         }
     }
 
@@ -117,6 +145,16 @@ final class UsageViewModel {
     // MARK: - Computed Properties
 
     var statusBarText: String = "..."
+    private(set) var menuBarSnapshot = MenuBarSnapshot(
+        provider: .codex,
+        modelName: nil,
+        remainingPercent: nil,
+        ringPercent: nil,
+        paceDeltaPercent: nil,
+        resetsAt: nil,
+        state: .loading,
+        isLowQuota: false,
+        tooltip: "")
 
     var availableModels: [ModelUsageData] {
         guard let data = usageData else { return [] }
@@ -124,66 +162,99 @@ final class UsageViewModel {
     }
 
     private func updateStatusBarText() {
-        guard let data = usageData else {
-            if error != nil {
-                statusBarText = "—"
-            } else {
-                // 还没拉到数据(初次启动 / 等待刷新):每个已配置 provider 占一行 "Xxx loading"
-                // 顺序跟正常态对齐:codex 优先,再 minimax
-                let displayOrder: [UsageProvider] = [.codex, .miniMax]
-                let placeholders = displayOrder
-                    .filter { configuredProviders.contains($0) }
-                    .map { "\($0.displayName) loading" }
-                if placeholders.count == 1,
-                   let provider = displayOrder.first(where: { configuredProviders.contains($0) }) {
-                    statusBarText = "\(provider.displayName)\nloading"
-                } else {
-                    statusBarText = placeholders.isEmpty ? "..." : placeholders.joined(separator: "\n")
-                }
-            }
+        let now = Date()
+        let allModels = resolvedMenuBarMetricModels(
+            usageData?.models ?? [],
+            now: now)
+        let candidates = menuBarCandidateModels(from: allModels, now: now)
+
+        guard let primary = selectedMenuBarModel(from: candidates) else {
+            let provider = fallbackMenuBarProvider()
+            let failed = providerErrors[provider] != nil || (error != nil && usageData == nil)
+            let state: MenuBarSnapshotState = failed ? .failed : (isLoading || usageData == nil ? .loading : .unavailable)
+            menuBarSnapshot = MenuBarSnapshot(
+                provider: provider,
+                modelName: nil,
+                remainingPercent: nil,
+                ringPercent: nil,
+                paceDeltaPercent: nil,
+                resetsAt: nil,
+                state: state,
+                isLowQuota: false,
+                tooltip: menuBarStateTooltip(provider: provider, state: state))
+            statusBarText = "\(provider.displayName)\n\(statusBarStateText(state))"
             return
         }
 
-        let now = Date()
-        let candidates = menuBarCandidateModels(from: data.models, now: now)
-        let displayedProviders = Set(candidates.map(\.provider))
+        let paceSource = menuBarPaceSource(for: primary, models: allModels)
+        let paceDelta = paceSource.currentIntervalPaceDeltaPercent
+        let remaining = primary.currentIntervalPercentageRemaining
+        let ringPercent = menuBarRingPercent(for: primary, models: allModels)
+        let warningLimit = warningThresholdEnabled ? warningThreshold : 20
+        let isLowQuota = remaining <= warningLimit
 
-        // 状态栏两行：每行一个 provider 的状态
-        // codex: primary 用 5h model(显示 5h 剩余% 和 5h reset),
-        //         paceDelta 从 Weekly model 算(周限额 reserve)
-        let primary: ModelUsageData? = pickPrimary(from: candidates)
+        menuBarSnapshot = MenuBarSnapshot(
+            provider: primary.provider,
+            modelName: primary.modelName,
+            remainingPercent: remaining,
+            ringPercent: ringPercent,
+            paceDeltaPercent: paceDelta,
+            resetsAt: primary.endTime,
+            state: .ready,
+            isLowQuota: isLowQuota,
+            tooltip: menuBarReadyTooltip(
+                primary: primary,
+                weeklyUsedPercent: primary.provider == .codex ? ringPercent : nil,
+                paceDelta: paceDelta))
 
-        var secondary: ModelUsageData?
-        if let primary {
-            let remainingCandidates = candidates.filter { $0.provider != primary.provider }
-            secondary = pickPrimary(from: remainingCandidates)
-        } else {
-            secondary = candidates.dropFirst().first
+        if let automaticText = detailedAutomaticStatusBarText(
+            primary: primary,
+            candidates: candidates,
+            metricModels: allModels
+        ) {
+            statusBarText = automaticText
+            return
         }
 
-        var lines: [String] = []
-        if let primary {
-            // codex 时 paceSource 传 weekly model(用周限额算 paceDelta)
-            let paceSource: ModelUsageData? = (primary.provider == .codex) ? weeklyModel(in: candidates) : nil
-            if displayedProviders.count == 1 {
-                statusBarText = [
-                    primary.provider.displayName,
-                    primary.formattedStatusBarLine(paceSource: paceSource)
-                ].joined(separator: "\n")
-                return
+        statusBarText = [
+            primary.provider.displayName,
+            primary.formattedStatusBarLine(paceSource: paceSource)
+        ].joined(separator: "\n")
+    }
+
+    /// Detailed + Automatic 有足够数据时每行显示一家；紧凑环仍只消费 menuBarSnapshot。
+    private func detailedAutomaticStatusBarText(
+        primary: ModelUsageData,
+        candidates: [ModelUsageData],
+        metricModels: [ModelUsageData]
+    ) -> String? {
+        guard menuBarAppearance == .detailedText,
+              menuBarContentSelection == .automatic else {
+            return nil
+        }
+
+        let otherPrimaries = UsageProvider.allCases
+            .filter { $0 != primary.provider }
+            .compactMap { provider in
+                pickPrimary(from: candidates.filter { $0.provider == provider })
             }
-            lines.append(primary.formattedStatusBarLine(
-                providerInitial: providerInitial(primary.provider),
-                paceSource: paceSource))
-        }
-        if let secondary {
-            let paceSource: ModelUsageData? = (secondary.provider == .codex) ? weeklyModel(in: candidates) : nil
-            lines.append(secondary.formattedStatusBarLine(
-                providerInitial: providerInitial(secondary.provider),
-                paceSource: paceSource))
-        }
+        guard let secondary = otherPrimaries.first else { return nil }
 
-        statusBarText = lines.isEmpty ? "—" : lines.joined(separator: "\n")
+        return [primary, secondary]
+            .map { model in
+                model.formattedStatusBarLine(
+                    providerInitial: menuBarProviderInitial(model.provider),
+                    paceSource: menuBarPaceSource(for: model, models: metricModels))
+            }
+            .joined(separator: "\n")
+    }
+
+    private func menuBarProviderInitial(_ provider: UsageProvider) -> String {
+        switch provider {
+        case .codex: return "C"
+        case .miniMax: return "M"
+        case .glm: return "G"
+        }
     }
 
     /// 选 status bar 主显示 model:
@@ -196,17 +267,141 @@ final class UsageViewModel {
         return candidates.first
     }
 
-    /// 从 candidates 里找 codex 的 "Weekly" model(用来算周限额 paceDelta)
-    private func weeklyModel(in candidates: [ModelUsageData]) -> ModelUsageData? {
-        candidates.first(where: { $0.provider == .codex && $0.modelName.localizedCaseInsensitiveContains("Weekly") })
+    /// 从完整 model 集合里找 Codex Weekly；已用尽的 Weekly 仍要能把外环画满。
+    private func weeklyModel(in models: [ModelUsageData]) -> ModelUsageData? {
+        models.first(where: { $0.provider == .codex && $0.modelName.localizedCaseInsensitiveContains("Weekly") })
     }
 
-    private func providerInitial(_ provider: UsageProvider) -> String {
-        switch provider {
-        case .miniMax: return "M"
-        case .codex: return "C"
-        case .glm: return "G"
+    /// Codex can emit an inactive 0%-used weekly placeholder whose reset moves
+    /// to `request time + 7 days`. Keep the latest higher sample while its
+    /// original reset window is still active; weekly usage cannot decrease
+    /// inside that window.
+    private func resolvedMenuBarMetricModels(
+        _ models: [ModelUsageData],
+        now: Date
+    ) -> [ModelUsageData] {
+        models.map { model in
+            guard model.provider == .codex,
+                  model.modelName.localizedCaseInsensitiveContains("Weekly"),
+                  let history = utilizationHistories[.codex]?.historiesOrEmpty[model.id],
+                  let entry = MenuBarWeeklyMetricResolver.preferredHistoricalEntry(
+                      liveUsedPercent: model.currentIntervalPercentageUsed,
+                      historyEntries: history.entries,
+                      now: now),
+                  let resetsAt = entry.resetsAt else {
+                return model
+            }
+
+            let remainingPercent = Int(max(0, min(100, 100 - entry.usedPercent)).rounded())
+            let startTime = resetsAt.addingTimeInterval(-7 * 24 * 3600)
+            return ModelUsageData(
+                provider: model.provider,
+                accountName: model.accountName,
+                modelName: model.modelName,
+                currentIntervalTotal: 100,
+                currentIntervalUsed: remainingPercent,
+                weeklyTotal: model.weeklyTotal,
+                weeklyUsed: model.weeklyUsed,
+                remainsTime: max(0, Int(resetsAt.timeIntervalSince(now) * 1000)),
+                startTime: startTime,
+                endTime: resetsAt,
+                weeklyStartTime: model.weeklyStartTime,
+                weeklyEndTime: model.weeklyEndTime,
+                valueSuffix: "%",
+                detailText: model.detailText,
+                currentIntervalRemainingPercent: remainingPercent,
+                weeklyRemainingPercent: model.weeklyRemainingPercent,
+                progressBarPercentOverride: model.progressBarPercentOverride,
+                progressBarRightText: model.progressBarRightText,
+                sampledAt: entry.capturedAt)
         }
+    }
+
+    private func selectedMenuBarModel(from candidates: [ModelUsageData]) -> ModelUsageData? {
+        if let fixedProvider = menuBarContentSelection.provider {
+            return pickPrimary(from: candidates.filter { $0.provider == fixedProvider })
+        }
+
+        let providerPrimaries = UsageProvider.allCases.compactMap { provider in
+            pickPrimary(from: candidates.filter { $0.provider == provider })
+        }
+        return providerPrimaries.min { lhs, rhs in
+            isMoreUrgentMenuBarModel(lhs, than: rhs, candidates: candidates)
+        }
+    }
+
+    private func isMoreUrgentMenuBarModel(
+        _ lhs: ModelUsageData,
+        than rhs: ModelUsageData,
+        candidates: [ModelUsageData]
+    ) -> Bool {
+        let warningLimit = warningThresholdEnabled ? warningThreshold : 20
+        let lhsLow = lhs.currentIntervalPercentageRemaining <= warningLimit
+        let rhsLow = rhs.currentIntervalPercentageRemaining <= warningLimit
+        if lhsLow != rhsLow { return lhsLow }
+
+        let lhsDelta = menuBarPaceSource(for: lhs, models: candidates).currentIntervalPaceDeltaPercent
+        let rhsDelta = menuBarPaceSource(for: rhs, models: candidates).currentIntervalPaceDeltaPercent
+        let lhsDeficit = (lhsDelta ?? 0) < -2
+        let rhsDeficit = (rhsDelta ?? 0) < -2
+        if lhsDeficit != rhsDeficit { return lhsDeficit }
+
+        if lhs.currentIntervalPercentageRemaining != rhs.currentIntervalPercentageRemaining {
+            return lhs.currentIntervalPercentageRemaining < rhs.currentIntervalPercentageRemaining
+        }
+        return (lhs.endTime ?? .distantFuture) < (rhs.endTime ?? .distantFuture)
+    }
+
+    /// Codex 的 glance 语义保持为“5h 剩余 + Weekly pace”；其余 provider 使用主额度本身。
+    private func menuBarPaceSource(
+        for primary: ModelUsageData,
+        models: [ModelUsageData]
+    ) -> ModelUsageData {
+        guard primary.provider == .codex else { return primary }
+        return weeklyModel(in: models.filter { $0.normalizedAccountName == primary.normalizedAccountName })
+            ?? primary
+    }
+
+    /// Codex 的外环专门显示 Weekly 已用比例；没有 Weekly 窗口时只保留空轨道。
+    /// 其他 provider 继续沿用现有的剩余额度环，避免改变它们的既有语义。
+    private func menuBarRingPercent(
+        for primary: ModelUsageData,
+        models: [ModelUsageData]
+    ) -> Double? {
+        guard primary.provider == .codex else {
+            return primary.currentIntervalPercentageRemaining
+        }
+        return weeklyModel(in: models.filter { $0.normalizedAccountName == primary.normalizedAccountName })?
+            .currentIntervalPercentageUsed
+    }
+
+    private func fallbackMenuBarProvider() -> UsageProvider {
+        if let fixedProvider = menuBarContentSelection.provider {
+            return fixedProvider
+        }
+        return configuredProviders.first ?? .codex
+    }
+
+    private func statusBarStateText(_ state: MenuBarSnapshotState) -> String {
+        appLanguage.menuBarStateText(state)
+    }
+
+    private func menuBarStateTooltip(provider: UsageProvider, state: MenuBarSnapshotState) -> String {
+        appLanguage.menuBarStateTooltip(provider: provider, state: state)
+    }
+
+    private func menuBarReadyTooltip(
+        primary: ModelUsageData,
+        weeklyUsedPercent: Double?,
+        paceDelta: Double?
+    ) -> String {
+        appLanguage.menuBarReadyTooltip(
+            provider: primary.provider,
+            modelName: primary.modelName,
+            remainingText: primary.currentIntervalRemainingText,
+            weeklyUsedPercent: weeklyUsedPercent,
+            paceDeltaPercent: paceDelta,
+            resetText: primary.statusBarResetText)
     }
 
     var hasAPIKey: Bool {
@@ -295,6 +490,15 @@ final class UsageViewModel {
             .flatMap(AppLanguage.init(rawValue:))
             ?? AppLanguage.fallback
         self.launchAtLogin = UserDefaults.standard.object(forKey: "launchAtLogin") as? Bool ?? false
+        self.menuBarContentSelection = UserDefaults.standard.string(forKey: MenuBarContentSelection.storageKey)
+            .flatMap(MenuBarContentSelection.init(rawValue:))
+            ?? .automatic
+        self.menuBarAppearance = UserDefaults.standard.string(forKey: MenuBarAppearance.storageKey)
+            .flatMap(MenuBarAppearance.init(rawValue:))
+            ?? .detailedText
+        self.menuBarPaceDisplayMode = UserDefaults.standard.string(forKey: MenuBarPaceDisplayMode.storageKey)
+            .flatMap(MenuBarPaceDisplayMode.init(rawValue:))
+            ?? .staged
         let cloudSyncSettings = CloudSyncSettings.current
         self.cloudSyncEnabled = cloudSyncSettings.isEnabled
         self.utilizationHistoryMode = UserDefaults.standard.string(forKey: Self.utilizationHistoryModeKey)
@@ -323,10 +527,26 @@ final class UsageViewModel {
 
     // MARK: - Public Methods
 
-    func refresh() async {
-        guard !isLoading else { return }
+    /// User-visible refreshes run at least one complete compact-icon self-test
+    /// cycle and continue until the request completes. Background timer refreshes opt out.
+    func refresh(showIconSelfTest: Bool = true) async {
+        guard !isLoading else {
+            return
+        }
+
+        let selfTestStartedAt = showIconSelfTest
+            ? ProcessInfo.processInfo.systemUptime
+            : nil
+        if showIconSelfTest {
+            isMenuBarSelfTesting = true
+        }
 
         isLoading = true
+        defer {
+            isLoading = false
+            isMenuBarSelfTesting = false
+            updateStatusBarText()
+        }
         error = nil
         providerErrors = [:]
 
@@ -339,7 +559,7 @@ final class UsageViewModel {
             error = providerUsageData.isEmpty ? .notConfigured : nil
             await refreshCloudUsageData()
             updateStatusBarText()
-            isLoading = false
+            await waitForMenuBarSelfTestCycle(startedAt: selfTestStartedAt)
             return
         }
 
@@ -405,8 +625,20 @@ final class UsageViewModel {
         await refreshCloudUsageData()
         updateStatusBarText()
         checkThreshold()
+        await waitForMenuBarSelfTestCycle(startedAt: selfTestStartedAt)
+    }
 
-        isLoading = false
+    private func waitForMenuBarSelfTestCycle(startedAt: TimeInterval?) async {
+        guard let startedAt else { return }
+        let elapsed = ProcessInfo.processInfo.systemUptime - startedAt
+        let remaining = MenuBarSelfTestFrame.cycleDuration - elapsed
+        guard remaining > 0 else { return }
+
+        do {
+            try await Task.sleep(nanoseconds: UInt64(remaining * 1_000_000_000))
+        } catch {
+            // Cancellation should restore the real icon immediately.
+        }
     }
 
     private func shouldFetchProvider(_ provider: UsageProvider) -> Bool {
@@ -426,7 +658,7 @@ final class UsageViewModel {
 
         if autoRefreshOnLaunch || usageData == nil {
             Task {
-                await refresh()
+                await refresh(showIconSelfTest: true)
             }
         }
     }
@@ -642,7 +874,7 @@ final class UsageViewModel {
         timer?.invalidate()
         timer = Timer.scheduledTimer(withTimeInterval: TimeInterval(refreshInterval), repeats: true) { [weak self] _ in
             Task { @MainActor [weak self] in
-                await self?.refresh()
+                await self?.refresh(showIconSelfTest: false)
             }
         }
     }

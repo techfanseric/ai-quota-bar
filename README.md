@@ -7,6 +7,7 @@ AI Quota Bar is focused on coding-plan consumption: it tracks the remaining quot
 ## Features
 
 - Menu bar widget displaying remaining coding-plan quota
+- Configurable menu bar provider selection and compact quota ring
 - Detailed per-provider and per-model usage breakdown
 - Quota trend charts for short-interval model limits
 - Automatic menu bar fallback to the used model with the soonest reset when the displayed quota expires
@@ -59,7 +60,9 @@ make install
 
 ## Menu bar behavior
 
-The menu bar item shows one primary quota at a time. When the displayed model is exhausted or its reset window has already passed, AI Quota Bar automatically falls back to the eligible model whose reset time arrives soonest. Models that are still at full quota are skipped when there is already-used quota to show, so the menu bar stays focused on active limits.
+The menu bar item shows one provider at a time. **Displayed provider** can be set to Automatic, Codex, or MiniMax. Automatic prioritizes providers with low remaining quota or an unsustainable usage pace, then compares remaining quota and reset time.
+
+**Appearance** can be set to Detailed text or Compact ring. For Codex, the compact ring's outer stroke shows Weekly consumption. Its split center circle fills left for deficit and right for reserve. **Pace detail** lets you choose a fine-grained continuous percentage or glanceable staged levels. At startup and during a user-triggered refresh, the ring runs at least one complete self-test pass that sweeps Weekly usage and cycles through deficit, on-pace, and reserve; live data returns after that pass and the refresh have both finished. Background timer refreshes stay visually quiet. If both `chatgpt.com` and `openai.com` are unreachable, the center becomes a no-entry glyph while the last quota ring remains visible. Other providers keep their compact provider initial. Hover the item for the exact quota, pace, reset time, and connectivity state.
 
 Left-click the menu bar item to open the detailed dropdown. Right-click it to quickly cycle through used short-interval models, which are the models shown with trend charts in the dropdown rather than long-window progress bars.
 
