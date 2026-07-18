@@ -1254,6 +1254,168 @@ enum AppLanguage: String, CaseIterable, Codable, Identifiable {
             }
         }
     }
+
+    func menuBarSectionTitle() -> String {
+        switch self {
+        case .english: return "Menu bar"
+        case .simplifiedChinese: return "菜单栏"
+        }
+    }
+
+    func menuBarContentLabel() -> String {
+        switch self {
+        case .english: return "Displayed provider"
+        case .simplifiedChinese: return "显示对象"
+        }
+    }
+
+    func menuBarContentDescription() -> String {
+        switch self {
+        case .english: return "Automatic shows the provider that needs attention most."
+        case .simplifiedChinese: return "自动模式会显示当前最需要关注的服务商。"
+        }
+    }
+
+    func menuBarContentDisplayName(_ selection: MenuBarContentSelection) -> String {
+        switch (self, selection) {
+        case (.english, .automatic): return "Automatic"
+        case (.english, .codex): return "Codex"
+        case (.english, .miniMax): return "MiniMax"
+        case (.simplifiedChinese, .automatic): return "自动"
+        case (.simplifiedChinese, .codex): return "Codex"
+        case (.simplifiedChinese, .miniMax): return "MiniMax"
+        }
+    }
+
+    func menuBarAppearanceLabel() -> String {
+        switch self {
+        case .english: return "Appearance"
+        case .simplifiedChinese: return "显示方式"
+        }
+    }
+
+    func menuBarAppearanceDescription() -> String {
+        switch self {
+        case .english:
+            return "For Codex, the outer ring shows Weekly usage and the split center shows pace."
+        case .simplifiedChinese:
+            return "Codex 紧凑环的外环显示 Weekly 已用比例，分半内圆显示消耗节奏。"
+        }
+    }
+
+    func menuBarAppearanceDisplayName(_ appearance: MenuBarAppearance) -> String {
+        switch (self, appearance) {
+        case (.english, .detailedText): return "Detailed text"
+        case (.english, .compactRing): return "Compact ring"
+        case (.simplifiedChinese, .detailedText): return "详细文字"
+        case (.simplifiedChinese, .compactRing): return "紧凑环形"
+        }
+    }
+
+    func menuBarPaceDisplayModeLabel() -> String {
+        switch self {
+        case .english: return "Pace detail"
+        case .simplifiedChinese: return "节奏精度"
+        }
+    }
+
+    func menuBarPaceDisplayModeDescription() -> String {
+        switch self {
+        case .english:
+            return "Choose exact percentage fill or easier-to-scan staged levels for the split center."
+        case .simplifiedChinese:
+            return "选择按实际百分比连续填充，或使用更易扫读的分级节奏。"
+        }
+    }
+
+    func menuBarPaceDisplayModeDisplayName(_ mode: MenuBarPaceDisplayMode) -> String {
+        switch (self, mode) {
+        case (.english, .continuous): return "Continuous percentage"
+        case (.english, .staged): return "Staged levels"
+        case (.simplifiedChinese, .continuous): return "连续百分比"
+        case (.simplifiedChinese, .staged): return "节奏分级"
+        }
+    }
+
+    func menuBarSelfTestTooltip() -> String {
+        switch self {
+        case .english: return "Refreshing · icon self-test"
+        case .simplifiedChinese: return "正在刷新 · 图标自检"
+        }
+    }
+
+    func menuBarStateText(_ state: MenuBarSnapshotState) -> String {
+        switch (self, state) {
+        case (.english, .loading): return "loading"
+        case (.english, .ready): return "ready"
+        case (.english, .unavailable): return "no data"
+        case (.english, .failed): return "error"
+        case (.simplifiedChinese, .loading): return "加载中"
+        case (.simplifiedChinese, .ready): return "正常"
+        case (.simplifiedChinese, .unavailable): return "暂无数据"
+        case (.simplifiedChinese, .failed): return "获取失败"
+        }
+    }
+
+    func menuBarStateTooltip(provider: UsageProvider, state: MenuBarSnapshotState) -> String {
+        let stateText = menuBarStateText(state)
+        switch self {
+        case .english: return "\(provider.displayName)\nStatus: \(stateText)"
+        case .simplifiedChinese: return "\(provider.displayName)\n状态：\(stateText)"
+        }
+    }
+
+    func menuBarReadyTooltip(
+        provider: UsageProvider,
+        modelName: String,
+        remainingText: String,
+        weeklyUsedPercent: Double?,
+        paceDeltaPercent: Double?,
+        resetText: String
+    ) -> String {
+        let paceText: String
+        if let paceDeltaPercent {
+            let value = Int(abs(paceDeltaPercent).rounded())
+            switch self {
+            case .english:
+                if value == 0 {
+                    paceText = "On pace"
+                } else {
+                    paceText = paceDeltaPercent > 0 ? "\(value)% in reserve" : "\(value)% in deficit"
+                }
+            case .simplifiedChinese:
+                if value == 0 {
+                    paceText = "节奏正常"
+                } else {
+                    paceText = paceDeltaPercent > 0 ? "余量 \(value)%" : "超额 \(value)%"
+                }
+            }
+        } else {
+            paceText = self == .english ? "Pace unavailable" : "暂无节奏数据"
+        }
+
+        switch self {
+        case .english:
+            let weeklyText = weeklyUsedPercent.map {
+                "\nWeekly: \(Int($0.rounded()))% used"
+            } ?? ""
+            return "\(provider.displayName) · \(modelName)\n\(remainingText) remaining\(weeklyText)\n\(paceText)\nResets in \(resetText)"
+        case .simplifiedChinese:
+            let weeklyText = weeklyUsedPercent.map {
+                "\nWeekly 已用 \(Int($0.rounded()))%"
+            } ?? ""
+            return "\(provider.displayName) · \(modelName)\n剩余 \(remainingText)\(weeklyText)\n\(paceText)\n\(resetText) 后重置"
+        }
+    }
+
+    func codexConnectivityUnavailableTooltip(base: String) -> String {
+        switch self {
+        case .english:
+            return "\(base)\nOpenAI is unreachable"
+        case .simplifiedChinese:
+            return "\(base)\nOpenAI 当前不可达"
+        }
+    }
 }
 
 enum AppText {

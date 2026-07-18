@@ -854,7 +854,7 @@ extension ModelUsageData {
     func formattedStatusBarLine(providerInitial: String? = nil, paceSource: ModelUsageData? = nil) -> String {
         let remaining = currentIntervalRemainingText
         let paceDelta = (paceSource ?? self).formattedPaceDelta()
-        let resetText = formatResetTime(endTime: endTime)
+        let resetText = statusBarResetText
         if let providerInitial, !providerInitial.isEmpty {
             return "\(providerInitial):\(remaining) · \(paceDelta) · \(resetText)"
         }
@@ -865,17 +865,25 @@ extension ModelUsageData {
     /// - 正数 = 用得比匀速慢（剩余比应有多 — ahead / 有余量）
     /// - 负数 = 用得比匀速快（剩余比应有少 — behind / 快烧完）
     /// 统一走 currentInterval 字段（codex Weekly model 的 currentInterval 就是周限额）
-    private func formattedPaceDelta() -> String {
-        guard let paceUsed = currentIntervalPaceUsedPercent else { return "0%" }
+    var currentIntervalPaceDeltaPercent: Double? {
+        guard let paceUsed = currentIntervalPaceUsedPercent else { return nil }
         let actualUsed = 100 - currentIntervalPercentageRemaining
-        return formatDelta(paceUsed: paceUsed, actualUsed: actualUsed)
+        return paceUsed - actualUsed
     }
 
-    private func formatDelta(paceUsed: Double, actualUsed: Double) -> String {
-        // delta = paceUsed - actualUsed
+    var statusBarResetText: String {
+        formatResetTime(endTime: endTime)
+    }
+
+    private func formattedPaceDelta() -> String {
+        guard let delta = currentIntervalPaceDeltaPercent else { return "—" }
+        return formatDelta(delta: delta)
+    }
+
+    private func formatDelta(delta: Double) -> String {
+        // delta = expected used - actual used
         // 用得慢 (actualUsed < paceUsed) → 正数（ahead / 省）
         // 用得快 (actualUsed > paceUsed) → 负数（behind / 烧）
-        let delta = paceUsed - actualUsed
         let rounded = Int(delta.rounded())
         if rounded == 0 { return "0%" }
         return rounded > 0 ? "+\(rounded)%" : "\(rounded)%"

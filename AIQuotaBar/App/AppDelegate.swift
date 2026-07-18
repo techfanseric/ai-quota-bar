@@ -41,6 +41,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
     func applicationWillTerminate(_ notification: Notification) {
         statusBarController?.viewModel.stopAutoRefresh()
+        statusBarController?.stop()
         dailyUpdateTimer?.invalidate()
         dailyUpdateTimer = nil
     }

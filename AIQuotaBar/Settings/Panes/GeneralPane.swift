@@ -13,6 +13,8 @@ struct GeneralPane: View {
             VStack(alignment: .leading, spacing: 16) {
                 systemSection
                 Divider()
+                menuBarSection
+                Divider()
                 quitSection
             }
             .frame(maxWidth: .infinity, alignment: .leading)
@@ -39,6 +41,44 @@ struct GeneralPane: View {
                 subtitle: language.text(.launchAtLoginDescription),
                 isOn: $viewModel.launchAtLogin
             )
+        }
+    }
+
+    private var menuBarSection: some View {
+        SettingsSection(title: language.menuBarSectionTitle(), contentSpacing: 12) {
+            PreferencePickerRow(
+                title: language.menuBarContentLabel(),
+                subtitle: language.menuBarContentDescription(),
+                selection: $viewModel.menuBarContentSelection,
+                maxWidth: 160
+            ) {
+                ForEach(MenuBarContentSelection.allCases) { selection in
+                    Text(language.menuBarContentDisplayName(selection)).tag(selection)
+                }
+            }
+
+            PreferencePickerRow(
+                title: language.menuBarAppearanceLabel(),
+                subtitle: language.menuBarAppearanceDescription(),
+                selection: $viewModel.menuBarAppearance,
+                maxWidth: 160
+            ) {
+                ForEach(MenuBarAppearance.allCases) { appearance in
+                    Text(language.menuBarAppearanceDisplayName(appearance)).tag(appearance)
+                }
+            }
+
+            PreferencePickerRow(
+                title: language.menuBarPaceDisplayModeLabel(),
+                subtitle: language.menuBarPaceDisplayModeDescription(),
+                selection: $viewModel.menuBarPaceDisplayMode,
+                maxWidth: 180
+            ) {
+                ForEach(MenuBarPaceDisplayMode.allCases) { mode in
+                    Text(language.menuBarPaceDisplayModeDisplayName(mode)).tag(mode)
+                }
+            }
+            .disabled(viewModel.menuBarAppearance != .compactRing)
         }
     }
 

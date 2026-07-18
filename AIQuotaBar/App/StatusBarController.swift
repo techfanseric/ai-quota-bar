@@ -16,17 +16,20 @@ final class StatusBarController {
     private var menuItem: NSMenuItem?
     private var hostingView: NSHostingView<MenuView>?
 
-    private let statusView = StatusBarTwoLineView()
+    private let statusView = StatusBarContentView()
+    private let connectivityMonitor = CodexConnectivityMonitor()
+    private let initialStatusItemLength: CGFloat = 110
     private var screenObserverTokens: [NSObjectProtocol] = []
 
     init() {
         setupStatusItem()
         setupMenu()
+        connectivityMonitor.start()
         viewModel.flushPendingCloudSyncQueue()
     }
 
     private func setupStatusItem() {
-        statusItem = NSStatusBar.system.statusItem(withLength: 110)
+        statusItem = NSStatusBar.system.statusItem(withLength: initialStatusItemLength)
 
         if let button = statusItem?.button {
             button.target = self
@@ -34,14 +37,26 @@ final class StatusBarController {
             button.sendAction(on: [.leftMouseUp])
             button.toolTip = "Click to see usage details."
             statusView.translatesAutoresizingMaskIntoConstraints = true
-            statusView.frame = NSRect(x: 0, y: 0, width: 110, height: 22)
+            statusView.frame = NSRect(x: 0, y: 0, width: initialStatusItemLength, height: 22)
             statusView.autoresizingMask = [.width, .height]
             button.addSubview(statusView)
             updateStatusItem()
             installActiveScreenObservers(button: button)
         }
 
-        observe(viewModel, \.statusBarText) { [weak self] in
+        observeProperties(viewModel) { viewModel in
+            _ = viewModel.statusBarText
+            _ = viewModel.menuBarSnapshot
+            _ = viewModel.menuBarAppearance
+            _ = viewModel.menuBarPaceDisplayMode
+            _ = viewModel.isMenuBarSelfTesting
+        } onChange: { [weak self] in
+            self?.updateStatusItem()
+        }
+
+        observeProperties(connectivityMonitor) { monitor in
+            _ = monitor.state
+        } onChange: { [weak self] in
             self?.updateStatusItem()
         }
     }
@@ -157,6 +172,10 @@ final class StatusBarController {
         }
     }
 
+    func stop() {
+        connectivityMonitor.stop()
+    }
+
     /// NSStatusItem.button 在某些 macOS 版本上无 window — 用 button 的全局 frame 反查 screen
     private func screenContaining(button: NSStatusBarButton) -> NSScreen? {
         // button 自身坐标 = window 坐标(NSStatusItem 没挪移);取 frame.origin 在 NSScreen.screens 里查找
@@ -176,14 +195,51 @@ final class StatusBarController {
     // MARK: - Status item rendering
 
     private func updateStatusItem() {
-        // 解析 viewModel.statusBarText:两行用 "\n" 分隔
-        // 每行格式: "M:85%·-69%·1.5h"
-        let text = viewModel.statusBarText
-        let parts = text.split(separator: "\n", maxSplits: 1, omittingEmptySubsequences: false).map(String.init)
-        let line1 = parts.first ?? text
-        let line2 = parts.count > 1 ? parts[1] : ""
-        statusView.setLine1(line1)
-        statusView.setLine2(line2)
+        switch viewModel.menuBarAppearance {
+        case .detailedText:
+            let text = viewModel.statusBarText
+            let parts = text.split(separator: "\n", maxSplits: 1, omittingEmptySubsequences: false).map(String.init)
+            statusView.showDetailed(
+                line1: parts.first ?? text,
+                line2: parts.count > 1 ? parts[1] : "")
+        case .compactRing:
+            statusView.showCompact(
+                snapshot: viewModel.menuBarSnapshot,
+                connectivity: connectivityStateForDisplayedProvider,
+                paceDisplayMode: viewModel.menuBarPaceDisplayMode,
+                isSelfTesting: viewModel.isMenuBarSelfTesting,
+                accessibilityLabel: statusItemTooltip)
+        }
+        statusItem?.button?.toolTip = statusItemTooltip
+        updateStatusItemLength()
+    }
+
+    private var connectivityStateForDisplayedProvider: CodexConnectivityState {
+        viewModel.menuBarSnapshot.provider == .codex ? connectivityMonitor.state : .unknown
+    }
+
+    private var statusItemTooltip: String {
+        let base = viewModel.menuBarSnapshot.tooltip
+        if viewModel.menuBarAppearance == .compactRing,
+           viewModel.isMenuBarSelfTesting,
+           viewModel.menuBarSnapshot.provider == .codex {
+            return viewModel.appLanguage.menuBarSelfTestTooltip()
+        }
+        guard connectivityStateForDisplayedProvider == .unreachable else { return base }
+        return viewModel.appLanguage.codexConnectivityUnavailableTooltip(base: base)
+    }
+
+    private func updateStatusItemLength() {
+        guard let statusItem else { return }
+        let targetLength = statusView.preferredWidth
+        if abs(statusItem.length - targetLength) > 0.5 {
+            statusItem.length = targetLength
+        }
+        if let button = statusItem.button {
+            let targetHeight = max(button.bounds.height, statusView.frame.height)
+            statusView.frame = NSRect(x: 0, y: 0, width: targetLength, height: targetHeight)
+            statusView.needsLayout = true
+        }
     }
 }
 
@@ -191,22 +247,6 @@ final class StatusBarController {
 //
 // `withObservationTracking` 只触发一次回调；要"持续追踪"需在 onChange 里
 // 重新订阅。下面的工具方法把这段样板收拢,避免在调用处散落。
-
-@MainActor
-private func observe<Object: Observable, Value: Equatable>(
-    _ object: Object,
-    _ keyPath: KeyPath<Object, Value>,
-    onChange: @escaping @MainActor () -> Void
-) {
-    withObservationTracking {
-        _ = object[keyPath: keyPath]
-    } onChange: {
-        Task { @MainActor in
-            onChange()
-            observe(object, keyPath, onChange: onChange)
-        }
-    }
-}
 
 @MainActor
 private func observeProperties<Object: Observable>(
@@ -224,16 +264,483 @@ private func observeProperties<Object: Observable>(
     }
 }
 
+/// 在详细文字和紧凑环形之间切换的单一状态栏容器。
+@MainActor
+private final class StatusBarContentView: NSView {
+    private let detailedView = StatusBarTwoLineView()
+    private let compactView = StatusBarCompactRingView()
+    private var isCompact = false
+
+    var preferredWidth: CGFloat {
+        isCompact ? compactView.preferredWidth : detailedView.preferredWidth
+    }
+
+    override init(frame frameRect: NSRect) {
+        super.init(frame: frameRect)
+        addSubview(detailedView)
+        addSubview(compactView)
+        compactView.isHidden = true
+    }
+
+    required init?(coder: NSCoder) {
+        super.init(coder: coder)
+        addSubview(detailedView)
+        addSubview(compactView)
+        compactView.isHidden = true
+    }
+
+    override func layout() {
+        super.layout()
+        detailedView.frame = bounds
+        compactView.frame = bounds
+    }
+
+    func showDetailed(line1: String, line2: String) {
+        isCompact = false
+        compactView.suspendSelfTestAnimation()
+        detailedView.setLine1(line1)
+        detailedView.setLine2(line2)
+        detailedView.isHidden = false
+        compactView.isHidden = true
+        needsLayout = true
+    }
+
+    func showCompact(
+        snapshot: MenuBarSnapshot,
+        connectivity: CodexConnectivityState,
+        paceDisplayMode: MenuBarPaceDisplayMode,
+        isSelfTesting: Bool,
+        accessibilityLabel: String
+    ) {
+        isCompact = true
+        compactView.setSnapshot(
+            snapshot,
+            connectivity: connectivity,
+            paceDisplayMode: paceDisplayMode,
+            isSelfTesting: isSelfTesting,
+            accessibilityLabel: accessibilityLabel)
+        detailedView.isHidden = true
+        compactView.isHidden = false
+        needsLayout = true
+    }
+
+    override func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+        if let screen = window?.screen {
+            applyDim(isOnActiveScreen: screen == NSScreen.main)
+        }
+    }
+
+    func applyDim(isOnActiveScreen: Bool) {
+        wantsLayer = true
+        layer?.opacity = isOnActiveScreen ? 1.0 : 0.5
+    }
+}
+
+/// 单一 22pt glance target。
+/// Codex: 外环 = Weekly 已用比例；分半内圆 = 左 deficit / 右 reserve；
+/// OpenAI 双域名均不可达时，内圆旋转并填实为禁止图标。
+/// 其他 provider 保留原有的中心字母和剩余额度环。
+@MainActor
+final class StatusBarCompactRingView: NSView {
+    let preferredWidth: CGFloat = 22
+    private var snapshot = MenuBarSnapshot(
+        provider: .codex,
+        modelName: nil,
+        remainingPercent: nil,
+        ringPercent: nil,
+        paceDeltaPercent: nil,
+        resetsAt: nil,
+        state: .loading,
+        isLowQuota: false,
+        tooltip: "")
+    private var connectivity: CodexConnectivityState = .unknown
+    private var paceDisplayMode: MenuBarPaceDisplayMode = .staged
+    private var isSelfTesting = false
+    private var selfTestFrame: MenuBarSelfTestFrame?
+    private var offlineMorph: CGFloat = 0
+    private var morphTask: Task<Void, Never>?
+    private var selfTestTask: Task<Void, Never>?
+
+    override var isFlipped: Bool { false }
+
+    override init(frame frameRect: NSRect) {
+        super.init(frame: frameRect)
+        setAccessibilityElement(true)
+        setAccessibilityRole(.staticText)
+    }
+
+    required init?(coder: NSCoder) {
+        super.init(coder: coder)
+        setAccessibilityElement(true)
+        setAccessibilityRole(.staticText)
+    }
+
+    func setSnapshot(
+        _ snapshot: MenuBarSnapshot,
+        connectivity: CodexConnectivityState,
+        paceDisplayMode: MenuBarPaceDisplayMode = .staged,
+        isSelfTesting: Bool = false,
+        accessibilityLabel: String
+    ) {
+        let wasOffline = isOffline
+        self.snapshot = snapshot
+        self.connectivity = connectivity
+        self.paceDisplayMode = paceDisplayMode
+        self.isSelfTesting = isSelfTesting && snapshot.provider == .codex
+        let shouldBeOffline = isOffline
+        setAccessibilityLabel(accessibilityLabel)
+        if wasOffline != shouldBeOffline {
+            animateOfflineMorph(to: shouldBeOffline ? 1 : 0)
+        }
+        updateSelfTestAnimation()
+        needsDisplay = true
+    }
+
+    override func draw(_ dirtyRect: NSRect) {
+        super.draw(dirtyRect)
+
+        let center = NSPoint(x: bounds.midX, y: bounds.midY)
+        let radius = min(8.5, max(0, min(bounds.width, bounds.height) / 2 - 2.5))
+        guard radius > 0 else { return }
+
+        drawArc(
+            center: center,
+            radius: radius,
+            fraction: 1,
+            color: NSColor.labelColor.withAlphaComponent(0.12),
+            lineWidth: 1.4)
+
+        let effectiveState: MenuBarSnapshotState = selfTestFrame == nil ? snapshot.state : .ready
+        let effectiveRingPercent = selfTestFrame?.ringPercent ?? snapshot.ringPercent
+
+        switch effectiveState {
+        case .ready:
+            let progress = min(100, max(0, effectiveRingPercent ?? 0)) / 100
+            drawArc(
+                center: center,
+                radius: radius,
+                fraction: progress,
+                color: .labelColor,
+                lineWidth: 2.4)
+            drawProgressEndpoint(center: center, radius: radius, fraction: progress)
+        case .loading:
+            drawArc(
+                center: center,
+                radius: radius,
+                fraction: 0.28,
+                color: NSColor.labelColor.withAlphaComponent(0.58),
+                lineWidth: 2.4)
+        case .unavailable, .failed:
+            drawUnavailableSlash(center: center, radius: radius)
+        }
+
+        if snapshot.provider == .codex {
+            drawCodexCore(
+                center: center,
+                radius: 4.25,
+                state: effectiveState,
+                paceDeltaPercent: selfTestFrame?.paceDeltaPercent ?? snapshot.paceDeltaPercent)
+        } else {
+            drawProviderInitial(center: center)
+        }
+    }
+
+    private var isOffline: Bool {
+        snapshot.provider == .codex && connectivity == .unreachable && !isSelfTesting
+    }
+
+    private func updateSelfTestAnimation() {
+        guard isSelfTesting else {
+            selfTestTask?.cancel()
+            selfTestTask = nil
+            selfTestFrame = nil
+            return
+        }
+        guard selfTestTask == nil else { return }
+
+        let startTime = ProcessInfo.processInfo.systemUptime
+        selfTestFrame = .frame(elapsed: 0, paceDisplayMode: paceDisplayMode)
+        selfTestTask = Task { @MainActor [weak self] in
+            while !Task.isCancelled {
+                let elapsed = ProcessInfo.processInfo.systemUptime - startTime
+                let displayMode = self?.paceDisplayMode ?? .staged
+                self?.selfTestFrame = .frame(
+                    elapsed: elapsed,
+                    paceDisplayMode: displayMode)
+                self?.needsDisplay = true
+
+                let reduceMotion = NSWorkspace.shared.accessibilityDisplayShouldReduceMotion
+                do {
+                    try await Task.sleep(
+                        nanoseconds: reduceMotion ? 1_000_000_000 : 33_000_000)
+                } catch {
+                    return
+                }
+            }
+        }
+    }
+
+    /// Detailed-text mode hides the compact view; pause its display loop until
+    /// compact mode becomes visible again without changing refresh state.
+    func suspendSelfTestAnimation() {
+        selfTestTask?.cancel()
+        selfTestTask = nil
+        selfTestFrame = nil
+    }
+
+    private func animateOfflineMorph(to target: CGFloat) {
+        morphTask?.cancel()
+
+        if NSWorkspace.shared.accessibilityDisplayShouldReduceMotion {
+            offlineMorph = target
+            needsDisplay = true
+            return
+        }
+
+        let startValue = offlineMorph
+        let startTime = ProcessInfo.processInfo.systemUptime
+        let duration: TimeInterval = 0.2
+        morphTask = Task { @MainActor [weak self] in
+            while !Task.isCancelled {
+                let elapsed = ProcessInfo.processInfo.systemUptime - startTime
+                let rawProgress = min(1, max(0, elapsed / duration))
+                let easedProgress = rawProgress * rawProgress * (3 - 2 * rawProgress)
+                self?.offlineMorph = startValue + (target - startValue) * CGFloat(easedProgress)
+                self?.needsDisplay = true
+
+                guard rawProgress < 1 else { return }
+                do {
+                    try await Task.sleep(nanoseconds: 16_000_000)
+                } catch {
+                    return
+                }
+            }
+        }
+    }
+
+#if DEBUG
+    func setOfflineMorphForTesting(_ value: CGFloat) {
+        morphTask?.cancel()
+        offlineMorph = min(1, max(0, value))
+        needsDisplay = true
+    }
+#endif
+
+    private func drawCodexCore(
+        center: NSPoint,
+        radius: CGFloat,
+        state: MenuBarSnapshotState,
+        paceDeltaPercent: Double?
+    ) {
+        let glyph = MenuBarPaceGlyph(
+            deltaPercent: paceDeltaPercent,
+            mode: paceDisplayMode)
+        let activeAlpha: CGFloat
+        switch state {
+        case .ready: activeAlpha = 0.86
+        case .loading: activeAlpha = 0.52
+        case .unavailable: activeAlpha = 0.44
+        case .failed: activeAlpha = 0.68
+        }
+
+        let circleRect = NSRect(
+            x: center.x - radius,
+            y: center.y - radius,
+            width: radius * 2,
+            height: radius * 2)
+        let circle = NSBezierPath(ovalIn: circleRect)
+        let normalAmount = 1 - offlineMorph
+
+        let angle = (.pi / 2) * normalAmount
+        let dividerHalfLength = radius - 0.55
+
+        if offlineMorph > 0.001 {
+            let offlineShape = NSBezierPath()
+            offlineShape.append(circle)
+            offlineShape.append(cutoutBandPath(
+                center: center,
+                angle: angle,
+                halfLength: radius + 0.35,
+                halfWidth: (1.55 * offlineMorph) / 2))
+            offlineShape.windingRule = .evenOdd
+            NSGraphicsContext.current?.saveGraphicsState()
+            circle.addClip()
+            NSColor.labelColor.withAlphaComponent(offlineMorph).setFill()
+            offlineShape.fill()
+            NSGraphicsContext.current?.restoreGraphicsState()
+        }
+
+        if glyph.fillFraction > 0, normalAmount > 0.001 {
+            NSGraphicsContext.current?.saveGraphicsState()
+            circle.addClip()
+            let fillWidth = radius * CGFloat(glyph.fillFraction)
+            let fillRect: NSRect
+            switch glyph.direction {
+            case .deficit:
+                fillRect = NSRect(
+                    x: center.x - fillWidth,
+                    y: center.y - radius,
+                    width: fillWidth,
+                    height: radius * 2)
+            case .reserve:
+                fillRect = NSRect(
+                    x: center.x,
+                    y: center.y - radius,
+                    width: fillWidth,
+                    height: radius * 2)
+            case .onTrack:
+                fillRect = .zero
+            }
+            NSColor.labelColor.withAlphaComponent(activeAlpha * normalAmount).setFill()
+            NSBezierPath(rect: fillRect).fill()
+            NSGraphicsContext.current?.restoreGraphicsState()
+        }
+
+        circle.lineWidth = 1.05
+        NSColor.labelColor
+            .withAlphaComponent(activeAlpha * normalAmount)
+            .setStroke()
+        circle.stroke()
+
+        let direction = NSPoint(x: cos(angle), y: sin(angle))
+        let dividerStart = NSPoint(
+            x: center.x - direction.x * dividerHalfLength,
+            y: center.y - direction.y * dividerHalfLength)
+        let dividerEnd = NSPoint(
+            x: center.x + direction.x * dividerHalfLength,
+            y: center.y + direction.y * dividerHalfLength)
+
+        if normalAmount > 0.001 {
+            let divider = NSBezierPath()
+            divider.move(to: dividerStart)
+            divider.line(to: dividerEnd)
+            divider.lineWidth = 1.0
+            divider.lineCapStyle = .butt
+            NSColor.labelColor.withAlphaComponent(activeAlpha * normalAmount).setStroke()
+            divider.stroke()
+        }
+
+    }
+
+    private func cutoutBandPath(
+        center: NSPoint,
+        angle: CGFloat,
+        halfLength: CGFloat,
+        halfWidth: CGFloat
+    ) -> NSBezierPath {
+        let along = NSPoint(x: cos(angle), y: sin(angle))
+        let across = NSPoint(x: -sin(angle), y: cos(angle))
+        let corners = [
+            NSPoint(
+                x: center.x - along.x * halfLength - across.x * halfWidth,
+                y: center.y - along.y * halfLength - across.y * halfWidth),
+            NSPoint(
+                x: center.x + along.x * halfLength - across.x * halfWidth,
+                y: center.y + along.y * halfLength - across.y * halfWidth),
+            NSPoint(
+                x: center.x + along.x * halfLength + across.x * halfWidth,
+                y: center.y + along.y * halfLength + across.y * halfWidth),
+            NSPoint(
+                x: center.x - along.x * halfLength + across.x * halfWidth,
+                y: center.y - along.y * halfLength + across.y * halfWidth),
+        ]
+        let path = NSBezierPath()
+        path.move(to: corners[0])
+        for corner in corners.dropFirst() {
+            path.line(to: corner)
+        }
+        path.close()
+        return path
+    }
+
+    private func drawArc(
+        center: NSPoint,
+        radius: CGFloat,
+        fraction: Double,
+        color: NSColor,
+        lineWidth: CGFloat
+    ) {
+        guard fraction > 0 else { return }
+        let path = NSBezierPath()
+        path.appendArc(
+            withCenter: center,
+            radius: radius,
+            startAngle: 90,
+            endAngle: 90 - CGFloat(360 * min(1, fraction)),
+            clockwise: true)
+        path.lineWidth = lineWidth
+        path.lineCapStyle = .round
+        color.setStroke()
+        path.stroke()
+    }
+
+    /// 同色端点让剩余弧的边界在 22pt 尺寸下也清楚；满额时不重复绘制凸点。
+    private func drawProgressEndpoint(center: NSPoint, radius: CGFloat, fraction: Double) {
+        guard fraction > 0.01, fraction < 0.99 else { return }
+        let angle = CGFloat.pi / 2 - CGFloat.pi * 2 * CGFloat(fraction)
+        let endpoint = NSPoint(
+            x: center.x + cos(angle) * radius,
+            y: center.y + sin(angle) * radius)
+        let dotRadius: CGFloat = 1.35
+        let dot = NSBezierPath(ovalIn: NSRect(
+            x: endpoint.x - dotRadius,
+            y: endpoint.y - dotRadius,
+            width: dotRadius * 2,
+            height: dotRadius * 2))
+        NSColor.labelColor.setFill()
+        dot.fill()
+    }
+
+    private func drawUnavailableSlash(center: NSPoint, radius: CGFloat) {
+        let path = NSBezierPath()
+        let inset = radius * 0.58
+        path.move(to: NSPoint(x: center.x - inset, y: center.y - inset))
+        path.line(to: NSPoint(x: center.x + inset, y: center.y + inset))
+        path.lineWidth = 1.4
+        path.lineCapStyle = .round
+        NSColor.labelColor.withAlphaComponent(snapshot.state == .failed ? 0.78 : 0.42).setStroke()
+        path.stroke()
+    }
+
+    private func drawProviderInitial(center: NSPoint) {
+        let paragraph = NSMutableParagraphStyle()
+        paragraph.alignment = .center
+        let attributes: [NSAttributedString.Key: Any] = [
+            .font: NSFont.systemFont(ofSize: 8, weight: .semibold),
+            .foregroundColor: NSColor.labelColor.withAlphaComponent(0.72),
+            .paragraphStyle: paragraph,
+        ]
+        let text = snapshot.providerInitial as NSString
+        let size = text.size(withAttributes: attributes)
+        let rect = NSRect(
+            x: center.x - size.width / 2,
+            y: center.y - size.height / 2 - 0.25,
+            width: size.width,
+            height: size.height)
+        text.draw(in: rect, withAttributes: attributes)
+    }
+}
+
 /// 两行 NSTextField 容器。直接 addSubview 到 NSStatusBarButton。
 @MainActor
 private final class StatusBarTwoLineView: NSView {
     private let line1Field = NSTextField(labelWithString: "...")
     private let line2Field = NSTextField(labelWithString: "")
+    private let horizontalPadding: CGFloat = 4
+    private let minimumWidth: CGFloat = 24
 
     private let font: NSFont = {
         // 9pt 偏小被截；用 10pt 跟 codexbar 看起来更接近
         NSFont.monospacedDigitSystemFont(ofSize: 10, weight: .medium)
     }()
+
+    var preferredWidth: CGFloat {
+        let attributes: [NSAttributedString.Key: Any] = [.font: font]
+        let line1Width = (line1Field.stringValue as NSString).size(withAttributes: attributes).width
+        let line2Width = (line2Field.stringValue as NSString).size(withAttributes: attributes).width
+        return max(minimumWidth, ceil(max(line1Width, line2Width) + horizontalPadding * 2))
+    }
 
     override init(frame frameRect: NSRect) {
         super.init(frame: frameRect)
@@ -266,8 +773,9 @@ private final class StatusBarTwoLineView: NSView {
         super.layout()
         // 两行：上半行 / 下半行；按 frame 高度均分
         let lineHeight = bounds.height / 2
-        line1Field.frame = NSRect(x: 0, y: lineHeight, width: bounds.width, height: lineHeight)
-        line2Field.frame = NSRect(x: 0, y: 0, width: bounds.width, height: lineHeight)
+        let textWidth = max(0, bounds.width - horizontalPadding * 2)
+        line1Field.frame = NSRect(x: horizontalPadding, y: lineHeight, width: textWidth, height: lineHeight)
+        line2Field.frame = NSRect(x: horizontalPadding, y: 0, width: textWidth, height: lineHeight)
     }
 
     func setLine1(_ text: String) {
@@ -278,19 +786,4 @@ private final class StatusBarTwoLineView: NSView {
         line2Field.stringValue = text
     }
 
-    override func viewDidMoveToWindow() {
-        super.viewDidMoveToWindow()
-        // macOS 14+ 把 NSStatusItem.button 挂在 NSScreen 自己的 NSStatusBarWindow 上;
-        // 系统对 button 内置的 template image/title 会自动 dim 到 ~0.5 opacity,
-        // 但 addSubview 的自定义 NSView 不在系统 dim 列表里,要自己处理。
-        if let screen = window?.screen {
-            applyDim(isOnActiveScreen: screen == NSScreen.main)
-        }
-    }
-
-    func applyDim(isOnActiveScreen: Bool) {
-        // 跟系统行为对齐:非激活屏 0.5 opacity
-        wantsLayer = true
-        layer?.opacity = isOnActiveScreen ? 1.0 : 0.5
-    }
 }
