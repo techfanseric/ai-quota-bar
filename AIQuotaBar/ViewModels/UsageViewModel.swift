@@ -163,9 +163,7 @@ final class UsageViewModel {
 
     private func updateStatusBarText() {
         let now = Date()
-        let allModels = resolvedMenuBarMetricModels(
-            usageData?.models ?? [],
-            now: now)
+        let allModels = usageData?.models ?? []
         let candidates = menuBarCandidateModels(from: allModels, now: now)
 
         guard let primary = selectedMenuBarModel(from: candidates) else {
@@ -204,7 +202,7 @@ final class UsageViewModel {
             isLowQuota: isLowQuota,
             tooltip: menuBarReadyTooltip(
                 primary: primary,
-                weeklyUsedPercent: primary.provider == .codex ? ringPercent : nil,
+                weeklyRemainingPercent: primary.provider == .codex ? ringPercent : nil,
                 paceDelta: paceDelta))
 
         if let automaticText = detailedAutomaticStatusBarText(
@@ -267,54 +265,9 @@ final class UsageViewModel {
         return candidates.first
     }
 
-    /// 从完整 model 集合里找 Codex Weekly；已用尽的 Weekly 仍要能把外环画满。
+    /// 从完整 model 集合里找 Codex Weekly；已用尽的 Weekly 仍要能把外环画空。
     private func weeklyModel(in models: [ModelUsageData]) -> ModelUsageData? {
         models.first(where: { $0.provider == .codex && $0.modelName.localizedCaseInsensitiveContains("Weekly") })
-    }
-
-    /// Codex can emit an inactive 0%-used weekly placeholder whose reset moves
-    /// to `request time + 7 days`. Keep the latest higher sample while its
-    /// original reset window is still active; weekly usage cannot decrease
-    /// inside that window.
-    private func resolvedMenuBarMetricModels(
-        _ models: [ModelUsageData],
-        now: Date
-    ) -> [ModelUsageData] {
-        models.map { model in
-            guard model.provider == .codex,
-                  model.modelName.localizedCaseInsensitiveContains("Weekly"),
-                  let history = utilizationHistories[.codex]?.historiesOrEmpty[model.id],
-                  let entry = MenuBarWeeklyMetricResolver.preferredHistoricalEntry(
-                      liveUsedPercent: model.currentIntervalPercentageUsed,
-                      historyEntries: history.entries,
-                      now: now),
-                  let resetsAt = entry.resetsAt else {
-                return model
-            }
-
-            let remainingPercent = Int(max(0, min(100, 100 - entry.usedPercent)).rounded())
-            let startTime = resetsAt.addingTimeInterval(-7 * 24 * 3600)
-            return ModelUsageData(
-                provider: model.provider,
-                accountName: model.accountName,
-                modelName: model.modelName,
-                currentIntervalTotal: 100,
-                currentIntervalUsed: remainingPercent,
-                weeklyTotal: model.weeklyTotal,
-                weeklyUsed: model.weeklyUsed,
-                remainsTime: max(0, Int(resetsAt.timeIntervalSince(now) * 1000)),
-                startTime: startTime,
-                endTime: resetsAt,
-                weeklyStartTime: model.weeklyStartTime,
-                weeklyEndTime: model.weeklyEndTime,
-                valueSuffix: "%",
-                detailText: model.detailText,
-                currentIntervalRemainingPercent: remainingPercent,
-                weeklyRemainingPercent: model.weeklyRemainingPercent,
-                progressBarPercentOverride: model.progressBarPercentOverride,
-                progressBarRightText: model.progressBarRightText,
-                sampledAt: entry.capturedAt)
-        }
     }
 
     private func selectedMenuBarModel(from candidates: [ModelUsageData]) -> ModelUsageData? {
@@ -362,7 +315,7 @@ final class UsageViewModel {
             ?? primary
     }
 
-    /// Codex 的外环专门显示 Weekly 已用比例；没有 Weekly 窗口时只保留空轨道。
+    /// Codex 的外环专门显示 Weekly 剩余比例；没有 Weekly 窗口时只保留空轨道。
     /// 其他 provider 继续沿用现有的剩余额度环，避免改变它们的既有语义。
     private func menuBarRingPercent(
         for primary: ModelUsageData,
@@ -372,7 +325,7 @@ final class UsageViewModel {
             return primary.currentIntervalPercentageRemaining
         }
         return weeklyModel(in: models.filter { $0.normalizedAccountName == primary.normalizedAccountName })?
-            .currentIntervalPercentageUsed
+            .currentIntervalPercentageRemaining
     }
 
     private func fallbackMenuBarProvider() -> UsageProvider {
@@ -392,14 +345,14 @@ final class UsageViewModel {
 
     private func menuBarReadyTooltip(
         primary: ModelUsageData,
-        weeklyUsedPercent: Double?,
+        weeklyRemainingPercent: Double?,
         paceDelta: Double?
     ) -> String {
         appLanguage.menuBarReadyTooltip(
             provider: primary.provider,
             modelName: primary.modelName,
             remainingText: primary.currentIntervalRemainingText,
-            weeklyUsedPercent: weeklyUsedPercent,
+            weeklyRemainingPercent: weeklyRemainingPercent,
             paceDeltaPercent: paceDelta,
             resetText: primary.statusBarResetText)
     }
@@ -498,7 +451,7 @@ final class UsageViewModel {
             ?? .detailedText
         self.menuBarPaceDisplayMode = UserDefaults.standard.string(forKey: MenuBarPaceDisplayMode.storageKey)
             .flatMap(MenuBarPaceDisplayMode.init(rawValue:))
-            ?? .staged
+            ?? .continuous
         let cloudSyncSettings = CloudSyncSettings.current
         self.cloudSyncEnabled = cloudSyncSettings.isEnabled
         self.utilizationHistoryMode = UserDefaults.standard.string(forKey: Self.utilizationHistoryModeKey)
@@ -832,14 +785,13 @@ final class UsageViewModel {
     }
 
     func samples(for model: ModelUsageData) -> [ModelQuotaSample] {
-        guard model.isShortCurrentInterval,
-              let startTime = model.startTime,
+        guard let startTime = model.startTime,
               let endTime = model.endTime else {
             return []
         }
 
 #if DEBUG
-        return syntheticMinuteSamples(for: model, startTime: startTime, endTime: endTime)
+        return syntheticChartSamples(for: model, startTime: startTime, endTime: endTime)
 #else
         let localSamples = modelQuotaSamples[model.id] ?? []
         let remoteSamples = cloudModelQuotaSamples[model.id] ?? []
@@ -1204,10 +1156,15 @@ final class UsageViewModel {
 
     private func recordSamples(from data: UsageData, timestamp: Date) {
         var nextSamples: [String: [ModelQuotaSample]] = [:]
+        let renderableModelIDs = Set(data.models
+            .filter { $0.containsCurrentInterval(at: timestamp) }
+            .map(\.id))
+        let curveModelIDs = QuotaCurveModelSelector.curveModelIDs(
+            in: data.models,
+            renderableModelIDs: renderableModelIDs)
 
-        for model in data.models {
-            guard model.isShortCurrentInterval,
-                  let startTime = model.startTime,
+        for model in data.models where curveModelIDs.contains(model.id) {
+            guard let startTime = model.startTime,
                   let endTime = model.endTime else {
                 continue
             }
@@ -1257,36 +1214,53 @@ final class UsageViewModel {
     }
 
 #if DEBUG
-    /// Generates deterministic mock chart points: 5h range, 1-minute ticks,
-    /// descending from 4500 to the current remaining value at the current time.
-    private func syntheticMinuteSamples(
+    /// Generates deterministic debug chart points while capping long Weekly
+    /// windows to roughly 240 samples so preview rendering stays lightweight.
+    private func syntheticChartSamples(
         for model: ModelUsageData,
         startTime: Date,
         endTime: Date
     ) -> [ModelQuotaSample] {
         let clampedNow = min(max(Date(), startTime), endTime)
-        let startRemaining = model.currentIntervalTotal > 0
-            ? min(4500, model.currentIntervalTotal)
-            : 4500
-        let endRemaining = max(0, min(model.currentIntervalRemaining, startRemaining))
-
         let elapsed = max(clampedNow.timeIntervalSince(startTime), 0)
-        let minuteCount = Int(elapsed / 60)
+        let sampleInterval = max(60, elapsed / 240)
+        let sampleCount = Int(elapsed / sampleInterval)
         let base = startTime.timeIntervalSince1970
+        let endPercent = model.currentIntervalRemainingPercent
 
-        var samples: [ModelQuotaSample] = (0...minuteCount).map { minute in
-            let ratio = minuteCount > 0 ? Double(minute) / Double(minuteCount) : 0
-            let interpolated = Double(startRemaining) + Double(endRemaining - startRemaining) * ratio
+        var samples: [ModelQuotaSample] = (0 ... sampleCount).map { index in
+            let ratio = sampleCount > 0 ? Double(index) / Double(sampleCount) : 0
+            let timestamp = Date(
+                timeIntervalSince1970: base + Double(index) * sampleInterval)
+            if let endPercent {
+                let interpolated = 100 + Double(endPercent - 100) * ratio
+                return ModelQuotaSample(
+                    timestamp: timestamp,
+                    remaining: Int(interpolated.rounded()),
+                    percent: Int(interpolated.rounded()))
+            }
+
+            let startRemaining = model.currentIntervalTotal > 0
+                ? min(4500, model.currentIntervalTotal)
+                : 4500
+            let endRemaining = max(
+                0,
+                min(model.currentIntervalRemaining, startRemaining))
+            let interpolated = Double(startRemaining)
+                + Double(endRemaining - startRemaining) * ratio
             return ModelQuotaSample(
-                timestamp: Date(timeIntervalSince1970: base + Double(minute) * 60),
-                remaining: Int(interpolated.rounded())
-            )
+                timestamp: timestamp,
+                remaining: Int(interpolated.rounded()))
         }
 
+        let lastSample = ModelQuotaSample(
+            timestamp: clampedNow,
+            remaining: endPercent ?? model.currentIntervalRemaining,
+            percent: endPercent)
         if samples.last?.timestamp != clampedNow {
-            samples.append(ModelQuotaSample(timestamp: clampedNow, remaining: endRemaining))
+            samples.append(lastSample)
         } else if !samples.isEmpty {
-            samples[samples.count - 1] = ModelQuotaSample(timestamp: clampedNow, remaining: endRemaining)
+            samples[samples.count - 1] = lastSample
         }
 
         return samples

@@ -297,7 +297,7 @@ private final class StatusBarContentView: NSView {
 
     func showDetailed(line1: String, line2: String) {
         isCompact = false
-        compactView.suspendSelfTestAnimation()
+        compactView.suspendAnimationLoops()
         detailedView.setLine1(line1)
         detailedView.setLine2(line2)
         detailedView.isHidden = false
@@ -338,12 +338,15 @@ private final class StatusBarContentView: NSView {
 }
 
 /// 单一 22pt glance target。
-/// Codex: 外环 = Weekly 已用比例；分半内圆 = 左 deficit / 右 reserve；
-/// OpenAI 双域名均不可达时，内圆旋转并填实为禁止图标。
+/// Codex: 外环 = Weekly 剩余比例；分半内圆 = 左 deficit / 右 reserve；
+/// OpenAI 双域名均不可达时，外环显示全消耗轨道，内圆变为持续明暗的禁止图标。
 /// 其他 provider 保留原有的中心字母和剩余额度环。
 @MainActor
 final class StatusBarCompactRingView: NSView {
     let preferredWidth: CGFloat = 22
+    private static let consumedStrokeAlpha: CGFloat = 0.12
+    private static let offlinePulseMinimumOpacity: CGFloat = 0.32
+    private static let offlinePulseDuration: TimeInterval = 1
     private var snapshot = MenuBarSnapshot(
         provider: .codex,
         modelName: nil,
@@ -359,7 +362,9 @@ final class StatusBarCompactRingView: NSView {
     private var isSelfTesting = false
     private var selfTestFrame: MenuBarSelfTestFrame?
     private var offlineMorph: CGFloat = 0
+    private var offlinePulseOpacity: CGFloat = 1
     private var morphTask: Task<Void, Never>?
+    private var offlinePulseTask: Task<Void, Never>?
     private var selfTestTask: Task<Void, Never>?
 
     override var isFlipped: Bool { false }
@@ -393,6 +398,7 @@ final class StatusBarCompactRingView: NSView {
         if wasOffline != shouldBeOffline {
             animateOfflineMorph(to: shouldBeOffline ? 1 : 0)
         }
+        updateOfflinePulseAnimation()
         updateSelfTestAnimation()
         needsDisplay = true
     }
@@ -408,31 +414,41 @@ final class StatusBarCompactRingView: NSView {
             center: center,
             radius: radius,
             fraction: 1,
-            color: NSColor.labelColor.withAlphaComponent(0.12),
+            color: NSColor.labelColor.withAlphaComponent(Self.consumedStrokeAlpha),
             lineWidth: 1.4)
 
         let effectiveState: MenuBarSnapshotState = selfTestFrame == nil ? snapshot.state : .ready
         let effectiveRingPercent = selfTestFrame?.ringPercent ?? snapshot.ringPercent
+        let liveRingAmount: CGFloat = snapshot.provider == .codex ? 1 - offlineMorph : 1
 
-        switch effectiveState {
-        case .ready:
-            let progress = min(100, max(0, effectiveRingPercent ?? 0)) / 100
-            drawArc(
-                center: center,
-                radius: radius,
-                fraction: progress,
-                color: .labelColor,
-                lineWidth: 2.4)
-            drawProgressEndpoint(center: center, radius: radius, fraction: progress)
-        case .loading:
-            drawArc(
-                center: center,
-                radius: radius,
-                fraction: 0.28,
-                color: NSColor.labelColor.withAlphaComponent(0.58),
-                lineWidth: 2.4)
-        case .unavailable, .failed:
-            drawUnavailableSlash(center: center, radius: radius)
+        if liveRingAmount > 0.001 {
+            switch effectiveState {
+            case .ready:
+                let progress = min(100, max(0, effectiveRingPercent ?? 0)) / 100
+                drawArc(
+                    center: center,
+                    radius: radius,
+                    fraction: progress,
+                    color: NSColor.labelColor.withAlphaComponent(liveRingAmount),
+                    lineWidth: 2.4)
+                drawProgressEndpoint(
+                    center: center,
+                    radius: radius,
+                    fraction: progress,
+                    alpha: liveRingAmount)
+            case .loading:
+                drawArc(
+                    center: center,
+                    radius: radius,
+                    fraction: 0.28,
+                    color: NSColor.labelColor.withAlphaComponent(0.58 * liveRingAmount),
+                    lineWidth: 2.4)
+            case .unavailable, .failed:
+                drawUnavailableSlash(
+                    center: center,
+                    radius: radius,
+                    alpha: liveRingAmount)
+            }
         }
 
         if snapshot.provider == .codex {
@@ -481,12 +497,61 @@ final class StatusBarCompactRingView: NSView {
         }
     }
 
-    /// Detailed-text mode hides the compact view; pause its display loop until
+    /// Detailed-text mode hides the compact view; pause its display loops until
     /// compact mode becomes visible again without changing refresh state.
-    func suspendSelfTestAnimation() {
+    func suspendAnimationLoops() {
         selfTestTask?.cancel()
         selfTestTask = nil
         selfTestFrame = nil
+        offlinePulseTask?.cancel()
+        offlinePulseTask = nil
+        offlinePulseOpacity = 1
+    }
+
+    private func updateOfflinePulseAnimation() {
+        guard isOffline else {
+            offlinePulseTask?.cancel()
+            offlinePulseTask = nil
+            offlinePulseOpacity = 1
+            return
+        }
+
+        guard !NSWorkspace.shared.accessibilityDisplayShouldReduceMotion else {
+            offlinePulseTask?.cancel()
+            offlinePulseTask = nil
+            offlinePulseOpacity = 1
+            return
+        }
+        guard offlinePulseTask == nil else { return }
+
+        let startTime = ProcessInfo.processInfo.systemUptime
+        offlinePulseOpacity = 1
+        offlinePulseTask = Task { @MainActor [weak self] in
+            while !Task.isCancelled {
+                if self == nil { return }
+                if NSWorkspace.shared.accessibilityDisplayShouldReduceMotion {
+                    self?.offlinePulseOpacity = 1
+                    self?.offlinePulseTask = nil
+                    self?.needsDisplay = true
+                    return
+                }
+
+                let elapsed = ProcessInfo.processInfo.systemUptime - startTime
+                let phase = elapsed
+                    .truncatingRemainder(dividingBy: Self.offlinePulseDuration)
+                    / Self.offlinePulseDuration
+                let wave = (1 + cos(phase * 2 * .pi)) / 2
+                self?.offlinePulseOpacity = Self.offlinePulseMinimumOpacity
+                    + (1 - Self.offlinePulseMinimumOpacity) * CGFloat(wave)
+                self?.needsDisplay = true
+
+                do {
+                    try await Task.sleep(nanoseconds: 33_000_000)
+                } catch {
+                    return
+                }
+            }
+        }
     }
 
     private func animateOfflineMorph(to target: CGFloat) {
@@ -525,6 +590,13 @@ final class StatusBarCompactRingView: NSView {
         offlineMorph = min(1, max(0, value))
         needsDisplay = true
     }
+
+    func setOfflinePulseOpacityForTesting(_ value: CGFloat) {
+        offlinePulseTask?.cancel()
+        offlinePulseTask = nil
+        offlinePulseOpacity = min(1, max(0, value))
+        needsDisplay = true
+    }
 #endif
 
     private func drawCodexCore(
@@ -554,6 +626,7 @@ final class StatusBarCompactRingView: NSView {
 
         let angle = (.pi / 2) * normalAmount
         let dividerHalfLength = radius - 0.55
+        let dividerLineWidth: CGFloat = 1
 
         if offlineMorph > 0.001 {
             let offlineShape = NSBezierPath()
@@ -566,7 +639,9 @@ final class StatusBarCompactRingView: NSView {
             offlineShape.windingRule = .evenOdd
             NSGraphicsContext.current?.saveGraphicsState()
             circle.addClip()
-            NSColor.labelColor.withAlphaComponent(offlineMorph).setFill()
+            NSColor.labelColor
+                .withAlphaComponent(offlineMorph * offlinePulseOpacity)
+                .setFill()
             offlineShape.fill()
             NSGraphicsContext.current?.restoreGraphicsState()
         }
@@ -574,7 +649,15 @@ final class StatusBarCompactRingView: NSView {
         if glyph.fillFraction > 0, normalAmount > 0.001 {
             NSGraphicsContext.current?.saveGraphicsState()
             circle.addClip()
-            let fillWidth = radius * CGFloat(glyph.fillFraction)
+            // Preserve the day-normalized pace mapping while keeping any non-zero
+            // direction visible by flooring its rendered width to one pixel.
+            let backingScale = window?.backingScaleFactor
+                ?? NSScreen.main?.backingScaleFactor
+                ?? 2
+            let minimumVisibleWidth = dividerLineWidth / 2 + 1 / max(1, backingScale)
+            let fillWidth = max(
+                radius * CGFloat(glyph.fillFraction),
+                minimumVisibleWidth)
             let fillRect: NSRect
             switch glyph.direction {
             case .deficit:
@@ -597,11 +680,29 @@ final class StatusBarCompactRingView: NSView {
             NSGraphicsContext.current?.restoreGraphicsState()
         }
 
-        circle.lineWidth = 1.05
-        NSColor.labelColor
-            .withAlphaComponent(activeAlpha * normalAmount)
-            .setStroke()
-        circle.stroke()
+        let leftBorderAlpha: CGFloat
+        let rightBorderAlpha: CGFloat
+        switch glyph.direction {
+        case .deficit:
+            leftBorderAlpha = glyph.showsActiveBorder ? activeAlpha : 0
+            rightBorderAlpha = Self.consumedStrokeAlpha
+        case .onTrack:
+            leftBorderAlpha = Self.consumedStrokeAlpha
+            rightBorderAlpha = Self.consumedStrokeAlpha
+        case .reserve:
+            leftBorderAlpha = Self.consumedStrokeAlpha
+            rightBorderAlpha = glyph.showsActiveBorder ? activeAlpha : 0
+        }
+        drawCoreBorderHalf(
+            center: center,
+            radius: radius,
+            isLeft: true,
+            alpha: leftBorderAlpha * normalAmount)
+        drawCoreBorderHalf(
+            center: center,
+            radius: radius,
+            isLeft: false,
+            alpha: rightBorderAlpha * normalAmount)
 
         let direction = NSPoint(x: cos(angle), y: sin(angle))
         let dividerStart = NSPoint(
@@ -615,12 +716,35 @@ final class StatusBarCompactRingView: NSView {
             let divider = NSBezierPath()
             divider.move(to: dividerStart)
             divider.line(to: dividerEnd)
-            divider.lineWidth = 1.0
+            divider.lineWidth = dividerLineWidth
             divider.lineCapStyle = .butt
-            NSColor.labelColor.withAlphaComponent(activeAlpha * normalAmount).setStroke()
+            let dividerAlpha: CGFloat = state == .ready ? 1 : activeAlpha
+            NSColor.labelColor
+                .withAlphaComponent(dividerAlpha * normalAmount)
+                .setStroke()
             divider.stroke()
         }
 
+    }
+
+    private func drawCoreBorderHalf(
+        center: NSPoint,
+        radius: CGFloat,
+        isLeft: Bool,
+        alpha: CGFloat
+    ) {
+        guard alpha > 0.001 else { return }
+        let path = NSBezierPath()
+        path.appendArc(
+            withCenter: center,
+            radius: radius,
+            startAngle: 90,
+            endAngle: isLeft ? 270 : -90,
+            clockwise: !isLeft)
+        path.lineWidth = 1.05
+        path.lineCapStyle = .butt
+        NSColor.labelColor.withAlphaComponent(alpha).setStroke()
+        path.stroke()
     }
 
     private func cutoutBandPath(
@@ -670,13 +794,20 @@ final class StatusBarCompactRingView: NSView {
             endAngle: 90 - CGFloat(360 * min(1, fraction)),
             clockwise: true)
         path.lineWidth = lineWidth
-        path.lineCapStyle = .round
+        // At 99% a round cap visually closes the remaining gap. A butt cap
+        // preserves the tiny but meaningful "nearly full" opening.
+        path.lineCapStyle = fraction > 0.98 && fraction < 1 ? .butt : .round
         color.setStroke()
         path.stroke()
     }
 
     /// 同色端点让剩余弧的边界在 22pt 尺寸下也清楚；满额时不重复绘制凸点。
-    private func drawProgressEndpoint(center: NSPoint, radius: CGFloat, fraction: Double) {
+    private func drawProgressEndpoint(
+        center: NSPoint,
+        radius: CGFloat,
+        fraction: Double,
+        alpha: CGFloat
+    ) {
         guard fraction > 0.01, fraction < 0.99 else { return }
         let angle = CGFloat.pi / 2 - CGFloat.pi * 2 * CGFloat(fraction)
         let endpoint = NSPoint(
@@ -688,18 +819,19 @@ final class StatusBarCompactRingView: NSView {
             y: endpoint.y - dotRadius,
             width: dotRadius * 2,
             height: dotRadius * 2))
-        NSColor.labelColor.setFill()
+        NSColor.labelColor.withAlphaComponent(alpha).setFill()
         dot.fill()
     }
 
-    private func drawUnavailableSlash(center: NSPoint, radius: CGFloat) {
+    private func drawUnavailableSlash(center: NSPoint, radius: CGFloat, alpha: CGFloat) {
         let path = NSBezierPath()
         let inset = radius * 0.58
         path.move(to: NSPoint(x: center.x - inset, y: center.y - inset))
         path.line(to: NSPoint(x: center.x + inset, y: center.y + inset))
         path.lineWidth = 1.4
         path.lineCapStyle = .round
-        NSColor.labelColor.withAlphaComponent(snapshot.state == .failed ? 0.78 : 0.42).setStroke()
+        let stateAlpha: CGFloat = snapshot.state == .failed ? 0.78 : 0.42
+        NSColor.labelColor.withAlphaComponent(stateAlpha * alpha).setStroke()
         path.stroke()
     }
 

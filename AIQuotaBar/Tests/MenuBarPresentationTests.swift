@@ -9,24 +9,69 @@ final class MenuBarPresentationTests: XCTestCase {
         XCTAssertEqual(MenuBarPaceGlyph(deltaPercent: -2).direction, .onTrack)
 
         XCTAssertEqual(MenuBarPaceGlyph(deltaPercent: -3).direction, .deficit)
-        XCTAssertEqual(MenuBarPaceGlyph(deltaPercent: -3).fillFraction, 1.0 / 3.0)
-        XCTAssertEqual(MenuBarPaceGlyph(deltaPercent: -8).fillFraction, 2.0 / 3.0)
-        XCTAssertEqual(MenuBarPaceGlyph(deltaPercent: -20).fillFraction, 1)
+        XCTAssertEqual(MenuBarPaceGlyph(deltaPercent: -3).fillFraction, 0.25)
+        XCTAssertEqual(MenuBarPaceGlyph(deltaPercent: -8).fillFraction, 0.5)
+        XCTAssertEqual(MenuBarPaceGlyph(deltaPercent: -20).fillFraction, 0.75)
+        XCTAssertEqual(
+            MenuBarPaceGlyph(
+                deltaPercent: -MenuBarPaceGlyph.fullScaleDeltaPercent
+            ).fillFraction,
+            1)
 
         XCTAssertEqual(MenuBarPaceGlyph(deltaPercent: 3).direction, .reserve)
-        XCTAssertEqual(MenuBarPaceGlyph(deltaPercent: 3).fillFraction, 1.0 / 3.0)
-        XCTAssertEqual(MenuBarPaceGlyph(deltaPercent: 8).fillFraction, 2.0 / 3.0)
-        XCTAssertEqual(MenuBarPaceGlyph(deltaPercent: 20).fillFraction, 1)
+        XCTAssertEqual(MenuBarPaceGlyph(deltaPercent: 3).fillFraction, 0.25)
+        XCTAssertEqual(
+            MenuBarPaceGlyph(
+                deltaPercent: MenuBarPaceGlyph.percentPointsPerDay
+            ).fillFraction,
+            0.5)
+        XCTAssertEqual(
+            MenuBarPaceGlyph(
+                deltaPercent: MenuBarPaceGlyph.fullScaleDeltaPercent
+            ).fillFraction,
+            1)
     }
 
-    func testContinuousPaceGlyphMapsExactPercentages() {
+    func testContinuousPaceGlyphMapsOneDayToHalfAndTwoDaysToFull() {
+        let onePercentDeficit = MenuBarPaceGlyph(deltaPercent: -1, mode: .continuous)
+        XCTAssertEqual(onePercentDeficit.direction, .deficit)
+        XCTAssertEqual(
+            onePercentDeficit.fillFraction,
+            1 / MenuBarPaceGlyph.fullScaleDeltaPercent,
+            accuracy: 0.0001)
+
         let mildDeficit = MenuBarPaceGlyph(deltaPercent: -8, mode: .continuous)
         XCTAssertEqual(mildDeficit.direction, .deficit)
-        XCTAssertEqual(mildDeficit.fillFraction, 0.08, accuracy: 0.0001)
+        XCTAssertEqual(
+            mildDeficit.fillFraction,
+            8 / MenuBarPaceGlyph.fullScaleDeltaPercent,
+            accuracy: 0.0001)
 
-        let reserve = MenuBarPaceGlyph(deltaPercent: 42, mode: .continuous)
-        XCTAssertEqual(reserve.direction, .reserve)
-        XCTAssertEqual(reserve.fillFraction, 0.42, accuracy: 0.0001)
+        let oneDayReserve = MenuBarPaceGlyph(
+            deltaPercent: MenuBarPaceGlyph.percentPointsPerDay,
+            mode: .continuous)
+        XCTAssertEqual(oneDayReserve.direction, .reserve)
+        XCTAssertEqual(oneDayReserve.fillFraction, 0.5, accuracy: 0.0001)
+        XCTAssertEqual(
+            MenuBarPaceGlyph(
+                deltaPercent: -MenuBarPaceGlyph.percentPointsPerDay,
+                mode: .continuous
+            ).fillFraction,
+            0.5,
+            accuracy: 0.0001)
+
+        let twoDayDeficit = MenuBarPaceGlyph(
+            deltaPercent: -MenuBarPaceGlyph.fullScaleDeltaPercent,
+            mode: .continuous)
+        XCTAssertEqual(twoDayDeficit.direction, .deficit)
+        XCTAssertEqual(twoDayDeficit.fillFraction, 1, accuracy: 0.0001)
+        XCTAssertEqual(
+            MenuBarPaceGlyph(
+                deltaPercent: MenuBarPaceGlyph.fullScaleDeltaPercent,
+                mode: .continuous
+            ).fillFraction,
+            1,
+            accuracy: 0.0001)
 
         XCTAssertEqual(
             MenuBarPaceGlyph(deltaPercent: 0, mode: .continuous).direction,
@@ -34,6 +79,28 @@ final class MenuBarPresentationTests: XCTestCase {
         XCTAssertEqual(
             MenuBarPaceGlyph(deltaPercent: 140, mode: .continuous).fillFraction,
             1)
+    }
+
+    func testActiveBorderOnlyMarksDeviationBeyondTwoDays() {
+        let stagedFullBeforeTwoDays = MenuBarPaceGlyph(
+            deltaPercent: MenuBarPaceGlyph.fullScaleDeltaPercent - 1,
+            mode: .staged)
+        XCTAssertEqual(stagedFullBeforeTwoDays.fillFraction, 1)
+        XCTAssertFalse(stagedFullBeforeTwoDays.showsActiveBorder)
+
+        for direction in [-1.0, 1.0] {
+            let exactlyTwoDays = MenuBarPaceGlyph(
+                deltaPercent: direction * MenuBarPaceGlyph.fullScaleDeltaPercent,
+                mode: .continuous)
+            XCTAssertEqual(exactlyTwoDays.fillFraction, 1)
+            XCTAssertFalse(exactlyTwoDays.showsActiveBorder)
+
+            let beyondTwoDays = MenuBarPaceGlyph(
+                deltaPercent: direction * (MenuBarPaceGlyph.fullScaleDeltaPercent + 0.01),
+                mode: .continuous)
+            XCTAssertEqual(beyondTwoDays.fillFraction, 1)
+            XCTAssertTrue(beyondTwoDays.showsActiveBorder)
+        }
     }
 
     func testSelfTestCyclesThroughPaceStatesAndKeepsRingInBounds() {
@@ -50,47 +117,22 @@ final class MenuBarPresentationTests: XCTestCase {
             MenuBarSelfTestFrame.frame(elapsed: 0),
             MenuBarSelfTestFrame.frame(elapsed: MenuBarSelfTestFrame.cycleDuration))
 
-        let staged = MenuBarSelfTestFrame.frame(elapsed: 0.2, paceDisplayMode: .staged)
-        let continuous = MenuBarSelfTestFrame.frame(elapsed: 0.2, paceDisplayMode: .continuous)
-        XCTAssertGreaterThan(
-            abs(continuous.paceDeltaPercent),
-            abs(staged.paceDeltaPercent))
-    }
-
-    func testWeeklyMetricRejectsRegressionBeforeHistoricalReset() {
-        let now = Date(timeIntervalSince1970: 1_800_000_000)
-        let activeEntry = UtilizationHistoryEntry(
-            capturedAt: now.addingTimeInterval(-600),
-            usedPercent: 40,
-            resetsAt: now.addingTimeInterval(3 * 24 * 3600))
-
-        let resolved = MenuBarWeeklyMetricResolver.preferredHistoricalEntry(
-            liveUsedPercent: 0,
-            historyEntries: [activeEntry],
-            now: now)
-
-        XCTAssertEqual(resolved, activeEntry)
-    }
-
-    func testWeeklyMetricAcceptsResetOrNonRegressingLiveValue() {
-        let now = Date(timeIntervalSince1970: 1_800_000_000)
-        let completedEntry = UtilizationHistoryEntry(
-            capturedAt: now.addingTimeInterval(-3600),
-            usedPercent: 40,
-            resetsAt: now.addingTimeInterval(-1))
-        let activeEntry = UtilizationHistoryEntry(
-            capturedAt: now.addingTimeInterval(-600),
-            usedPercent: 40,
-            resetsAt: now.addingTimeInterval(3 * 24 * 3600))
-
-        XCTAssertNil(MenuBarWeeklyMetricResolver.preferredHistoricalEntry(
-            liveUsedPercent: 0,
-            historyEntries: [completedEntry],
-            now: now))
-        XCTAssertNil(MenuBarWeeklyMetricResolver.preferredHistoricalEntry(
-            liveUsedPercent: 39,
-            historyEntries: [activeEntry],
-            now: now))
+        for mode in MenuBarPaceDisplayMode.allCases {
+            let startingFrame = MenuBarSelfTestFrame.frame(
+                elapsed: 0.01,
+                paceDisplayMode: mode)
+            let endingFrame = MenuBarSelfTestFrame.frame(
+                elapsed: 0.99,
+                paceDisplayMode: mode)
+            let startingFill = MenuBarPaceGlyph(
+                deltaPercent: startingFrame.paceDeltaPercent,
+                mode: mode).fillFraction
+            let endingFill = MenuBarPaceGlyph(
+                deltaPercent: endingFrame.paceDeltaPercent,
+                mode: mode).fillFraction
+            XCTAssertLessThan(startingFill, endingFill)
+            XCTAssertGreaterThan(endingFill, 0.99)
+        }
     }
 
     @MainActor
@@ -113,7 +155,7 @@ final class MenuBarPresentationTests: XCTestCase {
             }
         }
 
-        defaults.set(MenuBarPaceDisplayMode.continuous.rawValue, forKey: key)
+        defaults.removeObject(forKey: key)
         defaults.set(false, forKey: cloudKey)
         let viewModel = UsageViewModel()
         XCTAssertEqual(viewModel.menuBarPaceDisplayMode, .continuous)
@@ -123,7 +165,7 @@ final class MenuBarPresentationTests: XCTestCase {
     }
 
     @MainActor
-    func testCodexCompactRingUsesWeeklyConsumedPercent() {
+    func testCodexCompactRingUsesWeeklyRemainingPercent() {
         let defaults = UserDefaults.standard
         let keys = [
             MenuBarContentSelection.storageKey,
@@ -163,9 +205,9 @@ final class MenuBarPresentationTests: XCTestCase {
             subscribeEndTime: nil)
 
         XCTAssertEqual(viewModel.menuBarSnapshot.remainingPercent, 80)
-        XCTAssertEqual(viewModel.menuBarSnapshot.ringPercent, 35)
+        XCTAssertEqual(viewModel.menuBarSnapshot.ringPercent, 65)
         XCTAssertTrue(viewModel.menuBarSnapshot.tooltip.contains("Weekly"))
-        XCTAssertTrue(viewModel.menuBarSnapshot.tooltip.contains("35%"))
+        XCTAssertTrue(viewModel.menuBarSnapshot.tooltip.contains("65%"))
 
         let exhaustedWeekly = makeModel(
             provider: .codex,
@@ -181,7 +223,7 @@ final class MenuBarPresentationTests: XCTestCase {
             subscribeTitle: nil,
             subscribeEndTime: nil)
 
-        XCTAssertEqual(viewModel.menuBarSnapshot.ringPercent, 100)
+        XCTAssertEqual(viewModel.menuBarSnapshot.ringPercent, 0)
         XCTAssertLessThan(viewModel.menuBarSnapshot.paceDeltaPercent ?? 0, 0)
     }
 

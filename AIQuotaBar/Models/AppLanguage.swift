@@ -1297,9 +1297,9 @@ enum AppLanguage: String, CaseIterable, Codable, Identifiable {
     func menuBarAppearanceDescription() -> String {
         switch self {
         case .english:
-            return "For Codex, the outer ring shows Weekly usage and the split center shows pace."
+            return "For Codex, the outer ring shows Weekly remaining and the split center shows pace."
         case .simplifiedChinese:
-            return "Codex 紧凑环的外环显示 Weekly 已用比例，分半内圆显示消耗节奏。"
+            return "Codex 紧凑环的外环显示 Weekly 剩余比例，分半内圆显示消耗节奏。"
         }
     }
 
@@ -1322,9 +1322,9 @@ enum AppLanguage: String, CaseIterable, Codable, Identifiable {
     func menuBarPaceDisplayModeDescription() -> String {
         switch self {
         case .english:
-            return "Choose exact percentage fill or easier-to-scan staged levels for the split center."
+            return "Two days of Weekly pace deviation fill a side; choose continuous detail or alerting stages."
         case .simplifiedChinese:
-            return "选择按实际百分比连续填充，或使用更易扫读的分级节奏。"
+            return "Weekly 节奏偏差两天填满半圆，可选择连续细节或醒目的分级显示。"
         }
     }
 
@@ -1369,7 +1369,7 @@ enum AppLanguage: String, CaseIterable, Codable, Identifiable {
         provider: UsageProvider,
         modelName: String,
         remainingText: String,
-        weeklyUsedPercent: Double?,
+        weeklyRemainingPercent: Double?,
         paceDeltaPercent: Double?,
         resetText: String
     ) -> String {
@@ -1396,13 +1396,13 @@ enum AppLanguage: String, CaseIterable, Codable, Identifiable {
 
         switch self {
         case .english:
-            let weeklyText = weeklyUsedPercent.map {
-                "\nWeekly: \(Int($0.rounded()))% used"
+            let weeklyText = weeklyRemainingPercent.map {
+                "\nWeekly: \(Int($0.rounded()))% remaining"
             } ?? ""
             return "\(provider.displayName) · \(modelName)\n\(remainingText) remaining\(weeklyText)\n\(paceText)\nResets in \(resetText)"
         case .simplifiedChinese:
-            let weeklyText = weeklyUsedPercent.map {
-                "\nWeekly 已用 \(Int($0.rounded()))%"
+            let weeklyText = weeklyRemainingPercent.map {
+                "\nWeekly 剩余 \(Int($0.rounded()))%"
             } ?? ""
             return "\(provider.displayName) · \(modelName)\n剩余 \(remainingText)\(weeklyText)\n\(paceText)\n\(resetText) 后重置"
         }
