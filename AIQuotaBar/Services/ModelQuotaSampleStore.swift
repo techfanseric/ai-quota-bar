@@ -1,6 +1,6 @@
 import Foundation
 
-/// Short-window curve sample persistence.
+/// Current-window curve sample persistence, including Weekly fallback curves.
 /// Path: `~/Library/Application Support/com.techfanseric.aiquotabar/samples/{provider}.json`
 final class ModelQuotaSampleStore {
     static let shared = ModelQuotaSampleStore()

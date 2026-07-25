@@ -54,44 +54,52 @@ enum MenuBarPaceDirection: Equatable {
     case reserve
 }
 
-/// Pace encoding for the split center circle. The user can favor either exact
-/// percentage mapping or the more glanceable 2 / 6 / 12 percentage-point buckets.
+/// Pace encoding for the split center circle. Weekly pace deviation is normalized
+/// so one day fills half of the active side and two days fill it completely.
 struct MenuBarPaceGlyph: Equatable {
+    static let weeklyCycleDays = 7.0
+    static let fullScaleDeviationDays = 2.0
+    static let percentPointsPerDay = 100 / weeklyCycleDays
+    static let fullScaleDeltaPercent = percentPointsPerDay * fullScaleDeviationDays
+
     let direction: MenuBarPaceDirection
     let fillFraction: Double
+    /// The active-side outline is reserved for deviation beyond the two-day
+    /// fill scale. At or below two days, fill alone communicates magnitude.
+    let showsActiveBorder: Bool
 
     init(deltaPercent: Double?, mode: MenuBarPaceDisplayMode = .staged) {
         guard let deltaPercent else {
             direction = .onTrack
             fillFraction = 0
+            showsActiveBorder = false
             return
         }
 
+        let magnitude = abs(deltaPercent)
+        let continuousFraction = min(1, magnitude / Self.fullScaleDeltaPercent)
+        showsActiveBorder = magnitude > Self.fullScaleDeltaPercent
+
         switch mode {
         case .staged:
-            guard abs(deltaPercent) > 2 else {
+            guard magnitude > 2 else {
                 direction = .onTrack
                 fillFraction = 0
                 return
             }
 
             direction = deltaPercent < 0 ? .deficit : .reserve
-            switch abs(deltaPercent) {
-            case ...6:
-                fillFraction = 1.0 / 3.0
-            case ...12:
-                fillFraction = 2.0 / 3.0
-            default:
-                fillFraction = 1
-            }
+            // Bias staged rendering upward so it remains an alerting view:
+            // 25 / 50 / 75 / 100%, with exact one- and two-day anchors.
+            fillFraction = min(1, ceil(continuousFraction * 4) / 4)
         case .continuous:
-            guard abs(deltaPercent) > 0.0001 else {
+            guard magnitude > 0.0001 else {
                 direction = .onTrack
                 fillFraction = 0
                 return
             }
             direction = deltaPercent < 0 ? .deficit : .reserve
-            fillFraction = min(1, abs(deltaPercent) / 100)
+            fillFraction = continuousFraction
         }
     }
 }
@@ -120,11 +128,13 @@ struct MenuBarSelfTestFrame: Equatable {
         let demonstratedDelta: Double
         switch paceDisplayMode {
         case .staged:
-            // Cross all three 2 / 6 / 12-point buckets during each side's phase.
-            demonstratedDelta = 3 + 15 * easedPosition
+            // Cross all four alerting levels and finish at two days of deviation.
+            demonstratedDelta = 3
+                + (MenuBarPaceGlyph.fullScaleDeltaPercent - 3) * easedPosition
         case .continuous:
-            // Use most of the half-circle so the exact-width movement is legible.
-            demonstratedDelta = 15 + 75 * easedPosition
+            // Sweep nearly the full two-day scale while preserving a fine start.
+            demonstratedDelta = 1
+                + (MenuBarPaceGlyph.fullScaleDeltaPercent - 1) * easedPosition
         }
 
         switch phase {
@@ -144,38 +154,14 @@ struct MenuBarSelfTestFrame: Equatable {
     }
 }
 
-/// Protects the glance target from an inactive Codex weekly placeholder.
-/// A weekly quota is monotonic inside one reset window, so a newer zero/low
-/// placeholder must not replace a higher sample whose reset is still ahead.
-enum MenuBarWeeklyMetricResolver {
-    static let regressionTolerance = 2.0
-
-    static func preferredHistoricalEntry(
-        liveUsedPercent: Double,
-        historyEntries: [UtilizationHistoryEntry],
-        now: Date
-    ) -> UtilizationHistoryEntry? {
-        historyEntries
-            .filter { entry in
-                guard entry.capturedAt <= now,
-                      let resetsAt = entry.resetsAt,
-                      resetsAt > now else {
-                    return false
-                }
-                return entry.usedPercent > liveUsedPercent + regressionTolerance
-            }
-            .max { lhs, rhs in lhs.capturedAt < rhs.capturedAt }
-    }
-}
-
 /// Structured menu-bar data shared by text and graphical renderers.
 /// Keeping the semantics here avoids parsing the formatted status-bar string.
 struct MenuBarSnapshot: Equatable {
     let provider: UsageProvider
     let modelName: String?
     let remainingPercent: Double?
-    /// Direct fraction for the compact ring. Codex uses Weekly consumed percent;
-    /// other providers retain their existing remaining-percent presentation.
+    /// Direct fraction for the compact ring. All providers use remaining percent;
+    /// Codex specifically sources it from the Weekly quota window.
     let ringPercent: Double?
     let paceDeltaPercent: Double?
     let resetsAt: Date?

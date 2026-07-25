@@ -435,6 +435,27 @@ struct ModelUsageData: Codable, Identifiable {
             || normalizedName.contains("5 hour")
     }
 
+    /// The long Codex window eligible to become an account's fallback curve
+    /// when no short current-window curve is visible.
+    var isCodexWeeklyCurveWindow: Bool {
+        guard provider == .codex,
+              progressBarPercentOverride == nil,
+              let currentIntervalDuration,
+              currentIntervalDuration > 86_400 else {
+            return false
+        }
+        let normalizedName = modelName.lowercased()
+        if normalizedName.contains("weekly") {
+            return true
+        }
+        return (6 * 86_400 ... 8 * 86_400).contains(currentIntervalDuration)
+    }
+
+    func containsCurrentInterval(at date: Date) -> Bool {
+        guard let startTime, let endTime else { return true }
+        return startTime <= date && date <= endTime
+    }
+
     var isCodexSlidingFiveHourExtraWindow: Bool {
         false
     }

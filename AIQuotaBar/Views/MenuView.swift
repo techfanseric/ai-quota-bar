@@ -299,6 +299,15 @@ private struct ProviderModelsSection: View {
         }
     }
 
+    private var curveModelIDs: Set<String> {
+        let renderableModelIDs = Set(data.models
+            .filter(hasRenderableCurrentWindow(for:))
+            .map(\.id))
+        return QuotaCurveModelSelector.curveModelIDs(
+            in: data.models,
+            renderableModelIDs: renderableModelIDs)
+    }
+
     private var exhaustedModels: [ModelUsageData] {
         return sortedMenuModels(data.models).filter {
             hasVisibleContent(for: $0) && !isVisibleInlineModel($0) && $0.isExhaustedCurrentInterval
@@ -333,6 +342,9 @@ private struct ProviderModelsSection: View {
 
     private func isVisibleInlineModel(_ model: ModelUsageData) -> Bool {
         guard hasVisibleContent(for: model) else { return false }
+        if curveModelIDs.contains(model.id), !model.isShortCurrentInterval {
+            return true
+        }
         if model.isFullQuotaUnused {
             return true
         }
@@ -429,6 +441,7 @@ private struct ProviderModelsSection: View {
                         language: language,
                         warningThreshold: warningThreshold,
                         samples: samples(model),
+                        rendersAreaChart: curveModelIDs.contains(model.id),
                         viewModel: viewModel
                     )
 
@@ -695,6 +708,7 @@ private struct ModelsRows: View {
                 language: language,
                 warningThreshold: warningThreshold,
                 samples: samples(model),
+                rendersAreaChart: model.isShortCurrentInterval,
                 viewModel: viewModel
             )
 
@@ -763,6 +777,7 @@ private struct ModelRow: View {
     let language: AppLanguage
     let warningThreshold: Double
     let samples: [ModelQuotaSample]
+    let rendersAreaChart: Bool
     let viewModel: UsageViewModel
 
     @State private var isHovered: Bool = false
@@ -770,7 +785,9 @@ private struct ModelRow: View {
 
     var body: some View {
         Group {
-            if model.isFullQuotaUnused && !isFullQuotaExpanded {
+            if model.isFullQuotaUnused
+                && !isFullQuotaExpanded
+                && !isPromotedWeeklyCurve {
                 collapsedFullQuotaRow
             } else {
                 expandedContent
@@ -795,7 +812,7 @@ private struct ModelRow: View {
             }
 
             if isCurrentWindow {
-                if model.isShortCurrentInterval {
+                if rendersAreaChart {
                     QuotaAreaChart(
                         model: model,
                         samples: samples,
@@ -989,6 +1006,10 @@ private struct ModelRow: View {
         !isCurrentWindow && !cycles.isEmpty
     }
 
+    private var isPromotedWeeklyCurve: Bool {
+        rendersAreaChart && !model.isShortCurrentInterval
+    }
+
     private var resetsText: String? {
         // 优先 detailText 里的 "resets MM/dd HH:mm"(codex 完整日期+时间)
         if let rest = model.parsedDetail.rest,
@@ -1141,7 +1162,7 @@ private struct QuotaAreaChart: View {
                 Canvas { context, size in
                     drawBackground(context: &context, layout: layout)
                     drawAxes(context: &context, layout: layout)
-                    drawHourlyTicks(context: &context, layout: layout)
+                    drawTimeTicks(context: &context, layout: layout)
                     drawPaceGuide(context: &context, layout: layout)
                     drawSeries(context: &context, layout: layout)
                     drawHoveredGuide(context: &context, layout: layout)
@@ -1211,10 +1232,13 @@ private struct QuotaAreaChart: View {
         }
     }
 
-    /// x 轴整点分隔线：5h 窗口画 4 道（1h..4h），2h 窗口画 1 道（1h），1h 及以下不画
-    /// 虚线常驻，"1h/2h/3h/4h" 文字标签 hover 时才出
-    private func drawHourlyTicks(context: inout GraphicsContext, layout: QuotaChartLayout) {
-        guard let ticks = hourlyTickPositions(), !ticks.isEmpty else { return }
+    /// Short curves use hourly divisions; promoted Weekly curves use daily
+    /// divisions. Grid lines remain visible and labels appear on hover.
+    private func drawTimeTicks(context: inout GraphicsContext, layout: QuotaChartLayout) {
+        let ticks = QuotaChartTimeTickBuilder.ticks(
+            startTime: model.startTime,
+            endTime: model.endTime)
+        guard !ticks.isEmpty else { return }
 
         for tick in ticks {
             let x = layout.plotRect.minX + layout.plotRect.width * tick.ratio
@@ -1231,16 +1255,6 @@ private struct QuotaAreaChart: View {
                     at: CGPoint(x: x, y: layout.axisLabelY - 11),
                     anchor: .center)
             }
-        }
-    }
-
-    private func hourlyTickPositions() -> [(ratio: Double, label: String)]? {
-        guard let startTime = model.startTime, let endTime = model.endTime else { return nil }
-        let duration = endTime.timeIntervalSince(startTime)
-        let totalHours = Int(duration / 3600)
-        guard totalHours >= 2, totalHours <= 24 else { return nil }
-        return (1..<totalHours).map { hour in
-            (ratio: Double(hour) * 3600 / duration, label: "\(hour)h")
         }
     }
 
