@@ -3,6 +3,7 @@ import Foundation
 struct ClashAPIClient: Sendable {
     private let configuration: ClashControllerConfiguration
     private let session: URLSession
+    private let webSocketSession: URLSession
     private let decoder = JSONDecoder()
     private let encoder = JSONEncoder()
 
@@ -13,6 +14,7 @@ struct ClashAPIClient: Sendable {
         self.configuration = configuration
         if let session {
             self.session = session
+            webSocketSession = session
         } else {
             let sessionConfiguration = URLSessionConfiguration.ephemeral
             sessionConfiguration.timeoutIntervalForRequest = 8
@@ -21,11 +23,90 @@ struct ClashAPIClient: Sendable {
             sessionConfiguration.requestCachePolicy = .reloadIgnoringLocalAndRemoteCacheData
             sessionConfiguration.connectionProxyDictionary = [:]
             self.session = URLSession(configuration: sessionConfiguration)
+
+            let webSocketConfiguration = URLSessionConfiguration.ephemeral
+            webSocketConfiguration.timeoutIntervalForRequest = 8
+            webSocketConfiguration.timeoutIntervalForResource = 24 * 60 * 60
+            webSocketConfiguration.waitsForConnectivity = false
+            webSocketConfiguration.requestCachePolicy =
+                .reloadIgnoringLocalAndRemoteCacheData
+            webSocketConfiguration.connectionProxyDictionary = [:]
+            webSocketSession = URLSession(
+                configuration: webSocketConfiguration)
         }
     }
 
     func version() async throws -> ClashVersionResponse {
         try await get(pathComponents: ["version"], as: ClashVersionResponse.self)
+    }
+
+    func loadConnectionsSnapshot() async throws -> ClashConnectionsResponse {
+        try await get(
+            pathComponents: ["connections"],
+            as: ClashConnectionsResponse.self)
+    }
+
+    func connectionSnapshots(
+        intervalMilliseconds: Int
+    ) -> AsyncThrowingStream<ClashConnectionsResponse, Error> {
+        AsyncThrowingStream { continuation in
+            do {
+                let request = try makeWebSocketRequest(
+                    pathComponents: ["connections"],
+                    queryItems: [
+                        URLQueryItem(
+                            name: "interval",
+                            value: String(max(250, intervalMilliseconds))),
+                    ])
+                let webSocketTask = webSocketSession.webSocketTask(
+                    with: request)
+
+                let receiveTask = Task {
+                    do {
+                        while !Task.isCancelled {
+                            let message = try await webSocketTask.receive()
+                            let data: Data
+                            switch message {
+                            case let .data(messageData):
+                                data = messageData
+                            case let .string(messageString):
+                                guard let messageData = messageString.data(
+                                    using: .utf8) else {
+                                    throw ClashIntegrationError.incompatibleResponse
+                                }
+                                data = messageData
+                            @unknown default:
+                                throw ClashIntegrationError.incompatibleResponse
+                            }
+
+                            do {
+                                let snapshot = try JSONDecoder().decode(
+                                    ClashConnectionsResponse.self,
+                                    from: data)
+                                continuation.yield(snapshot)
+                            } catch {
+                                throw ClashIntegrationError.incompatibleResponse
+                            }
+                        }
+                        continuation.finish()
+                    } catch is CancellationError {
+                        continuation.finish()
+                    } catch {
+                        continuation.finish(throwing: error)
+                    }
+                }
+
+                continuation.onTermination = { @Sendable _ in
+                    receiveTask.cancel()
+                    webSocketTask.cancel(
+                        with: .goingAway,
+                        reason: nil)
+                }
+                webSocketTask.resume()
+            } catch {
+                continuation.finish(throwing: error)
+            }
+        }
     }
 
     func loadRouteSnapshot() async throws -> ClashRouteSnapshot {
@@ -136,6 +217,42 @@ struct ClashAPIClient: Sendable {
                 "Bearer \(configuration.secret)",
                 forHTTPHeaderField: "Authorization")
         }
+        return request
+    }
+
+    private func makeWebSocketRequest(
+        pathComponents: [String],
+        queryItems: [URLQueryItem]
+    ) throws -> URLRequest {
+        var request = try makeRequest(
+            method: "GET",
+            pathComponents: pathComponents,
+            queryItems: queryItems)
+        guard let requestURL = request.url,
+              var components = URLComponents(
+                url: requestURL,
+                resolvingAgainstBaseURL: false) else {
+            throw ClashIntegrationError.invalidControllerAddress(
+                request.url?.absoluteString ?? "")
+        }
+
+        switch components.scheme?.lowercased() {
+        case "http":
+            components.scheme = "ws"
+        case "https":
+            components.scheme = "wss"
+        case "ws", "wss":
+            break
+        default:
+            throw ClashIntegrationError.invalidControllerAddress(
+                requestURL.absoluteString)
+        }
+
+        guard let webSocketURL = components.url else {
+            throw ClashIntegrationError.invalidControllerAddress(
+                requestURL.absoluteString)
+        }
+        request.url = webSocketURL
         return request
     }
 
