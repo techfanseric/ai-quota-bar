@@ -11,7 +11,9 @@ AI Quota Bar is focused on coding-plan consumption: it tracks the remaining quot
 - Detailed per-provider and per-model usage breakdown
 - Quota trend charts for short-interval model limits
 - Automatic menu bar fallback to the used model with the soonest reset when the displayed quota expires
-- Right-click menu bar shortcut for cycling through used short-interval models
+- Right-click OpenAI route control through a local Clash/Mihomo controller
+- Latency-ranked route testing with fuzzy country aliases or regular-expression filtering
+- Optional automatic OpenAI route recovery when both public OpenAI surfaces are unreachable
 - Configurable refresh interval
 - Warning notifications when quota runs low
 - Secure provider credential storage via Keychain
@@ -32,6 +34,7 @@ AI Quota Bar is focused on coding-plan consumption: it tracks the remaining quot
 
 - macOS 14+
 - MiniMax API key, Codex CLI installed and signed in (`codex` command available), or both
+- Optional: Clash Verge Rev, Mihomo, or Clash with a loopback-bound external controller for OpenAI route control
 
 ## Build & Run
 
@@ -68,9 +71,24 @@ The menu bar item shows one provider at a time. **Displayed provider** can be se
 
 From left to right: 99% Weekly remaining with a 1% continuous deficit, staged deficit, on pace, staged reserve, a one-day continuous deficit at half fill, a two-day continuous reserve at full fill without an active outline, an over-two-day reserve with the overflow outline, and the bright/dim endpoints of the OpenAI-unreachable pulse. The changing outer stroke demonstrates Weekly remaining across the self-test; the offline examples show the fully consumed outer track.
 
-Left-click the menu bar item to open the detailed dropdown. Right-click it to quickly cycle through used short-interval models, which are the models shown with trend charts in the dropdown rather than long-window progress bars.
+Left-click the menu bar item to open the detailed quota dropdown. Right-click it to open the OpenAI route panel when a supported local Clash/Mihomo controller is available.
 
 Each Codex account keeps at least one current-window trend chart. When a renderable short window such as 5h is available, short windows remain charts and Weekly stays a progress bar. If no short chart is visible for an account, its canonical Weekly window is promoted to a seven-day curve with daily grid lines; it returns to a progress bar automatically when a short curve becomes available again. Weekly sampling starts when the fallback is needed rather than inventing earlier history.
+
+## OpenAI route recovery with Clash / Mihomo
+
+AI Quota Bar can discover the local external controller for Clash Verge Rev, Mihomo, or Clash and find the switchable strategy group used by rules for `openai.com` or `chatgpt.com`. The controller must be bound to `127.0.0.1`, `localhost`, or `::1`; remote controller addresses are rejected.
+
+Right-click the menu bar item to:
+
+- Run a latency test against the OpenAI strategy group and sort usable routes from fastest to slowest.
+- Filter route names with ordinary text, including country aliases such as `🇯🇵`, `日本`, or `JP`.
+- Enable regular-expression matching for anchors, alternation, and other precise route-name patterns.
+- Select any listed route manually without opening Clash.
+
+The optional **On connection failure, switch to the fastest match** setting is outage-driven, not test-driven. Opening the panel, running **Test again**, or enabling the setting never changes the active route. Automatic recovery starts only after both `openai.com` and `chatgpt.com` fail two consecutive connectivity checks. AI Quota Bar then tests the filtered routes, tries the lowest-latency candidates in order, rechecks connectivity after each switch, and sends a macOS notification after recovery. A non-empty valid filter is required so recovery cannot unexpectedly choose from every route.
+
+![Latency-ranked OpenAI routes filtered with a regular expression](./docs/images/openai-route-recovery.png)
 
 ## MiniMax support
 
@@ -113,6 +131,13 @@ See `cloudflare/README.md` for the Cloudflare setup steps, then paste the deploy
 After setup, use **Settings -> Cloud backup -> View remote data** to open a local HTML report of the remote D1 data. The fallback command is `cloudflare/view-remote-data.command`.
 
 ## Release highlights
+
+### 1.5.0
+
+- Added a right-click OpenAI route panel backed by the local Clash/Mihomo external controller.
+- Automatically resolves the switchable strategy group used by OpenAI or ChatGPT rules.
+- Added latency testing, fastest-first sorting, manual switching, country-alias filtering, and an optional regular-expression mode.
+- Added conservative automatic recovery: only dual-domain outages trigger testing and filtered route switching, followed by connectivity verification and a system notification.
 
 ### 2.0.0
 
