@@ -1,7 +1,7 @@
 # AI Quota Bar
 
 <p align="center">
-  A native macOS menu bar companion for AI coding quota, Codex task protection, and OpenAI route recovery.
+  Know how much AI coding time you have left, keep long Codex tasks running, and recover OpenAI connections without leaving the menu bar.
 </p>
 
 <p align="center">
@@ -17,40 +17,44 @@
   <a href="https://github.com/techfanseric/ai-quota-bar/releases">Release notes</a>
 </p>
 
-AI Quota Bar keeps the information and controls needed during long AI-assisted development sessions in one compact menu bar app. Left-click shows quota and usage trends for Codex and MiniMax. Right-click opens a control center for active Codex tasks, Mac sleep protection, Clash/Mihomo OpenAI routes, and live OpenAI connections.
+AI coding work is hard to manage when quota, network routes, and Mac sleep settings live in different places. AI Quota Bar brings them together: left-click to see whether your quota can support the work ahead, and right-click to keep Codex running or repair a slow or broken OpenAI connection.
 
 <p align="center">
   <img src="./docs/images/control-center.png" alt="AI Quota Bar control center" width="373">
 </p>
 
-## Highlights
+## What it helps you do
 
-| Area | What AI Quota Bar provides |
+| Your goal | How AI Quota Bar helps |
 | --- | --- |
-| Quota | Multi-account Codex and MiniMax quota, reset times, short-window trends, weekly pace, warnings, and a compact menu bar ring |
-| OpenAI routing | Local Clash/Mihomo strategy-group discovery, latency testing, fuzzy country aliases, regex filtering, manual switching, and conservative outage recovery |
-| Connections | Read-only `openai.com` / `chatgpt.com` active connections, aggregate transfer rates, connection count, and a 60-minute age-colored activity chart |
-| Task protection | Detects active Codex tasks and holds display, screen-saver, and idle-sleep assertions only while work is in progress |
-| Closed-lid mode | Optional administrator-installed helper with battery, thermal, heartbeat, task-completion, and maximum-duration cutoffs |
-| Sync | Optional built-in cloud backup for compact quota snapshots, retention controls, remote account cleanup, and local data reports |
+| Plan work before quota runs out | See remaining Codex and MiniMax quota, reset times, recent usage, and whether your current pace is sustainable |
+| Get OpenAI working again quickly | Test and switch Clash/Mihomo routes from the menu bar, or let the app recover automatically after a real outage |
+| Understand a slow connection | See whether OpenAI has active traffic, whether data is moving, and whether old connections are piling up |
+| Let long Codex tasks finish | Keep the Mac awake only while Codex is working, then return to normal automatically |
+| Close the lid when necessary | Optionally keep a task running with safety cutoffs for battery, heat, lost contact, and maximum duration |
+| Keep useful history | Optionally sync recent quota snapshots so trends remain available across Macs |
 
 ## Screenshots
 
 ### Quota dashboard
 
+See every account in one place. The remaining percentage answers “how much is left,” while the trend and reserve/deficit message answer the more useful question: “at this pace, am I likely to make it to the reset?”
+
 <p align="center">
   <img src="./docs/images/dropdown.png" alt="Quota dashboard" width="464">
 </p>
 
-### Menu bar quota ring
+### A quick answer without opening the menu
 
-The outer ring shows Weekly remaining quota. The center shows whether current usage is ahead of or behind a sustainable pace. When both public OpenAI surfaces are unreachable, the ring changes to an offline state.
+The menu bar ring shows Weekly quota at a glance. Its center tells you whether you have room to spare or are spending faster than the quota can sustain. If both OpenAI sites become unreachable, the ring changes to an offline warning.
 
 <p align="center">
   <img src="./docs/images/menu-bar-self-test-preview.png" alt="Compact Codex quota ring states" width="792">
 </p>
 
 ### Cloud sync and retention
+
+Choose how long recent quota history is kept, inspect the stored data, or delete one account without disturbing the others.
 
 <p align="center">
   <img src="./docs/images/cloud-sync-settings.png" alt="Cloud sync settings" width="720">
@@ -80,90 +84,79 @@ The public build is ad-hoc signed because the project does not currently use a p
 
 ### Codex
 
-Install the official Codex CLI, sign in once, and refresh AI Quota Bar:
+If Codex already works in Terminal, setup is almost finished. Sign in once with the official CLI, then refresh AI Quota Bar:
 
 ```bash
 codex
 ```
 
-AI Quota Bar uses [`CodexBarCore`](https://github.com/steipete/CodexBar) to discover Codex accounts and quota sources. Settings exposes the same source choices:
+Your Codex accounts appear automatically and stay grouped separately. Credentials remain in the local Codex/CodexBar account store.
+
+<details>
+<summary>Advanced: choose where Codex quota is read from</summary>
+
+AI Quota Bar uses [`CodexBarCore`](https://github.com/steipete/CodexBar) and offers these source choices:
 
 - **Auto** — OAuth, CLI data, then local web session.
 - **OAuth** — Codex CLI OAuth credentials only.
 - **CLI** — local Codex/CodexBar configuration only.
 - **Web** — local OpenAI browser session only.
 
-Codex credentials stay in the local Codex/CodexBar account store. Multiple accounts are grouped separately in the quota dashboard.
+</details>
 
 ### MiniMax
 
-Open **Settings → Providers → MiniMax**, paste the bearer token used by the MiniMax coding-plan quota endpoint, and refresh. The token is stored in macOS Keychain.
+Open **Settings → Providers → MiniMax**, paste your MiniMax coding-plan token, and refresh. The token stays in macOS Keychain.
 
-## Quota and menu bar behavior
+## Plan work before quota runs out
 
-The menu bar can display Codex, MiniMax, or an automatic provider choice. Automatic mode prioritizes low remaining quota and unsustainable usage pace, then compares reset time.
+AI Quota Bar does more than show a percentage. It combines remaining quota, reset time, and recent pace so you can decide whether to continue a large task now, slow down, or move work to another account.
 
-For Codex:
+- Track Codex and MiniMax from one menu, including multiple Codex accounts.
+- See both short limits such as **5h** and longer limits such as **Weekly**.
+- Use the trend line to see how quickly quota is falling.
+- Use the reserve/deficit message to see whether your current pace can last until reset.
+- Receive a warning before a limit becomes a surprise.
+- Use the compact ring when you only need a quick glance.
 
-- The primary short window is normally shown as **5h**.
-- The secondary window is normally shown as **Weekly**.
-- Credits and additional counters appear when the selected source reports them.
-- Short windows use trend charts. Weekly uses a progress bar unless it is the only useful current-window trend, in which case it is promoted to a seven-day curve.
-- The compact ring visualizes Weekly remaining quota and pace reserve/deficit without opening the menu.
+You can pin one provider in the menu bar or let Automatic mode surface whichever account needs attention first.
 
-Warnings and refresh intervals are configurable in Settings.
+## Get OpenAI working again without opening Clash
 
-## OpenAI route recovery
+When ChatGPT or Codex stops connecting, right-click the menu bar icon. AI Quota Bar finds the relevant local Clash/Mihomo group, tests its routes, and puts the fastest working choices first.
 
-AI Quota Bar discovers the local Clash/Mihomo external controller and resolves the switchable strategy group used by rules for `openai.com` or `chatgpt.com`. Only controller addresses bound to `127.0.0.1`, `localhost`, or `::1` are accepted.
+- Search by country in the way that feels natural: `🇯🇵`, `日本`, and `JP` all work.
+- Turn on regex when you need precise route-name rules.
+- Switch manually with one click and review the last three changes.
+- Keep a filter such as a preferred country, then optionally let the app choose the fastest match when OpenAI is genuinely down.
 
-Right-click the menu bar item to:
+Automatic recovery is intentionally cautious. It does nothing when you merely open the panel, run a speed test, or enable the option. It starts only after both `openai.com` and `chatgpt.com` fail twice in a row, tries filtered routes from fastest to slowest, stops as soon as connectivity returns, and then sends a notification.
 
-- Start a latency test and sort usable routes from fastest to slowest.
-- Filter route names with ordinary text and country aliases such as `🇯🇵`, `日本`, or `JP`.
-- Enable regex mode for anchors, alternation, and exact route naming rules.
-- Switch routes manually.
-- Review the latest three route changes.
+For safety, AI Quota Bar accepts only Clash/Mihomo controllers on this Mac (`127.0.0.1`, `localhost`, or `::1`).
 
-Automatic recovery is deliberately outage-driven:
+## Understand slow or stuck OpenAI traffic
 
-1. Both `openai.com` and `chatgpt.com` must fail two consecutive connectivity checks.
-2. AI Quota Bar tests only routes matching a non-empty, valid filter.
-3. Candidates are tried from lowest latency upward.
-4. Connectivity is rechecked after each switch.
-5. A macOS notification reports successful recovery.
+When ChatGPT feels slow, the connection panel helps answer three quick questions:
 
-Opening the panel, pressing **Test again**, or enabling the option never switches the route by itself.
+- **Is anything connected?** See the active OpenAI/ChatGPT connection count.
+- **Is data actually moving?** See total upload and download speed.
+- **Is this a fresh request or a long-lived connection?** New connections are green and gradually turn orange as they age.
 
-## Live OpenAI connections
+The 60-minute chart makes spikes, quiet periods, and connections that remain active unusually long easy to spot. The list below shows the host, app, route, age, and speed when Clash/Mihomo provides them.
 
-The right-click control center reads the Clash/Mihomo connections stream and keeps only active connections matching the fixed `openai|chatgpt` domain rule.
+This view is read-only: it never closes or changes your connections.
 
-It shows:
+## Let long Codex tasks finish unattended
 
-- Aggregate download and upload rates.
-- Total active connection count.
-- A 60-minute stacked activity chart sampled once per minute.
-- One block per connection, colored from green for new connections toward orange for long-lived connections.
-- A compact active-connection list with host, process, network, route, age, and current rates when available.
+Start a long Codex task and step away without changing the Mac’s sleep settings for the whole day. AI Quota Bar detects when Codex is actually working and can keep the display awake, block the screen saver, and prevent idle sleep only for that active period.
 
-Monitoring is read-only. AI Quota Bar does not terminate or rewrite Clash connections.
-
-## Codex task protection
-
-AI Quota Bar detects active local Codex tasks through Codex hooks and a read-only local-state fallback. It looks only for task lifecycle events; task prompts and responses are not uploaded.
-
-When protection is enabled and at least one task is active, the app can:
-
-- Keep the display awake.
-- Block the screen saver.
-- Prevent idle system sleep.
-
-These are temporary macOS power assertions. They are released when the last task finishes, protection is disabled, or AI Quota Bar exits.
+When the last task finishes—or when you disable protection or quit the app—the Mac immediately returns to its normal behavior. Multiple simultaneous tasks are counted, so protection does not end early while another task is still running.
 
 ### Continue with the lid closed
 
-Closed-lid mode is optional, off by default, and separate from the ordinary no-sleep assertions. The first enable installs a small privileged helper after an administrator prompt. The helper leases the required `pmset` state and restores the previous value when any safety condition fires:
+If you occasionally need to close a MacBook while a task finishes, you can enable closed-lid mode separately. It is off by default and asks for administrator approval the first time.
+
+The helper restores your previous sleep setting when:
 
 - The Codex task finishes.
 - The app disconnects or stops sending heartbeats.
@@ -172,23 +165,20 @@ Closed-lid mode is optional, off by default, and separate from the ordinary no-s
 - The 12-hour maximum lease expires.
 - The user disables the feature.
 
-Closing a MacBook lid can reduce cooling. Use this mode only with adequate ventilation and power conditions.
+This is a safety net, not a replacement for ventilation. A closed MacBook can cool less effectively, so use the option only when the machine has suitable airflow and power.
 
-## Cloud sync and data
+## Keep recent quota history available
 
-Cloud sync is optional. When enabled, a successful refresh uploads compact quota history to the built-in Cloudflare service so recent charts can be restored and inspected across devices.
+If you use more than one Mac, or want recent charts to survive a reinstall, you can enable cloud sync. It backs up compact quota snapshots after successful refreshes and restores useful recent history on another device.
 
-Cloud payloads include a generated device ID, provider and account labels, model names, quota values, reset times, and utilization history. Provider secrets are not uploaded: MiniMax tokens remain in Keychain and Codex credentials remain in the local Codex/CodexBar store.
+You stay in control:
 
-Settings provides:
+- Keep data for 30 to 180 days.
+- Hide stale cloud-only charts automatically.
+- Inspect what is stored in a local report.
+- Delete one account or clear all local/remote history.
 
-- Cloud retention from 30 to 180 days.
-- Visibility limits for stale current, short-cycle, and weekly data.
-- A local HTML data report.
-- Per-account remote deletion.
-- Full local or remote cleanup under Advanced Cleanup.
-
-The Worker and D1 schema are available in [`cloudflare/`](./cloudflare/) for development and self-hosting work. The current release UI uses the built-in endpoint.
+Cloud sync is off by default. It uploads quota metadata and account labels, but never uploads MiniMax or Codex credentials. The exact data boundary is documented below.
 
 ## Privacy and security boundaries
 
