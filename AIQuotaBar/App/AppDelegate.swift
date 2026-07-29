@@ -114,6 +114,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     ) {
         defer { completionHandler() }
 
+        if response.notification.request.content.userInfo[
+            ClashRecoveryNotificationService.notificationActionKey
+        ] as? String == ClashRecoveryNotificationService.openRoutesAction {
+            Task { @MainActor [weak self] in
+                self?.statusBarController?.showClashRoutes()
+            }
+            return
+        }
+
         guard let releaseURLString = response.notification.request.content.userInfo["releaseURL"] as? String,
               let releaseURL = URL(string: releaseURLString) else {
             return

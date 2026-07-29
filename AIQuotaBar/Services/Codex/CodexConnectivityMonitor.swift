@@ -72,6 +72,7 @@ struct CodexConnectivityChecker: Sendable {
 @Observable
 final class CodexConnectivityMonitor {
     private(set) var state: CodexConnectivityState = .unknown
+    private(set) var checkSequence = 0
 
     private let checker: CodexConnectivityChecker
     private let delayProvider: @Sendable () -> TimeInterval
@@ -98,6 +99,7 @@ final class CodexConnectivityMonitor {
                 guard !Task.isCancelled else { return }
                 guard self != nil else { return }
                 self?.state = nextState
+                self?.checkSequence += 1
 
                 let delay = max(1, delayProvider())
                 let nanoseconds = UInt64(delay * 1_000_000_000)
@@ -113,6 +115,16 @@ final class CodexConnectivityMonitor {
     func stop() {
         monitoringTask?.cancel()
         monitoringTask = nil
+    }
+
+    /// Runs an immediate probe with a new URLSession so a freshly selected
+    /// Clash route is not masked by a pooled connection from the previous route.
+    @discardableResult
+    func recheckNow() async -> CodexConnectivityState {
+        let nextState = await CodexConnectivityChecker.live().check()
+        state = nextState
+        checkSequence += 1
+        return nextState
     }
 
     nonisolated static func jitteredInterval(unitRandom: Double) -> TimeInterval {

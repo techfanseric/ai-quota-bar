@@ -18,8 +18,14 @@ final class StatusBarController {
 
     private let statusView = StatusBarContentView()
     private let connectivityMonitor = CodexConnectivityMonitor()
+    private let clashRouteViewModel = ClashRouteViewModel()
+    private lazy var clashRoutePopoverController = ClashRoutePopoverController(
+        viewModel: clashRouteViewModel)
     private let initialStatusItemLength: CGFloat = 110
     private var screenObserverTokens: [NSObjectProtocol] = []
+    private var consecutiveUnreachableChecks = 0
+    private var hasHandledCurrentOutage = false
+    private var recoveryTask: Task<Void, Never>?
 
     init() {
         setupStatusItem()
@@ -34,8 +40,8 @@ final class StatusBarController {
         if let button = statusItem?.button {
             button.target = self
             button.action = #selector(handleStatusItemClick(_:))
-            button.sendAction(on: [.leftMouseUp])
-            button.toolTip = "Click to see usage details."
+            button.sendAction(on: [.leftMouseUp, .rightMouseUp])
+            button.toolTip = "Left-click for usage. Right-click for OpenAI routes."
             statusView.translatesAutoresizingMaskIntoConstraints = true
             statusView.frame = NSRect(x: 0, y: 0, width: initialStatusItemLength, height: 22)
             statusView.autoresizingMask = [.width, .height]
@@ -56,8 +62,9 @@ final class StatusBarController {
 
         observeProperties(connectivityMonitor) { monitor in
             _ = monitor.state
+            _ = monitor.checkSequence
         } onChange: { [weak self] in
-            self?.updateStatusItem()
+            self?.handleConnectivityCheck()
         }
     }
 
@@ -103,7 +110,15 @@ final class StatusBarController {
     }
 
     @objc private func handleStatusItemClick(_ sender: NSStatusBarButton) {
-        showMenu()
+        if NSApp.currentEvent?.type == .rightMouseUp {
+            clashRouteViewModel.language = viewModel.appLanguage
+            clashRoutePopoverController.toggle(
+                relativeTo: sender,
+                automaticallyTest: true)
+        } else {
+            clashRoutePopoverController.close()
+            showMenu()
+        }
     }
 
     private func showMenu() {
@@ -131,6 +146,66 @@ final class StatusBarController {
 
     private func openSettings() {
         (NSApp.delegate as? AppDelegate)?.openSettings()
+    }
+
+    func showClashRoutes(automaticallyTest: Bool = true) {
+        guard let button = statusItem?.button else { return }
+        clashRouteViewModel.language = viewModel.appLanguage
+        clashRoutePopoverController.show(
+            relativeTo: button,
+            automaticallyTest: automaticallyTest)
+    }
+
+    private func handleConnectivityCheck() {
+        updateStatusItem()
+
+        guard viewModel.configuredProviders.contains(.codex) else {
+            consecutiveUnreachableChecks = 0
+            hasHandledCurrentOutage = false
+            return
+        }
+
+        switch connectivityMonitor.state {
+        case .unknown:
+            return
+        case .reachable:
+            consecutiveUnreachableChecks = 0
+            hasHandledCurrentOutage = false
+        case .unreachable:
+            consecutiveUnreachableChecks += 1
+            guard consecutiveUnreachableChecks >= 2,
+                  !hasHandledCurrentOutage,
+                  recoveryTask == nil else {
+                return
+            }
+            hasHandledCurrentOutage = true
+            beginAutomaticRecovery()
+        }
+    }
+
+    private func beginAutomaticRecovery() {
+        clashRouteViewModel.language = viewModel.appLanguage
+        recoveryTask = Task { @MainActor [weak self] in
+            guard let self else { return }
+
+            let outcome = await clashRouteViewModel.attemptAutomaticRecovery {
+                await self.connectivityMonitor.recheckNow() == .reachable
+            }
+
+            switch outcome {
+            case let .recovered(result):
+                await ClashRecoveryNotificationService.shared.notifyRecovery(
+                    result,
+                    language: self.viewModel.appLanguage)
+            case .suppressed:
+                break
+            case let .needsAttention(shouldTestWhenShown):
+                self.showClashRoutes(
+                    automaticallyTest: shouldTestWhenShown)
+            }
+
+            self.recoveryTask = nil
+        }
     }
 
     // MARK: - Active screen dimming
@@ -173,6 +248,9 @@ final class StatusBarController {
     }
 
     func stop() {
+        recoveryTask?.cancel()
+        recoveryTask = nil
+        clashRoutePopoverController.close()
         connectivityMonitor.stop()
     }
 

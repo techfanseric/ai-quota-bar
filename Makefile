@@ -5,8 +5,8 @@ PRODUCT = AIQuotaBar.app
 APP_NAME = AIQuotaBar
 APP_DISPLAY_NAME = AI Quota Bar
 APP_BUNDLE_ID = com.techfanseric.aiquotabar
-APP_VERSION ?= 1.4.10
-APP_BUILD ?= 18
+APP_VERSION ?= 1.5.0
+APP_BUILD ?= 19
 CODESIGN_IDENTITY ?= -
 
 build:
