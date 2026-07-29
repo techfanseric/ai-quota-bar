@@ -11,6 +11,7 @@ import SwiftUI
 @MainActor
 final class StatusBarController {
     let viewModel = UsageViewModel()
+    let sleepProtectionCoordinator = CodexSleepProtectionCoordinator()
     private var statusItem: NSStatusItem?
     private var menu: NSMenu?
     private var menuItem: NSMenuItem?
@@ -19,8 +20,11 @@ final class StatusBarController {
     private let statusView = StatusBarContentView()
     private let connectivityMonitor = CodexConnectivityMonitor()
     private let clashRouteViewModel = ClashRouteViewModel()
+    private let clashConnectionViewModel = ClashConnectionViewModel()
     private lazy var clashRoutePopoverController = ClashRoutePopoverController(
-        viewModel: clashRouteViewModel)
+        routeViewModel: clashRouteViewModel,
+        connectionViewModel: clashConnectionViewModel,
+        sleepProtectionCoordinator: sleepProtectionCoordinator)
     private let initialStatusItemLength: CGFloat = 110
     private var screenObserverTokens: [NSObjectProtocol] = []
     private var consecutiveUnreachableChecks = 0
@@ -30,7 +34,9 @@ final class StatusBarController {
     init() {
         setupStatusItem()
         setupMenu()
+        sleepProtectionCoordinator.start()
         connectivityMonitor.start()
+        clashConnectionViewModel.startBackgroundMonitoring()
         viewModel.flushPendingCloudSyncQueue()
     }
 
@@ -41,7 +47,7 @@ final class StatusBarController {
             button.target = self
             button.action = #selector(handleStatusItemClick(_:))
             button.sendAction(on: [.leftMouseUp, .rightMouseUp])
-            button.toolTip = "Left-click for usage. Right-click for OpenAI routes."
+            button.toolTip = "Left-click for usage. Right-click for Codex protection, OpenAI routes, and connections."
             statusView.translatesAutoresizingMaskIntoConstraints = true
             statusView.frame = NSRect(x: 0, y: 0, width: initialStatusItemLength, height: 22)
             statusView.autoresizingMask = [.width, .height]
@@ -112,6 +118,7 @@ final class StatusBarController {
     @objc private func handleStatusItemClick(_ sender: NSStatusBarButton) {
         if NSApp.currentEvent?.type == .rightMouseUp {
             clashRouteViewModel.language = viewModel.appLanguage
+            clashConnectionViewModel.language = viewModel.appLanguage
             clashRoutePopoverController.toggle(
                 relativeTo: sender,
                 automaticallyTest: true)
@@ -151,6 +158,7 @@ final class StatusBarController {
     func showClashRoutes(automaticallyTest: Bool = true) {
         guard let button = statusItem?.button else { return }
         clashRouteViewModel.language = viewModel.appLanguage
+        clashConnectionViewModel.language = viewModel.appLanguage
         clashRoutePopoverController.show(
             relativeTo: button,
             automaticallyTest: automaticallyTest)
@@ -250,7 +258,9 @@ final class StatusBarController {
     func stop() {
         recoveryTask?.cancel()
         recoveryTask = nil
+        sleepProtectionCoordinator.stop()
         clashRoutePopoverController.close()
+        clashConnectionViewModel.stop()
         connectivityMonitor.stop()
     }
 
@@ -485,7 +495,7 @@ final class StatusBarCompactRingView: NSView {
         super.draw(dirtyRect)
 
         let center = NSPoint(x: bounds.midX, y: bounds.midY)
-        let radius = min(8.5, max(0, min(bounds.width, bounds.height) / 2 - 2.5))
+        let radius = min(8.0, max(0, min(bounds.width, bounds.height) / 2 - 2.5))
         guard radius > 0 else { return }
 
         drawArc(

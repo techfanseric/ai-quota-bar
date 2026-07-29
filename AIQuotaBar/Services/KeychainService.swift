@@ -15,6 +15,8 @@ final class KeychainService {
     private let credentialStoreAccount = "providerCredentials"
     private let cloudSyncTokenKey = "cloudSyncToken"
     private let legacyServices = ["com.minimax.usagemonitor"]
+    private let configuredProvidersDefaultsKey =
+        "keychainConfiguredProviderKeys"
     private var cachedCredentialStore: [String: String]?
 
     private init() {
@@ -25,7 +27,11 @@ final class KeychainService {
     func saveCredential(_ credential: String, for provider: UsageProvider) -> Bool {
         var store = credentialStore()
         store[provider.rawValue] = credential
-        return saveCredentialStore(store)
+        let saved = saveCredentialStore(store)
+        if saved {
+            cacheConfiguredProviderKeys(from: store)
+        }
+        return saved
     }
 
     /// Retrieve provider credential from Keychain
@@ -56,7 +62,7 @@ final class KeychainService {
     private func credential(for provider: UsageProvider, service: String) -> String? {
         let query: [String: Any] = [
             kSecClass as String: kSecClassGenericPassword,
-            kSecAttrService as String: Self.service,
+            kSecAttrService as String: service,
             kSecAttrAccount as String: provider.keychainAccount,
             kSecReturnData as String: true,
             kSecMatchLimit as String: kSecMatchLimitOne
@@ -80,11 +86,14 @@ final class KeychainService {
         var store = credentialStore()
         store.removeValue(forKey: provider.rawValue)
         let storeSaved = saveCredentialStore(store)
+        if storeSaved {
+            cacheConfiguredProviderKeys(from: store)
+        }
 
         let oldItemsDeleted = ([Self.service] + legacyServices).allSatisfy { service in
             let query: [String: Any] = [
                 kSecClass as String: kSecClassGenericPassword,
-                kSecAttrService as String: Self.service,
+                kSecAttrService as String: service,
                 kSecAttrAccount as String: provider.keychainAccount
             ]
 
@@ -97,7 +106,25 @@ final class KeychainService {
 
     /// Check if provider credential exists
     func hasCredential(for provider: UsageProvider) -> Bool {
-        return getCredential(for: provider) != nil
+        if let cachedCredentialStore {
+            return cachedCredentialStore[provider.rawValue] != nil
+        }
+
+        let cachedKeys = Set(
+            UserDefaults.standard.stringArray(
+                forKey: configuredProvidersDefaultsKey
+            ) ?? []
+        )
+        if cachedKeys.contains(provider.rawValue) {
+            return true
+        }
+
+        return ([Self.service] + legacyServices).contains { service in
+            credentialItemExists(
+                account: provider.keychainAccount,
+                service: service
+            )
+        }
     }
 
     /// Save MiniMax API key to Keychain
@@ -201,6 +228,7 @@ final class KeychainService {
         do {
             let store = try JSONDecoder().decode([String: String].self, from: data)
             cachedCredentialStore = store
+            cacheConfiguredProviderKeys(from: store)
             return store
         } catch {
             // JSON 损坏时 **绝不缓存空 dict** —— 下次 save 会用空 dict 覆盖原始数据，
@@ -236,6 +264,7 @@ final class KeychainService {
         let updateStatus = SecItemUpdate(query as CFDictionary, update as CFDictionary)
         if updateStatus == errSecSuccess {
             cachedCredentialStore = store
+            cacheConfiguredProviderKeys(from: store)
             return true
         }
 
@@ -249,7 +278,37 @@ final class KeychainService {
         guard addStatus == errSecSuccess else { return false }
 
         cachedCredentialStore = store
+        cacheConfiguredProviderKeys(from: store)
         return true
+    }
+
+    private func credentialItemExists(
+        account: String,
+        service: String
+    ) -> Bool {
+        let query: [String: Any] = [
+            kSecClass as String: kSecClassGenericPassword,
+            kSecAttrService as String: service,
+            kSecAttrAccount as String: account,
+            kSecReturnAttributes as String: true,
+            kSecMatchLimit as String: kSecMatchLimitOne
+        ]
+        return SecItemCopyMatching(query as CFDictionary, nil)
+            == errSecSuccess
+    }
+
+    private func cacheConfiguredProviderKeys(
+        from store: [String: String]
+    ) {
+        let keys = UsageProvider.allCases.compactMap { provider in
+            store[provider.rawValue] == nil
+                ? nil
+                : provider.rawValue
+        }
+        UserDefaults.standard.set(
+            keys,
+            forKey: configuredProvidersDefaultsKey
+        )
     }
 
     private func saveGenericSecret(_ secret: String, account: String) -> Bool {
