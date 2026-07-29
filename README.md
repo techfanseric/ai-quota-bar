@@ -1,166 +1,269 @@
 # AI Quota Bar
 
-A macOS menu bar application for monitoring model coding plan quota across providers.
+<p align="center">
+  A native macOS menu bar companion for AI coding quota, Codex task protection, and OpenAI route recovery.
+</p>
 
-AI Quota Bar is focused on coding-plan consumption: it tracks the remaining quota for supported AI coding models, shows per-model breakdowns, and warns you before a short-interval or subscription quota runs out. It currently supports MiniMax and Codex coding quota snapshots.
+<p align="center">
+  <a href="https://github.com/techfanseric/ai-quota-bar/releases/latest"><img alt="Latest release" src="https://img.shields.io/github/v/release/techfanseric/ai-quota-bar?display_name=tag"></a>
+  <img alt="macOS 14+" src="https://img.shields.io/badge/macOS-14%2B-000000?logo=apple">
+  <img alt="Apple Silicon" src="https://img.shields.io/badge/release-Apple%20Silicon-6f42c1">
+  <a href="./LICENSE"><img alt="MIT License" src="https://img.shields.io/badge/license-MIT-blue.svg"></a>
+</p>
 
-## Features
+<p align="center">
+  <a href="./README.zh-CN.md">简体中文</a> ·
+  <a href="https://github.com/techfanseric/ai-quota-bar/releases/latest/download/AIQuotaBar.dmg">Download DMG</a> ·
+  <a href="https://github.com/techfanseric/ai-quota-bar/releases">Release notes</a>
+</p>
 
-- Menu bar widget displaying remaining coding-plan quota
-- Configurable menu bar provider selection and compact quota ring
-- Detailed per-provider and per-model usage breakdown
-- Quota trend charts for short-interval model limits
-- Automatic menu bar fallback to the used model with the soonest reset when the displayed quota expires
-- Right-click OpenAI route control through a local Clash/Mihomo controller
-- Latency-ranked route testing with fuzzy country aliases or regular-expression filtering
-- Optional automatic OpenAI route recovery when both public OpenAI surfaces are unreachable
-- Configurable refresh interval
-- Warning notifications when quota runs low
-- Secure provider credential storage via Keychain
-- Optional cloud backup of quota snapshots through your own Cloudflare Worker + D1 database
+AI Quota Bar keeps the information and controls needed during long AI-assisted development sessions in one compact menu bar app. Left-click shows quota and usage trends for Codex and MiniMax. Right-click opens a control center for active Codex tasks, Mac sleep protection, Clash/Mihomo OpenAI routes, and live OpenAI connections.
+
+<p align="center">
+  <img src="./docs/images/control-center.png" alt="AI Quota Bar control center" width="373">
+</p>
+
+## Highlights
+
+| Area | What AI Quota Bar provides |
+| --- | --- |
+| Quota | Multi-account Codex and MiniMax quota, reset times, short-window trends, weekly pace, warnings, and a compact menu bar ring |
+| OpenAI routing | Local Clash/Mihomo strategy-group discovery, latency testing, fuzzy country aliases, regex filtering, manual switching, and conservative outage recovery |
+| Connections | Read-only `openai.com` / `chatgpt.com` active connections, aggregate transfer rates, connection count, and a 60-minute age-colored activity chart |
+| Task protection | Detects active Codex tasks and holds display, screen-saver, and idle-sleep assertions only while work is in progress |
+| Closed-lid mode | Optional administrator-installed helper with battery, thermal, heartbeat, task-completion, and maximum-duration cutoffs |
+| Sync | Optional built-in cloud backup for compact quota snapshots, retention controls, remote account cleanup, and local data reports |
 
 ## Screenshots
 
-<!-- Menu Bar -->
-![Menu Bar](./docs/images/menubar.png)
+### Quota dashboard
 
-<!-- Dropdown Menu -->
-![Dropdown Menu](./docs/images/dropdown.png)
+<p align="center">
+  <img src="./docs/images/dropdown.png" alt="Quota dashboard" width="464">
+</p>
 
-<!-- Settings -->
-![Settings](./docs/images/settings.png)
+### Menu bar quota ring
+
+The outer ring shows Weekly remaining quota. The center shows whether current usage is ahead of or behind a sustainable pace. When both public OpenAI surfaces are unreachable, the ring changes to an offline state.
+
+<p align="center">
+  <img src="./docs/images/menu-bar-self-test-preview.png" alt="Compact Codex quota ring states" width="792">
+</p>
+
+### Cloud sync and retention
+
+<p align="center">
+  <img src="./docs/images/cloud-sync-settings.png" alt="Cloud sync settings" width="720">
+</p>
 
 ## Requirements
 
-- macOS 14+
-- MiniMax API key, Codex CLI installed and signed in (`codex` command available), or both
-- Optional: Clash Verge Rev, Mihomo, or Clash with a loopback-bound external controller for OpenAI route control
-
-## Build & Run
-
-```bash
-make build
-make run
-```
-
-## License
-
-This project is licensed under the MIT License - see [LICENSE](LICENSE) for details.
+- macOS 14 Sonoma or later.
+- Apple Silicon for the prebuilt DMG. Source builds target the architecture of the build Mac.
+- At least one quota provider:
+  - Codex CLI installed and signed in.
+  - MiniMax coding-plan bearer token.
+- Optional: Clash Verge Rev, Mihomo, or Clash with a loopback-bound external controller.
+- Optional: administrator approval to install the closed-lid helper.
 
 ## Install
 
+1. Download the latest [`AIQuotaBar.dmg`](https://github.com/techfanseric/ai-quota-bar/releases/latest/download/AIQuotaBar.dmg).
+2. Open the image and drag **AI Quota Bar** into **Applications**.
+3. Launch the app and choose **Settings** from the left-click menu.
+
+### Gatekeeper note
+
+The public build is ad-hoc signed because the project does not currently use a paid Apple Developer certificate. It is not Apple-notarized. On first launch, macOS may require Control-clicking the app and choosing **Open**, or allowing it in **System Settings → Privacy & Security**. Do not disable Gatekeeper globally.
+
+## Quick start
+
+### Codex
+
+Install the official Codex CLI, sign in once, and refresh AI Quota Bar:
+
 ```bash
-make install
+codex
 ```
 
-## Configuration
+AI Quota Bar uses [`CodexBarCore`](https://github.com/steipete/CodexBar) to discover Codex accounts and quota sources. Settings exposes the same source choices:
 
-1. Click the menu bar icon
-2. Select **Settings**
-3. Enter a MiniMax API key, sign in to Codex via the `codex` CLI, or configure both providers
-4. Configured providers refresh together and appear as separate sections in the menu
-5. Adjust refresh interval as needed
+- **Auto** — OAuth, CLI data, then local web session.
+- **OAuth** — Codex CLI OAuth credentials only.
+- **CLI** — local Codex/CodexBar configuration only.
+- **Web** — local OpenAI browser session only.
 
-## Menu bar behavior
+Codex credentials stay in the local Codex/CodexBar account store. Multiple accounts are grouped separately in the quota dashboard.
 
-The menu bar item shows one provider at a time. **Displayed provider** can be set to Automatic, Codex, or MiniMax. Automatic prioritizes providers with low remaining quota or an unsustainable usage pace, then compares remaining quota and reset time.
+### MiniMax
 
-**Appearance** can be set to Detailed text or Compact ring. For Codex, the compact ring's outer stroke shows Weekly remaining, so 99% remaining appears almost full. Its split center circle fills left for deficit and right for reserve. The filled side has no outline until the real deviation exceeds two days; the opposite side keeps the consumed-track tint, and on pace both halves use that tint while only the center divider stays strong. Pace magnitude uses a two-day alerting scale, so one day of Weekly deviation fills half of a side and two days fill it completely. **Pace detail** lets you choose fine-grained continuous fill or glanceable 25% stages; continuous is the default. At startup and during a user-triggered refresh, the ring runs at least one complete self-test pass that sweeps Weekly remaining and cycles through deficit, on-pace, and reserve; live data returns after that pass and the refresh have both finished. Background timer refreshes stay visually quiet. If both `chatgpt.com` and `openai.com` are unreachable, the live Weekly arc disappears into a fully consumed track and the center becomes a continuously pulsing no-entry glyph. Reduce Motion keeps the same offline glyph static. Other providers keep their compact provider initial. Hover the item for the exact quota, pace, reset time, and connectivity state.
+Open **Settings → Providers → MiniMax**, paste the bearer token used by the MiniMax coding-plan quota endpoint, and refresh. The token is stored in macOS Keychain.
 
-![Compact Codex quota ring states](./docs/images/menu-bar-self-test-preview.png)
+## Quota and menu bar behavior
 
-From left to right: 99% Weekly remaining with a 1% continuous deficit, staged deficit, on pace, staged reserve, a one-day continuous deficit at half fill, a two-day continuous reserve at full fill without an active outline, an over-two-day reserve with the overflow outline, and the bright/dim endpoints of the OpenAI-unreachable pulse. The changing outer stroke demonstrates Weekly remaining across the self-test; the offline examples show the fully consumed outer track.
+The menu bar can display Codex, MiniMax, or an automatic provider choice. Automatic mode prioritizes low remaining quota and unsustainable usage pace, then compares reset time.
 
-Left-click the menu bar item to open the detailed quota dropdown. Right-click it to open the OpenAI route panel when a supported local Clash/Mihomo controller is available.
+For Codex:
 
-Each Codex account keeps at least one current-window trend chart. When a renderable short window such as 5h is available, short windows remain charts and Weekly stays a progress bar. If no short chart is visible for an account, its canonical Weekly window is promoted to a seven-day curve with daily grid lines; it returns to a progress bar automatically when a short curve becomes available again. Weekly sampling starts when the fallback is needed rather than inventing earlier history.
+- The primary short window is normally shown as **5h**.
+- The secondary window is normally shown as **Weekly**.
+- Credits and additional counters appear when the selected source reports them.
+- Short windows use trend charts. Weekly uses a progress bar unless it is the only useful current-window trend, in which case it is promoted to a seven-day curve.
+- The compact ring visualizes Weekly remaining quota and pace reserve/deficit without opening the menu.
 
-## OpenAI route recovery with Clash / Mihomo
+Warnings and refresh intervals are configurable in Settings.
 
-AI Quota Bar can discover the local external controller for Clash Verge Rev, Mihomo, or Clash and find the switchable strategy group used by rules for `openai.com` or `chatgpt.com`. The controller must be bound to `127.0.0.1`, `localhost`, or `::1`; remote controller addresses are rejected.
+## OpenAI route recovery
+
+AI Quota Bar discovers the local Clash/Mihomo external controller and resolves the switchable strategy group used by rules for `openai.com` or `chatgpt.com`. Only controller addresses bound to `127.0.0.1`, `localhost`, or `::1` are accepted.
 
 Right-click the menu bar item to:
 
-- Run a latency test against the OpenAI strategy group and sort usable routes from fastest to slowest.
-- Filter route names with ordinary text, including country aliases such as `🇯🇵`, `日本`, or `JP`.
-- Enable regular-expression matching for anchors, alternation, and other precise route-name patterns.
-- Select any listed route manually without opening Clash.
+- Start a latency test and sort usable routes from fastest to slowest.
+- Filter route names with ordinary text and country aliases such as `🇯🇵`, `日本`, or `JP`.
+- Enable regex mode for anchors, alternation, and exact route naming rules.
+- Switch routes manually.
+- Review the latest three route changes.
 
-The optional **On connection failure, switch to the fastest match** setting is outage-driven, not test-driven. Opening the panel, running **Test again**, or enabling the setting never changes the active route. Automatic recovery starts only after both `openai.com` and `chatgpt.com` fail two consecutive connectivity checks. AI Quota Bar then tests the filtered routes, tries the lowest-latency candidates in order, rechecks connectivity after each switch, and sends a macOS notification after recovery. A non-empty valid filter is required so recovery cannot unexpectedly choose from every route.
+Automatic recovery is deliberately outage-driven:
 
-![Latency-ranked OpenAI routes filtered with a regular expression](./docs/images/openai-route-recovery.png)
+1. Both `openai.com` and `chatgpt.com` must fail two consecutive connectivity checks.
+2. AI Quota Bar tests only routes matching a non-empty, valid filter.
+3. Candidates are tried from lowest latency upward.
+4. Connectivity is rechecked after each switch.
+5. A macOS notification reports successful recovery.
 
-## MiniMax support
+Opening the panel, pressing **Test again**, or enabling the option never switches the route by itself.
 
-For MiniMax, paste the bearer token used by the MiniMax coding plan remains endpoint. The app calls the MiniMax coding plan quota API and maps the returned model quota windows into the menu bar and dropdown views.
+## Live OpenAI connections
 
-## Codex support
+The right-click control center reads the Clash/Mihomo connections stream and keeps only active connections matching the fixed `openai|chatgpt` domain rule.
 
-Codex quota is fetched by reusing the [`codexbar`](https://github.com/steipete/CodexBar) project as a local SwiftPM dependency (`CodexBarCore`). AI Quota Bar does not talk to ChatGPT/OpenAI endpoints directly; instead it wraps codexbar's `ProviderDescriptor` and lets codexbar choose the best available source:
+It shows:
 
-- `primary_window` is shown as `5h`, with remaining quota displayed as a percentage and reset shown as a time.
-- `secondary_window` is shown as `Weekly`, with remaining quota displayed as a percentage and reset shown as a date.
-- Extra rate-limit windows returned by codexbar (for example the Codex CLI's secondary counters) are mapped to additional rows in the dropdown.
-- `Credits` balance is shown when codexbar reports it.
-- Plan details such as Plus or Pro are shown when returned by the response.
-- Multiple Codex accounts can be configured and displayed separately, each with its own account header in the dropdown.
+- Aggregate download and upload rates.
+- Total active connection count.
+- A 60-minute stacked activity chart sampled once per minute.
+- One block per connection, colored from green for new connections toward orange for long-lived connections.
+- A compact active-connection list with host, process, network, route, age, and current rates when available.
 
-The Codex section in Settings exposes a **Source mode** picker that matches codexbar's `ProviderSourceMode`:
+Monitoring is read-only. AI Quota Bar does not terminate or rewrite Clash connections.
 
-- `Auto` — try OAuth, then the local `codex` CLI, then the OpenAI web session, in that order.
-- `OAuth` — only use the local Codex CLI's OAuth credentials.
-- `CLI` — only use the `~/.codex` and `~/.codexbar` config directories read by the CLI.
-- `Web` — only use the OpenAI web session scraped through the local browser cookie store.
+## Codex task protection
 
-To add a Codex account, sign in through the official `codex` CLI once on this Mac:
+AI Quota Bar detects active local Codex tasks through Codex hooks and a read-only local-state fallback. It looks only for task lifecycle events; task prompts and responses are not uploaded.
+
+When protection is enabled and at least one task is active, the app can:
+
+- Keep the display awake.
+- Block the screen saver.
+- Prevent idle system sleep.
+
+These are temporary macOS power assertions. They are released when the last task finishes, protection is disabled, or AI Quota Bar exits.
+
+### Continue with the lid closed
+
+Closed-lid mode is optional, off by default, and separate from the ordinary no-sleep assertions. The first enable installs a small privileged helper after an administrator prompt. The helper leases the required `pmset` state and restores the previous value when any safety condition fires:
+
+- The Codex task finishes.
+- The app disconnects or stops sending heartbeats.
+- Battery falls below the safety threshold.
+- macOS reports serious or critical thermal pressure.
+- The 12-hour maximum lease expires.
+- The user disables the feature.
+
+Closing a MacBook lid can reduce cooling. Use this mode only with adequate ventilation and power conditions.
+
+## Cloud sync and data
+
+Cloud sync is optional. When enabled, a successful refresh uploads compact quota history to the built-in Cloudflare service so recent charts can be restored and inspected across devices.
+
+Cloud payloads include a generated device ID, provider and account labels, model names, quota values, reset times, and utilization history. Provider secrets are not uploaded: MiniMax tokens remain in Keychain and Codex credentials remain in the local Codex/CodexBar store.
+
+Settings provides:
+
+- Cloud retention from 30 to 180 days.
+- Visibility limits for stale current, short-cycle, and weekly data.
+- A local HTML data report.
+- Per-account remote deletion.
+- Full local or remote cleanup under Advanced Cleanup.
+
+The Worker and D1 schema are available in [`cloudflare/`](./cloudflare/) for development and self-hosting work. The current release UI uses the built-in endpoint.
+
+## Privacy and security boundaries
+
+- MiniMax credentials are stored in macOS Keychain.
+- Codex credentials are managed locally by Codex/CodexBar.
+- Clash/Mihomo access is limited to a loopback external controller.
+- Connection monitoring is read-only.
+- Codex task detection reads local lifecycle state and does not upload task content.
+- Cloud sync is opt-in and never uploads provider credentials, but it does upload the quota metadata listed above.
+- Closed-lid changes require explicit administrator approval and are automatically restored by the helper.
+
+## Build from source
+
+The Swift package currently expects CodexBar as a sibling checkout:
 
 ```bash
-codex        # follow the OAuth / sign-in prompt
+mkdir ai-quota-bar-workspace
+cd ai-quota-bar-workspace
+git clone https://github.com/steipete/CodexBar.git codexbar
+git clone https://github.com/techfanseric/ai-quota-bar.git
+cd ai-quota-bar
+
+make build
+make install
 ```
 
-AI Quota Bar reads the same `~/.codex` directory the CLI writes to, so no extra paste-in step is required. New accounts are picked up automatically by the **Refresh** action in Settings; the **Sign out** button clears the local Codex credentials through codexbar's managed account store. The **Remove** button only hides the account from AI Quota Bar's list without touching the underlying CLI credentials.
+Build requirements:
 
-The pre-2.0 single-account ChatGPT/Codex GPT flow (paste session JSON or curl) has been removed. Existing stored credentials are not migrated; please re-connect through the `codex` CLI after upgrading.
+- Xcode Command Line Tools with Swift 5.9 or later.
+- macOS 14 SDK or later.
+- `hdiutil`, `iconutil`, `sips`, and `codesign`, which ship with macOS/Xcode tools.
 
-## Cloud backup
+Useful commands:
 
-AI Quota Bar can back up quota snapshots to a Cloudflare D1 database through a small Worker in `cloudflare/`.
-Provider credentials are not uploaded; MiniMax credentials remain in macOS Keychain, and Codex accounts live in codexbar's managed account store under `~/.codexbar`.
+```bash
+swift test       # run the test suite
+make build       # release binaries
+make app         # assemble dist/AIQuotaBar.app
+make install     # replace /Applications/AIQuotaBar.app and relaunch
+make package     # create dist/AIQuotaBar.dmg
+```
 
-See `cloudflare/README.md` for the Cloudflare setup steps, then paste the deployed Worker URL and sync token into Settings.
-After setup, use **Settings -> Cloud backup -> View remote data** to open a local HTML report of the remote D1 data. The fallback command is `cloudflare/view-remote-data.command`.
+By default, `make package` uses ad-hoc signing. Set `CODESIGN_IDENTITY` to a suitable Developer ID identity if you maintain a signed/notarized distribution pipeline.
 
-## Release highlights
+## Troubleshooting
 
-### 1.5.0
+### Clash routes are unavailable
 
-- Added a right-click OpenAI route panel backed by the local Clash/Mihomo external controller.
-- Automatically resolves the switchable strategy group used by OpenAI or ChatGPT rules.
-- Added latency testing, fastest-first sorting, manual switching, country-alias filtering, and an optional regular-expression mode.
-- Added conservative automatic recovery: only dual-domain outages trigger testing and filtered route switching, followed by connectivity verification and a system notification.
+- Confirm Clash/Mihomo is running.
+- Enable its external controller.
+- Bind the controller to a loopback address.
+- Ensure the active rules for `openai.com` or `chatgpt.com` lead to a switchable strategy group.
 
-### 2.0.0
+### Automatic recovery does not switch
 
-- Rewrote the Codex/ChatGPT provider on top of the `codexbar` project's `CodexBarCore` library.
-- Replaced the pasted session-JSON / curl setup with `codex` CLI sign-in and codexbar's managed account store.
-- Added a Source mode picker (Auto / OAuth / CLI / Web) and multi-account support that mirrors codexbar.
-- Mapped the Codex rate-limit windows (`5h` and `Weekly`) plus the credits balance into the menu and dropdown, grouped by account.
-- Dropped pre-2.0 ChatGPT Keychain credentials; please re-connect through `codex` CLI after upgrading.
+- Both public domains must fail twice.
+- The auto-recovery switch must be on.
+- The route filter must be non-empty and valid.
+- At least one matching route must complete a latency test.
 
-### 1.4.0
+### Codex protection says no task is active
 
-- Added optional Cloudflare Worker + D1 cloud backup for quota snapshots.
-- Added a Settings shortcut to view remote stored quota data as a local HTML report.
-- Kept provider credentials local in Keychain while storing only compact quota history remotely.
-- Added launch-at-login preferences and improved model grouping for exhausted/full quota rows.
+- Confirm Codex is currently executing, not waiting for input.
+- Keep the Codex state directory at the default `~/.codex`, or set `CODEX_HOME` consistently.
+- Restart AI Quota Bar once after upgrading so its bundled lifecycle hook can be registered.
 
-### 1.3.2
+### Closed-lid mode is unavailable
 
-- Added right-click menu bar cycling for used short-interval quota windows.
-- Improved automatic menu bar fallback so expired or exhausted selections rotate to the soonest reset among active, already-used models.
-- Skipped full, unused quota windows during active-model cycling.
-- Added README coverage for multi-account ChatGPT setup introduced after 1.3.0.
+Use the feature switch once while the app is in the foreground and approve the administrator prompt. Installing a new app build changes the helper fingerprint, so the helper may require a one-time update.
 
-### 1.3.1
+## Acknowledgements
 
-- Fixed ChatGPT short-window quota chart detection.
+- [`CodexBar`](https://github.com/steipete/CodexBar) for `CodexBarCore`.
+- Clash, Mihomo, and Clash Verge Rev for the local controller APIs used by route and connection monitoring.
+
+## License
+
+AI Quota Bar is released under the [MIT License](./LICENSE).

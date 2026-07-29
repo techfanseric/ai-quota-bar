@@ -42,9 +42,11 @@ final class ClashRouteViewModel {
     private(set) var isSpeedTesting = false
     private(set) var isSwitching = false
     private(set) var statusMessage: String?
+    private(set) var switchHistory: [ClashRouteSwitchRecord]
 
     private let defaults: UserDefaults
     private let discovery: ClashConfigurationDiscovery
+    private let switchHistoryStore: ClashRouteSwitchHistoryStore
     private var apiClient: ClashAPIClient?
     private var isPreparingDisplay = false
     private let recoveryCooldown: TimeInterval = 10 * 60
@@ -55,6 +57,9 @@ final class ClashRouteViewModel {
     ) {
         self.defaults = defaults
         self.discovery = discovery
+        switchHistoryStore = ClashRouteSwitchHistoryStore(
+            defaults: defaults)
+        switchHistory = switchHistoryStore.load()
         filterQuery = defaults.string(forKey: DefaultsKey.filterQuery) ?? ""
         usesRegularExpression = defaults.bool(forKey: DefaultsKey.usesRegularExpression)
         autoRecoveryEnabled = defaults.bool(forKey: DefaultsKey.autoSelectBest)
@@ -144,10 +149,14 @@ final class ClashRouteViewModel {
         defer { isSwitching = false }
 
         do {
+            let previousRouteName = selectedRouteName
             try await apiClient.select(
                 routeName: routeName,
                 in: groupName)
             setSelectedRoute(routeName)
+            recordSwitch(
+                from: previousRouteName,
+                to: routeName)
             statusMessage = language.clashSelectedRoute(routeName)
             return true
         } catch {
@@ -239,9 +248,18 @@ final class ClashRouteViewModel {
     }
 
     private func apply(_ snapshot: ClashRouteSnapshot) {
+        let previousGroupName = groupName
+        let previousRouteName = selectedRouteName
         groupName = snapshot.groupName
         selectedRouteName = snapshot.selectedRouteName
         routes = snapshot.routes
+
+        if previousGroupName == snapshot.groupName,
+           let selectedRouteName = snapshot.selectedRouteName {
+            recordSwitch(
+                from: previousRouteName,
+                to: selectedRouteName)
+        }
     }
 
     private func setSelectedRoute(_ routeName: String) {
@@ -251,5 +269,19 @@ final class ClashRouteViewModel {
             updatedRoute.isSelected = route.name == routeName
             return updatedRoute
         }
+    }
+
+    private func recordSwitch(
+        from previousRouteName: String?,
+        to selectedRouteName: String
+    ) {
+        guard let previousRouteName,
+              previousRouteName != selectedRouteName else {
+            return
+        }
+
+        switchHistory = switchHistoryStore.recordSwitch(
+            from: previousRouteName,
+            to: selectedRouteName)
     }
 }

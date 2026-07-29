@@ -606,11 +606,13 @@ final class UsageViewModel {
     }
 
     func startAutoRefresh() {
-        guard hasAnyCredential else { return }
         restartTimer()
 
         if autoRefreshOnLaunch || usageData == nil {
-            Task {
+            Task { @MainActor in
+                // Let applicationDidFinishLaunching return before any
+                // Keychain-backed provider discovery can request UI.
+                try? await Task.sleep(nanoseconds: 500_000_000)
                 await refresh(showIconSelfTest: true)
             }
         }

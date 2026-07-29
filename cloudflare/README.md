@@ -1,6 +1,12 @@
-# AI Quota Bar Cloud Sync
+# AI Quota Bar Cloud Sync Backend
 
-This Worker stores quota snapshots in Cloudflare D1. Provider credentials are not uploaded by the app.
+This directory contains the Cloudflare Worker and D1 schema used by AI Quota
+Bar's optional cloud sync. The app uploads quota metadata and account labels,
+but does not upload MiniMax or Codex provider credentials.
+
+The current public app uses the built-in service endpoint. This backend can be
+deployed independently for development; using a private deployment currently
+requires changing `CloudSyncSettings` in the app source and rebuilding it.
 
 ## Deploy
 
@@ -38,7 +44,10 @@ wrangler secret put SYNC_TOKEN
 wrangler deploy
 ```
 
-7. Paste the deployed Worker URL and the same sync token into AI Quota Bar preferences.
+7. For a development build, update `CloudSyncSettings` with the deployed Worker
+   URL and token, then rebuild AI Quota Bar.
+
+Do not commit production tokens or a populated `wrangler.toml`.
 
 ## API
 
