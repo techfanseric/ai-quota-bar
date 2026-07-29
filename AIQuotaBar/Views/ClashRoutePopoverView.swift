@@ -10,9 +10,10 @@ struct ClashRoutePopoverView: View {
             header
             Divider()
             content
+            switchHistory
             footer
         }
-        .frame(width: 376, height: 500)
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(Color(nsColor: .windowBackgroundColor))
         .onAppear {
             DispatchQueue.main.async {
@@ -114,8 +115,12 @@ struct ClashRoutePopoverView: View {
 
             VStack(alignment: .leading, spacing: 4) {
                 Toggle(
-                    language.clashAutoSelectBest(),
-                    isOn: $viewModel.autoRecoveryEnabled)
+                    isOn: $viewModel.autoRecoveryEnabled
+                ) {
+                    Text(language.clashAutoSelectBest())
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.76)
+                }
                     .toggleStyle(.switch)
                     .controlSize(.mini)
                     .font(.system(size: 11, weight: .medium))
@@ -198,6 +203,9 @@ struct ClashRoutePopoverView: View {
                     .padding(.horizontal, 7)
                     .padding(.vertical, 7)
                 }
+                .frame(
+                    minHeight:
+                        ClashPopoverLayout.routeListMinimumHeight)
             }
         }
     }
@@ -337,6 +345,76 @@ struct ClashRoutePopoverView: View {
             .padding(.horizontal, 14)
             .frame(height: 30)
         }
+    }
+
+    private var switchHistory: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            Divider()
+
+            HStack(spacing: 8) {
+                Text(language.clashRecentRouteSwitches())
+                    .font(.system(size: 9, weight: .semibold))
+                    .foregroundStyle(.secondary)
+
+                Spacer()
+
+                if viewModel.switchHistory.isEmpty {
+                    Text(language.clashNoRouteSwitchHistory())
+                        .font(.system(size: 9))
+                        .foregroundStyle(.tertiary)
+                }
+            }
+                .padding(.horizontal, 14)
+                .frame(height: 19)
+
+            if !viewModel.switchHistory.isEmpty {
+                VStack(spacing: 0) {
+                    ForEach(viewModel.switchHistory) { record in
+                        switchHistoryRow(record)
+                    }
+                }
+            }
+        }
+        .fixedSize(horizontal: false, vertical: true)
+    }
+
+    private func switchHistoryRow(
+        _ record: ClashRouteSwitchRecord
+    ) -> some View {
+        HStack(spacing: 7) {
+            Text(switchTimeText(record.switchedAt))
+                .font(.system(size: 8, weight: .medium))
+                .foregroundStyle(.tertiary)
+                .monospacedDigit()
+                .frame(width: 66, alignment: .leading)
+
+            Text("\(record.fromRoute)  →  \(record.toRoute)")
+                .font(.system(size: 9))
+                .foregroundStyle(.secondary)
+                .lineLimit(1)
+                .truncationMode(.middle)
+                .help(
+                    "\(record.fromRoute) → \(record.toRoute)")
+
+            Spacer(minLength: 0)
+        }
+        .padding(.horizontal, 14)
+        .frame(height: 16)
+    }
+
+    private func switchTimeText(_ date: Date) -> String {
+        if Calendar.current.isDateInToday(date) {
+            return date.formatted(
+                date: .omitted,
+                time: .shortened)
+        }
+
+        return date.formatted(
+            .dateTime
+                .month(.twoDigits)
+                .day(.twoDigits)
+                .hour(.twoDigits(amPM: .omitted))
+                .minute(.twoDigits))
     }
 
     private func delayText(for route: ClashRoute) -> String {

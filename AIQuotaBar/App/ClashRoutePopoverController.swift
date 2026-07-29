@@ -2,17 +2,33 @@ import AppKit
 import SwiftUI
 
 @MainActor
-final class ClashRoutePopoverController {
-    private let viewModel: ClashRouteViewModel
+final class ClashRoutePopoverController: NSObject, NSPopoverDelegate {
+    private let routeViewModel: ClashRouteViewModel
+    private let connectionViewModel: ClashConnectionViewModel
+    private let sleepProtectionCoordinator: CodexSleepProtectionCoordinator
     private let popover = NSPopover()
 
-    init(viewModel: ClashRouteViewModel) {
-        self.viewModel = viewModel
+    init(
+        routeViewModel: ClashRouteViewModel,
+        connectionViewModel: ClashConnectionViewModel,
+        sleepProtectionCoordinator: CodexSleepProtectionCoordinator
+    ) {
+        self.routeViewModel = routeViewModel
+        self.connectionViewModel = connectionViewModel
+        self.sleepProtectionCoordinator = sleepProtectionCoordinator
+        super.init()
+
         popover.behavior = .transient
         popover.animates = !NSWorkspace.shared.accessibilityDisplayShouldReduceMotion
-        popover.contentSize = NSSize(width: 376, height: 500)
+        popover.contentSize = NSSize(
+            width: ClashPopoverLayout.width,
+            height: ClashPopoverLayout.height)
+        popover.delegate = self
         popover.contentViewController = NSHostingController(
-            rootView: ClashRoutePopoverView(viewModel: viewModel))
+            rootView: ClashPopoverView(
+                routeViewModel: routeViewModel,
+                connectionViewModel: connectionViewModel,
+                sleepProtectionCoordinator: sleepProtectionCoordinator))
     }
 
     var isShown: Bool {
@@ -39,13 +55,19 @@ final class ClashRoutePopoverController {
             relativeTo: button.bounds,
             of: button,
             preferredEdge: .minY)
+        connectionViewModel.beginLiveUpdates()
         Task {
-            await viewModel.prepareForDisplay(
+            await routeViewModel.prepareForDisplay(
                 automaticallyTest: automaticallyTest)
         }
     }
 
     func close() {
+        connectionViewModel.endLiveUpdates()
         popover.performClose(nil)
+    }
+
+    func popoverDidClose(_ notification: Notification) {
+        connectionViewModel.endLiveUpdates()
     }
 }

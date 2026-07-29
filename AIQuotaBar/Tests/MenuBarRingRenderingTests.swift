@@ -128,7 +128,7 @@ final class MenuBarRingRenderingTests: XCTestCase {
             y: centerY + Int(2 * scale))
         XCTAssertGreaterThan(dimFilledLuminance - filledLuminance, 250)
 
-        let ringTopOffset = Int(8.5 * scale)
+        let ringTopOffset = Int(8.0 * scale)
         let onlineRingTop = luminanceAt(
             x: centerX(for: 5),
             y: centerY + ringTopOffset)

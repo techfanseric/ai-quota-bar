@@ -106,6 +106,20 @@ extension AppLanguage {
         }
     }
 
+    func clashRecentRouteSwitches() -> String {
+        switch self {
+        case .english: return "Recent switches"
+        case .simplifiedChinese: return "最近切换"
+        }
+    }
+
+    func clashNoRouteSwitchHistory() -> String {
+        switch self {
+        case .english: return "No switch records yet"
+        case .simplifiedChinese: return "暂无切换记录"
+        }
+    }
+
     func clashDelayUnavailable() -> String {
         switch self {
         case .english: return "Timeout"
@@ -193,6 +207,132 @@ extension AppLanguage {
             return "Connection issue detected. Switched from \(previousRoute) to \(selectedRoute) (\(delay) ms)."
         case .simplifiedChinese:
             return "检测到连接异常，已从「\(previousRoute)」切换到「\(selectedRoute)」（\(delay) ms）。"
+        }
+    }
+
+    func clashConnectionsTitle() -> String {
+        switch self {
+        case .english: return "OpenAI connections"
+        case .simplifiedChinese: return "OpenAI 连接"
+        }
+    }
+
+    func clashConnectionsLive() -> String {
+        switch self {
+        case .english: return "Live · 1 second"
+        case .simplifiedChinese: return "实时 · 1 秒"
+        }
+    }
+
+    func clashConnectionsBackground() -> String {
+        switch self {
+        case .english: return "Background · 1 minute"
+        case .simplifiedChinese: return "后台 · 1 分钟"
+        }
+    }
+
+    func clashConnectionsFixedFilter() -> String {
+        switch self {
+        case .english: return "Active only · openai.com | chatgpt.com"
+        case .simplifiedChinese: return "仅活跃连接 · openai.com | chatgpt.com"
+        }
+    }
+
+    func clashConnectionsLoading() -> String {
+        switch self {
+        case .english: return "Reading Clash connections…"
+        case .simplifiedChinese: return "正在读取 Clash 连接…"
+        }
+    }
+
+    func clashConnectionsActivityTitle() -> String {
+        switch self {
+        case .english: return "Active connection history"
+        case .simplifiedChinese: return "活跃连接时序"
+        }
+    }
+
+    func clashConnectionsLastHour() -> String {
+        switch self {
+        case .english: return "Last 60 minutes"
+        case .simplifiedChinese: return "最近 60 分钟"
+        }
+    }
+
+    func clashConnectionAgeNew() -> String {
+        switch self {
+        case .english: return "New"
+        case .simplifiedChinese: return "刚连接"
+        }
+    }
+
+    func clashConnectionAgeLong() -> String {
+        switch self {
+        case .english: return "60m+"
+        case .simplifiedChinese: return "60 分钟以上"
+        }
+    }
+
+    func clashActiveConnections() -> String {
+        switch self {
+        case .english: return "Active connections"
+        case .simplifiedChinese: return "活跃连接"
+        }
+    }
+
+    func clashActiveConnectionCount(_ count: Int) -> String {
+        switch self {
+        case .english: return "\(count) active"
+        case .simplifiedChinese: return "\(count) 个活跃"
+        }
+    }
+
+    func clashNoActiveConnections() -> String {
+        switch self {
+        case .english: return "No active OpenAI connections"
+        case .simplifiedChinese: return "当前没有活跃的 OpenAI 连接"
+        }
+    }
+
+    func clashNoActiveConnectionsHelp() -> String {
+        switch self {
+        case .english: return "Only openai.com and chatgpt.com are monitored."
+        case .simplifiedChinese: return "这里只监测 openai.com 与 chatgpt.com。"
+        }
+    }
+
+    func clashDownloadSpeed() -> String {
+        switch self {
+        case .english: return "Download"
+        case .simplifiedChinese: return "总下载"
+        }
+    }
+
+    func clashUploadSpeed() -> String {
+        switch self {
+        case .english: return "Upload"
+        case .simplifiedChinese: return "总上传"
+        }
+    }
+
+    func clashConnectionCount() -> String {
+        switch self {
+        case .english: return "Connections"
+        case .simplifiedChinese: return "连接数"
+        }
+    }
+
+    func clashUnknownProcess() -> String {
+        switch self {
+        case .english: return "Unknown process"
+        case .simplifiedChinese: return "未知进程"
+        }
+    }
+
+    func clashConnectionsReadOnly() -> String {
+        switch self {
+        case .english: return "Read-only monitoring"
+        case .simplifiedChinese: return "只读监测"
         }
     }
 
