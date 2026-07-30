@@ -23,6 +23,21 @@ enum MenuBarPanelLayout {
     }
 }
 
+enum MenuBarNativeMenu {
+    static func make(
+        contentView: NSView
+    ) -> (menu: NSMenu, item: NSMenuItem) {
+        let menu = NSMenu()
+        menu.autoenablesItems = false
+
+        let item = NSMenuItem()
+        item.isEnabled = true
+        item.view = contentView
+        menu.addItem(item)
+        return (menu, item)
+    }
+}
+
 struct MenuBarPanelPlacement: Equatable {
     let buttonFrame: NSRect
     let visibleFrame: NSRect

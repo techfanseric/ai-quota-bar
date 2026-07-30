@@ -6,8 +6,8 @@ APP_NAME = AIQuotaBar
 APP_DISPLAY_NAME = AI Quota Bar
 APP_BUNDLE_ID = com.techfanseric.aiquotabar
 SLEEP_HELPER_BUNDLE_ID = com.techfanseric.aiquotabar.sleep-helper
-APP_VERSION ?= 1.6.0
-APP_BUILD ?= 20
+APP_VERSION ?= 1.7.0
+APP_BUILD ?= 21
 CODESIGN_IDENTITY ?= -
 
 build:

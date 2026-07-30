@@ -33,7 +33,7 @@ final class MenuBarPresentationTests: XCTestCase {
             .darkAqua)
     }
 
-    func testSharedPanelCentersUnderStatusItem() {
+    func testRightPanelCentersUnderStatusItem() {
         let visibleFrame = NSRect(
             x: -1_000,
             y: 0,
@@ -65,7 +65,7 @@ final class MenuBarPresentationTests: XCTestCase {
         XCTAssertEqual(detailedFrame.minX, -93)
     }
 
-    func testSharedPanelStartsBelowMenuBarSafeArea() {
+    func testRightPanelStartsBelowMenuBarSafeArea() {
         let frame = MenuBarPanelPlacement(
             buttonFrame: NSRect(x: 900, y: 878, width: 22, height: 22),
             visibleFrame: NSRect(x: 0, y: 0, width: 1920, height: 878))
@@ -79,7 +79,7 @@ final class MenuBarPresentationTests: XCTestCase {
             878 - MenuBarPanelLayout.topGap)
     }
 
-    func testSharedPanelPreservesVerticallyArrangedDisplayOrigin() {
+    func testRightPanelPreservesVerticallyArrangedDisplayOrigin() {
         let visibleFrame = NSRect(
             x: 0,
             y: 1169,
@@ -102,7 +102,7 @@ final class MenuBarPresentationTests: XCTestCase {
             2579 - MenuBarPanelLayout.topGap)
     }
 
-    func testSharedPanelClampsToTargetDisplayWithNegativeOrigin() {
+    func testRightPanelClampsToTargetDisplayWithNegativeOrigin() {
         let visibleFrame = NSRect(x: -1440, y: -900, width: 1440, height: 876)
 
         let leftFrame = MenuBarPanelPlacement(
@@ -152,7 +152,7 @@ final class MenuBarPresentationTests: XCTestCase {
     }
 
     @MainActor
-    func testLeftAndRightPanelsShareChromeMetricsAndNoArrowStyle() {
+    func testRightPanelKeepsCompactArrowlessChrome() {
         XCTAssertEqual(
             ClashPopoverLayout.width,
             MenuBarPanelLayout.width)
@@ -161,6 +161,25 @@ final class MenuBarPresentationTests: XCTestCase {
         let panel = MenuBarPanel()
         XCTAssertTrue(panel.styleMask.contains(.borderless))
         XCTAssertFalse(panel.styleMask.contains(.titled))
+    }
+
+    @MainActor
+    func testQuotaViewIsHostedByNativeMenu() {
+        let contentView = NSView(frame: NSRect(
+            x: 0,
+            y: 0,
+            width: MenuBarPanelLayout.width,
+            height: 500))
+        let nativeMenu = MenuBarNativeMenu.make(
+            contentView: contentView)
+
+        XCTAssertEqual(
+            String(describing: type(of: nativeMenu.menu)),
+            "NSMenu")
+        XCTAssertEqual(nativeMenu.menu.items.count, 1)
+        XCTAssertFalse(nativeMenu.menu.autoenablesItems)
+        XCTAssertTrue(nativeMenu.item.isEnabled)
+        XCTAssertTrue(nativeMenu.item.view === contentView)
     }
 
     func testPaceGlyphUsesLeftDeficitAndRightReserveBuckets() {
