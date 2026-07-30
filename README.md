@@ -20,8 +20,19 @@
 AI coding work is hard to manage when quota, network routes, and Mac sleep settings live in different places. AI Quota Bar brings them together: left-click to see whether your quota can support the work ahead, and right-click to keep Codex running or repair a slow or broken OpenAI connection.
 
 <p align="center">
-  <img src="./docs/images/control-center.png" alt="AI Quota Bar control center" width="373">
+  <img src="./docs/images/control-center.png" alt="AI Quota Bar control center" width="342">
 </p>
+
+## What’s new in v1.7.0
+
+This release makes both sides of the menu bar easier to read and turns the compact quota ring into a live answer to “is Codex still working?”
+
+- **See active work without opening a menu.** When Codex is working, the remaining-quota arc softens and shows one directional energy wave per active task, up to five. When work stops, the arc returns to solid white.
+- **Find the right route with less scanning.** Compact one-line rows show the protocol, route, and latency together. Recent switches keep the route change on the left and the time on the right.
+- **Understand OpenAI activity faster.** Route controls, totals, the 60-minute age chart, and active connections stay in one vertical flow, with less secondary text competing for attention.
+- **Get predictable native menu behavior.** The left-click dashboard uses the real macOS menu material and sizes itself for the display where it opens. The right-click control center keeps a consistent arrow-free frame.
+
+People who enable **Reduce Motion** get a static task highlight instead of a travelling wave.
 
 ## What it helps you do
 
@@ -46,7 +57,7 @@ See every account in one place. The remaining percentage answers “how much is 
 
 ### A quick answer without opening the menu
 
-The menu bar ring shows Weekly quota at a glance. Its center tells you whether you have room to spare or are spending faster than the quota can sustain. If both OpenAI sites become unreachable, the ring changes to an offline warning.
+The menu bar ring shows Weekly quota at a glance. Its center tells you whether you have room to spare or are spending faster than the quota can sustain. While Codex is working, one flowing highlight per active task travels only through the remaining part of the ring, up to five waves. If both OpenAI sites become unreachable, the ring changes to an offline warning.
 
 <p align="center">
   <img src="./docs/images/menu-bar-self-test-preview.png" alt="Compact Codex quota ring states" width="792">
@@ -127,6 +138,7 @@ When ChatGPT or Codex stops connecting, right-click the menu bar icon. AI Quota 
 
 - Search by country in the way that feels natural: `🇯🇵`, `日本`, and `JP` all work.
 - Turn on regex when you need precise route-name rules.
+- Recognize common protocols such as Hysteria2, VLESS, and AnyTLS from compact badges without opening a second line of detail.
 - Switch manually with one click and review the last three changes.
 - Keep a filter such as a preferred country, then optionally let the app choose the fastest match when OpenAI is genuinely down.
 
@@ -142,7 +154,7 @@ When ChatGPT feels slow, the connection panel helps answer three quick questions
 - **Is data actually moving?** See total upload and download speed.
 - **Is this a fresh request or a long-lived connection?** New connections are green and gradually turn orange as they age.
 
-The 60-minute chart makes spikes, quiet periods, and connections that remain active unusually long easy to spot. The list below shows the host, app, route, age, and speed when Clash/Mihomo provides them.
+The 60-minute chart makes spikes, quiet periods, and connections that remain active unusually long easy to spot. The list below shows the host, protocol, route, age, and speed when Clash/Mihomo provides them.
 
 This view is read-only: it never closes or changes your connections.
 
@@ -150,7 +162,7 @@ This view is read-only: it never closes or changes your connections.
 
 Start a long Codex task and step away without changing the Mac’s sleep settings for the whole day. AI Quota Bar detects when Codex is actually working and can keep the display awake, block the screen saver, and prevent idle sleep only for that active period.
 
-When the last task finishes—or when you disable protection or quit the app—the Mac immediately returns to its normal behavior. Multiple simultaneous tasks are counted, so protection does not end early while another task is still running.
+When the last task finishes—or when you disable protection or quit the app—the Mac immediately returns to its normal behavior. Multiple simultaneous tasks are counted, so protection does not end early while another task is still running. The compact ring mirrors that count with up to five flowing waves, so you can confirm work is still active without opening the control center.
 
 ### Continue with the lid closed
 

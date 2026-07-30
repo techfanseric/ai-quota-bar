@@ -4,59 +4,160 @@ import XCTest
 
 final class MenuBarRingRenderingTests: XCTestCase {
     @MainActor
-    func testTaskStateBrightensRingAndPulsesOnlyEndpoint() throws {
+    func testIdleRingIsOpaqueAndTaskRingUsesMovingOpacityWave() throws {
         let idle = try renderTaskRing(
-            hasActiveTasks: false,
-            pulseOpacity: 1)
-        let activeBright = try renderTaskRing(
-            hasActiveTasks: true,
-            pulseOpacity: 1)
-        let activeDim = try renderTaskRing(
-            hasActiveTasks: true,
-            pulseOpacity: 0.4)
+            activeTaskCount: 0,
+            orbitPhase: 0.5)
+        let activeWaveAway = try renderTaskRing(
+            activeTaskCount: 1,
+            orbitPhase: 0.75)
+        let activeWaveAtSample = try renderTaskRing(
+            activeTaskCount: 1,
+            orbitPhase: 0.5)
 
         let scale: CGFloat = 4
         let center = Int(11 * scale)
         let radius = Int(8 * scale)
-        let endpointY = center + radius
 
         let idleRingLuminance = try luminance(
             idle,
             x: center + radius,
             y: center)
-        let activeRingLuminance = try luminance(
-            activeBright,
+        let activeBaseLuminance = try luminance(
+            activeWaveAway,
             x: center + radius,
             y: center)
         XCTAssertGreaterThan(
-            idleRingLuminance,
-            activeRingLuminance + 0.2)
+            activeBaseLuminance,
+            idleRingLuminance + 0.2)
 
-        let endpointSampleY = endpointY + Int(1.5 * scale)
-        let brightEndpointLuminance = try luminance(
-            activeBright,
-            x: center,
-            y: endpointSampleY)
-        let dimEndpointLuminance = try luminance(
-            activeDim,
-            x: center,
-            y: endpointSampleY)
-        XCTAssertGreaterThan(
-            dimEndpointLuminance,
-            brightEndpointLuminance + 0.2)
-
-        let brightMidArcLuminance = try luminance(
-            activeBright,
+        let waveLuminance = try luminance(
+            activeWaveAtSample,
             x: center + radius,
             y: center)
-        let dimMidArcLuminance = try luminance(
-            activeDim,
-            x: center + radius,
+        XCTAssertLessThan(
+            waveLuminance,
+            activeBaseLuminance - 0.2)
+
+        let consumedSampleX = center - radius
+        let consumedAwayLuminance = try luminance(
+            activeWaveAway,
+            x: consumedSampleX,
+            y: center)
+        let consumedWaveLuminance = try luminance(
+            activeWaveAtSample,
+            x: consumedSampleX,
             y: center)
         XCTAssertEqual(
-            brightMidArcLuminance,
-            dimMidArcLuminance,
-            accuracy: 0.05)
+            consumedAwayLuminance,
+            consumedWaveLuminance,
+            accuracy: 0.02)
+    }
+
+    func testTaskEnergyMovesCounterclockwiseOnlyWithinRemainingArc() {
+        let remaining: CGFloat = 0.5
+        let phases: [CGFloat] = [0, 0.25, 0.5, 0.75, 0.99]
+        let positions = phases.map {
+            MenuBarTaskEnergyMotion.liveArcPosition(
+                remainingFraction: remaining,
+                phase: $0)
+        }
+
+        XCTAssertEqual(positions[0], 0.5, accuracy: 0.0001)
+        XCTAssertEqual(positions[1], 0.375, accuracy: 0.0001)
+        XCTAssertEqual(positions[2], 0.25, accuracy: 0.0001)
+        XCTAssertEqual(positions[3], 0.125, accuracy: 0.0001)
+        XCTAssertEqual(positions[4], 0.005, accuracy: 0.0001)
+
+        for position in positions {
+            XCTAssertGreaterThanOrEqual(position, 0)
+            XCTAssertLessThanOrEqual(position, remaining)
+        }
+        for pair in zip(positions, positions.dropFirst()) {
+            XCTAssertGreaterThan(pair.0, pair.1)
+        }
+    }
+
+    func testTaskEnergyFadesBeforeRestartingAtRealEndpoint() {
+        XCTAssertEqual(
+            MenuBarTaskEnergyMotion.visibility(phase: 0),
+            0,
+            accuracy: 0.0001)
+        XCTAssertEqual(
+            MenuBarTaskEnergyMotion.visibility(phase: 0.5),
+            1,
+            accuracy: 0.0001)
+        XCTAssertLessThan(
+            MenuBarTaskEnergyMotion.visibility(phase: 0.99),
+            0.1)
+    }
+
+    func testTaskEnergyWaveFadesClockwiseBehindOpaqueHead() {
+        XCTAssertEqual(
+            MenuBarTaskEnergyMotion.waveOpacity(
+                clockwiseDistanceFromHead: 0),
+            1,
+            accuracy: 0.0001)
+        XCTAssertGreaterThan(
+            MenuBarTaskEnergyMotion.waveOpacity(
+                clockwiseDistanceFromHead: 0.25),
+            MenuBarTaskEnergyMotion.waveOpacity(
+                clockwiseDistanceFromHead: 0.5))
+        XCTAssertGreaterThan(
+            MenuBarTaskEnergyMotion.waveOpacity(
+                clockwiseDistanceFromHead: 0.5),
+            MenuBarTaskEnergyMotion.waveOpacity(
+                clockwiseDistanceFromHead: 0.75))
+        XCTAssertGreaterThan(
+            MenuBarTaskEnergyMotion.waveOpacity(
+                clockwiseDistanceFromHead: 0.5),
+            0.6)
+        XCTAssertGreaterThan(
+            MenuBarTaskEnergyMotion.waveOpacity(
+                clockwiseDistanceFromHead: 0.75),
+            0.35)
+        XCTAssertEqual(
+            MenuBarTaskEnergyMotion.waveOpacity(
+                clockwiseDistanceFromHead: 1),
+            0,
+            accuracy: 0.0001)
+    }
+
+    func testTaskCountMapsDirectlyToAtMostFiveEnergyWaves() {
+        XCTAssertEqual(
+            MenuBarTaskEnergyMotion.waveCount(
+                activeTaskCount: 0),
+            0)
+        XCTAssertEqual(
+            MenuBarTaskEnergyMotion.waveCount(
+                activeTaskCount: 1),
+            1)
+        XCTAssertEqual(
+            MenuBarTaskEnergyMotion.waveCount(
+                activeTaskCount: 4),
+            4)
+        XCTAssertEqual(
+            MenuBarTaskEnergyMotion.waveCount(
+                activeTaskCount: 5),
+            5)
+        XCTAssertEqual(
+            MenuBarTaskEnergyMotion.waveCount(
+                activeTaskCount: 12),
+            5)
+    }
+
+    func testMultipleTaskWavesUseEvenPhaseSpacing() {
+        let phases = (0 ..< 5).map {
+            MenuBarTaskEnergyMotion.phase(
+                basePhase: 0.1,
+                waveIndex: $0,
+                waveCount: 5)
+        }
+        XCTAssertEqual(phases[0], 0.1, accuracy: 0.0001)
+        XCTAssertEqual(phases[1], 0.3, accuracy: 0.0001)
+        XCTAssertEqual(phases[2], 0.5, accuracy: 0.0001)
+        XCTAssertEqual(phases[3], 0.7, accuracy: 0.0001)
+        XCTAssertEqual(phases[4], 0.9, accuracy: 0.0001)
     }
 
     @MainActor
@@ -204,8 +305,8 @@ final class MenuBarRingRenderingTests: XCTestCase {
 
     @MainActor
     private func renderTaskRing(
-        hasActiveTasks: Bool,
-        pulseOpacity: CGFloat
+        activeTaskCount: Int,
+        orbitPhase: CGFloat
     ) throws -> NSBitmapImageRep {
         let size = NSSize(width: 22, height: 22)
         let scale: CGFloat = 4
@@ -239,9 +340,9 @@ final class MenuBarRingRenderingTests: XCTestCase {
                 isLowQuota: false,
                 tooltip: "Preview"),
             connectivity: .reachable,
-            hasActiveTasks: hasActiveTasks,
+            activeTaskCount: activeTaskCount,
             accessibilityLabel: "Preview")
-        view.setTaskPulseOpacityForTesting(pulseOpacity)
+        view.setTaskOrbitPhaseForTesting(orbitPhase)
 
         NSGraphicsContext.saveGraphicsState()
         NSGraphicsContext.current = context

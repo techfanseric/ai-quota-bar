@@ -13,9 +13,9 @@ final class StatusBarController {
     let viewModel = UsageViewModel()
     let sleepProtectionCoordinator = CodexSleepProtectionCoordinator()
     private var statusItem: NSStatusItem?
-    private var menuPanel: MenuBarPanel?
-    private var hostingView:
-        NSHostingView<MenuBarPanelSurface<MenuView>>?
+    private var menu: NSMenu?
+    private var menuItem: NSMenuItem?
+    private var hostingView: NSHostingView<MenuView>?
     private let menuPresentationSizing = MenuPresentationSizing(
         maximumScrollableHeight:
             MenuBarPanelLayout.maximumScrollableHeight(
@@ -91,7 +91,7 @@ final class StatusBarController {
             viewModel: viewModel,
             presentationSizing: menuPresentationSizing,
             onOpenSettings: { [weak self] in
-                self?.dismissMenuPanel()
+                self?.dismissMenu()
                 self?.openSettings()
             },
             onLayoutChange: { [weak self] in
@@ -99,16 +99,14 @@ final class StatusBarController {
             }
         )
 
-        let hostingView = NSHostingView(
-            rootView: MenuBarPanelSurface {
-                menuView
-            })
+        let hostingView = NSHostingView(rootView: menuView)
         hostingView.autoresizingMask = [.width, .height]
         self.hostingView = hostingView
 
-        let menuPanel = MenuBarPanel()
-        menuPanel.contentView = hostingView
-        self.menuPanel = menuPanel
+        let nativeMenu = MenuBarNativeMenu.make(
+            contentView: hostingView)
+        menu = nativeMenu.menu
+        menuItem = nativeMenu.item
         updateMenuLayout()
 
         observeMenuLayoutChanges()
@@ -133,7 +131,7 @@ final class StatusBarController {
 
     @objc private func handleStatusItemClick(_ sender: NSStatusBarButton) {
         if NSApp.currentEvent?.type == .rightMouseUp {
-            dismissMenuPanel()
+            dismissMenu()
             clashRouteViewModel.language = viewModel.appLanguage
             clashConnectionViewModel.language = viewModel.appLanguage
             clashRoutePopoverController.toggle(
@@ -146,39 +144,21 @@ final class StatusBarController {
     }
 
     private func showMenu(relativeTo button: NSStatusBarButton) {
-        guard let hostingView,
-              let menuPanel else {
+        guard let statusItem,
+              let menu else {
             return
         }
 
-        if menuPanel.isVisible {
-            dismissMenuPanel()
-            return
+        if let placement = MenuBarPanelPlacement.resolve(
+            relativeTo: button) {
+            updateMenuConstraints(
+                visibleHeight: placement.visibleFrame.height)
         }
-
-        guard let placement = MenuBarPanelPlacement.resolve(
-            relativeTo: button) else { return }
-        updateMenuConstraints(
-            visibleHeight: placement.visibleFrame.height)
-        applyMenuAppearance(
-            panel: menuPanel,
-            hostingView: hostingView)
         updateMenuLayout()
-        menuPanel.present(
-            relativeTo: button,
-            placement: placement,
-            contentSize: hostingView.frame.size)
-    }
 
-    /// Pin the shared menu-bar panel to the current app/system appearance each time it opens.
-    private func applyMenuAppearance(
-        panel: MenuBarPanel,
-        hostingView: NSView
-    ) {
-        let appearance = StatusItemMenuAppearance.resolved(
-            from: NSApp.effectiveAppearance)
-        panel.appearance = appearance
-        hostingView.appearance = appearance
+        statusItem.menu = menu
+        button.performClick(nil)
+        statusItem.menu = nil
     }
 
     private func updateMenuLayout() {
@@ -191,7 +171,8 @@ final class StatusBarController {
             height: ceil(min(fittingSize.height, maximumMenuHeight))
         )
         hostingView.frame = NSRect(origin: .zero, size: size)
-        menuPanel?.setContentSize(size)
+        menuItem?.view?.frame = NSRect(origin: .zero, size: size)
+        menu?.update()
     }
 
     private func updateMenuConstraints(visibleHeight: CGFloat) {
@@ -203,8 +184,8 @@ final class StatusBarController {
         hostingView?.invalidateIntrinsicContentSize()
     }
 
-    private func dismissMenuPanel() {
-        menuPanel?.dismiss()
+    private func dismissMenu() {
+        menu?.cancelTracking()
     }
 
     private func openSettings() {
@@ -213,7 +194,7 @@ final class StatusBarController {
 
     func showClashRoutes(automaticallyTest: Bool = true) {
         guard let button = statusItem?.button else { return }
-        dismissMenuPanel()
+        dismissMenu()
         clashRouteViewModel.language = viewModel.appLanguage
         clashConnectionViewModel.language = viewModel.appLanguage
         clashRoutePopoverController.show(
@@ -316,7 +297,7 @@ final class StatusBarController {
         recoveryTask?.cancel()
         recoveryTask = nil
         sleepProtectionCoordinator.stop()
-        dismissMenuPanel()
+        dismissMenu()
         clashRoutePopoverController.close()
         clashConnectionViewModel.stop()
         connectivityMonitor.stop()
@@ -354,8 +335,8 @@ final class StatusBarController {
                 connectivity: connectivityStateForDisplayedProvider,
                 paceDisplayMode: viewModel.menuBarPaceDisplayMode,
                 isSelfTesting: viewModel.isMenuBarSelfTesting,
-                hasActiveTasks:
-                    sleepProtectionCoordinator.activeTurnCount > 0,
+                activeTaskCount:
+                    sleepProtectionCoordinator.activeTurnCount,
                 accessibilityLabel: statusItemTooltip)
         }
         statusItem?.button?.toolTip = statusItemTooltip
@@ -481,7 +462,7 @@ private final class StatusBarContentView: NSView {
         connectivity: CodexConnectivityState,
         paceDisplayMode: MenuBarPaceDisplayMode,
         isSelfTesting: Bool,
-        hasActiveTasks: Bool,
+        activeTaskCount: Int,
         accessibilityLabel: String
     ) {
         isCompact = true
@@ -490,7 +471,7 @@ private final class StatusBarContentView: NSView {
             connectivity: connectivity,
             paceDisplayMode: paceDisplayMode,
             isSelfTesting: isSelfTesting,
-            hasActiveTasks: hasActiveTasks,
+            activeTaskCount: activeTaskCount,
             accessibilityLabel: accessibilityLabel)
         detailedView.isHidden = true
         compactView.isHidden = false
@@ -514,13 +495,69 @@ private final class StatusBarContentView: NSView {
 /// Codex: 外环 = Weekly 剩余比例；分半内圆 = 左 deficit / 右 reserve；
 /// OpenAI 双域名均不可达时，外环显示全消耗轨道，内圆变为持续明暗的禁止图标。
 /// 其他 provider 保留原有的中心字母和剩余额度环。
+enum MenuBarTaskEnergyMotion {
+    static let waveSpanFraction: CGFloat = 0.16
+    static let maximumWaveCount = 5
+
+    static func waveCount(activeTaskCount: Int) -> Int {
+        min(maximumWaveCount, max(0, activeTaskCount))
+    }
+
+    static func phase(
+        basePhase: CGFloat,
+        waveIndex: Int,
+        waveCount: Int
+    ) -> CGFloat {
+        guard waveCount > 0 else { return 0 }
+        let offset = CGFloat(waveIndex) / CGFloat(waveCount)
+        let combined = (basePhase + offset)
+            .truncatingRemainder(dividingBy: 1)
+        return combined < 0 ? combined + 1 : combined
+    }
+
+    static func liveArcPosition(
+        remainingFraction: CGFloat,
+        phase: CGFloat
+    ) -> CGFloat {
+        let remaining = min(1, max(0, remainingFraction))
+        let normalizedPhase = phase
+            .truncatingRemainder(dividingBy: 1)
+        let forwardPhase = normalizedPhase < 0
+            ? normalizedPhase + 1
+            : normalizedPhase
+        return remaining * (1 - forwardPhase)
+    }
+
+    static func visibility(phase: CGFloat) -> CGFloat {
+        let normalizedPhase = phase
+            .truncatingRemainder(dividingBy: 1)
+        let forwardPhase = normalizedPhase < 0
+            ? normalizedPhase + 1
+            : normalizedPhase
+        let fadeIn = min(1, forwardPhase / 0.08)
+        let fadeOut = min(1, (1 - forwardPhase) / 0.15)
+        return max(0, min(fadeIn, fadeOut))
+    }
+
+    static func waveOpacity(
+        clockwiseDistanceFromHead: CGFloat
+    ) -> CGFloat {
+        let distance = min(
+            1,
+            max(0, clockwiseDistanceFromHead))
+        // A sublinear falloff keeps most of the tail readable at 22pt.
+        // It only dissolves quickly near the very end, so the wave reads
+        // as flowing energy rather than a travelling dot.
+        return pow(1 - distance, 0.65)
+    }
+}
+
 @MainActor
 final class StatusBarCompactRingView: NSView {
     let preferredWidth: CGFloat = 22
     private static let consumedStrokeAlpha: CGFloat = 0.12
-    private static let idleLiveRingOpacity: CGFloat = 0.60
-    private static let taskPulseMinimumOpacity: CGFloat = 0.40
-    private static let taskPulseDuration: TimeInterval = 1.2
+    private static let activeLiveRingOpacity: CGFloat = 0.60
+    private static let taskWaveDuration: TimeInterval = 1.8
     private static let offlinePulseMinimumOpacity: CGFloat = 0.32
     private static let offlinePulseDuration: TimeInterval = 1
     private var snapshot = MenuBarSnapshot(
@@ -536,15 +573,15 @@ final class StatusBarCompactRingView: NSView {
     private var connectivity: CodexConnectivityState = .unknown
     private var paceDisplayMode: MenuBarPaceDisplayMode = .staged
     private var isSelfTesting = false
-    private var hasActiveTasks = false
+    private var activeTaskCount = 0
     private var selfTestFrame: MenuBarSelfTestFrame?
-    private var taskPulseOpacity: CGFloat = 1
+    private var taskOrbitPhase: CGFloat = 0
     private var offlineMorph: CGFloat = 0
     private var offlinePulseOpacity: CGFloat = 1
     private var morphTask: Task<Void, Never>?
     private var offlinePulseTask: Task<Void, Never>?
     private var selfTestTask: Task<Void, Never>?
-    private var taskPulseTask: Task<Void, Never>?
+    private var taskEnergyTask: Task<Void, Never>?
 
     override var isFlipped: Bool { false }
 
@@ -565,7 +602,7 @@ final class StatusBarCompactRingView: NSView {
         connectivity: CodexConnectivityState,
         paceDisplayMode: MenuBarPaceDisplayMode = .staged,
         isSelfTesting: Bool = false,
-        hasActiveTasks: Bool = false,
+        activeTaskCount: Int = 0,
         accessibilityLabel: String
     ) {
         let wasOffline = isOffline
@@ -573,7 +610,7 @@ final class StatusBarCompactRingView: NSView {
         self.connectivity = connectivity
         self.paceDisplayMode = paceDisplayMode
         self.isSelfTesting = isSelfTesting && snapshot.provider == .codex
-        self.hasActiveTasks = hasActiveTasks
+        self.activeTaskCount = max(0, activeTaskCount)
         let shouldBeOffline = isOffline
         setAccessibilityLabel(accessibilityLabel)
         if wasOffline != shouldBeOffline {
@@ -581,7 +618,7 @@ final class StatusBarCompactRingView: NSView {
         }
         updateOfflinePulseAnimation()
         updateSelfTestAnimation()
-        updateTaskPulseAnimation()
+        updateTaskEnergyAnimation()
         needsDisplay = true
     }
 
@@ -602,9 +639,9 @@ final class StatusBarCompactRingView: NSView {
         let effectiveState: MenuBarSnapshotState = selfTestFrame == nil ? snapshot.state : .ready
         let effectiveRingPercent = selfTestFrame?.ringPercent ?? snapshot.ringPercent
         let liveRingAmount: CGFloat = snapshot.provider == .codex ? 1 - offlineMorph : 1
-        let liveRingOpacity: CGFloat = isSelfTesting || hasActiveTasks
-            ? 1
-            : Self.idleLiveRingOpacity
+        let liveRingOpacity: CGFloat = showsTaskEnergy
+            ? Self.activeLiveRingOpacity
+            : 1
 
         if liveRingAmount > 0.001 {
             switch effectiveState {
@@ -617,16 +654,20 @@ final class StatusBarCompactRingView: NSView {
                     color: NSColor.labelColor.withAlphaComponent(
                         liveRingAmount * liveRingOpacity),
                     lineWidth: 2.4)
-                drawProgressEndpoint(
-                    center: center,
-                    radius: radius,
-                    fraction: progress,
-                    alpha: liveRingAmount
-                        * liveRingOpacity
-                        * (showsTaskPulse
-                            ? taskPulseOpacity
-                            : 1),
-                    forceVisible: showsTaskPulse)
+                if showsTaskEnergy {
+                    drawTaskEnergyWave(
+                        center: center,
+                        radius: radius,
+                        originFraction: progress,
+                        alpha: liveRingAmount)
+                } else {
+                    drawProgressEndpoint(
+                        center: center,
+                        radius: radius,
+                        fraction: progress,
+                        alpha: liveRingAmount
+                            * liveRingOpacity)
+                }
             case .loading:
                 drawArc(
                     center: center,
@@ -635,13 +676,12 @@ final class StatusBarCompactRingView: NSView {
                     color: NSColor.labelColor.withAlphaComponent(
                         0.58 * liveRingAmount * liveRingOpacity),
                     lineWidth: 2.4)
-                if showsTaskPulse {
-                    drawProgressEndpoint(
+                if showsTaskEnergy {
+                    drawTaskEnergyWave(
                         center: center,
                         radius: radius,
-                        fraction: 0.28,
-                        alpha: liveRingAmount * taskPulseOpacity,
-                        forceVisible: true)
+                        originFraction: 0.28,
+                        alpha: liveRingAmount)
                 }
             case .unavailable, .failed:
                 drawUnavailableSlash(
@@ -666,8 +706,8 @@ final class StatusBarCompactRingView: NSView {
         snapshot.provider == .codex && connectivity == .unreachable && !isSelfTesting
     }
 
-    private var showsTaskPulse: Bool {
-        hasActiveTasks && !isOffline && !isSelfTesting
+    private var showsTaskEnergy: Bool {
+        activeTaskCount > 0 && !isOffline && !isSelfTesting
     }
 
     private func updateSelfTestAnimation() {
@@ -710,47 +750,44 @@ final class StatusBarCompactRingView: NSView {
         offlinePulseTask?.cancel()
         offlinePulseTask = nil
         offlinePulseOpacity = 1
-        taskPulseTask?.cancel()
-        taskPulseTask = nil
-        taskPulseOpacity = 1
+        taskEnergyTask?.cancel()
+        taskEnergyTask = nil
+        taskOrbitPhase = 0
     }
 
-    private func updateTaskPulseAnimation() {
-        guard showsTaskPulse else {
-            taskPulseTask?.cancel()
-            taskPulseTask = nil
-            taskPulseOpacity = 1
+    private func updateTaskEnergyAnimation() {
+        guard showsTaskEnergy else {
+            taskEnergyTask?.cancel()
+            taskEnergyTask = nil
+            taskOrbitPhase = 0
             return
         }
 
         guard !NSWorkspace.shared.accessibilityDisplayShouldReduceMotion else {
-            taskPulseTask?.cancel()
-            taskPulseTask = nil
-            taskPulseOpacity = 1
+            taskEnergyTask?.cancel()
+            taskEnergyTask = nil
+            taskOrbitPhase = 0.12
             return
         }
-        guard taskPulseTask == nil else { return }
+        guard taskEnergyTask == nil else { return }
 
         let startTime = ProcessInfo.processInfo.systemUptime
-        taskPulseOpacity = 1
-        taskPulseTask = Task { @MainActor [weak self] in
+        taskOrbitPhase = 0
+        taskEnergyTask = Task { @MainActor [weak self] in
             while !Task.isCancelled {
                 guard let self else { return }
                 if NSWorkspace.shared.accessibilityDisplayShouldReduceMotion {
-                    taskPulseOpacity = 1
-                    taskPulseTask = nil
+                    taskOrbitPhase = 0.12
+                    taskEnergyTask = nil
                     needsDisplay = true
                     return
                 }
 
                 let elapsed = ProcessInfo.processInfo.systemUptime - startTime
-                let phase = elapsed
-                    .truncatingRemainder(
-                        dividingBy: Self.taskPulseDuration)
-                    / Self.taskPulseDuration
-                let wave = (1 + cos(phase * 2 * .pi)) / 2
-                taskPulseOpacity = Self.taskPulseMinimumOpacity
-                    + (1 - Self.taskPulseMinimumOpacity) * CGFloat(wave)
+                taskOrbitPhase = CGFloat(
+                    elapsed.truncatingRemainder(
+                        dividingBy: Self.taskWaveDuration)
+                        / Self.taskWaveDuration)
                 needsDisplay = true
 
                 do {
@@ -852,10 +889,14 @@ final class StatusBarCompactRingView: NSView {
         needsDisplay = true
     }
 
-    func setTaskPulseOpacityForTesting(_ value: CGFloat) {
-        taskPulseTask?.cancel()
-        taskPulseTask = nil
-        taskPulseOpacity = min(1, max(0, value))
+    func setTaskOrbitPhaseForTesting(_ value: CGFloat) {
+        taskEnergyTask?.cancel()
+        taskEnergyTask = nil
+        taskOrbitPhase = value
+            .truncatingRemainder(dividingBy: 1)
+        if taskOrbitPhase < 0 {
+            taskOrbitPhase += 1
+        }
         needsDisplay = true
     }
 #endif
@@ -1062,25 +1103,23 @@ final class StatusBarCompactRingView: NSView {
         path.stroke()
     }
 
-    /// 同色端点让剩余弧边界在 22pt 下保持清楚；任务活跃时即使满额也保留状态点。
+    /// 同色端点让剩余弧边界在 22pt 下保持清楚。
     private func drawProgressEndpoint(
         center: NSPoint,
         radius: CGFloat,
         fraction: Double,
         alpha: CGFloat,
+        dotRadius: CGFloat = 1.35,
         forceVisible: Bool = false
     ) {
-        guard forceVisible
-                || (fraction > 0.01 && fraction < 0.99) else {
+        guard fraction > 0.01,
+              forceVisible || fraction < 0.99 else {
             return
         }
         let angle = CGFloat.pi / 2 - CGFloat.pi * 2 * CGFloat(fraction)
         let endpoint = NSPoint(
             x: center.x + cos(angle) * radius,
             y: center.y + sin(angle) * radius)
-        let dotRadius: CGFloat = forceVisible
-            ? 1.2 + 0.5 * alpha
-            : 1.35
         let dot = NSBezierPath(ovalIn: NSRect(
             x: endpoint.x - dotRadius,
             y: endpoint.y - dotRadius,
@@ -1088,6 +1127,103 @@ final class StatusBarCompactRingView: NSView {
             height: dotRadius * 2))
         NSColor.labelColor.withAlphaComponent(alpha).setFill()
         dot.fill()
+    }
+
+    /// 每个活跃任务映射为一道逆时针前进的能量波，最多五道。
+    /// 波头最实，沿顺时针方向的尾部逐渐透明；所有波形都限制在有效弧内。
+    private func drawTaskEnergyWave(
+        center: NSPoint,
+        radius: CGFloat,
+        originFraction: Double,
+        alpha: CGFloat
+    ) {
+        let remainingFraction = min(
+            1,
+            max(0, CGFloat(originFraction)))
+        guard remainingFraction > 0.01 else { return }
+
+        let waveCount = MenuBarTaskEnergyMotion.waveCount(
+            activeTaskCount: activeTaskCount)
+        guard waveCount > 0 else { return }
+
+        let maximumSeparatedSpan = remainingFraction
+            / (CGFloat(waveCount) * 1.45)
+        let waveSpan = min(
+            MenuBarTaskEnergyMotion.waveSpanFraction,
+            maximumSeparatedSpan)
+        let segmentCount = 12
+
+        for waveIndex in 0 ..< waveCount {
+            let phase = MenuBarTaskEnergyMotion.phase(
+                basePhase: taskOrbitPhase,
+                waveIndex: waveIndex,
+                waveCount: waveCount)
+            let waveHead =
+                MenuBarTaskEnergyMotion.liveArcPosition(
+                    remainingFraction: remainingFraction,
+                    phase: phase)
+            let travelVisibility =
+                MenuBarTaskEnergyMotion.visibility(
+                    phase: phase)
+            guard travelVisibility > 0.001 else { continue }
+
+            let waveTail = min(
+                remainingFraction,
+                waveHead + waveSpan)
+            guard waveTail > waveHead else { continue }
+
+            let segmentWidth = (waveTail - waveHead)
+                / CGFloat(segmentCount)
+            for segmentIndex in 0 ..< segmentCount {
+                let start = waveHead
+                    + CGFloat(segmentIndex) * segmentWidth
+                let end = min(
+                    waveTail,
+                    start + segmentWidth * 1.08)
+                let midpoint = (start + end) / 2
+                let clockwiseDistance = (midpoint - waveHead)
+                    / (waveTail - waveHead)
+                let waveOpacity =
+                    MenuBarTaskEnergyMotion.waveOpacity(
+                        clockwiseDistanceFromHead:
+                            clockwiseDistance)
+                drawArcSegment(
+                    center: center,
+                    radius: radius,
+                    startFraction: start,
+                    endFraction: end,
+                    color: NSColor.labelColor.withAlphaComponent(
+                        min(
+                            1,
+                            alpha
+                                * travelVisibility
+                                * waveOpacity
+                                * 0.78)),
+                    lineWidth: 2.6)
+            }
+        }
+    }
+
+    private func drawArcSegment(
+        center: NSPoint,
+        radius: CGFloat,
+        startFraction: CGFloat,
+        endFraction: CGFloat,
+        color: NSColor,
+        lineWidth: CGFloat
+    ) {
+        guard endFraction > startFraction else { return }
+        let path = NSBezierPath()
+        path.appendArc(
+            withCenter: center,
+            radius: radius,
+            startAngle: 90 - 360 * startFraction,
+            endAngle: 90 - 360 * endFraction,
+            clockwise: true)
+        path.lineWidth = lineWidth
+        path.lineCapStyle = .butt
+        color.setStroke()
+        path.stroke()
     }
 
     private func drawUnavailableSlash(center: NSPoint, radius: CGFloat, alpha: CGFloat) {
