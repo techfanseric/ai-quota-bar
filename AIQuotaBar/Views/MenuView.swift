@@ -4,6 +4,7 @@ import SwiftUI
 
 struct MenuView: View {
     @Bindable var viewModel: UsageViewModel
+    @Bindable var presentationSizing: MenuPresentationSizing
     var onOpenSettings: () -> Void
     var onLayoutChange: () -> Void = {}
 
@@ -13,20 +14,14 @@ struct MenuView: View {
                 modelsList
                     .fixedSize(horizontal: false, vertical: true)
             }
-            .frame(maxHeight: maxScrollableHeight)
+            .frame(maxHeight: presentationSizing.maximumScrollableHeight)
 
             Divider()
                 .padding(.vertical, 4)
             footer
         }
         .padding(10)
-        .frame(width: 296)
-    }
-
-    private var maxScrollableHeight: CGFloat {
-        let visibleHeight = NSScreen.main?.visibleFrame.height ?? 600
-        let menuChromeHeight: CGFloat = 56
-        return max(540, visibleHeight * 0.9 - menuChromeHeight)
+        .frame(width: MenuBarPanelLayout.width)
     }
 
     private var language: AppLanguage {
@@ -206,6 +201,16 @@ struct MenuView: View {
             && viewModel.error == nil
             && viewModel.usageData == nil
             && viewModel.configuredProviders == [.codex]
+    }
+}
+
+@MainActor
+@Observable
+final class MenuPresentationSizing {
+    var maximumScrollableHeight: CGFloat
+
+    init(maximumScrollableHeight: CGFloat) {
+        self.maximumScrollableHeight = maximumScrollableHeight
     }
 }
 

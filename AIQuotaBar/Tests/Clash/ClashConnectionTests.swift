@@ -4,6 +4,28 @@ import XCTest
 @testable import AIQuotaBar
 
 final class ClashConnectionTests: XCTestCase {
+    func testConnectionDetailStartsWithNetworkAndOmitsProcess() {
+        XCTAssertEqual(
+            ClashConnectionFormat.detail(
+                network: "tcp",
+                chain: "Japan 01"),
+            "TCP · Japan 01")
+        XCTAssertEqual(
+            ClashConnectionFormat.detail(
+                network: " udp ",
+                chain: nil),
+            "UDP")
+        XCTAssertEqual(
+            ClashConnectionFormat.detail(
+                network: nil,
+                chain: "Singapore 02"),
+            "Singapore 02")
+        XCTAssertNil(
+            ClashConnectionFormat.detail(
+                network: " ",
+                chain: nil))
+    }
+
     @MainActor
     func testLiveClashConnectionViewRendersWhenExplicitlyEnabled()
         async throws

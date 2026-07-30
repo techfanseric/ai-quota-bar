@@ -78,13 +78,27 @@ struct ClashConnectionPopoverView: View {
                 .padding(.vertical, 7)
 
             VStack(alignment: .leading, spacing: 7) {
-                HStack {
+                HStack(spacing: 8) {
                     Text(language.clashConnectionsActivityTitle())
                         .font(.system(size: 10, weight: .semibold))
 
                     Spacer()
 
-                    Text(language.clashConnectionsLastHour())
+                    HStack(spacing: 4) {
+                        Text(language.clashConnectionAgeNew())
+                        LinearGradient(
+                            colors: [
+                                ClashConnectionActivityChart
+                                    .newConnectionColor,
+                                ClashConnectionActivityChart
+                                    .oldConnectionColor,
+                            ],
+                            startPoint: .leading,
+                            endPoint: .trailing)
+                            .frame(width: 38, height: 4)
+                            .clipShape(Capsule())
+                        Text(language.clashConnectionAgeLong())
+                    }
                         .font(.system(size: 9))
                         .foregroundStyle(.tertiary)
                 }
@@ -93,22 +107,6 @@ struct ClashConnectionPopoverView: View {
                     samples: viewModel.history,
                     relativeTo: viewModel.observedAt ?? Date())
                     .frame(height: 78)
-
-                HStack(spacing: 6) {
-                    Text(language.clashConnectionAgeNew())
-                    LinearGradient(
-                        colors: [
-                            ClashConnectionActivityChart.newConnectionColor,
-                            ClashConnectionActivityChart.oldConnectionColor,
-                        ],
-                        startPoint: .leading,
-                        endPoint: .trailing)
-                        .frame(width: 62, height: 5)
-                        .clipShape(Capsule())
-                    Text(language.clashConnectionAgeLong())
-                }
-                .font(.system(size: 8))
-                .foregroundStyle(.tertiary)
             }
             .padding(.horizontal, 14)
             .padding(.bottom, 7)
@@ -237,23 +235,16 @@ struct ClashConnectionPopoverView: View {
                     .lineLimit(1)
                     .truncationMode(.middle)
 
-                HStack(spacing: 4) {
-                    Text(
-                        connection.process
-                            ?? language.clashUnknownProcess())
-                    if let network = connection.network {
-                        Text("·")
-                        Text(network.uppercased())
-                    }
-                    if let chain = connection.primaryChain {
-                        Text("·")
-                        Text(chain)
-                    }
+                if let detail = ClashConnectionFormat.detail(
+                    network: connection.network,
+                    chain: connection.primaryChain
+                ) {
+                    Text(detail)
+                        .font(.system(size: 8))
+                        .foregroundStyle(.tertiary)
+                        .lineLimit(1)
+                        .truncationMode(.middle)
                 }
-                .font(.system(size: 8))
-                .foregroundStyle(.tertiary)
-                .lineLimit(1)
-                .truncationMode(.middle)
             }
 
             Spacer(minLength: 6)
@@ -518,6 +509,25 @@ struct ClashConnectionActivityChart: View {
 }
 
 enum ClashConnectionFormat {
+    static func detail(
+        network: String?,
+        chain: String?
+    ) -> String? {
+        let parts: [String] = [
+            network?
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+                .uppercased(),
+            chain?
+                .trimmingCharacters(in: .whitespacesAndNewlines),
+        ]
+        .compactMap { part -> String? in
+            guard let part, !part.isEmpty else { return nil }
+            return part
+        }
+        guard !parts.isEmpty else { return nil }
+        return parts.joined(separator: " · ")
+    }
+
     static func rate(_ bytesPerSecond: Double) -> String {
         let value = max(0, bytesPerSecond)
         let units = ["B/s", "KB/s", "MB/s", "GB/s"]

@@ -55,4 +55,51 @@ final class ClashRouteSwitchHistoryStoreTests: XCTestCase {
         XCTAssertTrue(records.isEmpty)
         XCTAssertTrue(store.load().isEmpty)
     }
+
+    func testRouteTypeBadgesUseCompactProtocolLabels() {
+        XCTAssertEqual(
+            ClashRouteTypeBadge.text(for: "Hysteria2"),
+            "H2")
+        XCTAssertEqual(
+            ClashRouteTypeBadge.text(for: "VLESS"),
+            "VL")
+        XCTAssertEqual(
+            ClashRouteTypeBadge.text(for: "AnyTLS"),
+            "TLS")
+        XCTAssertEqual(
+            ClashRouteTypeBadge.text(for: "WireGuard"),
+            "WG")
+        XCTAssertEqual(
+            ClashRouteTypeBadge.text(for: "Custom Proxy"),
+            "CUS")
+    }
+
+    func testRecentSwitchesUseRelativeMinutesForFirstHour() {
+        let now = Date(timeIntervalSince1970: 1_785_307_200)
+
+        XCTAssertEqual(
+            ClashRouteSwitchTimeFormat.text(
+                for: now.addingTimeInterval(-59),
+                relativeTo: now,
+                language: .english),
+            "now")
+        XCTAssertEqual(
+            ClashRouteSwitchTimeFormat.text(
+                for: now.addingTimeInterval(-60),
+                relativeTo: now,
+                language: .english),
+            "1m ago")
+        XCTAssertEqual(
+            ClashRouteSwitchTimeFormat.text(
+                for: now.addingTimeInterval(-(59 * 60 + 59)),
+                relativeTo: now,
+                language: .english),
+            "59m ago")
+        XCTAssertEqual(
+            ClashRouteSwitchTimeFormat.text(
+                for: now.addingTimeInterval(-60),
+                relativeTo: now,
+                language: .simplifiedChinese),
+            "1 分钟前")
+    }
 }

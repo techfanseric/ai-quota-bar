@@ -114,16 +114,22 @@ struct ClashRoutePopoverView: View {
             }
 
             VStack(alignment: .leading, spacing: 4) {
-                Toggle(
-                    isOn: $viewModel.autoRecoveryEnabled
-                ) {
+                HStack(spacing: 10) {
                     Text(language.clashAutoSelectBest())
                         .lineLimit(1)
                         .minimumScaleFactor(0.76)
+
+                    Spacer(minLength: 8)
+
+                    Toggle(
+                        "",
+                        isOn: $viewModel.autoRecoveryEnabled)
+                        .labelsHidden()
+                        .toggleStyle(.switch)
+                        .controlSize(.mini)
                 }
-                    .toggleStyle(.switch)
-                    .controlSize(.mini)
-                    .font(.system(size: 11, weight: .medium))
+                .font(.system(size: 11, weight: .medium))
+                .frame(maxWidth: .infinity)
 
                 if viewModel.autoRecoveryEnabled,
                    !viewModel.hasActiveFilter {
@@ -216,50 +222,49 @@ struct ClashRoutePopoverView: View {
                 _ = await viewModel.selectRoute(route.name)
             }
         } label: {
-            HStack(spacing: 9) {
-                ZStack {
-                    Circle()
-                        .fill(
-                            route.isSelected
-                                ? Color.accentColor.opacity(0.14)
-                                : Color.primary.opacity(0.045))
-                        .frame(width: 22, height: 22)
+            HStack(spacing: 7) {
+                Text(ClashRouteTypeBadge.text(for: route.type))
+                    .font(.system(size: 7, weight: .bold))
+                    .foregroundStyle(
+                        route.isSelected
+                            ? Color.accentColor
+                            : Color.secondary)
+                    .frame(width: 18, height: 16)
+                    .background(
+                        RoundedRectangle(
+                            cornerRadius: 4,
+                            style: .continuous)
+                            .fill(
+                                route.isSelected
+                                    ? Color.accentColor.opacity(0.13)
+                                    : Color.primary.opacity(0.05)))
+                    .help(route.type)
 
-                    Image(systemName: route.isSelected ? "checkmark" : "arrow.triangle.branch")
-                        .font(.system(size: 9, weight: .bold))
-                        .foregroundStyle(
-                            route.isSelected
-                                ? Color.accentColor
-                                : Color.secondary.opacity(0.7))
+                Text(route.name)
+                    .font(.system(
+                        size: 10,
+                        weight: route.isSelected
+                            ? .semibold
+                            : .regular))
+                    .foregroundStyle(.primary)
+                    .lineLimit(1)
+                    .truncationMode(.middle)
+
+                if route.isSelected {
+                    Image(systemName: "checkmark")
+                        .font(.system(size: 7, weight: .bold))
+                        .foregroundStyle(Color.accentColor)
                 }
 
-                VStack(alignment: .leading, spacing: 2) {
-                    Text(route.name)
-                        .font(.system(size: 11, weight: route.isSelected ? .semibold : .regular))
-                        .foregroundStyle(.primary)
-                        .lineLimit(1)
-                        .truncationMode(.middle)
-
-                    HStack(spacing: 5) {
-                        Text(route.type)
-                        if route.isSelected {
-                            Text("·")
-                            Text(language.clashCurrentRoute())
-                        }
-                    }
-                    .font(.system(size: 9))
-                    .foregroundStyle(.tertiary)
-                }
-
-                Spacer(minLength: 8)
+                Spacer(minLength: 6)
 
                 Text(delayText(for: route))
-                    .font(.system(size: 10, weight: .semibold))
+                    .font(.system(size: 9, weight: .semibold))
                     .monospacedDigit()
                     .foregroundStyle(delayColor(for: route))
             }
             .padding(.horizontal, 7)
-            .frame(height: 40)
+            .frame(height: 30)
             .contentShape(Rectangle())
             .background(
                 RoundedRectangle(cornerRadius: 7, style: .continuous)
@@ -271,7 +276,12 @@ struct ClashRoutePopoverView: View {
         .buttonStyle(.plain)
         .disabled(viewModel.isSwitching)
         .accessibilityLabel(
-            Text("\(route.name), \(delayText(for: route))"))
+            Text(
+                "\(route.type), \(route.name), "
+                    + "\(delayText(for: route))"
+                    + (route.isSelected
+                        ? ", \(language.clashCurrentRoute())"
+                        : "")))
     }
 
     @ViewBuilder
@@ -368,9 +378,17 @@ struct ClashRoutePopoverView: View {
                 .frame(height: 19)
 
             if !viewModel.switchHistory.isEmpty {
-                VStack(spacing: 0) {
-                    ForEach(viewModel.switchHistory) { record in
-                        switchHistoryRow(record)
+                TimelineView(
+                    .periodic(
+                        from: .now,
+                        by: 60)
+                ) { context in
+                    VStack(spacing: 0) {
+                        ForEach(viewModel.switchHistory) { record in
+                            switchHistoryRow(
+                                record,
+                                relativeTo: context.date)
+                        }
                     }
                 }
             }
@@ -379,15 +397,10 @@ struct ClashRoutePopoverView: View {
     }
 
     private func switchHistoryRow(
-        _ record: ClashRouteSwitchRecord
+        _ record: ClashRouteSwitchRecord,
+        relativeTo now: Date
     ) -> some View {
         HStack(spacing: 7) {
-            Text(switchTimeText(record.switchedAt))
-                .font(.system(size: 8, weight: .medium))
-                .foregroundStyle(.tertiary)
-                .monospacedDigit()
-                .frame(width: 66, alignment: .leading)
-
             Text("\(record.fromRoute)  →  \(record.toRoute)")
                 .font(.system(size: 9))
                 .foregroundStyle(.secondary)
@@ -397,24 +410,19 @@ struct ClashRoutePopoverView: View {
                     "\(record.fromRoute) → \(record.toRoute)")
 
             Spacer(minLength: 0)
+
+            Text(
+                ClashRouteSwitchTimeFormat.text(
+                    for: record.switchedAt,
+                    relativeTo: now,
+                    language: language))
+                .font(.system(size: 8, weight: .medium))
+                .foregroundStyle(.tertiary)
+                .monospacedDigit()
+                .lineLimit(1)
         }
         .padding(.horizontal, 14)
         .frame(height: 16)
-    }
-
-    private func switchTimeText(_ date: Date) -> String {
-        if Calendar.current.isDateInToday(date) {
-            return date.formatted(
-                date: .omitted,
-                time: .shortened)
-        }
-
-        return date.formatted(
-            .dateTime
-                .month(.twoDigits)
-                .day(.twoDigits)
-                .hour(.twoDigits(amPM: .omitted))
-                .minute(.twoDigits))
     }
 
     private func delayText(for route: ClashRoute) -> String {

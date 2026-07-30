@@ -4,6 +4,62 @@ import XCTest
 
 final class MenuBarRingRenderingTests: XCTestCase {
     @MainActor
+    func testTaskStateBrightensRingAndPulsesOnlyEndpoint() throws {
+        let idle = try renderTaskRing(
+            hasActiveTasks: false,
+            pulseOpacity: 1)
+        let activeBright = try renderTaskRing(
+            hasActiveTasks: true,
+            pulseOpacity: 1)
+        let activeDim = try renderTaskRing(
+            hasActiveTasks: true,
+            pulseOpacity: 0.4)
+
+        let scale: CGFloat = 4
+        let center = Int(11 * scale)
+        let radius = Int(8 * scale)
+        let endpointY = center + radius
+
+        let idleRingLuminance = try luminance(
+            idle,
+            x: center + radius,
+            y: center)
+        let activeRingLuminance = try luminance(
+            activeBright,
+            x: center + radius,
+            y: center)
+        XCTAssertGreaterThan(
+            idleRingLuminance,
+            activeRingLuminance + 0.2)
+
+        let endpointSampleY = endpointY + Int(1.5 * scale)
+        let brightEndpointLuminance = try luminance(
+            activeBright,
+            x: center,
+            y: endpointSampleY)
+        let dimEndpointLuminance = try luminance(
+            activeDim,
+            x: center,
+            y: endpointSampleY)
+        XCTAssertGreaterThan(
+            dimEndpointLuminance,
+            brightEndpointLuminance + 0.2)
+
+        let brightMidArcLuminance = try luminance(
+            activeBright,
+            x: center + radius,
+            y: center)
+        let dimMidArcLuminance = try luminance(
+            activeDim,
+            x: center + radius,
+            y: center)
+        XCTAssertEqual(
+            brightMidArcLuminance,
+            dimMidArcLuminance,
+            accuracy: 0.05)
+    }
+
+    @MainActor
     func testCompactRingStatesRenderDistinctPixels() throws {
         let states: [(ring: Double, delta: Double?, mode: MenuBarPaceDisplayMode, connectivity: CodexConnectivityState, offlineMorph: CGFloat, offlinePulseOpacity: CGFloat)] = [
             (99, -1, .continuous, .reachable, 0, 1),
@@ -144,5 +200,70 @@ final class MenuBarRingRenderingTests: XCTestCase {
         if let previewPath = ProcessInfo.processInfo.environment["AI_QUOTA_RENDER_PREVIEW_PATH"] {
             try pngData.write(to: URL(fileURLWithPath: previewPath), options: .atomic)
         }
+    }
+
+    @MainActor
+    private func renderTaskRing(
+        hasActiveTasks: Bool,
+        pulseOpacity: CGFloat
+    ) throws -> NSBitmapImageRep {
+        let size = NSSize(width: 22, height: 22)
+        let scale: CGFloat = 4
+        let bitmap = try XCTUnwrap(NSBitmapImageRep(
+            bitmapDataPlanes: nil,
+            pixelsWide: Int(size.width * scale),
+            pixelsHigh: Int(size.height * scale),
+            bitsPerSample: 8,
+            samplesPerPixel: 4,
+            hasAlpha: true,
+            isPlanar: false,
+            colorSpaceName: .deviceRGB,
+            bytesPerRow: 0,
+            bitsPerPixel: 0))
+        bitmap.size = size
+        let context = try XCTUnwrap(
+            NSGraphicsContext(bitmapImageRep: bitmap))
+        let view = StatusBarCompactRingView(
+            frame: NSRect(origin: .zero, size: size))
+        view.appearance = NSAppearance(
+            named: .aqua)
+        view.setSnapshot(
+            MenuBarSnapshot(
+                provider: .codex,
+                modelName: "Weekly",
+                remainingPercent: 50,
+                ringPercent: 50,
+                paceDeltaPercent: 0,
+                resetsAt: Date().addingTimeInterval(3_600),
+                state: .ready,
+                isLowQuota: false,
+                tooltip: "Preview"),
+            connectivity: .reachable,
+            hasActiveTasks: hasActiveTasks,
+            accessibilityLabel: "Preview")
+        view.setTaskPulseOpacityForTesting(pulseOpacity)
+
+        NSGraphicsContext.saveGraphicsState()
+        NSGraphicsContext.current = context
+        NSColor.white.setFill()
+        NSBezierPath(
+            rect: NSRect(origin: .zero, size: size))
+            .fill()
+        view.draw(view.bounds)
+        NSGraphicsContext.restoreGraphicsState()
+        return bitmap
+    }
+
+    private func luminance(
+        _ bitmap: NSBitmapImageRep,
+        x: Int,
+        y: Int
+    ) throws -> CGFloat {
+        let color = try XCTUnwrap(
+            bitmap.colorAt(x: x, y: y)?
+                .usingColorSpace(.deviceRGB))
+        return color.redComponent
+            + color.greenComponent
+            + color.blueComponent
     }
 }
