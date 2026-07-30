@@ -1,7 +1,7 @@
 import SwiftUI
 
 enum ClashPopoverLayout {
-    static let width: CGFloat = 301
+    static let width: CGFloat = MenuBarPanelLayout.width
     static let height: CGFloat = 850
     static let routeSectionHeight: CGFloat = 334
     static let routeListMinimumHeight: CGFloat = 96

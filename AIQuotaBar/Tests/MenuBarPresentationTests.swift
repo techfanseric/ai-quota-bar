@@ -1,7 +1,168 @@
+import AppKit
+import SwiftUI
 import XCTest
 @testable import AIQuotaBar
 
 final class MenuBarPresentationTests: XCTestCase {
+    @MainActor
+    func testMenuSizingUpdatesHostingViewWithoutRebuildingRoot() {
+        let sizing = MenuPresentationSizing(
+            maximumScrollableHeight: 700)
+        let hostingView = NSHostingView(
+            rootView: MenuSizingProbeView(sizing: sizing))
+
+        hostingView.layoutSubtreeIfNeeded()
+        XCTAssertEqual(hostingView.fittingSize.height, 700)
+
+        sizing.maximumScrollableHeight = 394
+        hostingView.invalidateIntrinsicContentSize()
+        hostingView.layoutSubtreeIfNeeded()
+
+        XCTAssertEqual(hostingView.fittingSize.height, 394)
+    }
+
+    func testNativeMenuAppearanceFollowsApplicationAppearance() throws {
+        let lightAppearance = try XCTUnwrap(NSAppearance(named: .aqua))
+        XCTAssertEqual(
+            StatusItemMenuAppearance.resolvedName(from: lightAppearance),
+            .aqua)
+
+        let darkAppearance = try XCTUnwrap(NSAppearance(named: .darkAqua))
+        XCTAssertEqual(
+            StatusItemMenuAppearance.resolvedName(from: darkAppearance),
+            .darkAqua)
+    }
+
+    func testSharedPanelCentersUnderStatusItem() {
+        let visibleFrame = NSRect(
+            x: -1_000,
+            y: 0,
+            width: 3_000,
+            height: 878)
+
+        let compactFrame = MenuBarPanelPlacement(
+            buttonFrame: NSRect(
+                x: 0,
+                y: 878,
+                width: 22,
+                height: 22),
+            visibleFrame: visibleFrame)
+            .panelFrame(contentSize: NSSize(
+                width: MenuBarPanelLayout.width,
+                height: 700))
+        XCTAssertEqual(compactFrame.minX, -137)
+
+        let detailedFrame = MenuBarPanelPlacement(
+            buttonFrame: NSRect(
+                x: 0,
+                y: 878,
+                width: 110,
+                height: 22),
+            visibleFrame: visibleFrame)
+            .panelFrame(contentSize: NSSize(
+                width: MenuBarPanelLayout.width,
+                height: 700))
+        XCTAssertEqual(detailedFrame.minX, -93)
+    }
+
+    func testSharedPanelStartsBelowMenuBarSafeArea() {
+        let frame = MenuBarPanelPlacement(
+            buttonFrame: NSRect(x: 900, y: 878, width: 22, height: 22),
+            visibleFrame: NSRect(x: 0, y: 0, width: 1920, height: 878))
+            .panelFrame(contentSize: NSSize(
+                width: MenuBarPanelLayout.width,
+                height: 720))
+
+        XCTAssertEqual(frame.minX, 763)
+        XCTAssertEqual(
+            frame.maxY,
+            878 - MenuBarPanelLayout.topGap)
+    }
+
+    func testSharedPanelPreservesVerticallyArrangedDisplayOrigin() {
+        let visibleFrame = NSRect(
+            x: 0,
+            y: 1169,
+            width: 2560,
+            height: 1410)
+        let frame = MenuBarPanelPlacement(
+            buttonFrame: NSRect(
+                x: 1200,
+                y: visibleFrame.maxY,
+                width: 22,
+                height: 30),
+            visibleFrame: visibleFrame)
+            .panelFrame(contentSize: NSSize(
+                width: MenuBarPanelLayout.width,
+                height: 1269))
+
+        XCTAssertEqual(frame.minX, 1063)
+        XCTAssertEqual(
+            frame.maxY,
+            2579 - MenuBarPanelLayout.topGap)
+    }
+
+    func testSharedPanelClampsToTargetDisplayWithNegativeOrigin() {
+        let visibleFrame = NSRect(x: -1440, y: -900, width: 1440, height: 876)
+
+        let leftFrame = MenuBarPanelPlacement(
+            buttonFrame: NSRect(x: -1435, y: -24, width: 22, height: 24),
+            visibleFrame: visibleFrame)
+            .panelFrame(contentSize: NSSize(
+                width: MenuBarPanelLayout.width,
+                height: 700))
+        XCTAssertEqual(leftFrame.minX, visibleFrame.minX)
+        XCTAssertEqual(
+            leftFrame.maxY,
+            visibleFrame.maxY - MenuBarPanelLayout.topGap)
+
+        let rightFrame = MenuBarPanelPlacement(
+            buttonFrame: NSRect(x: -30, y: -24, width: 22, height: 24),
+            visibleFrame: visibleFrame)
+            .panelFrame(contentSize: NSSize(
+                width: MenuBarPanelLayout.width,
+                height: 700))
+        XCTAssertEqual(
+            rightFrame.minX,
+            visibleFrame.maxX - MenuBarPanelLayout.width)
+        XCTAssertEqual(
+            rightFrame.maxY,
+            visibleFrame.maxY - MenuBarPanelLayout.topGap)
+    }
+
+    func testMenuHeightShrinksForShortTargetDisplay() {
+        XCTAssertEqual(
+            MenuBarPanelLayout.maximumHeight(
+                visibleHeight: 900),
+            810)
+        XCTAssertEqual(
+            MenuBarPanelLayout.maximumScrollableHeight(
+                visibleHeight: 900),
+            754)
+
+        let shortMenuHeight = MenuBarPanelLayout.maximumHeight(
+            visibleHeight: 500)
+        let shortScrollableHeight =
+            MenuBarPanelLayout.maximumScrollableHeight(
+                visibleHeight: 500)
+        XCTAssertEqual(shortMenuHeight, 450)
+        XCTAssertEqual(shortScrollableHeight, 394)
+        XCTAssertLessThan(shortScrollableHeight, 540)
+        XCTAssertLessThanOrEqual(shortMenuHeight, 500)
+    }
+
+    @MainActor
+    func testLeftAndRightPanelsShareChromeMetricsAndNoArrowStyle() {
+        XCTAssertEqual(
+            ClashPopoverLayout.width,
+            MenuBarPanelLayout.width)
+        XCTAssertEqual(MenuBarPanelLayout.cornerRadius, 12)
+
+        let panel = MenuBarPanel()
+        XCTAssertTrue(panel.styleMask.contains(.borderless))
+        XCTAssertFalse(panel.styleMask.contains(.titled))
+    }
+
     func testPaceGlyphUsesLeftDeficitAndRightReserveBuckets() {
         XCTAssertEqual(
             MenuBarPaceGlyph(deltaPercent: nil),
@@ -326,5 +487,16 @@ final class MenuBarPresentationTests: XCTestCase {
             progressBarPercentOverride: nil,
             progressBarRightText: nil,
             sampledAt: nil)
+    }
+}
+
+private struct MenuSizingProbeView: View {
+    @Bindable var sizing: MenuPresentationSizing
+
+    var body: some View {
+        Color.clear
+            .frame(
+                width: 10,
+                height: sizing.maximumScrollableHeight)
     }
 }

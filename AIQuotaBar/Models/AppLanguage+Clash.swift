@@ -252,24 +252,31 @@ extension AppLanguage {
         }
     }
 
-    func clashConnectionsLastHour() -> String {
-        switch self {
-        case .english: return "Last 60 minutes"
-        case .simplifiedChinese: return "最近 60 分钟"
-        }
-    }
-
     func clashConnectionAgeNew() -> String {
         switch self {
         case .english: return "New"
-        case .simplifiedChinese: return "刚连接"
+        case .simplifiedChinese: return "新"
         }
     }
 
     func clashConnectionAgeLong() -> String {
         switch self {
-        case .english: return "60m+"
-        case .simplifiedChinese: return "60 分钟以上"
+        case .english: return "Old"
+        case .simplifiedChinese: return "旧"
+        }
+    }
+
+    func clashRouteSwitchJustNow() -> String {
+        switch self {
+        case .english: return "now"
+        case .simplifiedChinese: return "刚刚"
+        }
+    }
+
+    func clashRouteSwitchMinutesAgo(_ minutes: Int) -> String {
+        switch self {
+        case .english: return "\(minutes)m ago"
+        case .simplifiedChinese: return "\(minutes) 分钟前"
         }
     }
 

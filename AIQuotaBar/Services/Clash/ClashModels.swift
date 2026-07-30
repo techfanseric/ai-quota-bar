@@ -53,6 +53,62 @@ struct ClashRoute: Identifiable, Equatable, Sendable {
     }
 }
 
+enum ClashRouteTypeBadge {
+    static func text(for type: String) -> String {
+        let normalized = type
+            .lowercased()
+            .filter { $0.isLetter || $0.isNumber }
+
+        switch normalized {
+        case "hysteria2", "hy2": return "H2"
+        case "hysteria": return "HY"
+        case "vless": return "VL"
+        case "vmess": return "VM"
+        case "anytls": return "TLS"
+        case "shadowsocks", "ss": return "SS"
+        case "trojan": return "TR"
+        case "wireguard", "wg": return "WG"
+        case "tuic": return "TU"
+        case "snell": return "SN"
+        case "ssh": return "SSH"
+        default:
+            let fallback = normalized.isEmpty
+                ? "—"
+                : String(normalized.uppercased().prefix(3))
+            return fallback
+        }
+    }
+}
+
+enum ClashRouteSwitchTimeFormat {
+    static func text(
+        for date: Date,
+        relativeTo now: Date,
+        language: AppLanguage,
+        calendar: Calendar = .current
+    ) -> String {
+        let elapsed = max(0, now.timeIntervalSince(date))
+        if elapsed < 60 {
+            return language.clashRouteSwitchJustNow()
+        }
+        if elapsed < 3_600 {
+            return language.clashRouteSwitchMinutesAgo(
+                max(1, Int(elapsed / 60)))
+        }
+        if calendar.isDate(date, inSameDayAs: now) {
+            return date.formatted(
+                date: .omitted,
+                time: .shortened)
+        }
+        return date.formatted(
+            .dateTime
+                .month(.twoDigits)
+                .day(.twoDigits)
+                .hour(.twoDigits(amPM: .omitted))
+                .minute(.twoDigits))
+    }
+}
+
 struct ClashRouteSnapshot: Equatable, Sendable {
     let groupName: String
     let selectedRouteName: String?
