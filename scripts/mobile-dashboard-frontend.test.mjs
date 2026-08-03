@@ -1114,7 +1114,15 @@ test("idle blackout requires a live confirmed idle signal and isolates the dashb
   assert.match(css, /animation:\s*idle-screen-row var\(--idle-duration, 47s\) linear infinite/);
   assert.match(css, /idle-monochrome-drift[\s\S]*var\(--idle-drift-duration, 28s\)[\s\S]*cubic-bezier\(0\.65, 0, 0\.35, 1\)/);
   assert.match(css, /font-size:\s*calc\(var\(--idle-size, 10vh\) \* var\(--idle-word-scale, 1\)\)/);
-  assert.match(css, /\.idle-marquee-lane\s*\{[^}]*block-size:\s*calc\(100% \/ 7\)/s);
+  assert.match(
+    css,
+    /\.idle-screen-stage\s*\{[^}]*display:\s*grid;[^}]*grid-template-rows:\s*repeat\(7, minmax\(0, 1fr\)\)/s,
+  );
+  assert.doesNotMatch(
+    css,
+    /\.idle-marquee-lane\s*\{[^}]*inset-block-start:\s*calc\([^;]*\//s,
+    "lane placement must not rely on unsupported CSS calc division",
+  );
   assert.match(
     css,
     /@media \(prefers-reduced-motion: reduce\)[\s\S]*\.idle-marquee-track\s*\{[^}]*transform:/,

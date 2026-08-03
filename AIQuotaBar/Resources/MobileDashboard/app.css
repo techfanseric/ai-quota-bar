@@ -196,15 +196,15 @@ body[data-idle-blackout="true"] .skip-link {
 .idle-screen-stage {
   position: absolute;
   inset: 0;
+  display: grid;
+  grid-template-rows: repeat(7, minmax(0, 1fr));
   overflow: hidden;
   contain: layout paint style;
 }
 
 .idle-marquee-lane {
-  position: absolute;
-  inset-block-start: calc(var(--idle-row) * 100% / 7);
-  inset-inline: 0;
-  block-size: calc(100% / 7);
+  position: relative;
+  min-block-size: 0;
   overflow: visible;
   contain: layout style;
 }
