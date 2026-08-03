@@ -1,4 +1,4 @@
-.PHONY: build run app sign install package clean
+.PHONY: build run app sign stable-sign install stable-install package clean
 
 BUILD_DIR = .build
 PRODUCT = AIQuotaBar.app
@@ -6,9 +6,12 @@ APP_NAME = AIQuotaBar
 APP_DISPLAY_NAME = AI Quota Bar
 APP_BUNDLE_ID = com.techfanseric.aiquotabar
 SLEEP_HELPER_BUNDLE_ID = com.techfanseric.aiquotabar.sleep-helper
-APP_VERSION ?= 1.7.0
-APP_BUILD ?= 21
+APP_VERSION ?= 1.8.0
+APP_BUILD ?= 22
 CODESIGN_IDENTITY ?= -
+EXPECTED_TEAM_ID ?=
+STABLE_CODESIGN_IDENTITY ?=
+STABLE_TEAM_ID ?=
 
 build:
 	swift build -c release --product $(APP_NAME)
@@ -30,7 +33,7 @@ app: build
 	done
 	@iconutil -c icns dist/AppIcon.iconset -o dist/$(PRODUCT)/Contents/Resources/AppIcon.icns
 	@rm -rf dist/AppIcon.iconset
-	@echo '<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd"><plist version="1.0"><dict><key>CFBundleExecutable</key><string>$(APP_NAME)</string><key>CFBundleIdentifier</key><string>$(APP_BUNDLE_ID)</string><key>CFBundleInfoDictionaryVersion</key><string>6.0</string><key>CFBundleName</key><string>$(APP_NAME)</string><key>CFBundleDisplayName</key><string>$(APP_DISPLAY_NAME)</string><key>CFBundlePackageType</key><string>APPL</string><key>CFBundleShortVersionString</key><string>$(APP_VERSION)</string><key>CFBundleVersion</key><string>$(APP_BUILD)</string><key>CFBundleIconFile</key><string>AppIcon</string><key>LSMinimumSystemVersion</key><string>14.0</string><key>LSUIElement</key><true/><key>NSHighResolutionCapable</key><true/></dict></plist>' > dist/$(PRODUCT)/Contents/Info.plist
+	@echo '<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd"><plist version="1.0"><dict><key>CFBundleExecutable</key><string>$(APP_NAME)</string><key>CFBundleIdentifier</key><string>$(APP_BUNDLE_ID)</string><key>CFBundleInfoDictionaryVersion</key><string>6.0</string><key>CFBundleName</key><string>$(APP_NAME)</string><key>CFBundleDisplayName</key><string>$(APP_DISPLAY_NAME)</string><key>CFBundlePackageType</key><string>APPL</string><key>CFBundleShortVersionString</key><string>$(APP_VERSION)</string><key>CFBundleVersion</key><string>$(APP_BUILD)</string><key>CFBundleIconFile</key><string>AppIcon</string><key>LSMinimumSystemVersion</key><string>14.0</string><key>LSUIElement</key><true/><key>NSHighResolutionCapable</key><true/><key>NSLocalNetworkUsageDescription</key><string>AI Quota Bar uses your local network only while Mobile Dashboard is enabled, so nearby devices can view read-only quota and status information.</string></dict></plist>' > dist/$(PRODUCT)/Contents/Info.plist
 	@echo '<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd"><plist version="1.0"><dict><key>Label</key><string>$(SLEEP_HELPER_BUNDLE_ID)</string><key>BundleProgram</key><string>Contents/MacOS/AIQuotaBarSleepHelper</string><key>AssociatedBundleIdentifiers</key><array><string>$(APP_BUNDLE_ID)</string></array><key>MachServices</key><dict><key>$(SLEEP_HELPER_BUNDLE_ID)</key><true/></dict><key>ProcessType</key><string>Background</string></dict></plist>' > dist/$(PRODUCT)/Contents/Library/LaunchDaemons/$(SLEEP_HELPER_BUNDLE_ID).plist
 	@echo '<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd"><plist version="1.0"><dict><key>Label</key><string>$(SLEEP_HELPER_BUNDLE_ID)</string><key>ProgramArguments</key><array><string>/Library/PrivilegedHelperTools/$(SLEEP_HELPER_BUNDLE_ID)</string></array><key>MachServices</key><dict><key>$(SLEEP_HELPER_BUNDLE_ID)</key><true/></dict><key>ProcessType</key><string>Background</string></dict></plist>' > dist/$(PRODUCT)/Contents/Resources/$(SLEEP_HELPER_BUNDLE_ID).legacy.plist
 	@chmod +x dist/$(PRODUCT)/Contents/MacOS/$(APP_NAME)
@@ -50,6 +53,33 @@ sign: app
 		codesign --force --options runtime --timestamp --sign "$(CODESIGN_IDENTITY)" dist/$(PRODUCT); \
 	fi
 	@codesign --verify --deep --strict --verbose=2 dist/$(PRODUCT)
+	@if [ "$(CODESIGN_IDENTITY)" != "-" ]; then \
+		if [ -z "$(EXPECTED_TEAM_ID)" ]; then \
+			echo "EXPECTED_TEAM_ID is required for non-ad-hoc signing." >&2; \
+			exit 1; \
+		fi; \
+		for component in \
+			dist/$(PRODUCT) \
+			dist/$(PRODUCT)/Contents/MacOS/AIQuotaBarSleepHelper \
+			dist/$(PRODUCT)/Contents/Helpers/AIQuotaBarHook; do \
+			team=$$(codesign -dv --verbose=4 "$$component" 2>&1 \
+				| sed -n 's/^TeamIdentifier=//p'); \
+			if [ "$$team" != "$(EXPECTED_TEAM_ID)" ]; then \
+				echo "Unexpected TeamIdentifier for $$component: $$team" >&2; \
+				exit 1; \
+			fi; \
+		done; \
+	fi
+
+stable-sign:
+	@if [ -z "$(STABLE_CODESIGN_IDENTITY)" ] \
+		|| [ -z "$(STABLE_TEAM_ID)" ]; then \
+		echo "Pass STABLE_CODESIGN_IDENTITY and STABLE_TEAM_ID explicitly." >&2; \
+		exit 1; \
+	fi
+	@$(MAKE) sign \
+		CODESIGN_IDENTITY="$(STABLE_CODESIGN_IDENTITY)" \
+		EXPECTED_TEAM_ID="$(STABLE_TEAM_ID)"
 
 run: build
 	open $(BUILD_DIR)/release/$(APP_NAME)
@@ -72,6 +102,11 @@ install: sign
 			rmdir "$$install_dir"; \
 			exit 1; \
 		fi
+
+stable-install: stable-sign
+	@$(MAKE) install \
+		CODESIGN_IDENTITY="$(STABLE_CODESIGN_IDENTITY)" \
+		EXPECTED_TEAM_ID="$(STABLE_TEAM_ID)"
 
 package: sign
 	@rm -rf dist/dmg-root

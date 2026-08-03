@@ -23,16 +23,17 @@ AI coding work is hard to manage when quota, network routes, and Mac sleep setti
   <img src="./docs/images/control-center.png" alt="AI Quota Bar control center" width="342">
 </p>
 
-## What’s new in v1.7.0
+## What’s new in v1.8.0
 
-This release makes both sides of the menu bar easier to read and turns the compact quota ring into a live answer to “is Codex still working?”
+This release adds a secure, installable Mobile Dashboard for keeping an eye on AI work from a phone or another screen on the same local network.
 
-- **See active work without opening a menu.** When Codex is working, the remaining-quota arc softens and shows one directional energy wave per active task, up to five. When work stops, the arc returns to solid white.
-- **Find the right route with less scanning.** Compact one-line rows show the protocol, route, and latency together. Recent switches keep the route change on the left and the time on the right.
-- **Understand OpenAI activity faster.** Route controls, totals, the 60-minute age chart, and active connections stay in one vertical flow, with less secondary text competing for attention.
-- **Get predictable native menu behavior.** The left-click dashboard uses the real macOS menu material and sizes itself for the display where it opens. The right-click control center keeps a consistent arrow-free frame.
-
-People who enable **Reduce Motion** get a static task highlight instead of a travelling wave.
+- **See the whole operating picture on a phone.** Quota, Codex Activity, route health, OpenAI connections, and sleep protection update live in one glanceable page. The three status panels remain close to equal thirds in both portrait and landscape instead of shrinking into unused space on larger displays.
+- **Know what every Codex task is doing.** One to five active tasks become one to five telemetry lanes. Each lane belongs to one real task and can show its title, phase, project, branch, model, reasoning level, tool, token use, subtasks, timestamps, progress, and other readable lifecycle fields.
+- **Read age through motion.** Fields have an independent, stable randomized order per task, while five visibly different speed tiers make newer tasks move faster and long-running tasks move more slowly. Live text updates join the moving queue without resetting its position.
+- **Turn confirmed idle into a screen saver.** An optional pure black-and-white IDLE mode fills the display with varied marquee sizes and speeds. OLED protection gently shifts static content, and light, dark, or automatic appearance can be selected independently.
+- **Choose exactly what leaves the Mac.** Select up to two quota models, mask account names, choose the Codex Activity background, and enable individual task telemetry fields. Detailed task progress remains off unless manual pairing is required and sharing is explicitly enabled.
+- **Install and pair without putting secrets in URLs.** Settings provides a QR code, stable local hostname with IP fallbacks, optional expiring manual pairing code, revocable install credentials, strict origin checks, and bounded local-only event streams. Credentials are stored in a versioned Keychain vault.
+- **Stay smooth during long unattended runs.** Telemetry tracks keep their animation position as values change, cap their queues, and explicitly release animations and DOM nodes when task counts change. IDLE effects, event streams, timers, and connection polling all use bounded lifecycles and honor reduced-motion preferences.
 
 ## What it helps you do
 
@@ -42,6 +43,7 @@ People who enable **Reduce Motion** get a static task highlight instead of a tra
 | Get OpenAI working again quickly | Test and switch Clash/Mihomo routes from the menu bar, or let the app recover automatically after a real outage |
 | Understand a slow connection | See whether OpenAI has active traffic, whether data is moving, and whether old connections are piling up |
 | Let long Codex tasks finish | Keep the Mac awake only while Codex is working, then return to normal automatically |
+| Monitor from another screen | Install the local Mobile Dashboard on a phone to follow quota, tasks, routing, connections, and protection live |
 | Close the lid when necessary | Optionally keep a task running with safety cutoffs for battery, heat, lost contact, and maximum duration |
 | Keep useful history | Optionally sync recent quota snapshots so trends remain available across Macs |
 
@@ -118,6 +120,20 @@ AI Quota Bar uses [`CodexBarCore`](https://github.com/steipete/CodexBar) and off
 ### MiniMax
 
 Open **Settings → Providers → MiniMax**, paste your MiniMax coding-plan token, and refresh. The token stays in macOS Keychain.
+
+## Monitor work from a phone
+
+Open **Settings → Mobile Dashboard**, enable the local dashboard, and scan the QR code from a device on the same network. The page can be installed as a PWA and reconnects through a stable local hostname when the network supports it, with explicit IP fallbacks available when it does not.
+
+The dashboard is designed as an always-on monitor:
+
+- Select one or two quota models and follow the same native quota curves, reset times, and pace guidance used by the Mac app.
+- See the exact active Codex task count, task-specific telemetry, current route, connection activity, and sleep-protection state without exposing controls that modify the Mac.
+- Choose digital rain, dot waves, or Task telemetry barrage for the Codex Activity background. Every telemetry field is individually configurable.
+- Use automatic, light, or dark appearance; optional OLED shifting; and a full-screen IDLE screen saver after a fresh confirmed idle signal.
+- Optionally enable experimental background media after a tap on the phone when a display should remain awake. Browser and operating-system power policies may still override it.
+
+Manual pairing is optional. When enabled, the short code expires after five minutes and is exchanged for a revocable install credential; the credential is not embedded in saved links. Sharing task progress text is available only in this paired mode and stays off until explicitly enabled.
 
 ## Plan work before quota runs out
 
@@ -199,6 +215,8 @@ Cloud sync is off by default. It uploads quota metadata and account labels, but 
 - Clash/Mihomo access is limited to a loopback external controller.
 - Connection monitoring is read-only.
 - Codex task detection reads local lifecycle state and does not upload task content.
+- The Mobile Dashboard is served only on the local network, exposes a read-only status surface, and masks account names by default.
+- Mobile task progress text is omitted unless manual pairing is enabled and the user separately opts in to sharing it.
 - Cloud sync is opt-in and never uploads provider credentials, but it does upload the quota metadata listed above.
 - Closed-lid changes require explicit administrator approval and are automatically restored by the helper.
 

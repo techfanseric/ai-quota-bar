@@ -225,7 +225,8 @@ final class UsageService {
             // 直接交给适配层处理，未配置会在内部抛 .unauthorized。
             return try await CodexService.shared.fetchUsage()
         case .miniMax, .glm:
-            guard let credential = KeychainService.shared.getCredential(for: provider) else {
+            guard let credential = await KeychainService.shared
+                .credential(for: provider) else {
                 throw UsageError.notConfigured
             }
             return try await fetchCredentialBasedUsage(provider: provider, credential: credential)

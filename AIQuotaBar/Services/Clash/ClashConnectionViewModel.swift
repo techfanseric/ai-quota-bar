@@ -20,6 +20,7 @@ final class ClashConnectionViewModel {
     private var monitoringTask: Task<Void, Never>?
     private var monitoringGeneration = 0
     private var isMonitoringEnabled = false
+    private var liveUpdateOwners: Set<String> = []
 
     private let liveIntervalMilliseconds = 1_000
     private let backgroundIntervalMilliseconds = 60_000
@@ -45,8 +46,10 @@ final class ClashConnectionViewModel {
         restartMonitoring()
     }
 
-    func beginLiveUpdates() {
-        guard !isLive else { return }
+    func beginLiveUpdates(owner: String = "popover") {
+        let wasLive = !liveUpdateOwners.isEmpty
+        liveUpdateOwners.insert(owner)
+        guard !wasLive else { return }
         isLive = true
         if !isMonitoringEnabled {
             isMonitoringEnabled = true
@@ -54,8 +57,9 @@ final class ClashConnectionViewModel {
         restartMonitoring()
     }
 
-    func endLiveUpdates() {
-        guard isLive else { return }
+    func endLiveUpdates(owner: String = "popover") {
+        liveUpdateOwners.remove(owner)
+        guard liveUpdateOwners.isEmpty, isLive else { return }
         isLive = false
         historyStore.save(history)
         guard isMonitoringEnabled else { return }
@@ -72,6 +76,7 @@ final class ClashConnectionViewModel {
     func stop() {
         isMonitoringEnabled = false
         isLive = false
+        liveUpdateOwners.removeAll()
         monitoringGeneration += 1
         monitoringTask?.cancel()
         monitoringTask = nil

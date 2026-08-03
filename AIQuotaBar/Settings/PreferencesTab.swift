@@ -5,6 +5,7 @@ enum PreferencesTab: String, CaseIterable, Hashable {
     case general
     case usage
     case sync
+    case mobile
     case providers
     case about
 
@@ -17,6 +18,8 @@ enum PreferencesTab: String, CaseIterable, Hashable {
         case .general: return AppLanguage.current.text(.tabGeneral)
         case .usage: return AppLanguage.current.text(.tabUsage)
         case .sync: return AppLanguage.current.text(.tabSync)
+        case .mobile:
+            return AppLanguage.current.mobileDashboardTabTitle()
         case .providers: return AppLanguage.current.text(.tabProviders)
         case .about: return AppLanguage.current.text(.tabAbout)
         }
@@ -27,6 +30,7 @@ enum PreferencesTab: String, CaseIterable, Hashable {
         case .general: return "gearshape"
         case .usage: return "chart.line.uptrend.xyaxis"
         case .sync: return "icloud"
+        case .mobile: return "iphone.and.arrow.forward"
         case .providers: return "square.grid.2x2"
         case .about: return "info.circle"
         }

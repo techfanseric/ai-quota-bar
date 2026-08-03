@@ -8,12 +8,62 @@ enum CodexSleepProtectionStatus: Equatable {
     case failed(String)
 }
 
+enum CodexActivitySummaryState: String, Equatable {
+    case idle
+    case working
+    case stale
+    case unavailable
+}
+
+struct CodexActivitySummary: Equatable {
+    let state: CodexActivitySummaryState
+    let activeTaskCount: Int
+    let oldestStartedAt: Date?
+    let elapsedSeconds: TimeInterval?
+    let lastActivityAt: Date?
+    let phase: CodexSafeActivityPhase
+    let toolCategory: CodexSafeToolCategory?
+    let toolStatus: CodexSafeToolStatus?
+    let progressLines: [String]
+    let recentEvents: [CodexSafeActivityEvent]
+    let tasks: [CodexActivityTask]
+}
+
+struct CodexActivityTask: Equatable {
+    let state: CodexActivitySummaryState
+    let title: String?
+    let projectName: String?
+    let gitBranch: String?
+    let source: String?
+    let model: String?
+    let modelProvider: String?
+    let reasoningEffort: String?
+    let sandboxPolicy: String?
+    let approvalMode: String?
+    let tokensUsed: Int64?
+    let activeSubtaskCount: Int
+    let subtaskNames: [String]
+    let createdAt: Date?
+    let startedAt: Date?
+    let elapsedSeconds: TimeInterval?
+    let lastActivityAt: Date?
+    let cliVersion: String?
+    let phase: CodexSafeActivityPhase
+    let toolCategory: CodexSafeToolCategory?
+    let toolStatus: CodexSafeToolStatus?
+    let progressLines: [String]
+    let recentEvents: [CodexSafeActivityEvent]
+}
+
 @MainActor
 @Observable
 final class CodexSleepProtectionCoordinator {
     static let enabledKey = "codexSleepProtectionEnabled"
     static let keepDisplayAwakeKey = "codexSleepProtectionKeepDisplayAwake"
     static let preventScreenSaverKey = "codexSleepProtectionPreventScreenSaver"
+    static let mobileActivityFreshnessWindow: TimeInterval = 10 * 60
+    static let mobileActivityRecentEventLimit = 5
+    static let mobileActivityTaskCountLimit = 99
 
     var isEnabled: Bool {
         didSet {
@@ -58,6 +108,19 @@ final class CodexSleepProtectionCoordinator {
     private var workspaceObserverTokens: [NSObjectProtocol] = []
     private var isSessionActive = true
     private var hasStarted = false
+
+    var keepDisplayAwakeEffective: Bool {
+        guard case .active = protectionStatus else { return false }
+        return hasStarted
+            && isEnabled
+            && activeTurnCount > 0
+            && keepDisplayAwake
+            && isSessionActive
+    }
+
+    var preventScreenSaverEffective: Bool {
+        keepDisplayAwakeEffective && preventScreenSaver
+    }
 
     @ObservationIgnored private var hookListener: CodexHookListener?
     @ObservationIgnored private var localActivityTask: Task<Void, Never>?
@@ -168,9 +231,235 @@ final class CodexSleepProtectionCoordinator {
         refreshMergedActivity()
     }
 
+    /// A content-free activity view suitable for a read-only LAN client.
+    /// Session, turn, and agent identifiers are used only inside the activity
+    /// trackers and are discarded before this value is constructed.
+    func mobileActivitySummary(now: Date = Date()) -> CodexActivitySummary {
+        let activeSessionIDs = mergedActiveSessionIDs
+        let boundedCount = min(
+            Self.mobileActivityTaskCountLimit,
+            max(0, activeSessionIDs.count)
+        )
+        let recentEvents = mergedRecentEvents(now: now)
+        let tasks = mergedActivityTasks(
+            activeSessionIDs: activeSessionIDs,
+            now: now)
+
+        guard !activeSessionIDs.isEmpty else {
+            return CodexActivitySummary(
+                state: hasReliableActivitySource ? .idle : .unavailable,
+                activeTaskCount: 0,
+                oldestStartedAt: nil,
+                elapsedSeconds: nil,
+                lastActivityAt: lastEventAt,
+                phase: .unknown,
+                toolCategory: nil,
+                toolStatus: nil,
+                progressLines: [],
+                recentEvents: recentEvents,
+                tasks: [])
+        }
+
+        let isFresh = lastEventAt.map {
+            now.timeIntervalSince($0)
+                <= Self.mobileActivityFreshnessWindow
+        } ?? false
+        guard isFresh else {
+            return CodexActivitySummary(
+                state: .stale,
+                activeTaskCount: boundedCount,
+                oldestStartedAt: nil,
+                elapsedSeconds: nil,
+                lastActivityAt: lastEventAt,
+                phase: .unknown,
+                toolCategory: nil,
+                toolStatus: nil,
+                progressLines: [],
+                recentEvents: recentEvents,
+                tasks: tasks)
+        }
+
+        let oldestStartedAt = reliableMergedOldestStartedAt(
+            for: activeSessionIDs)
+        let semantic = latestMergedSemantic(
+            activeSessionIDs: activeSessionIDs,
+            now: now)
+        return CodexActivitySummary(
+            state: .working,
+            activeTaskCount: boundedCount,
+            oldestStartedAt: oldestStartedAt,
+            elapsedSeconds: oldestStartedAt.map {
+                max(0, now.timeIntervalSince($0))
+            },
+            lastActivityAt: lastEventAt,
+            phase: semantic?.phase ?? .unknown,
+            toolCategory: semantic?.toolCategory,
+            toolStatus: semantic?.toolStatus,
+            progressLines: mergedProgressLines(
+                activeSessionIDs: activeSessionIDs,
+                now: now),
+            recentEvents: recentEvents,
+            tasks: tasks)
+    }
+
+    private func mergedActivityTasks(
+        activeSessionIDs: Set<String>,
+        now: Date
+    ) -> [CodexActivityTask] {
+        let cutoff = now.addingTimeInterval(
+            -Self.mobileActivityFreshnessWindow)
+        return activeSessionIDs.map { sessionID in
+            let local = localActivitySnapshot.sessionActivities[sessionID]
+            let hookStart = activityTracker.reliableOldestStartedAt(
+                for: [sessionID])
+            let startedAt = local?.startedAt ?? hookStart
+            let lastActivityAt = [
+                local?.lastEventAt,
+                activityTracker.lastEventAt(for: sessionID),
+            ]
+            .compactMap { $0 }
+            .max()
+            let isFresh = lastActivityAt.map {
+                $0 >= cutoff && $0 <= now
+            } ?? false
+            var semanticCandidates = [CodexSafeActivitySemantic]()
+            if let semantic = local?.semantic {
+                semanticCandidates.append(semantic)
+            }
+            if let semantic = activityTracker.latestSemantic(for: [sessionID]) {
+                semanticCandidates.append(semantic)
+            }
+            let semantic = semanticCandidates
+                .filter { isFresh && $0.at >= cutoff && $0.at <= now }
+                .max { $0.at < $1.at }
+            let progressLines = Array((local?.progressLines ?? [])
+                .filter { isFresh && $0.at >= cutoff && $0.at <= now }
+                .sorted { $0.at > $1.at }
+                .prefix(2)
+                .map(\.text)
+                .reversed())
+            let taskEvents = Array((local?.recentEvents ?? [])
+                .filter { $0.at >= cutoff && $0.at <= now }
+                .sorted { $0.at < $1.at }
+                .suffix(Self.mobileActivityRecentEventLimit))
+            return CodexActivityTask(
+                state: isFresh ? .working : .stale,
+                title: local?.title,
+                projectName: local?.projectName,
+                gitBranch: local?.gitBranch,
+                source: local?.source,
+                model: local?.model,
+                modelProvider: local?.modelProvider,
+                reasoningEffort: local?.reasoningEffort,
+                sandboxPolicy: local?.sandboxPolicy,
+                approvalMode: local?.approvalMode,
+                tokensUsed: local?.tokensUsed,
+                activeSubtaskCount: max(
+                    local?.activeSubtaskCount ?? 0,
+                    activityTracker.activeSubagentCount(for: sessionID)),
+                subtaskNames: local?.subtaskNames ?? [],
+                createdAt: local?.createdAt,
+                startedAt: startedAt,
+                elapsedSeconds: isFresh ? startedAt.map {
+                    max(0, now.timeIntervalSince($0))
+                } : nil,
+                lastActivityAt: lastActivityAt,
+                cliVersion: local?.cliVersion,
+                phase: semantic?.phase ?? .unknown,
+                toolCategory: semantic?.toolCategory,
+                toolStatus: semantic?.toolStatus,
+                progressLines: progressLines,
+                recentEvents: taskEvents)
+        }
+        .sorted {
+            let left = $0.startedAt ?? $0.lastActivityAt ?? .distantFuture
+            let right = $1.startedAt ?? $1.lastActivityAt ?? .distantFuture
+            if left != right { return left < right }
+            return ($0.title ?? "") < ($1.title ?? "")
+        }
+    }
+
+    private func reliableMergedOldestStartedAt(
+        for activeSessionIDs: Set<String>
+    ) -> Date? {
+        var starts: [Date] = []
+        for sessionID in activeSessionIDs {
+            if let localStart = localActivitySnapshot
+                .sessionActivities[sessionID]?.startedAt {
+                starts.append(localStart)
+                continue
+            }
+            guard let hookStart = activityTracker
+                .reliableOldestStartedAt(for: [sessionID]) else {
+                return nil
+            }
+            starts.append(hookStart)
+        }
+        return starts.min()
+    }
+
+    private func latestMergedSemantic(
+        activeSessionIDs: Set<String>,
+        now: Date
+    ) -> CodexSafeActivitySemantic? {
+        let cutoff = now.addingTimeInterval(
+            -Self.mobileActivityFreshnessWindow)
+        var candidates = activeSessionIDs.compactMap {
+            localActivitySnapshot.sessionActivities[$0]?.semantic
+        }
+        if let hookSemantic = activityTracker.latestSemantic(
+            for: activeSessionIDs) {
+            candidates.append(hookSemantic)
+        }
+        return candidates
+            .filter { $0.at >= cutoff && $0.at <= now }
+            .max { $0.at < $1.at }
+    }
+
+    private func mergedProgressLines(
+        activeSessionIDs: Set<String>,
+        now: Date
+    ) -> [String] {
+        let cutoff = now.addingTimeInterval(
+            -Self.mobileActivityFreshnessWindow)
+        var seen = Set<String>()
+        return Array(activeSessionIDs
+            .flatMap {
+                localActivitySnapshot.sessionActivities[$0]?
+                    .progressLines ?? []
+            }
+            .filter { $0.at >= cutoff && $0.at <= now }
+            .sorted { $0.at > $1.at }
+            .filter { seen.insert($0.text).inserted }
+            .prefix(2)
+            .map(\.text)
+            .reversed())
+    }
+
+    private func mergedRecentEvents(
+        now: Date
+    ) -> [CodexSafeActivityEvent] {
+        var events = activityTracker.recentEvents(
+            now: now,
+            maximumAge: Self.mobileActivityFreshnessWindow,
+            maximumCount: 32)
+        events.append(contentsOf: localActivitySnapshot.sessionActivities
+            .values.flatMap(\.recentEvents))
+        let cutoff = now.addingTimeInterval(
+            -Self.mobileActivityFreshnessWindow)
+        var seen = Set<String>()
+        let unique = events
+            .filter { $0.at >= cutoff && $0.at <= now }
+            .sorted { $0.at < $1.at }
+            .filter {
+                let key = "\($0.kind.rawValue):\($0.at.timeIntervalSince1970)"
+                return seen.insert(key).inserted
+            }
+        return Array(unique.suffix(Self.mobileActivityRecentEventLimit))
+    }
+
     private func refreshMergedActivity() {
-        let activeSessionIDs = activityTracker.activeSessionIDs
-            .union(localActivitySnapshot.activeSessionIDs)
+        let activeSessionIDs = mergedActiveSessionIDs
         activeTurnCount = activeSessionIDs.count
         lastEventAt = [
             activityTracker.lastEventAt,
@@ -179,6 +468,18 @@ final class CodexSleepProtectionCoordinator {
         .compactMap { $0 }
         .max()
         applyCurrentState()
+    }
+
+    private var mergedActiveSessionIDs: Set<String> {
+        activityTracker.activeSessionIDs
+            .union(localActivitySnapshot.activeSessionIDs)
+    }
+
+    private var hasReliableActivitySource: Bool {
+        guard hasStarted else { return false }
+        return localActivityProvider != nil
+            || hookInstallationStatus == .installed
+            || activityTracker.lastEventAt != nil
     }
 
     private func applyCurrentState() {

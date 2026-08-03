@@ -13,6 +13,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         NSApp.setActivationPolicy(.accessory)
         AppMigration.migrateLegacyDefaultsIfNeeded()
         AppMigration.runCodexMigrationIfNeeded()
+        KeychainService.shared.preloadCredentialVault()
 
         UNUserNotificationCenter.current().delegate = self
 
@@ -53,10 +54,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
     // MARK: - Window Controllers
 
+    @MainActor
     func openSettings() {
-        guard let viewModel = statusBarController?.viewModel else { return }
+        guard let statusBarController else { return }
+        let viewModel = statusBarController.viewModel
         if settingsWindowController == nil {
-            settingsWindowController = SettingsWindowController(viewModel: viewModel)
+            settingsWindowController = SettingsWindowController(
+                viewModel: viewModel,
+                mobileDashboardService:
+                    statusBarController.mobileDashboardService)
         }
         settingsWindowController?.showWindow(nil)
         NSApp.activate(ignoringOtherApps: true)

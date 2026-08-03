@@ -75,18 +75,74 @@ final class CodexActivityTrackerTests: XCTestCase {
         XCTAssertFalse(tracker.isWorking)
     }
 
+    func testSafeRecentEventsAreAllowlistedBoundedAndExpire() {
+        var tracker = CodexActivityTracker()
+        let now = Date(timeIntervalSince1970: 10_000)
+        tracker.receive(event(.userPromptSubmit, date: now.addingTimeInterval(-601)))
+        tracker.receive(event(.preToolUse, date: now.addingTimeInterval(-5)))
+        tracker.receive(event(.permissionRequest, date: now.addingTimeInterval(-4)))
+        tracker.receive(event(.postToolUse, date: now.addingTimeInterval(-3)))
+        tracker.receive(event(.subagentStart, agentID: "private-agent", date: now.addingTimeInterval(-2)))
+        tracker.receive(event(.subagentStop, agentID: "private-agent", date: now.addingTimeInterval(-1)))
+        tracker.receive(event(.stop, date: now))
+
+        let recent = tracker.recentEvents(
+            now: now,
+            maximumAge: 600,
+            maximumCount: 5)
+
+        XCTAssertEqual(
+            recent.map(\.kind),
+            [
+                .permissionRequested,
+                .toolFinished,
+                .subtaskStarted,
+                .subtaskFinished,
+                .taskFinished,
+            ])
+        XCTAssertLessThanOrEqual(recent.count, 5)
+        XCTAssertTrue(
+            recent.allSatisfy {
+                now.timeIntervalSince($0.at) <= 600
+            })
+    }
+
+    func testReliableStartRequiresPromptForEveryActiveSession() {
+        var tracker = CodexActivityTracker()
+        let start = Date(timeIntervalSince1970: 100)
+        tracker.receive(event(
+            .userPromptSubmit,
+            sessionID: "session-1",
+            turnID: "turn-1",
+            date: start))
+        XCTAssertEqual(
+            tracker.reliableOldestStartedAt(
+                for: tracker.activeSessionIDs),
+            start)
+
+        tracker.receive(event(
+            .preToolUse,
+            sessionID: "session-2",
+            turnID: "turn-2",
+            date: start.addingTimeInterval(5)))
+        XCTAssertNil(
+            tracker.reliableOldestStartedAt(
+                for: tracker.activeSessionIDs))
+    }
+
     private func event(
         _ name: CodexHookEventName,
         sessionID: String = "session-1",
         turnID: String? = "turn-1",
-        agentID: String? = nil
+        agentID: String? = nil,
+        date: Date = Date(timeIntervalSince1970: 100)
     ) -> CodexHookEvent {
         CodexHookEvent(
             name: name,
             sessionID: sessionID,
             turnID: turnID,
             agentID: agentID,
-            date: Date(timeIntervalSince1970: 100)
+            date: date
         )
     }
 }

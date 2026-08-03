@@ -12,10 +12,18 @@ final class CodexSleepProtectionCoordinatorTests: XCTestCase {
         XCTAssertTrue(fixture.assertions.isHoldingAssertions)
         XCTAssertEqual(fixture.assertions.acquireCalls.last, .init(true, true))
         XCTAssertEqual(fixture.coordinator.protectionStatus, .active)
+        XCTAssertTrue(
+            fixture.coordinator.keepDisplayAwakeEffective)
+        XCTAssertTrue(
+            fixture.coordinator.preventScreenSaverEffective)
 
         fixture.coordinator.receive(event(.stop))
         XCTAssertFalse(fixture.assertions.isHoldingAssertions)
         XCTAssertEqual(fixture.coordinator.protectionStatus, .idle)
+        XCTAssertFalse(
+            fixture.coordinator.keepDisplayAwakeEffective)
+        XCTAssertFalse(
+            fixture.coordinator.preventScreenSaverEffective)
     }
 
     func testApplicationStopAlwaysReleasesAssertions() throws {
@@ -43,6 +51,10 @@ final class CodexSleepProtectionCoordinatorTests: XCTestCase {
 
         XCTAssertTrue(fixture.assertions.isHoldingAssertions)
         XCTAssertEqual(fixture.assertions.acquireCalls.last, .init(false, false))
+        XCTAssertFalse(
+            fixture.coordinator.keepDisplayAwakeEffective)
+        XCTAssertFalse(
+            fixture.coordinator.preventScreenSaverEffective)
     }
 
     func testDisablingFeatureImmediatelyReleasesAssertions() throws {
@@ -54,6 +66,31 @@ final class CodexSleepProtectionCoordinatorTests: XCTestCase {
 
         XCTAssertFalse(fixture.assertions.isHoldingAssertions)
         XCTAssertEqual(fixture.coordinator.protectionStatus, .idle)
+        XCTAssertFalse(
+            fixture.coordinator.keepDisplayAwakeEffective)
+        XCTAssertFalse(
+            fixture.coordinator.preventScreenSaverEffective)
+    }
+
+    func testActivityCountRemainsAuthoritativeWhenProtectionIsOff()
+        throws
+    {
+        let fixture = try makeFixture()
+        fixture.coordinator.start()
+        fixture.coordinator.isEnabled = false
+
+        fixture.coordinator.receiveLocalSnapshot(
+            CodexLocalActivitySnapshot(
+                activeSessionIDs: ["thread-1"],
+                lastEventAt: Date()))
+
+        XCTAssertEqual(fixture.coordinator.activeTurnCount, 1)
+        XCTAssertEqual(fixture.coordinator.protectionStatus, .idle)
+        XCTAssertFalse(fixture.assertions.isHoldingAssertions)
+        XCTAssertFalse(
+            fixture.coordinator.keepDisplayAwakeEffective)
+        XCTAssertFalse(
+            fixture.coordinator.preventScreenSaverEffective)
     }
 
     func testLocalSnapshotProtectsTasksWithoutHookEvents() throws {
@@ -76,6 +113,92 @@ final class CodexSleepProtectionCoordinatorTests: XCTestCase {
         XCTAssertFalse(fixture.assertions.isHoldingAssertions)
         XCTAssertEqual(fixture.coordinator.activeTurnCount, 0)
         XCTAssertEqual(fixture.coordinator.protectionStatus, .idle)
+    }
+
+    func testMobileActivitySummaryDeduplicatesHookAndLocalSessions()
+        throws
+    {
+        let fixture = try makeFixture()
+        fixture.coordinator.start()
+        let now = Date(timeIntervalSince1970: 10_000)
+        fixture.coordinator.receive(event(
+            .userPromptSubmit,
+            sessionID: "shared-session",
+            turnID: "turn",
+            date: now.addingTimeInterval(-20)))
+        fixture.coordinator.receiveLocalSnapshot(
+            CodexLocalActivitySnapshot(
+                activeSessionIDs: ["shared-session", "local-session"],
+                lastEventAt: now.addingTimeInterval(-5)))
+
+        let summary = fixture.coordinator.mobileActivitySummary(now: now)
+
+        XCTAssertEqual(summary.state, .working)
+        XCTAssertEqual(summary.activeTaskCount, 2)
+        XCTAssertNil(
+            summary.oldestStartedAt,
+            "A local-only session has no reliable task start time.")
+        XCTAssertNil(summary.elapsedSeconds)
+    }
+
+    func testMobileActivitySummaryBecomesStaleAndZeroClearsActiveMetadata()
+        throws
+    {
+        let fixture = try makeFixture()
+        fixture.coordinator.start()
+        let start = Date(timeIntervalSince1970: 20_000)
+        fixture.coordinator.receive(event(
+            .userPromptSubmit,
+            sessionID: "sensitive-session",
+            turnID: "sensitive-turn",
+            date: start))
+
+        let working = fixture.coordinator.mobileActivitySummary(
+            now: start.addingTimeInterval(90))
+        XCTAssertEqual(working.state, .working)
+        XCTAssertEqual(working.oldestStartedAt, start)
+        XCTAssertEqual(working.elapsedSeconds, 90)
+
+        let staleNow = start.addingTimeInterval(
+            CodexSleepProtectionCoordinator
+                .mobileActivityFreshnessWindow + 1)
+        let stale = fixture.coordinator.mobileActivitySummary(now: staleNow)
+        XCTAssertEqual(stale.state, .stale)
+        XCTAssertEqual(stale.activeTaskCount, 1)
+        XCTAssertNil(stale.oldestStartedAt)
+        XCTAssertNil(stale.elapsedSeconds)
+        XCTAssertTrue(stale.recentEvents.isEmpty)
+
+        fixture.coordinator.receive(event(
+            .stop,
+            sessionID: "sensitive-session",
+            turnID: "sensitive-turn",
+            date: staleNow))
+        fixture.coordinator.receiveLocalSnapshot(.empty)
+        let idle = fixture.coordinator.mobileActivitySummary(now: staleNow)
+        XCTAssertEqual(idle.state, .idle)
+        XCTAssertEqual(idle.activeTaskCount, 0)
+        XCTAssertNil(idle.oldestStartedAt)
+        XCTAssertNil(idle.elapsedSeconds)
+    }
+
+    func testMobileActivitySummaryBoundsTaskCount() throws {
+        let fixture = try makeFixture()
+        fixture.coordinator.start()
+        let now = Date()
+        fixture.coordinator.receiveLocalSnapshot(
+            CodexLocalActivitySnapshot(
+                activeSessionIDs: Set((0..<120).map { "session-\($0)" }),
+                lastEventAt: now))
+
+        let summary = fixture.coordinator.mobileActivitySummary(now: now)
+
+        XCTAssertEqual(summary.state, .working)
+        XCTAssertEqual(
+            summary.activeTaskCount,
+            CodexSleepProtectionCoordinator.mobileActivityTaskCountLimit)
+        XCTAssertNil(summary.oldestStartedAt)
+        XCTAssertNil(summary.elapsedSeconds)
     }
 
     private func makeFixture() throws -> (
@@ -117,12 +240,19 @@ final class CodexSleepProtectionCoordinatorTests: XCTestCase {
         return (coordinator, assertions, workspaceCenter)
     }
 
-    private func event(_ name: CodexHookEventName) -> CodexHookEvent {
+    private func event(
+        _ name: CodexHookEventName,
+        sessionID: String = "session",
+        turnID: String? = "turn",
+        agentID: String? = nil,
+        date: Date = Date()
+    ) -> CodexHookEvent {
         CodexHookEvent(
             name: name,
-            sessionID: "session",
-            turnID: "turn",
-            agentID: nil
+            sessionID: sessionID,
+            turnID: turnID,
+            agentID: agentID,
+            date: date
         )
     }
 }
