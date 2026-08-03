@@ -27,6 +27,58 @@ final class StatusBarController {
     private let connectivityMonitor = CodexConnectivityMonitor()
     private let clashRouteViewModel = ClashRouteViewModel()
     private let clashConnectionViewModel = ClashConnectionViewModel()
+    private(set) lazy var mobileDashboardService =
+        MobileDashboardService(
+            snapshotProvider: {
+                [unowned self] masksAccountNames,
+                    lastRouteTestedAt,
+                    selectedModelKeys,
+                    sharesTaskProgressText in
+                MobileDashboardSnapshotBuilder.make(
+                    usageViewModel: self.viewModel,
+                    connectivityMonitor: self.connectivityMonitor,
+                    protectionCoordinator:
+                        self.sleepProtectionCoordinator,
+                    routeViewModel: self.clashRouteViewModel,
+                    connectionViewModel:
+                        self.clashConnectionViewModel,
+                    masksAccountNames:
+                        masksAccountNames,
+                    selectedModelKeys:
+                        selectedModelKeys,
+                    lastRouteTestedAt:
+                        lastRouteTestedAt,
+                    sharesTaskProgressText:
+                        sharesTaskProgressText)
+            },
+            onViewerActivityChanged: { [weak self] isActive in
+                guard let self else { return }
+                if isActive {
+                    self.clashConnectionViewModel
+                        .beginLiveUpdates(
+                            owner:
+                                MobileDashboardService
+                                    .liveUpdateOwner)
+                } else {
+                    self.clashConnectionViewModel
+                        .endLiveUpdates(
+                            owner:
+                                MobileDashboardService
+                                    .liveUpdateOwner)
+                }
+            },
+            refreshRoute: { [weak self] in
+                guard let self else { return }
+                self.clashRouteViewModel.language =
+                    self.viewModel.appLanguage
+                await self.clashRouteViewModel.refresh()
+            },
+            testRoutes: { [weak self] in
+                guard let self else { return }
+                self.clashRouteViewModel.language =
+                    self.viewModel.appLanguage
+                await self.clashRouteViewModel.testRoutes()
+            })
     private lazy var clashRoutePopoverController = ClashRoutePopoverController(
         routeViewModel: clashRouteViewModel,
         connectionViewModel: clashConnectionViewModel,
@@ -44,6 +96,9 @@ final class StatusBarController {
         connectivityMonitor.start()
         clashConnectionViewModel.startBackgroundMonitoring()
         viewModel.flushPendingCloudSyncQueue()
+        mobileDashboardService.startIfEnabled()
+        synchronizeMobileDashboardModelSelection()
+        observeMobileDashboardModelSelection()
     }
 
     private func setupStatusItem() {
@@ -83,6 +138,30 @@ final class StatusBarController {
             _ = coordinator.activeTurnCount
         } onChange: { [weak self] in
             self?.updateStatusItem()
+        }
+
+        observeProperties(viewModel) { viewModel in
+            _ = viewModel.providerUsageSections
+        } onChange: { [weak self] in
+            self?.synchronizeMobileDashboardModelSelection()
+        }
+    }
+
+    private func synchronizeMobileDashboardModelSelection() {
+        mobileDashboardService.initializeModelSelectionIfNeeded(
+            candidates:
+                viewModel.providerUsageSections.flatMap(\.models))
+        viewModel.setMobileDashboardSelectedModelKeys(
+            mobileDashboardService.selectedModelKeys)
+    }
+
+    private func observeMobileDashboardModelSelection() {
+        observeProperties(mobileDashboardService) { service in
+            _ = service.selectedModelKeys
+        } onChange: { [weak self] in
+            guard let self else { return }
+            self.viewModel.setMobileDashboardSelectedModelKeys(
+                self.mobileDashboardService.selectedModelKeys)
         }
     }
 
@@ -301,6 +380,7 @@ final class StatusBarController {
         clashRoutePopoverController.close()
         clashConnectionViewModel.stop()
         connectivityMonitor.stop()
+        mobileDashboardService.stopForApplicationTermination()
     }
 
     /// NSStatusItem.button 在某些 macOS 版本上无 window — 用 button 的全局 frame 反查 screen

@@ -23,6 +23,8 @@ final class UsageViewModel {
     var lastRefreshTime: Date?
     var showWarningPanel: Bool = false
     private(set) var modelQuotaSamples: [String: [ModelQuotaSample]] = [:]
+    private var mobileDashboardSelectedModelKeys =
+        Set<MobileDashboardModelSelectionKey>()
     private var cloudModelQuotaSamples: [String: [ModelQuotaSample]] = [:]
     private var utilizationHistories: [UsageProvider: ModelUtilizationStoreData] = [:]
     private let utilizationStore = ModelUtilizationHistoryStore.shared
@@ -623,6 +625,23 @@ final class UsageViewModel {
         timer = nil
     }
 
+    func setMobileDashboardSelectedModelKeys(
+        _ keys: [MobileDashboardModelSelectionKey]
+    ) {
+        let nextSelection = Set(
+            keys.prefix(
+                MobileDashboardService.maximumSelectedModelCount))
+        guard nextSelection != mobileDashboardSelectedModelKeys else {
+            return
+        }
+        mobileDashboardSelectedModelKeys = nextSelection
+        if let usageData {
+            recordSamples(
+                from: usageData,
+                timestamp: lastRefreshTime ?? usageData.timestamp)
+        }
+    }
+
     func saveAPIKey(_ key: String) -> Bool {
         saveCredential(key, for: .miniMax)
     }
@@ -1164,8 +1183,13 @@ final class UsageViewModel {
         let curveModelIDs = QuotaCurveModelSelector.curveModelIDs(
             in: data.models,
             renderableModelIDs: renderableModelIDs)
+        let sampledModelIDs = Self.sampledModelIDs(
+            curveModelIDs: curveModelIDs,
+            models: data.models,
+            mobileSelectionKeys:
+                mobileDashboardSelectedModelKeys)
 
-        for model in data.models where curveModelIDs.contains(model.id) {
+        for model in data.models where sampledModelIDs.contains(model.id) {
             guard let startTime = model.startTime,
                   let endTime = model.endTime else {
                 continue
@@ -1194,6 +1218,21 @@ final class UsageViewModel {
 
         modelQuotaSamples = nextSamples
         quotaSampleStore.saveAll(modelQuotaSamples)
+    }
+
+    nonisolated static func sampledModelIDs(
+        curveModelIDs: Set<String>,
+        models: [ModelUsageData],
+        mobileSelectionKeys:
+            Set<MobileDashboardModelSelectionKey>
+    ) -> Set<String> {
+        var result = curveModelIDs
+        result.formUnion(
+            models.lazy.filter {
+                mobileSelectionKeys.contains(
+                    $0.mobileDashboardSelectionKey)
+            }.map(\.id))
+        return result
     }
 
     private static func mergedQuotaSamples(_ lhs: [ModelQuotaSample], _ rhs: [ModelQuotaSample]) -> [ModelQuotaSample] {

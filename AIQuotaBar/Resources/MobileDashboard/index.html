@@ -1,0 +1,195 @@
+<!doctype html>
+<html lang="en" data-color-scheme="auto">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, minimum-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+  <meta name="theme-color" content="#000000">
+  <meta name="color-scheme" content="light dark">
+  <meta name="application-name" content="AI Quota">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-title" content="AI Quota">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black">
+  <meta name="referrer" content="no-referrer">
+  <title>AI Quota</title>
+  <link rel="manifest" href="/manifest.webmanifest" data-session-refreshed="false">
+  <link rel="apple-touch-icon" sizes="180x180" href="/apple-touch-icon.png">
+  <link rel="stylesheet" href="/app.css">
+</head>
+<body>
+  <a class="skip-link" href="#main-content">Skip to status</a>
+  <div class="page" id="page">
+    <header class="masthead">
+      <div class="product-mark">
+        <span class="eyebrow">AI QUOTA</span>
+        <span class="machine-name" id="machine-name"></span>
+      </div>
+      <div class="live-state" id="live-state" role="status" aria-live="polite">
+        <span class="state-dot state-waiting"></span>
+        <span id="live-state-text">Connecting to your Mac…</span>
+      </div>
+    </header>
+
+    <main id="main-content">
+      <section class="gate" id="gate" aria-labelledby="gate-title" hidden>
+        <p class="gate-kicker">LOCAL / READ ONLY</p>
+        <h2 id="gate-title">Pair this browser</h2>
+        <p id="gate-copy">Enter the temporary 8-digit pairing code shown in AI Quota Bar settings on your Mac, or scan its QR code.</p>
+        <p class="install-copy" id="install-copy">For a dedicated display, open this page in Safari and choose Add to Home Screen. It installs as AI Quota.</p>
+        <button
+          class="pairing-retry-button"
+          id="pairing-retry-button"
+          type="button"
+          aria-label="Retry secure pairing using the install credential held only in this page's memory."
+          hidden
+        >
+          Retry secure pairing
+        </button>
+        <section class="lan-address-panel pairing-address-panel" aria-label="Saved LAN addresses">
+          <div class="lan-address-heading">
+            <h3 data-address-title>Saved LAN addresses</h3>
+            <button class="lan-address-check" type="button" data-address-check-all>Check all</button>
+          </div>
+          <p class="lan-address-hint" data-address-hint>Enter a saved Mac address and its temporary 8-digit code. Checks never send a token.</p>
+          <form class="lan-address-form" data-address-form>
+            <input type="text" inputmode="url" autocomplete="off" autocapitalize="none" spellcheck="false" maxlength="1024" data-address-input aria-label="LAN IP, host, or complete pair link" placeholder="192.168.1.8 or mac.local:18765">
+            <input class="pairing-code-input" type="text" inputmode="numeric" autocomplete="one-time-code" autocapitalize="none" spellcheck="false" maxlength="8" pattern="[0-9]{8}" data-pairing-code-input aria-label="Temporary 8-digit pairing code from Mac settings" placeholder="8-digit code">
+            <button type="submit" data-address-add>Save / pair</button>
+          </form>
+          <p class="lan-address-feedback" data-address-feedback role="status" aria-live="polite"></p>
+          <ul class="lan-address-list" data-address-list></ul>
+        </section>
+      </section>
+
+      <div id="dashboard" hidden>
+        <section class="task-hero" id="task-hero" aria-labelledby="task-state-title" aria-live="polite">
+          <video
+            class="task-ambient-video"
+            id="wake-ambient-video"
+            src="/wake-ambient.mp4"
+            preload="metadata"
+            muted
+            playsinline
+            loop
+            disablepictureinpicture
+            disableremoteplayback
+            controlslist="nodownload nofullscreen noplaybackrate noremoteplayback"
+            tabindex="-1"
+            aria-hidden="true"
+          ></video>
+          <div class="task-energy-field" aria-hidden="true">
+            <canvas class="matrix-rain-canvas" id="matrix-rain-canvas"></canvas>
+            <div class="matrix-idle-grain"></div>
+            <div class="task-telemetry-marquee" id="task-telemetry-marquee"></div>
+            <div class="task-wave-field">
+              <span class="task-wave"></span>
+              <span class="task-wave"></span>
+              <span class="task-wave"></span>
+              <span class="task-wave"></span>
+              <span class="task-wave"></span>
+            </div>
+          </div>
+          <div class="task-state-copy">
+            <p class="task-kicker" id="task-state-kicker">Codex activity</p>
+            <div class="task-title-line">
+              <p class="task-state-title" id="task-state-title">Idle</p>
+            </div>
+          </div>
+          <div class="task-state-meta">
+            <p class="task-state-detail" id="task-state-detail">No active tasks</p>
+            <p class="task-state-warning" id="task-state-warning" hidden></p>
+            <p class="task-telemetry-line" id="task-duration" hidden></p>
+            <p class="task-telemetry-line" id="task-recent-activity" hidden></p>
+          </div>
+        </section>
+
+        <section class="lan-address-panel disconnect-address-panel" aria-label="Saved LAN addresses">
+          <div class="lan-address-heading">
+            <h3 data-address-title>Saved LAN addresses</h3>
+            <button class="lan-address-check" type="button" data-address-check-all>Check all</button>
+          </div>
+          <p class="lan-address-hint" data-address-hint>Select a saved private LAN address. Checking never sends your token.</p>
+          <form class="lan-address-form" data-address-form>
+            <input type="text" inputmode="url" autocomplete="off" autocapitalize="none" spellcheck="false" maxlength="1024" data-address-input aria-label="LAN IP, host, or complete pair link" placeholder="192.168.1.8 or mac.local:18765">
+            <input class="pairing-code-input" type="text" inputmode="numeric" autocomplete="one-time-code" autocapitalize="none" spellcheck="false" maxlength="8" pattern="[0-9]{8}" data-pairing-code-input aria-label="Temporary 8-digit pairing code from Mac settings" placeholder="8-digit code">
+            <button type="submit" data-address-add>Save / pair</button>
+          </form>
+          <p class="lan-address-feedback" data-address-feedback role="status" aria-live="polite"></p>
+          <ul class="lan-address-list" data-address-list></ul>
+        </section>
+
+        <section class="data-section quota-section" aria-labelledby="quota-title">
+          <div class="section-heading">
+            <h2 id="quota-title">Quota</h2>
+            <time id="quota-time"></time>
+          </div>
+          <div id="quota-errors"></div>
+          <div id="quota-content"></div>
+        </section>
+
+        <section class="protection-section" aria-labelledby="protection-title">
+          <h2 class="ticker-title" id="protection-title">Protection</h2>
+          <div class="ticker-window">
+          <div id="protection-content"></div>
+          </div>
+        </section>
+
+        <section class="data-section status-section route-section" aria-labelledby="route-title">
+          <div class="section-heading">
+            <h2 id="route-title">Route</h2>
+          </div>
+          <div id="route-content"></div>
+        </section>
+
+        <section class="data-section status-section connections-section" aria-labelledby="connections-title">
+          <div class="section-heading">
+            <h2 id="connections-title">Connections</h2>
+            <time id="connections-time"></time>
+          </div>
+          <div id="connections-content"></div>
+        </section>
+      </div>
+    </main>
+
+    <footer>
+      <p id="footer-copy">Local · read only</p>
+      <p id="footer-meta"></p>
+    </footer>
+  </div>
+  <section
+    class="idle-blackout"
+    id="idle-blackout"
+    role="status"
+    aria-live="polite"
+    aria-atomic="true"
+    aria-hidden="true"
+    hidden
+  >
+    <div class="idle-screen-stage" aria-hidden="true">
+      <div class="idle-marquee-lane" style="--idle-row: 0;">
+        <div class="idle-marquee-track"><div class="idle-marquee-group"><span class="idle-marquee-word">IDLE</span><span class="idle-marquee-word">IDLE</span><span class="idle-marquee-word">IDLE</span><span class="idle-marquee-word">IDLE</span></div><div class="idle-marquee-group"><span class="idle-marquee-word">IDLE</span><span class="idle-marquee-word">IDLE</span><span class="idle-marquee-word">IDLE</span><span class="idle-marquee-word">IDLE</span></div></div>
+      </div>
+      <div class="idle-marquee-lane" style="--idle-row: 1;">
+        <div class="idle-marquee-track"><div class="idle-marquee-group"><span class="idle-marquee-word">IDLE</span><span class="idle-marquee-word">IDLE</span><span class="idle-marquee-word">IDLE</span><span class="idle-marquee-word">IDLE</span></div><div class="idle-marquee-group"><span class="idle-marquee-word">IDLE</span><span class="idle-marquee-word">IDLE</span><span class="idle-marquee-word">IDLE</span><span class="idle-marquee-word">IDLE</span></div></div>
+      </div>
+      <div class="idle-marquee-lane" style="--idle-row: 2;">
+        <div class="idle-marquee-track"><div class="idle-marquee-group"><span class="idle-marquee-word">IDLE</span><span class="idle-marquee-word">IDLE</span><span class="idle-marquee-word">IDLE</span><span class="idle-marquee-word">IDLE</span></div><div class="idle-marquee-group"><span class="idle-marquee-word">IDLE</span><span class="idle-marquee-word">IDLE</span><span class="idle-marquee-word">IDLE</span><span class="idle-marquee-word">IDLE</span></div></div>
+      </div>
+      <div class="idle-marquee-lane" style="--idle-row: 3;">
+        <div class="idle-marquee-track"><div class="idle-marquee-group"><span class="idle-marquee-word">IDLE</span><span class="idle-marquee-word">IDLE</span><span class="idle-marquee-word">IDLE</span><span class="idle-marquee-word">IDLE</span></div><div class="idle-marquee-group"><span class="idle-marquee-word">IDLE</span><span class="idle-marquee-word">IDLE</span><span class="idle-marquee-word">IDLE</span><span class="idle-marquee-word">IDLE</span></div></div>
+      </div>
+      <div class="idle-marquee-lane" style="--idle-row: 4;">
+        <div class="idle-marquee-track"><div class="idle-marquee-group"><span class="idle-marquee-word">IDLE</span><span class="idle-marquee-word">IDLE</span><span class="idle-marquee-word">IDLE</span><span class="idle-marquee-word">IDLE</span></div><div class="idle-marquee-group"><span class="idle-marquee-word">IDLE</span><span class="idle-marquee-word">IDLE</span><span class="idle-marquee-word">IDLE</span><span class="idle-marquee-word">IDLE</span></div></div>
+      </div>
+      <div class="idle-marquee-lane" style="--idle-row: 5;">
+        <div class="idle-marquee-track"><div class="idle-marquee-group"><span class="idle-marquee-word">IDLE</span><span class="idle-marquee-word">IDLE</span><span class="idle-marquee-word">IDLE</span><span class="idle-marquee-word">IDLE</span></div><div class="idle-marquee-group"><span class="idle-marquee-word">IDLE</span><span class="idle-marquee-word">IDLE</span><span class="idle-marquee-word">IDLE</span><span class="idle-marquee-word">IDLE</span></div></div>
+      </div>
+      <div class="idle-marquee-lane" style="--idle-row: 6;">
+        <div class="idle-marquee-track"><div class="idle-marquee-group"><span class="idle-marquee-word">IDLE</span><span class="idle-marquee-word">IDLE</span><span class="idle-marquee-word">IDLE</span><span class="idle-marquee-word">IDLE</span></div><div class="idle-marquee-group"><span class="idle-marquee-word">IDLE</span><span class="idle-marquee-word">IDLE</span><span class="idle-marquee-word">IDLE</span><span class="idle-marquee-word">IDLE</span></div></div>
+      </div>
+    </div>
+  </section>
+  <div class="task-watermark" id="task-watermark" aria-hidden="true">Idle</div>
+  <script src="/app.js" defer></script>
+</body>
+</html>

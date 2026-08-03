@@ -95,6 +95,48 @@ final class QuotaCurveFallbackTests: XCTestCase {
         XCTAssertEqual(weeklyTicks.last?.ratio ?? 0, 6.0 / 7.0, accuracy: 0.0001)
     }
 
+    func testSampledModelsUnionDesktopCurvesWithTwoMobileSelections() {
+        let now = Date()
+        let desktopCurve = makeModel(
+            account: "one",
+            name: "5h",
+            duration: 5 * 3_600,
+            remainingPercent: 80,
+            now: now)
+        let mobileOnlyOne = makeModel(
+            account: "one",
+            name: "Daily",
+            duration: 24 * 3_600,
+            remainingPercent: 60,
+            now: now)
+        let mobileOnlyTwo = makeModel(
+            account: "two",
+            name: "Monthly",
+            duration: 30 * 24 * 3_600,
+            remainingPercent: 40,
+            now: now)
+
+        let result = UsageViewModel.sampledModelIDs(
+            curveModelIDs: [desktopCurve.id],
+            models: [
+                desktopCurve,
+                mobileOnlyOne,
+                mobileOnlyTwo,
+            ],
+            mobileSelectionKeys: [
+                mobileOnlyOne.mobileDashboardSelectionKey,
+                mobileOnlyTwo.mobileDashboardSelectionKey,
+            ])
+
+        XCTAssertEqual(
+            result,
+            [
+                desktopCurve.id,
+                mobileOnlyOne.id,
+                mobileOnlyTwo.id,
+            ])
+    }
+
     private func makeModel(
         account: String,
         name: String,

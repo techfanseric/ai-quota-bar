@@ -6,6 +6,7 @@ import SwiftUI
 @MainActor
 struct PreferencesView: View {
     @Bindable var viewModel: UsageViewModel
+    @Bindable var mobileDashboardService: MobileDashboardService
     @State private var selection = PreferencesSelection()
 
     var body: some View {
@@ -30,6 +31,18 @@ struct PreferencesView: View {
                           systemImage: PreferencesTab.sync.systemImage)
                 }
                 .tag(PreferencesTab.sync)
+
+            MobileDashboardPane(
+                viewModel: viewModel,
+                service: mobileDashboardService)
+                .tabItem {
+                    Label(
+                        viewModel.appLanguage
+                            .mobileDashboardTabTitle(),
+                        systemImage:
+                            PreferencesTab.mobile.systemImage)
+                }
+                .tag(PreferencesTab.mobile)
 
             ProvidersPane(viewModel: viewModel)
                 .tabItem {

@@ -2,9 +2,14 @@ import AppKit
 import SwiftUI
 
 final class SettingsWindowController: NSWindowController {
-    init(viewModel: UsageViewModel) {
+    init(
+        viewModel: UsageViewModel,
+        mobileDashboardService: MobileDashboardService
+    ) {
         let hostingController = NSHostingController(
-            rootView: PreferencesView(viewModel: viewModel)
+            rootView: PreferencesView(
+                viewModel: viewModel,
+                mobileDashboardService: mobileDashboardService)
         )
 
         let window = NSWindow(contentViewController: hostingController)
