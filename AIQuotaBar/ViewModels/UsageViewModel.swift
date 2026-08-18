@@ -114,6 +114,12 @@ final class UsageViewModel {
         }
     }
 
+    var leftClickMenuDisplayPreferences: LeftClickMenuDisplayPreferences {
+        didSet {
+            leftClickMenuDisplayPreferences.save()
+        }
+    }
+
     var cloudCurrentWindowVisibilityLimit: CloudDataVisibilityLimit {
         didSet {
             UserDefaults.standard.set(cloudCurrentWindowVisibilityLimit.rawValue, forKey: Self.cloudCurrentWindowVisibilityLimitKey)
@@ -254,6 +260,7 @@ final class UsageViewModel {
         case .codex: return "C"
         case .miniMax: return "M"
         case .glm: return "G"
+        case .kimi: return "K"
         }
     }
 
@@ -380,6 +387,9 @@ final class UsageViewModel {
         switch provider {
         case .codex:
             return true
+        case .kimi:
+            return KeychainService.shared.hasCredential(for: .kimi)
+                || KimiService.shared.hasCLICredential
         default:
             return KeychainService.shared.hasCredential(for: provider)
         }
@@ -428,6 +438,19 @@ final class UsageViewModel {
             }
     }
 
+    var leftClickMenuUsageSections: [UsageData] {
+        providerUsageSections.compactMap { data in
+            let visibleModels = data.models.filter {
+                leftClickMenuDisplayPreferences.isModelVisible($0)
+            }
+            return visibleModels.isEmpty ? nil : data.withModels(visibleModels)
+        }
+    }
+
+    var hasHiddenLeftClickMenuItems: Bool {
+        leftClickMenuDisplayPreferences.hasHiddenItems
+    }
+
     // MARK: - Private
 
     private var timer: Timer?
@@ -459,6 +482,7 @@ final class UsageViewModel {
         self.utilizationHistoryMode = UserDefaults.standard.string(forKey: Self.utilizationHistoryModeKey)
             .flatMap(UtilizationHistoryMode.init(rawValue:))
             ?? .includeCurrent
+        self.leftClickMenuDisplayPreferences = LeftClickMenuDisplayPreferences.load()
         self.cloudCurrentWindowVisibilityLimit = UserDefaults.standard.string(forKey: Self.cloudCurrentWindowVisibilityLimitKey)
             .flatMap(CloudDataVisibilityLimit.init(rawValue:))
             ?? .oneHour
@@ -481,6 +505,40 @@ final class UsageViewModel {
     }
 
     // MARK: - Public Methods
+
+    func isLeftClickMenuAccountVisible(_ key: LeftClickMenuAccountKey) -> Bool {
+        leftClickMenuDisplayPreferences.isAccountVisible(key)
+    }
+
+    func isLeftClickMenuModelVisible(_ model: ModelUsageData) -> Bool {
+        leftClickMenuDisplayPreferences.isModelVisible(model)
+    }
+
+    func setLeftClickMenuAccountVisible(
+        _ isVisible: Bool,
+        key: LeftClickMenuAccountKey
+    ) {
+        var preferences = leftClickMenuDisplayPreferences
+        preferences.setAccountVisible(isVisible, key: key)
+        leftClickMenuDisplayPreferences = preferences
+    }
+
+    func setLeftClickMenuModelVisible(
+        _ isVisible: Bool,
+        model: ModelUsageData
+    ) {
+        var preferences = leftClickMenuDisplayPreferences
+        preferences.setModelVisible(
+            isVisible,
+            key: model.mobileDashboardSelectionKey)
+        leftClickMenuDisplayPreferences = preferences
+    }
+
+    func showAllLeftClickMenuItems() {
+        var preferences = leftClickMenuDisplayPreferences
+        preferences.showAll()
+        leftClickMenuDisplayPreferences = preferences
+    }
 
     /// User-visible refreshes run at least one complete compact-icon self-test
     /// cycle and continue until the request completes. Background timer refreshes opt out.
@@ -604,6 +662,8 @@ final class UsageViewModel {
             return true
         case .glm:
             return false
+        case .kimi:
+            return true
         }
     }
 
@@ -1103,7 +1163,7 @@ final class UsageViewModel {
     /// 跟 StatusBarController displayOrder 对齐：codex 优先。
     /// `combinedUsageData` 输出的 `provider` 字段是"哪个 provider 在结果里最重要"，
     /// 跟数据真实来源保持一致。`WarningPanelController` 等下游仍按自己逻辑取订阅信息。
-    private static let combinedProviderPriority: [UsageProvider] = [.codex, .miniMax]
+    private static let combinedProviderPriority: [UsageProvider] = [.codex, .kimi, .miniMax]
 
     private func combinedUsageData(from providerData: Dictionary<UsageProvider, UsageData>.Values, timestamp: Date) -> UsageData? {
         let models = providerData.flatMap(\.models)

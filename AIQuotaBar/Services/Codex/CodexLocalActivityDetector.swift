@@ -163,6 +163,11 @@ final class CodexLocalActivityDetector: CodexLocalActivityProviding,
     let maximumRolloutScanBytes: Int
     let rolloutReadChunkBytes: Int
 
+    /// Lifecycle records are small, but rollout files can contain individual
+    /// tool-output lines that are hundreds of megabytes. Bootstrap scanning
+    /// skips an oversized line instead of retaining it in memory.
+    private static let maximumBootstrapLineBytes = 16 * 1_024 * 1_024
+
     private let lock = NSLock()
     private var parserStates: [String: ParserState] = [:]
     private let fractionalDateFormatter: ISO8601DateFormatter
@@ -593,11 +598,13 @@ final class CodexLocalActivityDetector: CodexLocalActivityProviding,
 
         var startOffset = state.offset
         var dropsLeadingFragment = false
+        var needsLifecycleBootstrap = false
         let unreadCount = fileSize >= startOffset ? fileSize - startOffset : 0
         if unreadCount > UInt64(maximumRolloutScanBytes) {
             state.resetForReplacement(identity: identity)
             startOffset = fileSize - UInt64(maximumRolloutScanBytes)
             dropsLeadingFragment = startOffset > 0
+            needsLifecycleBootstrap = dropsLeadingFragment
         }
         guard fileSize > startOffset,
               let file = try? FileHandle(forReadingFrom: rolloutURL) else {
@@ -607,6 +614,14 @@ final class CodexLocalActivityDetector: CodexLocalActivityProviding,
         defer { try? file.close() }
 
         do {
+            if needsLifecycleBootstrap {
+                try recoverLifecyclePrefix(
+                    before: startOffset,
+                    from: file,
+                    for: candidate,
+                    into: &state,
+                    fallbackDate: now)
+            }
             try file.seek(toOffset: startOffset)
             var incoming = Data()
             var remaining = Int(fileSize - startOffset)
@@ -646,6 +661,95 @@ final class CodexLocalActivityDetector: CodexLocalActivityProviding,
             state.resetForReplacement(identity: identity)
         }
         prune(&state, now: now)
+    }
+
+    /// Replays only lifecycle metadata before the bounded tail window. This
+    /// preserves the low-memory tail parser while still recovering a running
+    /// turn whose `task_started` record is older than that window.
+    private func recoverLifecyclePrefix(
+        before boundary: UInt64,
+        from file: FileHandle,
+        for candidate: Candidate,
+        into state: inout ParserState,
+        fallbackDate: Date
+    ) throws {
+        guard boundary > 0 else { return }
+        try file.seek(toOffset: 0)
+
+        var line = Data()
+        var discardingOversizedLine = false
+        var lineStartOffset: UInt64 = 0
+
+        while lineStartOffset < boundary,
+              let chunk = try file.read(upToCount: rolloutReadChunkBytes),
+              !chunk.isEmpty {
+            var cursor = chunk.startIndex
+            while cursor < chunk.endIndex {
+                let remainder = chunk[cursor...]
+                let newline = remainder.firstIndex(of: 0x0A)
+                let segmentEnd = newline ?? chunk.endIndex
+                let segment = chunk[cursor..<segmentEnd]
+
+                if !discardingOversizedLine {
+                    if line.count + segment.count
+                        <= Self.maximumBootstrapLineBytes {
+                        line.append(contentsOf: segment)
+                    } else {
+                        line.removeAll(keepingCapacity: false)
+                        discardingOversizedLine = true
+                    }
+                }
+
+                guard let newline else { break }
+                let bytesConsumed = UInt64(
+                    chunk.distance(from: chunk.startIndex, to: newline) + 1)
+                if !discardingOversizedLine {
+                    parseLifecycleBootstrapLine(
+                        line,
+                        for: candidate,
+                        into: &state,
+                        fallbackDate: fallbackDate)
+                }
+                line.removeAll(keepingCapacity: true)
+                discardingOversizedLine = false
+                lineStartOffset = try file.offset() - UInt64(chunk.count)
+                    + bytesConsumed
+                if lineStartOffset >= boundary { return }
+                cursor = chunk.index(after: newline)
+            }
+        }
+    }
+
+    private func parseLifecycleBootstrapLine(
+        _ data: Data,
+        for candidate: Candidate,
+        into state: inout ParserState,
+        fallbackDate: Date
+    ) {
+        guard let root = try? JSONSerialization.jsonObject(with: data)
+            as? [String: Any],
+              let rootType = root["type"] as? String else { return }
+
+        if rootType == "session_meta" {
+            parseLine(
+                data,
+                for: candidate,
+                into: &state,
+                fallbackDate: fallbackDate)
+            return
+        }
+        guard rootType == "event_msg",
+              let payload = root["payload"] as? [String: Any],
+              let eventType = payload["type"] as? String,
+              [
+                  "task_started", "task_complete", "turn_aborted",
+                  "task_aborted",
+              ].contains(eventType) else { return }
+        parseLine(
+            data,
+            for: candidate,
+            into: &state,
+            fallbackDate: fallbackDate)
     }
 
     private func parseLine(

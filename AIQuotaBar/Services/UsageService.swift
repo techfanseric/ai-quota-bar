@@ -26,6 +26,8 @@ final class UsageService {
         case .codex:
             // 适配层 CodexService 自管凭证存储；这里不再校验
             return credential.trimmingCharacters(in: .whitespacesAndNewlines)
+        case .kimi:
+            return credential.trimmingCharacters(in: .whitespacesAndNewlines)
         }
     }
 
@@ -224,6 +226,9 @@ final class UsageService {
             // codexbar 自管凭证（~/.codex + ~/.codexbar），不在 Keychain；
             // 直接交给适配层处理，未配置会在内部抛 .unauthorized。
             return try await CodexService.shared.fetchUsage()
+        case .kimi:
+            let apiKey = await KeychainService.shared.credential(for: .kimi)
+            return try await KimiService.shared.fetchUsage(apiKey: apiKey)
         case .miniMax, .glm:
             guard let credential = await KeychainService.shared
                 .credential(for: provider) else {
@@ -242,6 +247,8 @@ final class UsageService {
         case .codex:
             // 外层 switch 已把 .codex 走 CodexService，这里不可达
             return try await CodexService.shared.fetchUsage()
+        case .kimi:
+            return try await KimiService.shared.fetchUsage(apiKey: credential)
         }
     }
 
@@ -487,6 +494,8 @@ final class UsageService {
             return try await testGLMConnection(credentialInput: credential)
         case .codex:
             return try await CodexService.shared.testConnection()
+        case .kimi:
+            return try await KimiService.shared.testConnection(apiKey: credential)
         }
     }
 

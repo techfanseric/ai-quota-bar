@@ -4,9 +4,10 @@ enum UsageProvider: String, CaseIterable, Codable, Identifiable {
     case miniMax = "minimax"
     case glm = "glm"
     case codex = "codex"
+    case kimi = "kimi"
 
     static var allCases: [UsageProvider] {
-        [.miniMax, .codex]
+        [.miniMax, .codex, .kimi]
     }
 
     var id: String { rawValue }
@@ -16,6 +17,7 @@ enum UsageProvider: String, CaseIterable, Codable, Identifiable {
         case .miniMax: return "MiniMax"
         case .glm: return "GLM"
         case .codex: return "Codex"
+        case .kimi: return "Kimi"
         }
     }
 
@@ -24,6 +26,7 @@ enum UsageProvider: String, CaseIterable, Codable, Identifiable {
         case .miniMax: return "apiKey"
         case .glm: return "glmCredential"
         case .codex: return "codexCredential"
+        case .kimi: return "kimiCodeAPIKey"
         }
     }
 

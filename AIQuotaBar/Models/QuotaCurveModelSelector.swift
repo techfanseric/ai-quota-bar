@@ -2,8 +2,9 @@ import Foundation
 
 /// Chooses which current quota windows receive area curves.
 ///
-/// Existing short windows remain curves. For each Codex account without a
-/// visible short curve, the canonical Weekly window is promoted as a fallback.
+/// Existing short windows remain curves. An explicitly named Codex 5h window
+/// takes priority even when incomplete cloud metadata prevents duration-based
+/// classification. Weekly is promoted only when the account has no 5h curve.
 enum QuotaCurveModelSelector {
     static func curveModelIDs(
         in models: [ModelUsageData],
@@ -28,11 +29,14 @@ enum QuotaCurveModelSelector {
                     && !$0.isFullQuotaUnused
                     && !$0.isExhaustedCurrentInterval
             }
-            guard !hasVisibleShortCurve,
-                  let weekly = preferredWeeklyWindow(in: accountModels) else {
+            guard !hasVisibleShortCurve else {
                 continue
             }
-            result.insert(weekly.id)
+            if let fiveHour = preferredFiveHourWindow(in: accountModels) {
+                result.insert(fiveHour.id)
+            } else if let weekly = preferredWeeklyWindow(in: accountModels) {
+                result.insert(weekly.id)
+            }
         }
 
         return result
@@ -52,6 +56,23 @@ enum QuotaCurveModelSelector {
                 return lhs.modelName.localizedStandardCompare(rhs.modelName)
                     == .orderedAscending
             }
+    }
+
+    private static func preferredFiveHourWindow(
+        in models: [ModelUsageData]
+    ) -> ModelUsageData? {
+        models.first { model in
+            guard model.provider == .codex,
+                  model.progressBarPercentOverride == nil else {
+                return false
+            }
+            let name = model.modelName
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+                .lowercased()
+            return name == "5h"
+                || name.contains("5-hour")
+                || name.contains("5 hour")
+        }
     }
 
     private static func weeklyPriority(_ model: ModelUsageData) -> Int {

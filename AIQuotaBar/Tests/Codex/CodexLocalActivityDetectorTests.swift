@@ -179,6 +179,49 @@ final class CodexLocalActivityDetectorTests: XCTestCase {
             ["Finished the safe parser fixture"])
     }
 
+    func testBootstrapRecoversActiveTurnBeforeBoundedTailWindow() throws {
+        let fixture = try makeFixture()
+        defer { fixture.cleanup() }
+        let now = Date(timeIntervalSince1970: 16_000)
+        let rolloutURL = fixture.directory
+            .appendingPathComponent("large-active.jsonl")
+        let oversizedToolOutput = try responseItemRecord(
+            type: "function_call_output",
+            fields: [
+                "call_id": "large-output",
+                "output": String(repeating: "x", count: 17 * 1_024 * 1_024),
+            ],
+            timestamp: now.addingTimeInterval(-5))
+        try writeRollout([
+            try eventRecord(
+                "task_started",
+                turnID: "large-active-turn",
+                timestamp: now.addingTimeInterval(-10)),
+            oversizedToolOutput,
+            try commentaryRecord(
+                "Still running after a large tool result",
+                timestamp: now.addingTimeInterval(-1)),
+        ], to: rolloutURL)
+        try fixture.insert(
+            id: "large-active-thread",
+            rolloutURL: rolloutURL,
+            updatedAt: 15_999)
+
+        let snapshot = CodexLocalActivityDetector(
+            stateDatabaseURL: fixture.databaseURL,
+            recentActivityWindow: 3_600,
+            candidateLimit: 32,
+            maximumRolloutScanBytes: 64 * 1_024,
+            rolloutReadChunkBytes: 4 * 1_024
+        ).detectSnapshot(now: now)
+
+        XCTAssertEqual(snapshot.activeSessionIDs, ["large-active-thread"])
+        XCTAssertEqual(
+            snapshot.sessionActivities["large-active-thread"]?
+                .progressLines.map(\.text),
+            ["Still running after a large tool result"])
+    }
+
     func testTruncateAndAtomicReplaceRebuildParserState() throws {
         let fixture = try makeFixture()
         defer { fixture.cleanup() }

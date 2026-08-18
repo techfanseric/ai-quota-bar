@@ -3,6 +3,6 @@ import XCTest
 
 final class PlaceholderTests: XCTestCase {
     func test_testsTargetLinksBusinessModule() {
-        XCTAssertEqual(UsageProvider.allCases, [.miniMax, .codex])
+        XCTAssertEqual(UsageProvider.allCases, [.miniMax, .codex, .kimi])
     }
 }

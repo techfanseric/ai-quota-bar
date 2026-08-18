@@ -507,17 +507,17 @@ extension AppLanguage {
 
     func mobileDashboardIdleBlackoutMarqueeTitle() -> String {
         switch self {
-        case .english: return "Full-screen marquee while idle"
-        case .simplifiedChinese: return "空闲时仅显示全屏跑马灯"
+        case .english: return "OLED-safe idle screen"
+        case .simplifiedChinese: return "空闲时显示 OLED 屏保"
         }
     }
 
     func mobileDashboardIdleBlackoutMarqueeDescription() -> String {
         switch self {
         case .english:
-            return "On confirmed idle, replaces the dashboard with a moving status marquee on pure black. Stale, unavailable, and offline states never use this mode."
+            return "On confirmed idle, shows one oversized flat-color status word that slowly moves across the pure-black screen. Stale, unavailable, and offline states never use this mode."
         case .simplifiedChinese:
-            return "仅在确认空闲时，以纯黑背景的动态状态跑马灯替代看板；状态过期、不可用或离线时绝不会进入此模式。"
+            return "仅在确认空闲时，以纯黑背景和缓慢跨屏换位的单色巨型状态字替代看板；状态过期、不可用或离线时绝不会进入此模式。"
         }
     }
 

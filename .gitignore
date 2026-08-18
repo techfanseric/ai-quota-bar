@@ -6,5 +6,8 @@ dist/
 dist-debug/
 *.dmg
 
+# Local QA artifacts
+/tmp/
+
 # macOS
 .DS_Store
