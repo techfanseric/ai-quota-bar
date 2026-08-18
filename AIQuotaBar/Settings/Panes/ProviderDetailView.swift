@@ -7,11 +7,15 @@ struct ProviderDetailView: View {
     let provider: UsageProvider
     @Bindable var viewModel: UsageViewModel
     @Binding var miniMaxCredential: String
+    @Binding var kimiCredential: String
     @Binding var codexSourceMode: CodexDataSourceMode
     let codexAccounts: [CodexAccountDraft]
     let miniMaxTestResult: InlineFeedback?
+    let kimiTestResult: InlineFeedback?
     let isTestingMiniMax: Bool
+    let isTestingKimi: Bool
     let miniMaxInputID: UUID
+    let kimiInputID: UUID
     let onTestConnection: (UsageProvider) -> Void
     let onSaveCredential: (String, UsageProvider) -> Bool
     let onAddCodexAccount: () -> Void
@@ -59,6 +63,18 @@ struct ProviderDetailView: View {
                 onRefresh: onRefreshCodexAccount,
                 onSignOut: onSignOutCodexAccount,
                 onSourceModeChange: onUpdateCodexSourceMode
+            )
+        case .kimi:
+            ProviderCredentialSection(
+                provider: .kimi,
+                credential: $kimiCredential,
+                inputID: kimiInputID,
+                language: language,
+                isTesting: isTestingKimi,
+                feedback: kimiTestResult,
+                allowsEmptyCredentialTest: true,
+                onTest: { onTestConnection(.kimi) },
+                onSave: { _ = onSaveCredential(kimiCredential, .kimi) }
             )
         case .glm:
             EmptyView()

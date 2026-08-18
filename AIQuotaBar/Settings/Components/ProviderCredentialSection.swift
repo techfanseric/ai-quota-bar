@@ -9,6 +9,7 @@ struct ProviderCredentialSection: View {
     let language: AppLanguage
     let isTesting: Bool
     let feedback: InlineFeedback?
+    var allowsEmptyCredentialTest: Bool = false
     let onTest: () -> Void
     let onSave: () -> Void
 
@@ -43,7 +44,10 @@ struct ProviderCredentialSection: View {
                 }
                 .buttonStyle(.bordered)
                 .controlSize(.small)
-                .disabled(credential.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || isTesting)
+                .disabled(
+                    (!allowsEmptyCredentialTest
+                        && credential.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                        || isTesting)
 
                 if isTesting {
                     ProgressView()

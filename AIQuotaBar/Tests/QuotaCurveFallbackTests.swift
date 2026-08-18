@@ -33,7 +33,7 @@ final class QuotaCurveFallbackTests: XCTestCase {
         XCTAssertTrue(selected.contains(accountBWeekly.id))
     }
 
-    func testCollapsedOrExhaustedShortWindowDoesNotBlockWeeklyFallback() {
+    func testFiveHourRemainsPreferredWhenCollapsedOrExhausted() {
         let now = Date()
         for remainingPercent in [100, 0] {
             let fiveHour = makeModel(
@@ -53,8 +53,46 @@ final class QuotaCurveFallbackTests: XCTestCase {
                 in: [fiveHour, weekly],
                 renderableModelIDs: [fiveHour.id, weekly.id])
 
-            XCTAssertTrue(selected.contains(weekly.id))
+            XCTAssertEqual(selected, [fiveHour.id])
         }
+    }
+
+    func testFiveHourBecomesCurveWhenItIsTheOnlyWindowWithInvalidDurationMetadata() {
+        let now = Date()
+        let fiveHour = makeModel(
+            account: "account@example.com",
+            name: "5h",
+            duration: 30 * 86_400,
+            remainingPercent: 17,
+            now: now)
+
+        let selected = QuotaCurveModelSelector.curveModelIDs(
+            in: [fiveHour],
+            renderableModelIDs: [fiveHour.id])
+
+        XCTAssertEqual(selected, [fiveHour.id])
+    }
+
+    func testFiveHourStillWinsWhenItsDurationMetadataIsInvalid() {
+        let now = Date()
+        let fiveHour = makeModel(
+            account: "account@example.com",
+            name: "5h",
+            duration: 30 * 86_400,
+            remainingPercent: 17,
+            now: now)
+        let weekly = makeModel(
+            account: "account@example.com",
+            name: "Weekly",
+            duration: 7 * 86_400,
+            remainingPercent: 60,
+            now: now)
+
+        let selected = QuotaCurveModelSelector.curveModelIDs(
+            in: [fiveHour, weekly],
+            renderableModelIDs: [fiveHour.id, weekly.id])
+
+        XCTAssertEqual(selected, [fiveHour.id])
     }
 
     func testCanonicalWeeklyWinsOverExtraWeeklyWindow() {

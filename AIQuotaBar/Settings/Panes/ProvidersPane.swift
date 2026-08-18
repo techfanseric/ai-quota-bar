@@ -9,10 +9,14 @@ struct ProvidersPane: View {
     @State private var selectedProvider: UsageProvider? = nil
     @State private var miniMaxCredential: String = ""
     @State private var miniMaxInputID: UUID = UUID()
+    @State private var kimiCredential: String = ""
+    @State private var kimiInputID: UUID = UUID()
     @State private var codexSourceMode: CodexDataSourceMode = .default
     @State private var codexAccounts: [CodexAccountDraft] = []
     @State private var miniMaxTestResult: InlineFeedback? = nil
     @State private var isTestingMiniMax: Bool = false
+    @State private var kimiTestResult: InlineFeedback? = nil
+    @State private var isTestingKimi: Bool = false
 
     private var language: AppLanguage { viewModel.appLanguage }
 
@@ -36,11 +40,15 @@ struct ProvidersPane: View {
                 provider: currentProvider,
                 viewModel: viewModel,
                 miniMaxCredential: $miniMaxCredential,
+                kimiCredential: $kimiCredential,
                 codexSourceMode: $codexSourceMode,
                 codexAccounts: codexAccounts,
                 miniMaxTestResult: miniMaxTestResult,
+                kimiTestResult: kimiTestResult,
                 isTestingMiniMax: isTestingMiniMax,
+                isTestingKimi: isTestingKimi,
                 miniMaxInputID: miniMaxInputID,
+                kimiInputID: kimiInputID,
                 onTestConnection: testConnection,
                 onSaveCredential: saveCredential,
                 onAddCodexAccount: addCodexAccount,
@@ -113,6 +121,7 @@ struct ProvidersPane: View {
         case .miniMax: return "circle.hexagongrid"
         case .codex: return "terminal"
         case .glm: return "rectangle.grid.2x2"
+        case .kimi: return "moon.stars"
         }
     }
 
@@ -121,6 +130,8 @@ struct ProvidersPane: View {
     private func loadFromViewModel() {
         miniMaxCredential = KeychainService.shared.getCredential(for: .miniMax) ?? ""
         miniMaxInputID = UUID()
+        kimiCredential = KeychainService.shared.getCredential(for: .kimi) ?? ""
+        kimiInputID = UUID()
         codexSourceMode = CodexService.shared.sourceMode
         codexAccounts = CodexAccountCoordinator.shared.listAccountDrafts()
     }
@@ -191,6 +202,7 @@ struct ProvidersPane: View {
         case .miniMax: return miniMaxCredential
         case .codex: return ""
         case .glm: return ""
+        case .kimi: return kimiCredential
         }
     }
 
@@ -199,6 +211,7 @@ struct ProvidersPane: View {
         case .miniMax: miniMaxTestResult = feedback
         case .codex: break
         case .glm: break
+        case .kimi: kimiTestResult = feedback
         }
     }
 
@@ -207,6 +220,7 @@ struct ProvidersPane: View {
         case .miniMax: isTestingMiniMax = isTesting
         case .codex: break
         case .glm: break
+        case .kimi: isTestingKimi = isTesting
         }
     }
 

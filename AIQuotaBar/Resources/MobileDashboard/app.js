@@ -22,6 +22,8 @@
   const CONTENT_ROTATE_MS = 180_000;
   const STATUS_BOOST_MS = 2_400;
   const IDLE_CONFIRM_MS = 2_000;
+  const IDLE_SCREENSAVER_MOVE_MIN_MS = 7_000;
+  const IDLE_SCREENSAVER_MOVE_JITTER_MS = 5_000;
   const MAX_RETRY_MS = 30_000;
   const TASK_TELEMETRY_MAX_LANES = 5;
   const TASK_TELEMETRY_REFERENCE_ROOT_FONT_SIZE_PX = 14;
@@ -625,8 +627,7 @@
     footerCopy: document.getElementById("footer-copy"),
     footerMeta: document.getElementById("footer-meta"),
     idleBlackout: document.getElementById("idle-blackout"),
-    idleMarqueeLanes: document.querySelectorAll(".idle-marquee-lane"),
-    idleMarqueeWords: document.querySelectorAll(".idle-marquee-word"),
+    idleScreensaverWord: document.querySelector(".idle-screensaver-word"),
   };
   const taskTelemetryLaneStates = new WeakMap();
 
@@ -657,6 +658,8 @@
     contentRotateTimer: null,
     statusBoostTimer: null,
     idleConfirmTimer: null,
+    idleScreensaverTimer: null,
+    idleScreensaverPosition: null,
     displayedActiveTaskCount: null,
     explicitHasActiveTasks: null,
     activitySummary: null,
@@ -774,55 +777,53 @@
     return result;
   }
 
-  function idleScreensaverProfile(random = Math.random) {
-    const sizes = shuffledCopy([7.5, 8.5, 9.5, 10.5, 12, 13.5, 15], random);
-    const durations = shuffledCopy([29, 34, 40, 47, 55, 64, 74], random);
-    const opacities = shuffledCopy([0.15, 0.17, 0.19, 0.22, 0.25, 0.28, 0.31], random);
-    const firstDirection = Number(random()) < 0.5 ? 0 : 1;
-    return sizes.map((size, index) => {
-      const duration = durations[index];
-      const delaySample = Number(random());
-      const delayUnit = Number.isFinite(delaySample)
-        ? Math.min(0.999_999, Math.max(0, delaySample))
-        : 0.5;
-      return {
-        size,
-        duration,
-        opacity: opacities[index],
-        delay: -(duration * delayUnit),
-        direction: (index + firstDirection) % 2 === 0 ? "normal" : "reverse",
-        wordScales: shuffledCopy([0.86, 0.95, 1.04, 1.13], random),
-      };
-    });
+  function randomUnit(random = Math.random) {
+    const sample = Number(random());
+    return Number.isFinite(sample)
+      ? Math.min(0.999_999, Math.max(0, sample))
+      : 0.5;
+  }
+
+  function idleScreensaverPosition(random = Math.random, previous = null) {
+    let x = 36 + randomUnit(random) * 28;
+    let y = 32 + randomUnit(random) * 36;
+    if (previous && Math.hypot(x - previous.x, y - previous.y) < 15) {
+      x = previous.x < 50 ? 64 : 36;
+      y = previous.y < 50 ? 68 : 32;
+    }
+    return {
+      x: Number(x.toFixed(2)),
+      y: Number(y.toFixed(2)),
+    };
   }
 
   function randomizeIdleScreensaver(random = Math.random) {
-    const profile = idleScreensaverProfile(random);
-    const driftSample = Number(random());
-    const driftUnit = Number.isFinite(driftSample)
-      ? Math.min(0.999_999, Math.max(0, driftSample))
-      : 0.5;
-    elements.idleBlackout.style.setProperty(
-      "--idle-drift-duration",
-      `${24 + Math.round(driftUnit * 14)}s`,
+    const position = idleScreensaverPosition(
+      random,
+      state.idleScreensaverPosition,
     );
-    elements.idleMarqueeLanes.forEach((lane, laneIndex) => {
-      const laneProfile = profile[laneIndex];
-      if (!laneProfile) return;
-      lane.style.setProperty("--idle-size", `${laneProfile.size}vh`);
-      lane.style.setProperty("--idle-duration", `${laneProfile.duration}s`);
-      lane.style.setProperty("--idle-opacity", String(laneProfile.opacity));
-      lane.style.setProperty("--idle-delay", `${laneProfile.delay.toFixed(2)}s`);
-      lane.style.setProperty("--idle-direction", laneProfile.direction);
-      lane.querySelectorAll(".idle-marquee-group").forEach((group) => {
-        group.querySelectorAll(".idle-marquee-word").forEach((word, wordIndex) => {
-          word.style.setProperty(
-            "--idle-word-scale",
-            String(laneProfile.wordScales[wordIndex] || 1),
-          );
-        });
-      });
-    });
+    state.idleScreensaverPosition = position;
+    elements.idleScreensaverWord.style.setProperty("--idle-x", `${position.x}vw`);
+    elements.idleScreensaverWord.style.setProperty("--idle-y", `${position.y}vh`);
+    return position;
+  }
+
+  function stopIdleScreensaverMotion() {
+    window.clearTimeout(state.idleScreensaverTimer);
+    state.idleScreensaverTimer = null;
+  }
+
+  function scheduleIdleScreensaverMove(random = Math.random) {
+    stopIdleScreensaverMotion();
+    if (!state.idleBlackoutActive) return;
+    const delay = IDLE_SCREENSAVER_MOVE_MIN_MS
+      + Math.round(randomUnit(random) * IDLE_SCREENSAVER_MOVE_JITTER_MS);
+    state.idleScreensaverTimer = window.setTimeout(() => {
+      state.idleScreensaverTimer = null;
+      if (!state.idleBlackoutActive) return;
+      randomizeIdleScreensaver();
+      scheduleIdleScreensaverMove();
+    }, delay);
   }
 
   function idleBlackoutEligible({ enabled, activityState, connected, hidden }) {
@@ -845,11 +846,13 @@
       elements.page.setAttribute("aria-hidden", "true");
       elements.idleBlackout.hidden = false;
       elements.idleBlackout.setAttribute("aria-hidden", "false");
+      scheduleIdleScreensaverMove();
       stopTaskRain({ clear: true });
       stopTaskTelemetryMotion();
       clearDimming();
       return;
     }
+    stopIdleScreensaverMotion();
     delete document.body.dataset.idleBlackout;
     elements.page.inert = false;
     elements.page.removeAttribute("aria-hidden");
@@ -909,9 +912,7 @@
     document.querySelector("#connections-title").textContent = t("connectionsTitle");
     elements.taskStateKicker.textContent = t("taskStateKicker");
     elements.idleBlackout.setAttribute("aria-label", t("idleBlackout"));
-    elements.idleMarqueeWords.forEach((word) => {
-      word.textContent = t("idleBlackout");
-    });
+    elements.idleScreensaverWord.textContent = t("idleBlackout");
     elements.footerCopy.textContent = t("footer");
     refreshWakeMediaState();
     renderAddressPanels();

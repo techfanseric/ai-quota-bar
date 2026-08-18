@@ -4,6 +4,7 @@ import Foundation
 enum MenuBarContentSelection: String, CaseIterable, Codable, Identifiable {
     case automatic
     case codex
+    case kimi
     case miniMax = "minimax"
 
     static let storageKey = "menuBarContentSelection"
@@ -14,6 +15,7 @@ enum MenuBarContentSelection: String, CaseIterable, Codable, Identifiable {
         switch self {
         case .automatic: return nil
         case .codex: return .codex
+        case .kimi: return .kimi
         case .miniMax: return .miniMax
         }
     }
@@ -172,6 +174,7 @@ struct MenuBarSnapshot: Equatable {
     var providerInitial: String {
         switch provider {
         case .codex: return "C"
+        case .kimi: return "K"
         case .miniMax: return "M"
         case .glm: return "G"
         }

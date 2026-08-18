@@ -74,9 +74,8 @@ test("HTML is unnumbered, installable, and exposes the compact monitor regions",
   assert.equal((html.match(/<canvas/g) || []).length, 1);
   assert.doesNotMatch(html, /wake-media-(?:button|status)|Enable while working/);
   assert.match(html, /class="idle-blackout"[\s\S]*class="idle-screen-stage"/);
-  assert.equal((html.match(/class="idle-marquee-lane"/g) || []).length, 7);
-  assert.equal((html.match(/class="idle-marquee-group"/g) || []).length, 14);
-  assert.equal((html.match(/class="idle-marquee-word"/g) || []).length, 56);
+  assert.equal((html.match(/class="idle-screensaver-field"/g) || []).length, 1);
+  assert.equal((html.match(/class="idle-screensaver-word"/g) || []).length, 1);
   assert.match(html, /id="idle-blackout"[\s\S]*aria-live="polite"[\s\S]*aria-hidden="true"[\s\S]*hidden/);
   assert.doesNotMatch(html, /id="task-state-symbol"/);
   assert.match(html, /class="ticker-window"/);
@@ -125,7 +124,7 @@ test("dashboard appearance is allowlisted, themeable, and keeps OLED blackout bl
   assert.match(script, /cssToken\("--chart-axis"/);
   assert.match(script, /cssToken\("--rain-rgb"/);
   assert.doesNotMatch(script, /context\.(?:fillStyle|strokeStyle) = "#[0-9a-fA-F]{6}"/);
-  assert.match(css, /\.idle-blackout\s*\{[^}]*background:\s*oklch\(0\.015 0 0\)/s);
+  assert.match(css, /\.idle-blackout\s*\{[^}]*background:\s*#000000/s);
 });
 
 test("viewport and iOS gestures keep browser and standalone displays at 1x", async () => {
@@ -251,8 +250,6 @@ test("all authored keyframe properties are compositor-friendly", async () => {
   const css = await readText("app.css");
   const keyframeNames = [...css.matchAll(/@keyframes\s+([\w-]+)/g)].map((match) => match[1]);
   assert.deepEqual(keyframeNames.sort(), [
-    "idle-monochrome-drift",
-    "idle-screen-row",
     "matrix-idle-breathe",
     "protection-ticker",
     "task-wave-travel",
@@ -1047,11 +1044,11 @@ test("idle blackout requires a live confirmed idle signal and isolates the dashb
   const css = await readText("app.css");
   const script = await readText("app.js");
   const idleBlackoutEligible = namedFunction(script, "idleBlackoutEligible");
-  const shuffledCopy = namedFunction(script, "shuffledCopy");
-  const idleScreensaverProfile = namedFunction(
+  const randomUnit = namedFunction(script, "randomUnit");
+  const idleScreensaverPosition = namedFunction(
     script,
-    "idleScreensaverProfile",
-    `const shuffledCopy = ${shuffledCopy.toString()};`,
+    "idleScreensaverPosition",
+    `const randomUnit = ${randomUnit.toString()};`,
   );
   const seededRandom = (initialSeed) => {
     let seed = initialSeed >>> 0;
@@ -1060,14 +1057,18 @@ test("idle blackout requires a live confirmed idle signal and isolates the dashb
       return seed / 0x1_0000_0000;
     };
   };
-  const firstProfile = idleScreensaverProfile(seededRandom(1));
-  const secondProfile = idleScreensaverProfile(seededRandom(2));
-  assert.equal(firstProfile.length, 7);
-  assert.equal(new Set(firstProfile.map((lane) => lane.size)).size, 7);
-  assert.equal(new Set(firstProfile.map((lane) => lane.duration)).size, 7);
-  assert.equal(new Set(firstProfile.map((lane) => lane.opacity)).size, 7);
-  assert.ok(firstProfile.every((lane) => new Set(lane.wordScales).size === 4));
-  assert.notDeepEqual(firstProfile, secondProfile, "each IDLE entry gets a fresh layout");
+  const firstPosition = idleScreensaverPosition(seededRandom(1));
+  const secondPosition = idleScreensaverPosition(seededRandom(2));
+  const nextPosition = idleScreensaverPosition(seededRandom(3), firstPosition);
+  for (const position of [firstPosition, secondPosition, nextPosition]) {
+    assert.ok(position.x >= 36 && position.x <= 64);
+    assert.ok(position.y >= 32 && position.y <= 68);
+  }
+  assert.notDeepEqual(firstPosition, secondPosition, "each IDLE entry gets a fresh position");
+  assert.ok(
+    Math.hypot(nextPosition.x - firstPosition.x, nextPosition.y - firstPosition.y) >= 15,
+    "successive positions visibly move the oversized word",
+  );
   const eligible = {
     enabled: true,
     activityState: "idle",
@@ -1085,6 +1086,7 @@ test("idle blackout requires a live confirmed idle signal and isolates the dashb
 
   const setSource = namedFunction(script, "setIdleBlackout").toString();
   const randomizeSource = namedFunction(script, "randomizeIdleScreensaver").toString();
+  const scheduleSource = namedFunction(script, "scheduleIdleScreensaverMove").toString();
   const envelopeSource = namedFunction(script, "renderEnvelope").toString();
   const disconnectSource = namedFunction(script, "disconnect").toString();
   assert.match(script, /taskIdle: "Idle",\s*idleBlackout: "IDLE"/);
@@ -1100,8 +1102,12 @@ test("idle blackout requires a live confirmed idle signal and isolates the dashb
       < setSource.indexOf("elements.idleBlackout.hidden = false"),
     "IDLE randomness is applied once before the screen becomes visible",
   );
-  assert.match(randomizeSource, /--idle-word-scale/);
-  assert.match(randomizeSource, /--idle-drift-duration/);
+  assert.match(randomizeSource, /--idle-x/);
+  assert.match(randomizeSource, /--idle-y/);
+  assert.match(setSource, /scheduleIdleScreensaverMove\(\)/);
+  assert.match(setSource, /stopIdleScreensaverMotion\(\)/);
+  assert.match(scheduleSource, /window\.setTimeout/);
+  assert.match(scheduleSource, /randomizeIdleScreensaver\(\)/);
   assert.match(setSource, /stopTaskRain\(\{ clear: true \}\)/);
   assert.doesNotMatch(setSource, /connect\(|disconnect\(|localStorage|sessionStorage/);
   assert.match(disconnectSource, /state\.connected = false;[\s\S]*setIdleBlackout\(false\)/);
@@ -1110,26 +1116,29 @@ test("idle blackout requires a live confirmed idle signal and isolates the dashb
     css,
     /body\[data-idle-blackout="true"\] \.skip-link[\s\S]*display:\s*none/,
   );
-  assert.match(css, /\.idle-blackout\s*\{[^}]*background:\s*oklch\(0\.015 0 0\)/);
-  assert.match(css, /animation:\s*idle-screen-row var\(--idle-duration, 47s\) linear infinite/);
-  assert.match(css, /idle-monochrome-drift[\s\S]*var\(--idle-drift-duration, 28s\)[\s\S]*cubic-bezier\(0\.65, 0, 0\.35, 1\)/);
-  assert.match(css, /font-size:\s*calc\(var\(--idle-size, 10vh\) \* var\(--idle-word-scale, 1\)\)/);
+  assert.match(css, /\.idle-blackout\s*\{[^}]*background:\s*#000000/);
+  assert.match(css, /\.idle-screensaver-field\s*\{[^}]*inset:\s*0/s);
+  assert.match(css, /\.idle-screensaver-word\s*\{[^}]*inset-block-start:\s*0/s);
+  assert.match(css, /\.idle-screensaver-word\s*\{[^}]*inset-inline-start:\s*0/s);
+  assert.match(css, /font-size:\s*min\(80vh, 36vw\)/);
   assert.match(
     css,
-    /\.idle-screen-stage\s*\{[^}]*display:\s*grid;[^}]*grid-template-rows:\s*repeat\(7, minmax\(0, 1fr\)\)/s,
+    /\.idle-screensaver-word\s*\{[^}]*translate3d\(var\(--idle-x, 50vw\), var\(--idle-y, 50vh\), 0\)[^}]*translate3d\(-50%, -50%, 0\)[^}]*rotate\(var\(--idle-rotation, 0deg\)\)/s,
   );
-  assert.doesNotMatch(
-    css,
-    /\.idle-marquee-lane\s*\{[^}]*inset-block-start:\s*calc\([^;]*\//s,
-    "lane placement must not rely on unsupported CSS calc division",
-  );
+  assert.match(css, /@media \(orientation: portrait\)[\s\S]*--idle-rotation:\s*90deg/);
   assert.match(
     css,
-    /@media \(prefers-reduced-motion: reduce\)[\s\S]*\.idle-marquee-track\s*\{[^}]*transform:/,
+    /@media \(prefers-reduced-motion: reduce\)[\s\S]*\.idle-screensaver-word\s*\{[^}]*transition:\s*none/,
   );
-  assert.doesNotMatch(css, /\.idle-(?:blackout|marquee)[\s\S]{0,800}(?:filter|box-shadow):/);
+  assert.doesNotMatch(css, /\.idle-(?:blackout|screensaver)[\s\S]{0,800}(?:filter|box-shadow):/);
   assert.equal((html.match(/id="idle-blackout"/g) || []).length, 1);
-  assert.doesNotMatch(html, /--idle-(?:size|duration|opacity|delay|direction):/);
+  const idleCSS = css.slice(
+    css.indexOf(".idle-blackout"),
+    css.indexOf("[hidden]"),
+  );
+  assert.doesNotMatch(idleCSS, /(?:linear|radial|conic)-gradient|box-shadow|filter:/);
+  assert.doesNotMatch(idleCSS, /--idle-(?:scale|opacity)/);
+  assert.doesNotMatch(html, /--idle-(?:x|y):/);
 });
 
 test("approved progress lines override allowlisted L0 details without empty slots", async () => {

@@ -30,7 +30,7 @@ struct MenuView: View {
 
     @ViewBuilder
     private var modelsList: some View {
-        let sections = viewModel.providerUsageSections
+        let sections = viewModel.leftClickMenuUsageSections
         if !sections.isEmpty {
             VStack(spacing: 0) {
                 let providerCount = Set(sections.map(\.provider)).count
@@ -123,6 +123,15 @@ struct MenuView: View {
                     }
                 }
             }
+        } else if viewModel.hasHiddenLeftClickMenuItems,
+                  !viewModel.providerUsageSections.isEmpty {
+            MenuPlaceholderCard(
+                icon: "eye.slash.fill",
+                title: language.leftClickMenuAllHiddenTitle(),
+                message: language.leftClickMenuAllHiddenDescription(),
+                primaryActionTitle: language.text(.settings),
+                primaryAction: onOpenSettings
+            )
         } else if shouldShowCodexEmptyState {
             MenuPlaceholderCard(
                 icon: "terminal.fill",

@@ -12,6 +12,8 @@ struct UsagePane: View {
             VStack(alignment: .leading, spacing: 16) {
                 quotaWarningSection
                 Divider()
+                leftClickMenuSection
+                Divider()
                 refreshSection
                 Divider()
                 historySection
@@ -19,6 +21,83 @@ struct UsagePane: View {
             .frame(maxWidth: .infinity, alignment: .leading)
             .padding(.horizontal, 20)
             .padding(.vertical, 12)
+        }
+    }
+
+    private var leftClickMenuSection: some View {
+        SettingsSection(
+            title: language.leftClickMenuDisplayTitle(),
+            caption: language.leftClickMenuDisplayDescription(),
+            contentSpacing: 10
+        ) {
+            HStack {
+                Text(language.leftClickMenuVisibleCount(
+                    visible: visibleLeftClickMenuModelCount,
+                    total: leftClickMenuModelCount))
+                    .font(.footnote.weight(.medium))
+                    .foregroundStyle(.secondary)
+                Spacer()
+                Button(language.leftClickMenuShowAll()) {
+                    viewModel.showAllLeftClickMenuItems()
+                }
+                .controlSize(.small)
+                .disabled(!viewModel.hasHiddenLeftClickMenuItems)
+            }
+
+            if leftClickMenuProviderGroups.isEmpty {
+                Text(language.leftClickMenuModelsEmpty())
+                    .font(.footnote)
+                    .foregroundStyle(.tertiary)
+                    .fixedSize(horizontal: false, vertical: true)
+            } else {
+                ForEach(leftClickMenuProviderGroups) { providerGroup in
+                    VStack(alignment: .leading, spacing: 8) {
+                        Text(providerGroup.provider.displayName)
+                            .font(.subheadline.weight(.semibold))
+
+                        ForEach(providerGroup.accounts) { accountGroup in
+                            VStack(alignment: .leading, spacing: 6) {
+                                Toggle(
+                                    isOn: leftClickMenuAccountBinding(
+                                        accountGroup.key)
+                                ) {
+                                    HStack {
+                                        Text(accountGroup.displayName)
+                                            .lineLimit(1)
+                                        Spacer()
+                                        Text("\(accountGroup.models.count)")
+                                            .font(.footnote.monospacedDigit())
+                                            .foregroundStyle(.tertiary)
+                                    }
+                                }
+                                .toggleStyle(.checkbox)
+
+                                VStack(alignment: .leading, spacing: 5) {
+                                    ForEach(accountGroup.models) { model in
+                                        Toggle(
+                                            isOn: leftClickMenuModelBinding(model)
+                                        ) {
+                                            HStack {
+                                                Text(model.modelName)
+                                                    .lineLimit(1)
+                                                Spacer()
+                                                Text(model.currentIntervalRemainingText)
+                                                    .font(.footnote.monospacedDigit())
+                                                    .foregroundStyle(.secondary)
+                                            }
+                                        }
+                                        .toggleStyle(.checkbox)
+                                        .disabled(
+                                            !viewModel.isLeftClickMenuAccountVisible(
+                                                accountGroup.key))
+                                    }
+                                }
+                                .padding(.leading, 20)
+                            }
+                        }
+                    }
+                }
+            }
         }
     }
 
@@ -99,4 +178,78 @@ struct UsagePane: View {
             (language.secondsText(3600), 3600)
         ]
     }
+
+    private var leftClickMenuModels: [ModelUsageData] {
+        var seen = Set<MobileDashboardModelSelectionKey>()
+        return viewModel.providerUsageSections
+            .flatMap(\.models)
+            .filter { seen.insert($0.mobileDashboardSelectionKey).inserted }
+    }
+
+    private var leftClickMenuModelCount: Int {
+        leftClickMenuModels.count
+    }
+
+    private var visibleLeftClickMenuModelCount: Int {
+        leftClickMenuModels.filter(viewModel.isLeftClickMenuModelVisible).count
+    }
+
+    private var leftClickMenuProviderGroups: [LeftClickMenuProviderGroup] {
+        var groups: [LeftClickMenuProviderGroup] = []
+        for model in leftClickMenuModels {
+            let providerIndex: Int
+            if let existing = groups.firstIndex(where: { $0.provider == model.provider }) {
+                providerIndex = existing
+            } else {
+                groups.append(LeftClickMenuProviderGroup(provider: model.provider, accounts: []))
+                providerIndex = groups.count - 1
+            }
+
+            let key = LeftClickMenuAccountKey(model: model)
+            if let accountIndex = groups[providerIndex].accounts.firstIndex(where: { $0.key == key }) {
+                groups[providerIndex].accounts[accountIndex].models.append(model)
+            } else {
+                let trimmedAccount = model.accountName?
+                    .trimmingCharacters(in: .whitespacesAndNewlines)
+                groups[providerIndex].accounts.append(
+                    LeftClickMenuAccountGroup(
+                        key: key,
+                        displayName: trimmedAccount.flatMap { $0.isEmpty ? nil : $0 }
+                            ?? language.leftClickMenuDefaultAccount(),
+                        models: [model]))
+            }
+        }
+        return groups
+    }
+
+    private func leftClickMenuAccountBinding(
+        _ key: LeftClickMenuAccountKey
+    ) -> Binding<Bool> {
+        Binding(
+            get: { viewModel.isLeftClickMenuAccountVisible(key) },
+            set: { viewModel.setLeftClickMenuAccountVisible($0, key: key) })
+    }
+
+    private func leftClickMenuModelBinding(
+        _ model: ModelUsageData
+    ) -> Binding<Bool> {
+        Binding(
+            get: { viewModel.isLeftClickMenuModelVisible(model) },
+            set: { viewModel.setLeftClickMenuModelVisible($0, model: model) })
+    }
+}
+
+private struct LeftClickMenuProviderGroup: Identifiable {
+    let provider: UsageProvider
+    var accounts: [LeftClickMenuAccountGroup]
+
+    var id: UsageProvider { provider }
+}
+
+private struct LeftClickMenuAccountGroup: Identifiable {
+    let key: LeftClickMenuAccountKey
+    let displayName: String
+    var models: [ModelUsageData]
+
+    var id: LeftClickMenuAccountKey { key }
 }

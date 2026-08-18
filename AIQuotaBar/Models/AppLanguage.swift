@@ -259,12 +259,16 @@ enum AppLanguage: String, CaseIterable, Codable, Identifiable {
             return "Paste GLM quota curl command"
         case (.english, .codex):
             return "Codex account email"
+        case (.english, .kimi):
+            return "Kimi Code API key (optional)"
         case (.simplifiedChinese, .miniMax):
             return "MiniMax API Key"
         case (.simplifiedChinese, .glm):
             return "粘贴 GLM 额度接口 curl 命令"
         case (.simplifiedChinese, .codex):
             return "Codex 账号邮箱"
+        case (.simplifiedChinese, .kimi):
+            return "Kimi Code API Key（可选）"
         }
     }
 
@@ -276,12 +280,16 @@ enum AppLanguage: String, CaseIterable, Codable, Identifiable {
             return "Required fields are the quota endpoint URL and authorization header; organization, project, and cookie are preserved when present."
         case (.english, .codex):
             return "Codex is configured through the codexbar subsystem. Use the Codex section above to manage accounts and source mode."
+        case (.english, .kimi):
+            return "Optional. Leave blank to read quota from the current Kimi Code CLI login through its local `/status` command; otherwise enter a Kimi Code API key stored in Keychain."
         case (.simplifiedChinese, .miniMax):
             return "填入 MiniMax coding plan remains 接口使用的 Bearer token。"
         case (.simplifiedChinese, .glm):
             return "至少需要额度接口 URL 和 authorization 头；如果 curl 里有组织、项目和 cookie，也会一并保存用于请求。"
         case (.simplifiedChinese, .codex):
             return "Codex 通过 codexbar 子系统配置。请使用上方的 Codex 区管理账号和数据源模式。"
+        case (.simplifiedChinese, .kimi):
+            return "可选。留空时通过本机 `/status` 指令读取当前 Kimi Code CLI 登录的配额；也可以填写 Kimi Code API Key 并保存到钥匙串。"
         }
     }
 
@@ -904,6 +912,66 @@ enum AppLanguage: String, CaseIterable, Codable, Identifiable {
         }
     }
 
+    func leftClickMenuDisplayTitle() -> String {
+        switch self {
+        case .english: return "Left-click menu display"
+        case .simplifiedChinese: return "左键菜单展示"
+        }
+    }
+
+    func leftClickMenuDisplayDescription() -> String {
+        switch self {
+        case .english:
+            return "Choose which accounts and quota dimensions appear after clicking the menu bar icon. Refreshing, history, alerts, and sync are not affected."
+        case .simplifiedChinese:
+            return "选择点击菜单栏图标后显示的账号和额度维度。后台刷新、历史记录、告警和同步不受影响。"
+        }
+    }
+
+    func leftClickMenuShowAll() -> String {
+        switch self {
+        case .english: return "Show all"
+        case .simplifiedChinese: return "全部显示"
+        }
+    }
+
+    func leftClickMenuVisibleCount(visible: Int, total: Int) -> String {
+        switch self {
+        case .english: return "Showing \(visible) of \(total)"
+        case .simplifiedChinese: return "显示 \(visible) / \(total)"
+        }
+    }
+
+    func leftClickMenuModelsEmpty() -> String {
+        switch self {
+        case .english:
+            return "No quota dimensions are available yet. Refresh usage data, then return here to customize the menu."
+        case .simplifiedChinese:
+            return "暂时没有可选的额度维度。刷新用量数据后，可返回此处自定义菜单。"
+        }
+    }
+
+    func leftClickMenuDefaultAccount() -> String {
+        switch self {
+        case .english: return "Default account"
+        case .simplifiedChinese: return "默认账户"
+        }
+    }
+
+    func leftClickMenuAllHiddenTitle() -> String {
+        switch self {
+        case .english: return "All menu items are hidden"
+        case .simplifiedChinese: return "左键菜单项目已全部隐藏"
+        }
+    }
+
+    func leftClickMenuAllHiddenDescription() -> String {
+        switch self {
+        case .english: return "Open Settings → Usage to show an account or quota dimension."
+        case .simplifiedChinese: return "请在“设置 → 用量”中重新显示账号或额度维度。"
+        }
+    }
+
     func usageHistorySectionTitle() -> String {
         switch self {
         case .english:
@@ -1280,9 +1348,11 @@ enum AppLanguage: String, CaseIterable, Codable, Identifiable {
         switch (self, selection) {
         case (.english, .automatic): return "Automatic"
         case (.english, .codex): return "Codex"
+        case (.english, .kimi): return "Kimi"
         case (.english, .miniMax): return "MiniMax"
         case (.simplifiedChinese, .automatic): return "自动"
         case (.simplifiedChinese, .codex): return "Codex"
+        case (.simplifiedChinese, .kimi): return "Kimi"
         case (.simplifiedChinese, .miniMax): return "MiniMax"
         }
     }

@@ -23,23 +23,21 @@ AI coding work is hard to manage when quota, network routes, and Mac sleep setti
   <img src="./docs/images/control-center.png" alt="AI Quota Bar control center" width="342">
 </p>
 
-## What’s new in v1.8.0
+## What’s new in v1.9.0
 
-This release adds a secure, installable Mobile Dashboard for keeping an eye on AI work from a phone or another screen on the same local network.
+This release adds Kimi Code plan tracking, gives you precise control over the left-click quota menu, and hardens long-running Codex and Mobile Dashboard monitoring.
 
-- **See the whole operating picture on a phone.** Quota, Codex Activity, route health, OpenAI connections, and sleep protection update live in one glanceable page. The three status panels remain close to equal thirds in both portrait and landscape instead of shrinking into unused space on larger displays.
-- **Know what every Codex task is doing.** One to five active tasks become one to five telemetry lanes. Each lane belongs to one real task and can show its title, phase, project, branch, model, reasoning level, tool, token use, subtasks, timestamps, progress, and other readable lifecycle fields.
-- **Read age through motion.** Fields have an independent, stable randomized order per task, while five visibly different speed tiers make newer tasks move faster and long-running tasks move more slowly. Live text updates join the moving queue without resetting its position.
-- **Turn confirmed idle into a screen saver.** An optional pure black-and-white IDLE mode fills the display with varied marquee sizes and speeds. OLED protection gently shifts static content, and light, dark, or automatic appearance can be selected independently.
-- **Choose exactly what leaves the Mac.** Select up to two quota models, mask account names, choose the Codex Activity background, and enable individual task telemetry fields. Detailed task progress remains off unless manual pairing is required and sharing is explicitly enabled.
-- **Install and pair without putting secrets in URLs.** Settings provides a QR code, stable local hostname with IP fallbacks, optional expiring manual pairing code, revocable install credentials, strict origin checks, and bounded local-only event streams. Credentials are stored in a versioned Keychain vault.
-- **Stay smooth during long unattended runs.** Telemetry tracks keep their animation position as values change, cap their queues, and explicitly release animations and DOM nodes when task counts change. IDLE effects, event streams, timers, and connection polling all use bounded lifecycles and honor reduced-motion preferences.
+- **Track Kimi without spending model tokens.** When no API key is configured, AI Quota Bar starts the real Kimi Code CLI in a local PTY and runs `/status`. The official CLI refreshes its own login while the command returns 5-hour and weekly quota without creating a model turn.
+- **Choose exactly what the left-click menu shows.** Accounts and individual quota windows can be hidden independently without disabling background refresh, history, alerts, sync, or menu-bar pinning.
+- **Keep explicit 5-hour limits visible.** Quota curves now retain short-window data when provider metadata is incomplete, including Kimi's 5-hour limit.
+- **Avoid missing Codex tasks with very large logs.** Activity detection reconstructs lifecycle state before reading the bounded log tail, so a task that started outside the most recent 16 MB is still counted.
+- **Use a denser, OLED-friendly phone dashboard.** The mobile layout makes better use of compact landscape displays, improves independent status panels, and gives confirmed idle its own pure-black screen with bounded animation lifecycles.
 
 ## What it helps you do
 
 | Your goal | How AI Quota Bar helps |
 | --- | --- |
-| Plan work before quota runs out | See remaining Codex and MiniMax quota, reset times, recent usage, and whether your current pace is sustainable |
+| Plan work before quota runs out | See remaining Codex, Kimi, and MiniMax quota, reset times, recent usage, and whether your current pace is sustainable |
 | Get OpenAI working again quickly | Test and switch Clash/Mihomo routes from the menu bar, or let the app recover automatically after a real outage |
 | Understand a slow connection | See whether OpenAI has active traffic, whether data is moving, and whether old connections are piling up |
 | Let long Codex tasks finish | Keep the Mac awake only while Codex is working, then return to normal automatically |
@@ -79,6 +77,7 @@ Choose how long recent quota history is kept, inspect the stored data, or delete
 - Apple Silicon for the prebuilt DMG. Source builds target the architecture of the build Mac.
 - At least one quota provider:
   - Codex CLI installed and signed in.
+  - Kimi Code CLI installed and signed in, or a Kimi Code API key.
   - MiniMax coding-plan bearer token.
 - Optional: Clash Verge Rev, Mihomo, or Clash with a loopback-bound external controller.
 - Optional: administrator approval to install the closed-lid helper.
@@ -117,6 +116,16 @@ AI Quota Bar uses [`CodexBarCore`](https://github.com/steipete/CodexBar) and off
 
 </details>
 
+### Kimi
+
+Sign in once with the official CLI, then leave the API key blank under **Settings → Providers → Kimi**:
+
+```bash
+kimi
+```
+
+AI Quota Bar reads quota by sending `/status` to the real CLI in a local PTY. This local slash command does not create a model turn or consume context tokens, and the official CLI remains responsible for refreshing its login. You can alternatively store a Kimi Code API key in macOS Keychain.
+
 ### MiniMax
 
 Open **Settings → Providers → MiniMax**, paste your MiniMax coding-plan token, and refresh. The token stays in macOS Keychain.
@@ -139,7 +148,7 @@ Manual pairing is optional. When enabled, the short code expires after five minu
 
 AI Quota Bar does more than show a percentage. It combines remaining quota, reset time, and recent pace so you can decide whether to continue a large task now, slow down, or move work to another account.
 
-- Track Codex and MiniMax from one menu, including multiple Codex accounts.
+- Track Codex, Kimi, and MiniMax from one menu, including multiple Codex accounts.
 - See both short limits such as **5h** and longer limits such as **Weekly**.
 - Use the trend line to see how quickly quota is falling.
 - Use the reserve/deficit message to see whether your current pace can last until reset.
@@ -206,11 +215,12 @@ You stay in control:
 - Inspect what is stored in a local report.
 - Delete one account or clear all local/remote history.
 
-Cloud sync is off by default. It uploads quota metadata and account labels, but never uploads MiniMax or Codex credentials. The exact data boundary is documented below.
+Cloud sync is off by default. It uploads quota metadata and account labels, but never uploads Kimi, MiniMax, or Codex credentials. The exact data boundary is documented below.
 
 ## Privacy and security boundaries
 
 - MiniMax credentials are stored in macOS Keychain.
+- Optional Kimi API keys are stored in macOS Keychain; CLI credentials remain managed by Kimi Code.
 - Codex credentials are managed locally by Codex/CodexBar.
 - Clash/Mihomo access is limited to a loopback external controller.
 - Connection monitoring is read-only.
