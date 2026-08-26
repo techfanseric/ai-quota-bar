@@ -691,12 +691,12 @@ final class MenuBarPresentationTests: XCTestCase {
             activeTaskCounts: [:],
             accessibilityLabel: "Codex and Kimi")
 
-        XCTAssertEqual(view.preferredWidth, 40)
-        view.frame = NSRect(x: 0, y: 0, width: 40, height: 22)
+        XCTAssertEqual(view.preferredWidth, 39)
+        view.frame = NSRect(x: 0, y: 0, width: 39, height: 22)
         view.layoutSubtreeIfNeeded()
         XCTAssertEqual(view.subviews.map(\.frame), [
-            NSRect(x: 0.5, y: 0, width: 19, height: 22),
-            NSRect(x: 20.5, y: 0, width: 19, height: 22),
+            NSRect(x: 0, y: 0, width: 19, height: 22),
+            NSRect(x: 20, y: 0, width: 19, height: 22),
         ])
 
         view.setSnapshots(
@@ -719,16 +719,19 @@ final class MenuBarPresentationTests: XCTestCase {
             horizontalPadding: -8,
             ringSpacing: 4,
             accessibilityLabel: "Codex and Kimi")
-        XCTAssertEqual(view.preferredWidth, 26)
-        view.frame = NSRect(x: 0, y: 0, width: 26, height: 22)
+        XCTAssertEqual(view.preferredWidth, 42)
+        view.frame = NSRect(x: 0, y: 0, width: 42, height: 22)
         view.layoutSubtreeIfNeeded()
         XCTAssertEqual(view.subviews.map(\.frame), [
-            NSRect(x: -8, y: 0, width: 19, height: 22),
-            NSRect(x: 15, y: 0, width: 19, height: 22),
+            NSRect(x: 0, y: 0, width: 19, height: 22),
+            NSRect(x: 23, y: 0, width: 19, height: 22),
         ])
         XCTAssertEqual(
             MenuBarCompactLayoutPreferences.horizontalPadding(-20),
-            -8)
+            0)
+        XCTAssertEqual(
+            MenuBarCompactLayoutPreferences.horizontalPadding(20),
+            8)
     }
 
     @MainActor

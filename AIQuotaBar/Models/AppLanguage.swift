@@ -1500,9 +1500,9 @@ enum AppLanguage: String, CaseIterable, Codable, Identifiable {
     func menuBarCompactLayoutDescription() -> String {
         switch self {
         case .english:
-            return "Adjust both outer edges and the gap between rings. Negative side padding compensates for macOS menu-item spacing."
+            return "Adjust the space at both outer edges and between multiple rings."
         case .simplifiedChinese:
-            return "调整菜单栏项目两侧留白与环间距；负边距可补偿 macOS 菜单栏项目的系统间隔。"
+            return "调整菜单栏项目两侧留白，以及多个环之间的距离。"
         }
     }
 
