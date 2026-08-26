@@ -278,8 +278,6 @@ test("dashboard JS consumes exact schema v3 telemetry and keeps legacy fallbacks
   assert.match(script, /model\.rendersAreaChart === true/);
   assert.match(script, /model\.isCurrentIntervalPercentMode !== false/);
   assert.match(script, /model\.usesReverseProgressTint === true/);
-  assert.match(script, /model\.hasCurrentIntervalPace === true/);
-  assert.match(script, /model\.paceGuideTone === "reserve"/);
   assert.match(script, /protection\?\.hasActiveTasks/);
   assert.match(script, /slice\(-60\)/);
   assert.match(script, /bucket\.connectionAges/);
@@ -412,7 +410,7 @@ test("wake media stays background-only with no visible action or tab stop", asyn
   assert.doesNotMatch(script, /wakeMedia(?:Button|Status)|authorizeWorkingWake/);
 });
 
-test("quota curve reuses native layout, tick cadence, pace guard, and series marks", async () => {
+test("quota curve keeps the pace guide alongside forecasts and series marks", async () => {
   const script = await readText("app.js");
   const quotaTimeTicks = namedFunction(script, "quotaTimeTicks");
   const hour = 3_600_000;
@@ -424,13 +422,17 @@ test("quota curve reuses native layout, tick cadence, pace guard, and series mar
   assert.match(script, /const left = 30;[\s\S]*const right = 8;[\s\S]*const top = 8;[\s\S]*const bottom = 18;/);
   assert.match(script, /const hasPace = model\.hasCurrentIntervalPace === true/);
   assert.match(script, /model\.hasCurrentIntervalPace == null/);
-  assert.match(script, /model\.paceDeltaPercent != null/);
+  assert.match(script, /model\.paceGuideTone === "reserve"/);
   assert.match(script, /context\.setLineDash\(\[3, 3\]\)/);
   assert.match(script, /context\.setLineDash\(\[2, 3\]\)/);
   assert.match(script, /gradient\.addColorStop\(0, rgba\(tint, 0\.22\)\)/);
   assert.match(script, /gradient\.addColorStop\(1, rgba\(tint, 0\.03\)\)/);
   assert.match(script, /context\.lineWidth = 2/);
   assert.match(script, /context\.arc\(point\.x, point\.y, 2,/);
+  assert.match(script, /Array\.isArray\(model\.consumptionForecasts\)/);
+  assert.match(script, /context\.setLineDash\(\[5, 4\]\)/);
+  assert.match(script, /Math\.min\(forecastExhaustion, endTimestamp\)/);
+  assert.match(script, /forecastOpacities = \[0\.62, 0\.44, 0\.31, 0\.22, 0\.15\]/);
 });
 
 test("primary quota curve renders matching 5h or weekly cycle history", async () => {

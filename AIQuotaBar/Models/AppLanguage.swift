@@ -981,6 +981,29 @@ enum AppLanguage: String, CaseIterable, Codable, Identifiable {
         }
     }
 
+    func quotaForecastLookbackLabel() -> String {
+        switch self {
+        case .english: return "Consumption forecast"
+        case .simplifiedChinese: return "消耗趋势预测"
+        }
+    }
+
+    func quotaForecastLookbackDescription() -> String {
+        switch self {
+        case .english:
+            return "Show faint projections using the latest 1–5 refresh intervals. Flat usage and quota resets are ignored."
+        case .simplifiedChinese:
+            return "按最近 1–5 个刷新区间显示淡色预测线；无消耗和额度重置不会参与预测。"
+        }
+    }
+
+    func quotaForecastIntervalCount(_ count: Int) -> String {
+        switch self {
+        case .english: return count == 1 ? "1 interval" : "\(count) intervals"
+        case .simplifiedChinese: return "\(count) 个区间"
+        }
+    }
+
     func cloudVisibilitySectionTitle() -> String {
         switch self {
         case .english:

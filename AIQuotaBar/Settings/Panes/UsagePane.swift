@@ -163,6 +163,18 @@ struct UsagePane: View {
                     Text(language.utilizationHistoryModeDisplayName(mode)).tag(mode)
                 }
             }
+
+            PreferencePickerRow(
+                title: language.quotaForecastLookbackLabel(),
+                subtitle: language.quotaForecastLookbackDescription(),
+                selection: $viewModel.quotaForecastLookbackIntervals,
+                maxWidth: 140
+            ) {
+                ForEach(1...5, id: \.self) { count in
+                    Text(language.quotaForecastIntervalCount(count))
+                        .tag(count)
+                }
+            }
         }
     }
 

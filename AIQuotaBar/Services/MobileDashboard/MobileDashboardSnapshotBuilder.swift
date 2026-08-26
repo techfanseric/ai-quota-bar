@@ -180,6 +180,22 @@ enum MobileDashboardSnapshotBuilder {
                 remaining: sample.remaining,
                 remainingPercent: clampedPercent(percent))
         }
+        let consumptionForecasts = QuotaConsumptionForecaster.forecasts(
+            samples: recordedSamples,
+            isPercentMode: model.isCurrentIntervalPercentMode,
+            maximumLookbackIntervals:
+                viewModel.quotaForecastLookbackIntervals,
+            maximumSampleGap:
+                QuotaConsumptionForecaster.maximumSampleGap(
+                    refreshInterval: viewModel.refreshInterval)
+        ).map { forecast in
+            MobileQuotaConsumptionForecastSnapshot(
+                lookbackIntervals: forecast.lookbackIntervals,
+                consumptionPerSecond: forecast.consumptionPerSecond,
+                startsAt: forecast.startsAt,
+                startingRemaining: forecast.startingRemaining,
+                exhaustsAt: forecast.exhaustsAt)
+        }
         let cycleLimit = model.isShortCurrentInterval ? 30 : 12
         var sourceCycles = viewModel.utilizationCycles(
             for: model,
@@ -250,6 +266,7 @@ enum MobileDashboardSnapshotBuilder {
             paceDeltaPercent: model.currentIntervalPaceDeltaPercent,
             sampledAt: model.sampledAt,
             samples: samples,
+            consumptionForecasts: consumptionForecasts,
             cycles: cycles)
     }
 

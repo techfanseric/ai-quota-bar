@@ -4361,6 +4361,45 @@
       context.restore();
     }
 
+    const forecasts = Array.isArray(model.consumptionForecasts)
+      ? model.consumptionForecasts
+      : [];
+    const forecastOpacities = [0.62, 0.44, 0.31, 0.22, 0.15];
+    for (const [index, forecast] of forecasts.entries()) {
+      const forecastStart = new Date(forecast.startsAt).getTime();
+      const forecastExhaustion = new Date(forecast.exhaustsAt).getTime();
+      const startingRemaining = safeNumber(forecast.startingRemaining, -1);
+      const rate = safeNumber(forecast.consumptionPerSecond, 0);
+      if (
+        !hasWindow ||
+        !Number.isFinite(forecastStart) ||
+        !Number.isFinite(forecastExhaustion) ||
+        startingRemaining <= 0 ||
+        rate <= 0
+      ) continue;
+
+      const forecastEnd = Math.min(forecastExhaustion, endTimestamp);
+      if (forecastEnd <= forecastStart) continue;
+      const remainingAtEnd = Math.max(
+        0,
+        startingRemaining - rate * ((forecastEnd - forecastStart) / 1000),
+      );
+      const opacity = forecastOpacities[
+        Math.min(index, forecastOpacities.length - 1)
+      ];
+
+      context.save();
+      context.setLineDash([5, 4]);
+      context.strokeStyle = rgba(tint, opacity);
+      context.lineWidth = 1;
+      context.lineCap = "round";
+      context.beginPath();
+      context.moveTo(x(forecastStart), y(startingRemaining));
+      context.lineTo(x(forecastEnd), y(remainingAtEnd));
+      context.stroke();
+      context.restore();
+    }
+
     const points = samples.map((sample) => ({
       x: x(new Date(sample.timestamp).getTime()),
       y: y(isPercentMode ? sample.remainingPercent : sample.remaining),

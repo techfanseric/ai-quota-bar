@@ -185,6 +185,7 @@ final class MobileDashboardSecurityTests: XCTestCase {
             paceDeltaPercent: nil,
             sampledAt: nil,
             samples: [],
+            consumptionForecasts: [],
             cycles: [])
 
         let data = try JSONEncoder().encode(model)
