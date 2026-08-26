@@ -351,6 +351,7 @@ final class MenuBarPresentationTests: XCTestCase {
             MenuBarContentSelection.storageKey,
             MenuBarAppearance.storageKey,
             MenuBarPaceDisplayMode.storageKey,
+            MenuBarRingQuotaWindow.storageKey,
             CloudSyncSettings.enabledKey,
         ]
         let previousValues = keys.map { key in
@@ -368,6 +369,7 @@ final class MenuBarPresentationTests: XCTestCase {
 
         defaults.set(MenuBarContentSelection.codex.rawValue, forKey: MenuBarContentSelection.storageKey)
         defaults.set(MenuBarAppearance.compactRing.rawValue, forKey: MenuBarAppearance.storageKey)
+        defaults.set(MenuBarRingQuotaWindow.weekly.rawValue, forKey: MenuBarRingQuotaWindow.storageKey)
         defaults.set(false, forKey: CloudSyncSettings.enabledKey)
 
         let now = Date()
@@ -405,6 +407,68 @@ final class MenuBarPresentationTests: XCTestCase {
 
         XCTAssertEqual(viewModel.menuBarSnapshot.ringPercent, 0)
         XCTAssertLessThan(viewModel.menuBarSnapshot.paceDeltaPercent ?? 0, 0)
+    }
+
+    @MainActor
+    func testKimiCompactRingUsesConfigurableWeeklyQuota() {
+        let defaults = UserDefaults.standard
+        let keys = [
+            MenuBarContentSelection.storageKey,
+            MenuBarAppearance.storageKey,
+            MenuBarRingQuotaWindow.storageKey,
+            CloudSyncSettings.enabledKey,
+        ]
+        let previousValues = keys.map { key in
+            (key: key, value: defaults.object(forKey: key))
+        }
+        defer {
+            for previous in previousValues {
+                if let value = previous.value {
+                    defaults.set(value, forKey: previous.key)
+                } else {
+                    defaults.removeObject(forKey: previous.key)
+                }
+            }
+        }
+
+        defaults.set(
+            MenuBarContentSelection.kimi.rawValue,
+            forKey: MenuBarContentSelection.storageKey)
+        defaults.set(
+            MenuBarAppearance.compactRing.rawValue,
+            forKey: MenuBarAppearance.storageKey)
+        defaults.set(
+            MenuBarRingQuotaWindow.weekly.rawValue,
+            forKey: MenuBarRingQuotaWindow.storageKey)
+        defaults.set(false, forKey: CloudSyncSettings.enabledKey)
+
+        let now = Date()
+        let fiveHour = makeModel(
+            provider: .kimi,
+            name: "5h",
+            remainingPercent: 82,
+            now: now)
+        let weekly = makeModel(
+            provider: .kimi,
+            name: "7d",
+            remainingPercent: 37,
+            now: now)
+        let viewModel = UsageViewModel()
+        viewModel.usageData = UsageData(
+            provider: .kimi,
+            remains: 2,
+            total: 2,
+            timestamp: now,
+            models: [fiveHour, weekly],
+            subscribeTitle: nil,
+            subscribeEndTime: nil)
+
+        XCTAssertEqual(viewModel.menuBarSnapshot.remainingPercent, 82)
+        XCTAssertEqual(viewModel.menuBarSnapshot.ringPercent, 37)
+        XCTAssertTrue(viewModel.menuBarSnapshot.tooltip.contains("37%"))
+
+        viewModel.menuBarRingQuotaWindow = .current
+        XCTAssertEqual(viewModel.menuBarSnapshot.ringPercent, 82)
     }
 
     @MainActor
@@ -478,6 +542,217 @@ final class MenuBarPresentationTests: XCTestCase {
 
         XCTAssertFalse(viewModel.statusBarText.contains("M:"))
         XCTAssertTrue(viewModel.statusBarText.hasPrefix("Codex\n"))
+    }
+
+    @MainActor
+    func testAutomaticCompactModeBuildsIndependentCodexAndKimiRings() {
+        let defaults = UserDefaults.standard
+        let keys = [
+            MenuBarContentSelection.storageKey,
+            MenuBarAppearance.storageKey,
+            MenuBarRingQuotaWindow.storageKey,
+            CloudSyncSettings.enabledKey,
+        ]
+        let previousValues = keys.map { key in
+            (key: key, value: defaults.object(forKey: key))
+        }
+        defer {
+            for previous in previousValues {
+                if let value = previous.value {
+                    defaults.set(value, forKey: previous.key)
+                } else {
+                    defaults.removeObject(forKey: previous.key)
+                }
+            }
+        }
+
+        defaults.set(
+            MenuBarContentSelection.all.rawValue,
+            forKey: MenuBarContentSelection.storageKey)
+        defaults.set(
+            MenuBarAppearance.compactRing.rawValue,
+            forKey: MenuBarAppearance.storageKey)
+        defaults.set(
+            MenuBarRingQuotaWindow.weekly.rawValue,
+            forKey: MenuBarRingQuotaWindow.storageKey)
+        defaults.set(false, forKey: CloudSyncSettings.enabledKey)
+
+        let now = Date()
+        let codexFiveHour = makeModel(
+            provider: .codex,
+            name: "5h",
+            remainingPercent: 80,
+            now: now)
+        let codexWeekly = makeModel(
+            provider: .codex,
+            name: "Weekly",
+            remainingPercent: 65,
+            now: now)
+        let kimiFiveHour = makeModel(
+            provider: .kimi,
+            name: "5h",
+            remainingPercent: 76,
+            now: now)
+        let kimiWeekly = makeModel(
+            provider: .kimi,
+            name: "7d",
+            remainingPercent: 42,
+            now: now)
+        let miniMax = makeModel(
+            provider: .miniMax,
+            name: "MiniMax",
+            remainingPercent: 23,
+            now: now)
+        let viewModel = UsageViewModel()
+
+        viewModel.usageData = UsageData(
+            provider: .codex,
+            remains: 3,
+            total: 3,
+            timestamp: now,
+            models: [miniMax, kimiFiveHour, kimiWeekly, codexFiveHour, codexWeekly],
+            subscribeTitle: nil,
+            subscribeEndTime: nil)
+
+        XCTAssertEqual(viewModel.menuBarSnapshots.map(\.provider), [.codex, .kimi])
+        XCTAssertEqual(viewModel.menuBarSnapshots.map(\.ringPercent), [65, 42])
+
+        viewModel.menuBarContentSelection = .kimi
+        XCTAssertEqual(viewModel.menuBarSnapshots.map(\.provider), [.kimi])
+        XCTAssertEqual(viewModel.menuBarSnapshots.first?.ringPercent, 42)
+    }
+
+    func testCompactSelectionSupportsAlwaysWorkAwareAndFixedModes() {
+        let codex = makeSnapshot(provider: .codex, ringPercent: 65)
+        let kimi = makeSnapshot(provider: .kimi, ringPercent: 42)
+        let miniMax = makeSnapshot(provider: .miniMax, ringPercent: 10)
+        let snapshots = [codex, kimi, miniMax]
+
+        XCTAssertEqual(
+            MenuBarCompactSnapshotSelector.select(
+                selection: .all,
+                snapshots: snapshots,
+                activeProviders: []),
+            [codex, kimi])
+        XCTAssertEqual(
+            MenuBarCompactSnapshotSelector.select(
+                selection: .automatic,
+                snapshots: snapshots,
+                activeProviders: [.codex, .kimi]),
+            [codex, kimi])
+        XCTAssertEqual(
+            MenuBarCompactSnapshotSelector.select(
+                selection: .automatic,
+                snapshots: snapshots,
+                activeProviders: [.kimi]),
+            [kimi])
+        XCTAssertEqual(
+            MenuBarCompactSnapshotSelector.select(
+                selection: .automatic,
+                snapshots: snapshots,
+                activeProviders: []),
+            [kimi],
+            "Idle work-aware mode should ignore MiniMax and show the lowest remaining supported provider.")
+        XCTAssertEqual(
+            MenuBarCompactSnapshotSelector.select(
+                selection: .miniMax,
+                snapshots: [miniMax],
+                activeProviders: []),
+            [miniMax])
+    }
+
+    @MainActor
+    func testCompactRingStripExpandsByOneRingWidthPerProvider() {
+        let view = StatusBarCompactRingsView()
+        let snapshots = [
+            makeSnapshot(provider: .codex, ringPercent: 65),
+            makeSnapshot(provider: .kimi, ringPercent: 42),
+        ]
+
+        view.setSnapshots(
+            snapshots,
+            codexConnectivity: .reachable,
+            paceDisplayMode: .staged,
+            isSelfTesting: false,
+            activeTaskCounts: [:],
+            accessibilityLabel: "Codex and Kimi")
+
+        XCTAssertEqual(view.preferredWidth, 40)
+        view.frame = NSRect(x: 0, y: 0, width: 40, height: 22)
+        view.layoutSubtreeIfNeeded()
+        XCTAssertEqual(view.subviews.map(\.frame), [
+            NSRect(x: 0.5, y: 0, width: 19, height: 22),
+            NSRect(x: 20.5, y: 0, width: 19, height: 22),
+        ])
+
+        view.setSnapshots(
+            snapshots,
+            codexConnectivity: .reachable,
+            paceDisplayMode: .staged,
+            isSelfTesting: false,
+            activeTaskCounts: [:],
+            horizontalPadding: 2,
+            ringSpacing: 4,
+            accessibilityLabel: "Codex and Kimi")
+        XCTAssertEqual(view.preferredWidth, 46)
+    }
+
+    @MainActor
+    func testWorkAwareLoadingStateAlwaysKeepsAVisibleRing() {
+        let defaults = UserDefaults.standard
+        let keys = [
+            MenuBarContentSelection.storageKey,
+            MenuBarAppearance.storageKey,
+            CloudSyncSettings.enabledKey,
+        ]
+        let previousValues = keys.map { key in
+            (key: key, value: defaults.object(forKey: key))
+        }
+        defer {
+            for previous in previousValues {
+                if let value = previous.value {
+                    defaults.set(value, forKey: previous.key)
+                } else {
+                    defaults.removeObject(forKey: previous.key)
+                }
+            }
+        }
+
+        defaults.set(
+            MenuBarContentSelection.automatic.rawValue,
+            forKey: MenuBarContentSelection.storageKey)
+        defaults.set(
+            MenuBarAppearance.compactRing.rawValue,
+            forKey: MenuBarAppearance.storageKey)
+        defaults.set(false, forKey: CloudSyncSettings.enabledKey)
+
+        let viewModel = UsageViewModel()
+        viewModel.isLoading = true
+        viewModel.usageData = nil
+        let displayed = MenuBarCompactSnapshotSelector.select(
+            selection: .automatic,
+            snapshots: viewModel.menuBarSnapshots,
+            activeProviders: [])
+
+        XCTAssertFalse(displayed.isEmpty)
+        XCTAssertEqual(displayed.first?.state, .loading)
+        XCTAssertNotEqual(displayed.first?.provider, .miniMax)
+    }
+
+    private func makeSnapshot(
+        provider: UsageProvider,
+        ringPercent: Double
+    ) -> MenuBarSnapshot {
+        MenuBarSnapshot(
+            provider: provider,
+            modelName: provider.displayName,
+            remainingPercent: ringPercent,
+            ringPercent: ringPercent,
+            paceDeltaPercent: 0,
+            resetsAt: nil,
+            state: .ready,
+            isLowQuota: false,
+            tooltip: provider.displayName)
     }
 
     private func makeModel(

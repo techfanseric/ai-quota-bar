@@ -3,24 +3,24 @@ import Foundation
 extension AppLanguage {
     func sleepProtectionSectionTitle() -> String {
         switch self {
-        case .english: return "Codex task protection"
-        case .simplifiedChinese: return "Codex 任务保护"
+        case .english: return "AI task protection"
+        case .simplifiedChinese: return "AI 任务保护"
         }
     }
 
     func sleepProtectionEnabledTitle() -> String {
         switch self {
-        case .english: return "Protect the Mac while Codex is working"
-        case .simplifiedChinese: return "Codex 工作时保护 Mac"
+        case .english: return "Protect the Mac while AI tasks are working"
+        case .simplifiedChinese: return "AI 任务工作时保护 Mac"
         }
     }
 
     func sleepProtectionEnabledDescription() -> String {
         switch self {
         case .english:
-            return "Prevents idle sleep only during active Codex turns. All assertions are released when the turn finishes or AI Quota Bar exits."
+            return "Prevents idle sleep only during active Codex or Kimi tasks. All assertions are released when the tasks finish or AI Quota Bar exits."
         case .simplifiedChinese:
-            return "仅在 Codex 任务进行期间阻止空闲休眠；任务结束或退出 AI Quota Bar 时会立即释放全部系统断言。"
+            return "仅在 Codex 或 Kimi 任务进行期间阻止空闲休眠；任务结束或退出 AI Quota Bar 时会立即释放全部系统断言。"
         }
     }
 
@@ -34,9 +34,9 @@ extension AppLanguage {
     func keepDisplayAwakeDescription() -> String {
         switch self {
         case .english:
-            return "Prevents automatic display sleep while Codex is working. Manually locking the Mac is still respected."
+            return "Prevents automatic display sleep while a protected AI task is working. Manually locking the Mac is still respected."
         case .simplifiedChinese:
-            return "Codex 工作时阻止显示器因空闲而关闭；手动锁定 Mac 时仍尊重系统锁屏行为。"
+            return "受保护的 AI 任务工作时阻止显示器因空闲而关闭；手动锁定 Mac 时仍尊重系统锁屏行为。"
         }
     }
 
@@ -58,8 +58,8 @@ extension AppLanguage {
 
     func allowClosedLidTitle() -> String {
         switch self {
-        case .english: return "Allow Codex to continue with the lid closed"
-        case .simplifiedChinese: return "允许 Codex 在合盖后继续工作"
+        case .english: return "Allow AI tasks to continue with the lid closed"
+        case .simplifiedChinese: return "允许 AI 任务在合盖后继续工作"
         }
     }
 
@@ -81,8 +81,8 @@ extension AppLanguage {
 
     func closedLidReadyStatus() -> String {
         switch self {
-        case .english: return "Authorized · waiting for an active Codex task"
-        case .simplifiedChinese: return "已授权 · 正在等待 Codex 任务"
+        case .english: return "Authorized · waiting for an active AI task"
+        case .simplifiedChinese: return "已授权 · 正在等待 AI 任务"
         }
     }
 
@@ -158,9 +158,9 @@ extension AppLanguage {
     func sleepProtectionActiveStatus(turnCount: Int) -> String {
         switch self {
         case .english:
-            return "Protecting \(turnCount) active Codex \(turnCount == 1 ? "turn" : "turns")"
+            return "Protecting \(turnCount) active AI \(turnCount == 1 ? "task" : "tasks")"
         case .simplifiedChinese:
-            return "正在保护 \(turnCount) 个进行中的 Codex 任务"
+            return "正在保护 \(turnCount) 个进行中的 AI 任务"
         }
     }
 
@@ -245,19 +245,46 @@ extension AppLanguage {
         }
     }
 
-    func sleepProtectionCompactReadyStatus() -> String {
+    func sleepProtectionCompactReadyStatus(
+        providers: Set<UsageProvider>
+    ) -> String {
+        let names = taskProtectionProviderNames(providers)
         switch self {
-        case .english: return "Ready · waiting for a Codex task"
-        case .simplifiedChinese: return "已就绪 · 正在等待 Codex 任务"
+        case .english:
+            return names.isEmpty
+                ? "Ready · no local AI provider configured"
+                : "Ready · waiting for \(names)"
+        case .simplifiedChinese:
+            return names.isEmpty
+                ? "已就绪 · 尚未配置本地 AI 服务商"
+                : "已就绪 · 正在等待 \(names) 任务"
         }
     }
 
-    func sleepProtectionCompactActiveStatus(turnCount: Int) -> String {
+    func sleepProtectionCompactActiveStatus(
+        turnCount: Int,
+        providers: Set<UsageProvider>
+    ) -> String {
+        let names = taskProtectionProviderNames(providers)
         switch self {
         case .english:
-            return "Active · protecting \(turnCount) \(turnCount == 1 ? "task" : "tasks")"
+            return "Active · \(turnCount) \(names) \(turnCount == 1 ? "task" : "tasks")"
         case .simplifiedChinese:
-            return "保护中 · \(turnCount) 个 Codex 任务"
+            return "保护中 · \(turnCount) 个 \(names) 任务"
+        }
+    }
+
+    private func taskProtectionProviderNames(
+        _ providers: Set<UsageProvider>
+    ) -> String {
+        let names = [UsageProvider.codex, .kimi]
+            .filter { providers.contains($0) }
+            .map(\.displayName)
+        switch (self, names.count) {
+        case (_, 0): return "AI"
+        case (_, 1): return names[0]
+        case (.english, _): return names.joined(separator: " and ")
+        case (.simplifiedChinese, _): return names.joined(separator: " 与 ")
         }
     }
 

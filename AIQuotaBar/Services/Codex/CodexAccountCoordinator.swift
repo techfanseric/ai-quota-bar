@@ -44,6 +44,10 @@ final class CodexAccountCoordinator {
         }
     }
 
+    var hasManagedAccount: Bool {
+        !listAccountDrafts().isEmpty
+    }
+
     /// 删除指定账号（仅从 managed 列表中移除；auth 文件保留以便回退）
     func removeAccount(id: String) {
         guard let uuid = UUID(uuidString: id) else { return }

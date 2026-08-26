@@ -1355,25 +1355,29 @@ enum AppLanguage: String, CaseIterable, Codable, Identifiable {
 
     func menuBarContentLabel() -> String {
         switch self {
-        case .english: return "Displayed provider"
-        case .simplifiedChinese: return "显示对象"
+        case .english: return "Compact content"
+        case .simplifiedChinese: return "紧凑环内容"
         }
     }
 
     func menuBarContentDescription() -> String {
         switch self {
-        case .english: return "Automatic shows the provider that needs attention most."
-        case .simplifiedChinese: return "自动模式会显示当前最需要关注的服务商。"
+        case .english:
+            return "Always shows Codex and Kimi. Work-aware shows active providers, or the lowest remaining quota while idle."
+        case .simplifiedChinese:
+            return "常驻模式显示 Codex 与 Kimi；工作感知模式显示活跃服务商，全部空闲时显示剩余额度最少的一家。"
         }
     }
 
     func menuBarContentDisplayName(_ selection: MenuBarContentSelection) -> String {
         switch (self, selection) {
-        case (.english, .automatic): return "Automatic"
+        case (.english, .all): return "Always show all"
+        case (.english, .automatic): return "Work-aware"
         case (.english, .codex): return "Codex"
         case (.english, .kimi): return "Kimi"
         case (.english, .miniMax): return "MiniMax"
-        case (.simplifiedChinese, .automatic): return "自动"
+        case (.simplifiedChinese, .all): return "常驻全部"
+        case (.simplifiedChinese, .automatic): return "工作感知"
         case (.simplifiedChinese, .codex): return "Codex"
         case (.simplifiedChinese, .kimi): return "Kimi"
         case (.simplifiedChinese, .miniMax): return "MiniMax"
@@ -1390,9 +1394,9 @@ enum AppLanguage: String, CaseIterable, Codable, Identifiable {
     func menuBarAppearanceDescription() -> String {
         switch self {
         case .english:
-            return "For Codex, the outer ring shows Weekly remaining and the split center shows pace."
+            return "The outer ring shows remaining quota, the split center shows pace, and hover reveals the provider initial."
         case .simplifiedChinese:
-            return "Codex 紧凑环的外环显示 Weekly 剩余比例，分半内圆显示消耗节奏。"
+            return "紧凑环外圈显示剩余额度，分半内圆显示消耗节奏；悬停时显示服务商首字母。"
         }
     }
 
@@ -1427,6 +1431,63 @@ enum AppLanguage: String, CaseIterable, Codable, Identifiable {
         case (.english, .staged): return "Staged levels"
         case (.simplifiedChinese, .continuous): return "连续百分比"
         case (.simplifiedChinese, .staged): return "节奏分级"
+        }
+    }
+
+    func menuBarRingQuotaWindowLabel() -> String {
+        switch self {
+        case .english: return "Outer ring quota"
+        case .simplifiedChinese: return "外环额度周期"
+        }
+    }
+
+    func menuBarRingQuotaWindowDescription() -> String {
+        switch self {
+        case .english:
+            return "Choose whether Codex and Kimi outer rings show weekly or current-window remaining quota."
+        case .simplifiedChinese:
+            return "选择 Codex 与 Kimi 外环显示周周期还是当前短周期的剩余额度。"
+        }
+    }
+
+    func menuBarRingQuotaWindowDisplayName(
+        _ window: MenuBarRingQuotaWindow
+    ) -> String {
+        switch (self, window) {
+        case (.english, .weekly): return "Weekly cycle"
+        case (.english, .current): return "Current cycle"
+        case (.simplifiedChinese, .weekly): return "周周期"
+        case (.simplifiedChinese, .current): return "当前短周期"
+        }
+    }
+
+    func menuBarCompactLayoutLabel() -> String {
+        switch self {
+        case .english: return "Compact ring layout"
+        case .simplifiedChinese: return "紧凑环布局"
+        }
+    }
+
+    func menuBarCompactLayoutDescription() -> String {
+        switch self {
+        case .english:
+            return "Adjust the space at both outer edges and between multiple rings."
+        case .simplifiedChinese:
+            return "调整菜单栏项目两侧留白，以及多个环之间的距离。"
+        }
+    }
+
+    func menuBarCompactHorizontalPaddingLabel() -> String {
+        switch self {
+        case .english: return "Side padding"
+        case .simplifiedChinese: return "两侧边距"
+        }
+    }
+
+    func menuBarCompactRingSpacingLabel() -> String {
+        switch self {
+        case .english: return "Ring spacing"
+        case .simplifiedChinese: return "环间距"
         }
     }
 

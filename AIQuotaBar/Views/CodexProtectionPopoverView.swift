@@ -151,10 +151,12 @@ struct CodexProtectionPopoverView: View {
 
         switch coordinator.protectionStatus {
         case .idle:
-            return hookStatusText ?? language.sleepProtectionCompactReadyStatus()
+            return hookStatusText ?? language.sleepProtectionCompactReadyStatus(
+                providers: coordinator.protectedProviders)
         case .active:
             return language.sleepProtectionCompactActiveStatus(
-                turnCount: coordinator.activeTurnCount
+                turnCount: coordinator.activeTurnCount,
+                providers: coordinator.activeProviders
             )
         case let .failed(message):
             return language.sleepProtectionFailedStatus(message)
@@ -162,6 +164,9 @@ struct CodexProtectionPopoverView: View {
     }
 
     private var hookStatusText: String? {
+        guard coordinator.protectedProviders.contains(.codex) else {
+            return nil
+        }
         switch coordinator.hookInstallationStatus {
         case .notChecked:
             return language.codexHooksNotCheckedStatus()
@@ -278,6 +283,9 @@ struct CodexProtectionPopoverView: View {
     }
 
     private var shouldOfferHookRetry: Bool {
+        guard coordinator.protectedProviders.contains(.codex) else {
+            return false
+        }
         switch coordinator.hookInstallationStatus {
         case .notChecked, .installed:
             return false

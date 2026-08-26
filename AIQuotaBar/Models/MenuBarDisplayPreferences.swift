@@ -1,7 +1,8 @@
 import Foundation
 
-/// Which provider should own the single menu-bar glance target.
+/// Which provider or provider set should appear in the menu-bar glance target.
 enum MenuBarContentSelection: String, CaseIterable, Codable, Identifiable {
+    case all
     case automatic
     case codex
     case kimi
@@ -13,7 +14,7 @@ enum MenuBarContentSelection: String, CaseIterable, Codable, Identifiable {
 
     var provider: UsageProvider? {
         switch self {
-        case .automatic: return nil
+        case .all, .automatic: return nil
         case .codex: return .codex
         case .kimi: return .kimi
         case .miniMax: return .miniMax
@@ -43,6 +44,36 @@ enum MenuBarPaceDisplayMode: String, CaseIterable, Codable, Identifiable {
     var id: String { rawValue }
 }
 
+/// Which quota window supplies the compact ring's outer arc. Providers without
+/// a weekly window keep using their current window.
+enum MenuBarRingQuotaWindow: String, CaseIterable, Codable, Identifiable {
+    case weekly
+    case current
+
+    static let storageKey = "menuBarRingQuotaWindow"
+
+    var id: String { rawValue }
+}
+
+enum MenuBarCompactLayoutPreferences {
+    static let horizontalPaddingKey = "menuBarCompactHorizontalPadding"
+    static let ringSpacingKey = "menuBarCompactRingSpacing"
+    static let defaultHorizontalPadding = 0.5
+    static let defaultRingSpacing = 1.0
+    static let horizontalPaddingRange = 0.0...6.0
+    static let ringSpacingRange = 0.0...8.0
+
+    static func horizontalPadding(_ value: Double) -> Double {
+        min(horizontalPaddingRange.upperBound,
+            max(horizontalPaddingRange.lowerBound, value))
+    }
+
+    static func ringSpacing(_ value: Double) -> Double {
+        min(ringSpacingRange.upperBound,
+            max(ringSpacingRange.lowerBound, value))
+    }
+}
+
 enum MenuBarSnapshotState: Equatable {
     case loading
     case ready
@@ -54,6 +85,32 @@ enum MenuBarPaceDirection: Equatable {
     case deficit
     case onTrack
     case reserve
+}
+
+enum MenuBarCompactSnapshotSelector {
+    static func select(
+        selection: MenuBarContentSelection,
+        snapshots: [MenuBarSnapshot],
+        activeProviders: Set<UsageProvider>
+    ) -> [MenuBarSnapshot] {
+        guard selection.provider == nil else { return snapshots }
+        let supported = snapshots.filter {
+            $0.provider == .codex || $0.provider == .kimi
+        }
+        guard selection == .automatic else { return supported }
+
+        let active = supported.filter {
+            activeProviders.contains($0.provider)
+        }
+        if !active.isEmpty { return active }
+        guard let lowestRemaining = supported.min(by: {
+            ($0.ringPercent ?? $0.remainingPercent ?? .greatestFiniteMagnitude)
+                < ($1.ringPercent ?? $1.remainingPercent ?? .greatestFiniteMagnitude)
+        }) else {
+            return []
+        }
+        return [lowestRemaining]
+    }
 }
 
 /// Pace encoding for the split center circle. Weekly pace deviation is normalized

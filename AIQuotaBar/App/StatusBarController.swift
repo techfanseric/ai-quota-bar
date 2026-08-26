@@ -90,6 +90,8 @@ final class StatusBarController {
     private var recoveryTask: Task<Void, Never>?
 
     init() {
+        sleepProtectionCoordinator.setProtectedProviders(
+            viewModel.taskProtectionProviders)
         setupStatusItem()
         setupMenu()
         sleepProtectionCoordinator.start()
@@ -108,7 +110,7 @@ final class StatusBarController {
             button.target = self
             button.action = #selector(handleStatusItemClick(_:))
             button.sendAction(on: [.leftMouseUp, .rightMouseUp])
-            button.toolTip = "Left-click for usage. Right-click for Codex protection, OpenAI routes, and connections."
+            button.toolTip = "Left-click for usage. Right-click for task protection, OpenAI routes, and connections."
             statusView.translatesAutoresizingMaskIntoConstraints = true
             statusView.frame = NSRect(x: 0, y: 0, width: initialStatusItemLength, height: 22)
             statusView.autoresizingMask = [.width, .height]
@@ -120,8 +122,11 @@ final class StatusBarController {
         observeProperties(viewModel) { viewModel in
             _ = viewModel.statusBarText
             _ = viewModel.menuBarSnapshot
+            _ = viewModel.menuBarSnapshots
             _ = viewModel.menuBarAppearance
             _ = viewModel.menuBarPaceDisplayMode
+            _ = viewModel.menuBarCompactHorizontalPadding
+            _ = viewModel.menuBarCompactRingSpacing
             _ = viewModel.isMenuBarSelfTesting
         } onChange: { [weak self] in
             self?.updateStatusItem()
@@ -136,6 +141,7 @@ final class StatusBarController {
 
         observeProperties(sleepProtectionCoordinator) { coordinator in
             _ = coordinator.activeTurnCount
+            _ = coordinator.activeTaskCounts
         } onChange: { [weak self] in
             self?.updateStatusItem()
         }
@@ -143,7 +149,10 @@ final class StatusBarController {
         observeProperties(viewModel) { viewModel in
             _ = viewModel.providerUsageSections
         } onChange: { [weak self] in
-            self?.synchronizeMobileDashboardModelSelection()
+            guard let self else { return }
+            self.synchronizeMobileDashboardModelSelection()
+            self.sleepProtectionCoordinator.setProtectedProviders(
+                self.viewModel.taskProtectionProviders)
         }
     }
 
@@ -411,31 +420,39 @@ final class StatusBarController {
                 line2: parts.count > 1 ? parts[1] : "")
         case .compactRing:
             statusView.showCompact(
-                snapshot: viewModel.menuBarSnapshot,
-                connectivity: connectivityStateForDisplayedProvider,
+                snapshots: displayedCompactSnapshots,
+                codexConnectivity: connectivityMonitor.state,
                 paceDisplayMode: viewModel.menuBarPaceDisplayMode,
                 isSelfTesting: viewModel.isMenuBarSelfTesting,
-                activeTaskCount:
-                    sleepProtectionCoordinator.activeTurnCount,
+                activeTaskCounts: sleepProtectionCoordinator.activeTaskCounts,
+                horizontalPadding: viewModel.menuBarCompactHorizontalPadding,
+                ringSpacing: viewModel.menuBarCompactRingSpacing,
                 accessibilityLabel: statusItemTooltip)
         }
         statusItem?.button?.toolTip = statusItemTooltip
         updateStatusItemLength()
     }
 
-    private var connectivityStateForDisplayedProvider: CodexConnectivityState {
-        viewModel.menuBarSnapshot.provider == .codex ? connectivityMonitor.state : .unknown
-    }
-
     private var statusItemTooltip: String {
-        let base = viewModel.menuBarSnapshot.tooltip
+        let displayedSnapshots = viewModel.menuBarAppearance == .compactRing
+            ? displayedCompactSnapshots
+            : [viewModel.menuBarSnapshot]
+        let base = displayedSnapshots.map(\.tooltip).joined(separator: "\n")
         if viewModel.menuBarAppearance == .compactRing,
            viewModel.isMenuBarSelfTesting,
-           viewModel.menuBarSnapshot.provider == .codex {
+           displayedSnapshots.contains(where: { $0.provider == .codex }) {
             return viewModel.appLanguage.menuBarSelfTestTooltip()
         }
-        guard connectivityStateForDisplayedProvider == .unreachable else { return base }
+        guard displayedSnapshots.contains(where: { $0.provider == .codex }),
+              connectivityMonitor.state == .unreachable else { return base }
         return viewModel.appLanguage.codexConnectivityUnavailableTooltip(base: base)
+    }
+
+    private var displayedCompactSnapshots: [MenuBarSnapshot] {
+        MenuBarCompactSnapshotSelector.select(
+            selection: viewModel.menuBarContentSelection,
+            snapshots: viewModel.menuBarSnapshots,
+            activeProviders: sleepProtectionCoordinator.activeProviders)
     }
 
     private func updateStatusItemLength() {
@@ -500,7 +517,7 @@ private func observeProperties<Object: Observable>(
 @MainActor
 private final class StatusBarContentView: NSView {
     private let detailedView = StatusBarTwoLineView()
-    private let compactView = StatusBarCompactRingView()
+    private let compactView = StatusBarCompactRingsView()
     private var isCompact = false
 
     var preferredWidth: CGFloat {
@@ -538,20 +555,24 @@ private final class StatusBarContentView: NSView {
     }
 
     func showCompact(
-        snapshot: MenuBarSnapshot,
-        connectivity: CodexConnectivityState,
+        snapshots: [MenuBarSnapshot],
+        codexConnectivity: CodexConnectivityState,
         paceDisplayMode: MenuBarPaceDisplayMode,
         isSelfTesting: Bool,
-        activeTaskCount: Int,
+        activeTaskCounts: [UsageProvider: Int],
+        horizontalPadding: Double,
+        ringSpacing: Double,
         accessibilityLabel: String
     ) {
         isCompact = true
-        compactView.setSnapshot(
-            snapshot,
-            connectivity: connectivity,
+        compactView.setSnapshots(
+            snapshots,
+            codexConnectivity: codexConnectivity,
             paceDisplayMode: paceDisplayMode,
             isSelfTesting: isSelfTesting,
-            activeTaskCount: activeTaskCount,
+            activeTaskCounts: activeTaskCounts,
+            horizontalPadding: horizontalPadding,
+            ringSpacing: ringSpacing,
             accessibilityLabel: accessibilityLabel)
         detailedView.isHidden = true
         compactView.isHidden = false
@@ -571,10 +592,135 @@ private final class StatusBarContentView: NSView {
     }
 }
 
+/// A compact strip containing one quota ring per provider. Automatic selection
+/// can therefore show Codex and Kimi together, while a fixed provider still
+/// occupies the original 22pt width. Hover applies to the complete strip.
+@MainActor
+final class StatusBarCompactRingsView: NSView {
+    private static let ringWidth: CGFloat = 19
+    private var ringViews: [StatusBarCompactRingView] = []
+    private var hoverTrackingArea: NSTrackingArea?
+    private var isHovered = false
+    private var horizontalPadding = CGFloat(
+        MenuBarCompactLayoutPreferences.defaultHorizontalPadding)
+    private var ringSpacing = CGFloat(
+        MenuBarCompactLayoutPreferences.defaultRingSpacing)
+
+    var preferredWidth: CGFloat {
+        let count = max(1, ringViews.count)
+        return horizontalPadding * 2
+            + CGFloat(count) * Self.ringWidth
+            + CGFloat(max(0, count - 1)) * ringSpacing
+    }
+
+    func setSnapshots(
+        _ snapshots: [MenuBarSnapshot],
+        codexConnectivity: CodexConnectivityState,
+        paceDisplayMode: MenuBarPaceDisplayMode,
+        isSelfTesting: Bool,
+        activeTaskCounts: [UsageProvider: Int],
+        horizontalPadding: Double =
+            MenuBarCompactLayoutPreferences.defaultHorizontalPadding,
+        ringSpacing: Double =
+            MenuBarCompactLayoutPreferences.defaultRingSpacing,
+        accessibilityLabel: String
+    ) {
+        self.horizontalPadding = CGFloat(
+            MenuBarCompactLayoutPreferences.horizontalPadding(
+                horizontalPadding))
+        self.ringSpacing = CGFloat(
+            MenuBarCompactLayoutPreferences.ringSpacing(ringSpacing))
+        let displayedSnapshots = snapshots.isEmpty ? [] : snapshots
+        while ringViews.count < displayedSnapshots.count {
+            let ringView = StatusBarCompactRingView()
+            ringViews.append(ringView)
+            addSubview(ringView)
+        }
+        while ringViews.count > displayedSnapshots.count {
+            let ringView = ringViews.removeLast()
+            ringView.suspendAnimationLoops()
+            ringView.removeFromSuperview()
+        }
+
+        for (ringView, snapshot) in zip(ringViews, displayedSnapshots) {
+            ringView.setSnapshot(
+                snapshot,
+                connectivity:
+                    snapshot.provider == .codex
+                        ? codexConnectivity
+                        : .unknown,
+                paceDisplayMode: paceDisplayMode,
+                isSelfTesting: isSelfTesting,
+                activeTaskCount: activeTaskCounts[snapshot.provider] ?? 0,
+                accessibilityLabel: snapshot.tooltip)
+            ringView.setHovered(isHovered)
+        }
+        setAccessibilityElement(true)
+        setAccessibilityRole(.group)
+        setAccessibilityLabel(accessibilityLabel)
+        needsLayout = true
+    }
+
+    override func layout() {
+        super.layout()
+        for (index, ringView) in ringViews.enumerated() {
+            ringView.frame = NSRect(
+                x: horizontalPadding
+                    + CGFloat(index) * (Self.ringWidth + ringSpacing),
+                y: 0,
+                width: Self.ringWidth,
+                height: bounds.height)
+        }
+    }
+
+    override func updateTrackingAreas() {
+        super.updateTrackingAreas()
+        if let hoverTrackingArea {
+            removeTrackingArea(hoverTrackingArea)
+        }
+        let trackingArea = NSTrackingArea(
+            rect: bounds,
+            options: [.mouseEnteredAndExited, .activeAlways],
+            owner: self,
+            userInfo: nil)
+        addTrackingArea(trackingArea)
+        hoverTrackingArea = trackingArea
+    }
+
+    override func mouseEntered(with event: NSEvent) {
+        isHovered = true
+        ringViews.forEach { $0.setHovered(true) }
+    }
+
+    override func mouseExited(with event: NSEvent) {
+        isHovered = false
+        ringViews.forEach { $0.setHovered(false) }
+    }
+
+    func suspendAnimationLoops() {
+        ringViews.forEach { $0.suspendAnimationLoops() }
+    }
+
+#if DEBUG
+    func setHoveredForTesting(_ value: Bool) {
+        isHovered = value
+        ringViews.forEach { $0.setHovered(value) }
+    }
+
+    var providerInitialCountForTesting: Int {
+        ringViews.filter(\.isShowingProviderInitialForTesting).count
+    }
+
+    var activeTaskCountsForTesting: [Int] {
+        ringViews.map(\.activeTaskCountForTesting)
+    }
+#endif
+}
+
 /// 单一 22pt glance target。
-/// Codex: 外环 = Weekly 剩余比例；分半内圆 = 左 deficit / 右 reserve；
+/// 外环 = provider 剩余比例；分半内圆 = 左 deficit / 右 reserve；
 /// OpenAI 双域名均不可达时，外环显示全消耗轨道，内圆变为持续明暗的禁止图标。
-/// 其他 provider 保留原有的中心字母和剩余额度环。
+/// 悬停时，内圆临时替换为 provider 首字母。
 enum MenuBarTaskEnergyMotion {
     static let waveSpanFraction: CGFloat = 0.16
     static let maximumWaveCount = 5
@@ -662,6 +808,7 @@ final class StatusBarCompactRingView: NSView {
     private var offlinePulseTask: Task<Void, Never>?
     private var selfTestTask: Task<Void, Never>?
     private var taskEnergyTask: Task<Void, Never>?
+    private var isHovered = false
 
     override var isFlipped: Bool { false }
 
@@ -675,6 +822,12 @@ final class StatusBarCompactRingView: NSView {
         super.init(coder: coder)
         setAccessibilityElement(true)
         setAccessibilityRole(.staticText)
+    }
+
+    func setHovered(_ value: Bool) {
+        guard value != isHovered else { return }
+        isHovered = value
+        needsDisplay = true
     }
 
     func setSnapshot(
@@ -706,7 +859,9 @@ final class StatusBarCompactRingView: NSView {
         super.draw(dirtyRect)
 
         let center = NSPoint(x: bounds.midX, y: bounds.midY)
-        let radius = min(8.0, max(0, min(bounds.width, bounds.height) / 2 - 2.5))
+        let radius = min(
+            8.0,
+            max(0, min(bounds.width, bounds.height) / 2 - 0.5))
         guard radius > 0 else { return }
 
         drawArc(
@@ -771,14 +926,14 @@ final class StatusBarCompactRingView: NSView {
             }
         }
 
-        if snapshot.provider == .codex {
+        if isHovered {
+            drawProviderInitial(center: center)
+        } else {
             drawCodexCore(
                 center: center,
                 radius: 4.25,
                 state: effectiveState,
                 paceDeltaPercent: selfTestFrame?.paceDeltaPercent ?? snapshot.paceDeltaPercent)
-        } else {
-            drawProviderInitial(center: center)
         }
     }
 
@@ -956,6 +1111,13 @@ final class StatusBarCompactRingView: NSView {
     }
 
 #if DEBUG
+    var isShowingProviderInitialForTesting: Bool { isHovered }
+    var activeTaskCountForTesting: Int { activeTaskCount }
+
+    func setHoveredForTesting(_ value: Bool) {
+        setHovered(value)
+    }
+
     func setOfflineMorphForTesting(_ value: CGFloat) {
         morphTask?.cancel()
         offlineMorph = min(1, max(0, value))
