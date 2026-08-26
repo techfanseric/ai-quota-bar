@@ -832,6 +832,11 @@ private struct ModelRow: View {
                         samples: samples,
                         tint: tint,
                         warningThreshold: warningThreshold,
+                        forecastLookbackIntervals:
+                            viewModel.quotaForecastLookbackIntervals,
+                        maximumForecastSampleGap:
+                            QuotaConsumptionForecaster.maximumSampleGap(
+                                refreshInterval: viewModel.refreshInterval),
                         language: language,
                         isHovered: isHovered
                     )
@@ -1163,6 +1168,8 @@ private struct QuotaAreaChart: View {
     let samples: [ModelQuotaSample]
     let tint: Color
     let warningThreshold: Double
+    let forecastLookbackIntervals: Int
+    let maximumForecastSampleGap: TimeInterval
     let language: AppLanguage
     let isHovered: Bool
 
@@ -1178,6 +1185,7 @@ private struct QuotaAreaChart: View {
                     drawAxes(context: &context, layout: layout)
                     drawTimeTicks(context: &context, layout: layout)
                     drawPaceGuide(context: &context, layout: layout)
+                    drawForecasts(context: &context, layout: layout)
                     drawSeries(context: &context, layout: layout)
                     drawHoveredGuide(context: &context, layout: layout)
                 }
@@ -1272,11 +1280,12 @@ private struct QuotaAreaChart: View {
         }
     }
 
-    /// 匀速消耗参考线：从左上到右下的对角虚线，代表"匀速消耗下 remaining
-    /// 从周期起点 100% 线性下降到周期终点 0% 的轨迹"。颜色按 ahead/behind 区分。
-    /// 文字标签不在图里显示，统一挪到 reset time 那一行（避免被 Canvas 边缘裁切）。
-    /// onTrack 时也常驻 — 这是"参考线"而非"偏差警示线"。
-    private func drawPaceGuide(context: inout GraphicsContext, layout: QuotaChartLayout) {
+    /// 匀速消耗参考线：从周期起点的 100% 连接到周期终点的 0%。
+    /// 它是常驻基准线；近期消耗预测会在其后单独叠加绘制。
+    private func drawPaceGuide(
+        context: inout GraphicsContext,
+        layout: QuotaChartLayout
+    ) {
         guard let pace = model.currentIntervalPace else { return }
 
         let color: Color = pace.stage.isAhead ? .green : .red
@@ -1356,6 +1365,47 @@ private struct QuotaAreaChart: View {
         for point in points {
             let markerRect = CGRect(x: point.x - 2, y: point.y - 2, width: 4, height: 4)
             context.fill(Path(ellipseIn: markerRect), with: .color(tint))
+        }
+    }
+
+    private func drawForecasts(
+        context: inout GraphicsContext,
+        layout: QuotaChartLayout
+    ) {
+        guard let windowEnd = model.endTime else { return }
+        let forecasts = QuotaConsumptionForecaster.forecasts(
+            samples: samples,
+            isPercentMode: model.isCurrentIntervalPercentMode,
+            maximumLookbackIntervals: forecastLookbackIntervals,
+            maximumSampleGap: maximumForecastSampleGap)
+
+        for (index, forecast) in forecasts.enumerated() {
+            let endDate = min(forecast.exhaustsAt, windowEnd)
+            guard endDate > forecast.startsAt else { continue }
+            let remainingAtEnd = max(
+                0,
+                forecast.startingRemaining
+                    - forecast.consumptionPerSecond
+                    * endDate.timeIntervalSince(forecast.startsAt))
+            let opacities = [0.62, 0.44, 0.31, 0.22, 0.15]
+            let opacity = opacities[min(index, opacities.count - 1)]
+
+            var path = Path()
+            path.move(to: CGPoint(
+                x: xPosition(for: forecast.startsAt, layout: layout),
+                y: yPosition(
+                    forRemaining: forecast.startingRemaining,
+                    layout: layout)))
+            path.addLine(to: CGPoint(
+                x: xPosition(for: endDate, layout: layout),
+                y: yPosition(forRemaining: remainingAtEnd, layout: layout)))
+            context.stroke(
+                path,
+                with: .color(tint.opacity(opacity)),
+                style: StrokeStyle(
+                    lineWidth: 1,
+                    lineCap: .round,
+                    dash: [5, 4]))
         }
     }
 

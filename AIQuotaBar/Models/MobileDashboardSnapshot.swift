@@ -105,6 +105,7 @@ struct MobileModelQuotaSnapshot: Codable, Equatable {
     let paceDeltaPercent: Double?
     let sampledAt: Date?
     let samples: [MobileQuotaSampleSnapshot]
+    let consumptionForecasts: [MobileQuotaConsumptionForecastSnapshot]
     let cycles: [MobileUtilizationCycleSnapshot]
 }
 
@@ -188,6 +189,14 @@ struct MobileQuotaSampleSnapshot: Codable, Equatable {
     /// available for existing percent-based clients.
     let remaining: Int
     let remainingPercent: Double
+}
+
+struct MobileQuotaConsumptionForecastSnapshot: Codable, Equatable {
+    let lookbackIntervals: Int
+    let consumptionPerSecond: Double
+    let startsAt: Date
+    let startingRemaining: Double
+    let exhaustsAt: Date
 }
 
 struct MobileUtilizationCycleSnapshot: Codable, Equatable {

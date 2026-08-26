@@ -114,6 +114,14 @@ final class UsageViewModel {
         }
     }
 
+    var quotaForecastLookbackIntervals: Int {
+        didSet {
+            UserDefaults.standard.set(
+                quotaForecastLookbackIntervals,
+                forKey: Self.quotaForecastLookbackIntervalsKey)
+        }
+    }
+
     var leftClickMenuDisplayPreferences: LeftClickMenuDisplayPreferences {
         didSet {
             leftClickMenuDisplayPreferences.save()
@@ -145,6 +153,8 @@ final class UsageViewModel {
     }
 
     private static let utilizationHistoryModeKey = "utilizationHistoryMode"
+    private static let quotaForecastLookbackIntervalsKey =
+        "quotaForecastLookbackIntervals"
     private static let cloudCurrentWindowVisibilityLimitKey = "cloudCurrentWindowVisibilityLimit"
     private static let cloudShortCyclesVisibilityLimitKey = "cloudShortCyclesVisibilityLimit"
     private static let cloudWeeklyCyclesVisibilityLimitKey = "cloudWeeklyCyclesVisibilityLimit"
@@ -482,6 +492,10 @@ final class UsageViewModel {
         self.utilizationHistoryMode = UserDefaults.standard.string(forKey: Self.utilizationHistoryModeKey)
             .flatMap(UtilizationHistoryMode.init(rawValue:))
             ?? .includeCurrent
+        self.quotaForecastLookbackIntervals = min(max(
+            UserDefaults.standard.object(
+                forKey: Self.quotaForecastLookbackIntervalsKey) as? Int ?? 3,
+            1), 5)
         self.leftClickMenuDisplayPreferences = LeftClickMenuDisplayPreferences.load()
         self.cloudCurrentWindowVisibilityLimit = UserDefaults.standard.string(forKey: Self.cloudCurrentWindowVisibilityLimitKey)
             .flatMap(CloudDataVisibilityLimit.init(rawValue:))
