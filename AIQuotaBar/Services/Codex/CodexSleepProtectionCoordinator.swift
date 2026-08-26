@@ -87,6 +87,8 @@ final class CodexSleepProtectionCoordinator {
     }
 
     private(set) var activeTurnCount = 0
+    private(set) var activeTaskCounts: [UsageProvider: Int] = [:]
+    private(set) var protectedProviders: Set<UsageProvider> = [.codex]
     private(set) var protectionStatus: CodexSleepProtectionStatus = .idle
     private(set) var hookInstallationStatus: CodexHookInstallationStatus = .notChecked
     private(set) var lastEventAt: Date?
@@ -102,9 +104,13 @@ final class CodexSleepProtectionCoordinator {
     private let localActivityProvider: (
         any CodexLocalActivityProviding
     )?
+    private let kimiActivityProvider: (
+        any KimiLocalActivityProviding
+    )?
     private let workspaceNotificationCenter: NotificationCenter
     private var activityTracker = CodexActivityTracker()
     private var localActivitySnapshot = CodexLocalActivitySnapshot.empty
+    private var kimiActivitySnapshot = KimiLocalActivitySnapshot.empty
     private var workspaceObserverTokens: [NSObjectProtocol] = []
     private var isSessionActive = true
     private var hasStarted = false
@@ -124,6 +130,7 @@ final class CodexSleepProtectionCoordinator {
 
     @ObservationIgnored private var hookListener: CodexHookListener?
     @ObservationIgnored private var localActivityTask: Task<Void, Never>?
+    @ObservationIgnored private var kimiActivityTask: Task<Void, Never>?
 
     init(
         defaults: UserDefaults = .standard,
@@ -132,6 +139,9 @@ final class CodexSleepProtectionCoordinator {
         localActivityProvider: (
             any CodexLocalActivityProviding
         )? = CodexLocalActivityDetector(),
+        kimiActivityProvider: (
+            any KimiLocalActivityProviding
+        )? = KimiLocalActivityDetector(),
         closedLidModeManager: ClosedLidModeManager? = nil,
         workspaceNotificationCenter: NotificationCenter = NSWorkspace.shared.notificationCenter
     ) {
@@ -139,6 +149,7 @@ final class CodexSleepProtectionCoordinator {
         self.assertionController = assertionController
         self.hookInstaller = hookInstaller
         self.localActivityProvider = localActivityProvider
+        self.kimiActivityProvider = kimiActivityProvider
         self.closedLidModeManager = closedLidModeManager ?? ClosedLidModeManager(
             defaults: defaults
         )
@@ -163,22 +174,25 @@ final class CodexSleepProtectionCoordinator {
     func start() {
         guard !hasStarted else { return }
         hasStarted = true
-        let listener = CodexHookListener { [weak self] event in
-            self?.receive(event)
-        }
-        hookListener = listener
-        listener.start()
-        if let detector = localActivityProvider
+        configureCodexHookListener()
+        if protectedProviders.contains(.codex),
+           let detector = localActivityProvider
             as? CodexLocalActivityDetector {
             receiveLocalSnapshot(
                 detector.detectSnapshot(now: Date())
             )
         }
+        if protectedProviders.contains(.kimi),
+           let detector = kimiActivityProvider
+            as? KimiLocalActivityDetector {
+            receiveKimiSnapshot(detector.detectSnapshot())
+        }
         startLocalActivityMonitoring()
+        startKimiActivityMonitoring()
         installWorkspaceObservers()
         closedLidModeManager.start()
 
-        if isEnabled {
+        if isEnabled, protectedProviders.contains(.codex) {
             hookInstallationStatus = hookInstaller.install()
         }
         applyCurrentState()
@@ -193,6 +207,8 @@ final class CodexSleepProtectionCoordinator {
         hasStarted = false
         localActivityTask?.cancel()
         localActivityTask = nil
+        kimiActivityTask?.cancel()
+        kimiActivityTask = nil
         hookListener?.stop()
         hookListener = nil
         for token in workspaceObserverTokens {
@@ -201,7 +217,9 @@ final class CodexSleepProtectionCoordinator {
         workspaceObserverTokens.removeAll()
         activityTracker.reset()
         localActivitySnapshot = .empty
+        kimiActivitySnapshot = .empty
         activeTurnCount = 0
+        activeTaskCounts = [:]
         lastEventAt = nil
         assertionController.release()
         closedLidModeManager.stop()
@@ -209,12 +227,37 @@ final class CodexSleepProtectionCoordinator {
     }
 
     func retryHookInstallation() {
-        guard isEnabled else { return }
+        guard isEnabled, protectedProviders.contains(.codex) else { return }
         hookInstallationStatus = hookInstaller.install()
     }
 
+    func setProtectedProviders(_ providers: Set<UsageProvider>) {
+        let supported = providers.intersection([.codex, .kimi])
+        guard supported != protectedProviders else { return }
+        protectedProviders = supported
+        if hasStarted {
+            configureCodexHookListener()
+            if isEnabled, supported.contains(.codex),
+               hookInstallationStatus == .notChecked {
+                hookInstallationStatus = hookInstaller.install()
+            }
+        }
+        refreshMergedActivity()
+    }
+
+    func activeTaskCount(for provider: UsageProvider) -> Int {
+        activeTaskCounts[provider] ?? 0
+    }
+
+    var activeProviders: Set<UsageProvider> {
+        Set(activeTaskCounts.compactMap { provider, count in
+            count > 0 ? provider : nil
+        })
+    }
+
     func receive(_ event: CodexHookEvent) {
-        guard hasStarted, isEnabled else { return }
+        guard hasStarted, isEnabled,
+              protectedProviders.contains(.codex) else { return }
         activityTracker.receive(event)
         logger.notice(
             "Received Codex hook event \(event.name.rawValue, privacy: .public)"
@@ -227,6 +270,15 @@ final class CodexSleepProtectionCoordinator {
         localActivitySnapshot = snapshot
         logger.notice(
             "Local Codex detector found \(snapshot.activeSessionIDs.count) active tasks"
+        )
+        refreshMergedActivity()
+    }
+
+    func receiveKimiSnapshot(_ snapshot: KimiLocalActivitySnapshot) {
+        guard hasStarted else { return }
+        kimiActivitySnapshot = snapshot
+        logger.notice(
+            "Local Kimi detector found \(snapshot.activeSessionIDs.count) active tasks"
         )
         refreshMergedActivity()
     }
@@ -309,6 +361,36 @@ final class CodexSleepProtectionCoordinator {
         let cutoff = now.addingTimeInterval(
             -Self.mobileActivityFreshnessWindow)
         return activeSessionIDs.map { sessionID in
+            if sessionID.hasPrefix("kimi:") {
+                let lastActivityAt = kimiActivitySnapshot.lastEventAt
+                let isFresh = lastActivityAt.map {
+                    $0 >= cutoff && $0 <= now
+                } ?? false
+                return CodexActivityTask(
+                    state: isFresh ? .working : .stale,
+                    title: nil,
+                    projectName: nil,
+                    gitBranch: nil,
+                    source: "Kimi Code",
+                    model: nil,
+                    modelProvider: "Kimi",
+                    reasoningEffort: nil,
+                    sandboxPolicy: nil,
+                    approvalMode: nil,
+                    tokensUsed: nil,
+                    activeSubtaskCount: 0,
+                    subtaskNames: [],
+                    createdAt: nil,
+                    startedAt: nil,
+                    elapsedSeconds: nil,
+                    lastActivityAt: lastActivityAt,
+                    cliVersion: nil,
+                    phase: .unknown,
+                    toolCategory: nil,
+                    toolStatus: nil,
+                    progressLines: [],
+                    recentEvents: [])
+            }
             let local = localActivitySnapshot.sessionActivities[sessionID]
             let hookStart = activityTracker.reliableOldestStartedAt(
                 for: [sessionID])
@@ -384,6 +466,7 @@ final class CodexSleepProtectionCoordinator {
     ) -> Date? {
         var starts: [Date] = []
         for sessionID in activeSessionIDs {
+            guard !sessionID.hasPrefix("kimi:") else { return nil }
             if let localStart = localActivitySnapshot
                 .sessionActivities[sessionID]?.startedAt {
                 starts.append(localStart)
@@ -459,11 +542,27 @@ final class CodexSleepProtectionCoordinator {
     }
 
     private func refreshMergedActivity() {
-        let activeSessionIDs = mergedActiveSessionIDs
-        activeTurnCount = activeSessionIDs.count
+        let codexCount = protectedProviders.contains(.codex)
+            ? mergedCodexActiveSessionIDs.count
+            : 0
+        let kimiCount = protectedProviders.contains(.kimi)
+            ? kimiActivitySnapshot.activeSessionIDs.count
+            : 0
+        activeTaskCounts = [
+            .codex: codexCount,
+            .kimi: kimiCount,
+        ]
+        activeTurnCount = codexCount + kimiCount
         lastEventAt = [
-            activityTracker.lastEventAt,
-            localActivitySnapshot.lastEventAt
+            protectedProviders.contains(.codex)
+                ? activityTracker.lastEventAt
+                : nil,
+            protectedProviders.contains(.codex)
+                ? localActivitySnapshot.lastEventAt
+                : nil,
+            protectedProviders.contains(.kimi)
+                ? kimiActivitySnapshot.lastEventAt
+                : nil,
         ]
         .compactMap { $0 }
         .max()
@@ -471,15 +570,29 @@ final class CodexSleepProtectionCoordinator {
     }
 
     private var mergedActiveSessionIDs: Set<String> {
+        var result = protectedProviders.contains(.codex)
+            ? mergedCodexActiveSessionIDs
+            : []
+        if protectedProviders.contains(.kimi) {
+            result.formUnion(kimiActivitySnapshot.activeSessionIDs)
+        }
+        return result
+    }
+
+    private var mergedCodexActiveSessionIDs: Set<String> {
         activityTracker.activeSessionIDs
             .union(localActivitySnapshot.activeSessionIDs)
     }
 
     private var hasReliableActivitySource: Bool {
         guard hasStarted else { return false }
-        return localActivityProvider != nil
-            || hookInstallationStatus == .installed
-            || activityTracker.lastEventAt != nil
+        let hasCodexSource = protectedProviders.contains(.codex)
+            && (localActivityProvider != nil
+                || hookInstallationStatus == .installed
+                || activityTracker.lastEventAt != nil)
+        let hasKimiSource = protectedProviders.contains(.kimi)
+            && kimiActivityProvider != nil
+        return hasCodexSource || hasKimiSource
     }
 
     private func applyCurrentState() {
@@ -513,9 +626,13 @@ final class CodexSleepProtectionCoordinator {
         guard let localActivityProvider else { return }
         localActivityTask = Task { [weak self] in
             while !Task.isCancelled {
-                let snapshot = await localActivityProvider.snapshot()
+                guard let self else { return }
+                let shouldRead = self.protectedProviders.contains(.codex)
+                let snapshot = shouldRead
+                    ? await localActivityProvider.snapshot()
+                    : .empty
                 guard !Task.isCancelled else { return }
-                self?.receiveLocalSnapshot(snapshot)
+                self.receiveLocalSnapshot(snapshot)
                 do {
                     try await Task.sleep(
                         nanoseconds: 2_000_000_000
@@ -524,6 +641,42 @@ final class CodexSleepProtectionCoordinator {
                     return
                 }
             }
+        }
+    }
+
+    private func startKimiActivityMonitoring() {
+        guard let kimiActivityProvider else { return }
+        kimiActivityTask = Task { [weak self] in
+            while !Task.isCancelled {
+                guard let self else { return }
+                let shouldRead = self.protectedProviders.contains(.kimi)
+                let snapshot = shouldRead
+                    ? await kimiActivityProvider.snapshot()
+                    : .empty
+                guard !Task.isCancelled else { return }
+                self.receiveKimiSnapshot(snapshot)
+                do {
+                    try await Task.sleep(nanoseconds: 2_000_000_000)
+                } catch {
+                    return
+                }
+            }
+        }
+    }
+
+    private func configureCodexHookListener() {
+        let shouldListen = protectedProviders.contains(.codex)
+        if shouldListen, hookListener == nil {
+            let listener = CodexHookListener { [weak self] event in
+                self?.receive(event)
+            }
+            hookListener = listener
+            listener.start()
+        } else if !shouldListen {
+            hookListener?.stop()
+            hookListener = nil
+            activityTracker.reset()
+            localActivitySnapshot = .empty
         }
     }
 

@@ -115,6 +115,57 @@ final class CodexSleepProtectionCoordinatorTests: XCTestCase {
         XCTAssertEqual(fixture.coordinator.protectionStatus, .idle)
     }
 
+    func testKimiOnlyProtectionIgnoresCodexAndProtectsKimiTurns() throws {
+        let fixture = try makeFixture()
+        fixture.coordinator.setProtectedProviders([.kimi])
+        fixture.coordinator.start()
+
+        fixture.coordinator.receive(event(.userPromptSubmit))
+        fixture.coordinator.receiveLocalSnapshot(
+            CodexLocalActivitySnapshot(
+                activeSessionIDs: ["codex-session"],
+                lastEventAt: Date()))
+        XCTAssertEqual(fixture.coordinator.activeTurnCount, 0)
+        XCTAssertFalse(fixture.assertions.isHoldingAssertions)
+        XCTAssertEqual(
+            fixture.coordinator.hookInstallationStatus,
+            .notChecked)
+
+        fixture.coordinator.receiveKimiSnapshot(
+            KimiLocalActivitySnapshot(
+                activeSessionIDs: ["kimi:session"],
+                lastEventAt: Date()))
+        XCTAssertEqual(fixture.coordinator.activeTurnCount, 1)
+        XCTAssertEqual(fixture.coordinator.activeTaskCount(for: .kimi), 1)
+        XCTAssertEqual(fixture.coordinator.activeProviders, [.kimi])
+        XCTAssertTrue(fixture.assertions.isHoldingAssertions)
+
+        fixture.coordinator.receiveKimiSnapshot(.empty)
+        XCTAssertEqual(fixture.coordinator.activeTurnCount, 0)
+        XCTAssertFalse(fixture.assertions.isHoldingAssertions)
+    }
+
+    func testCombinedProtectionReleasesOnlyAfterBothProvidersFinish() throws {
+        let fixture = try makeFixture()
+        fixture.coordinator.setProtectedProviders([.codex, .kimi])
+        fixture.coordinator.start()
+        fixture.coordinator.receive(event(.userPromptSubmit))
+        fixture.coordinator.receiveKimiSnapshot(
+            KimiLocalActivitySnapshot(
+                activeSessionIDs: ["kimi:session"],
+                lastEventAt: Date()))
+
+        XCTAssertEqual(fixture.coordinator.activeTurnCount, 2)
+        XCTAssertEqual(fixture.coordinator.activeProviders, [.codex, .kimi])
+        fixture.coordinator.receive(event(.stop))
+        XCTAssertEqual(fixture.coordinator.activeTurnCount, 1)
+        XCTAssertTrue(fixture.assertions.isHoldingAssertions)
+
+        fixture.coordinator.receiveKimiSnapshot(.empty)
+        XCTAssertEqual(fixture.coordinator.activeTurnCount, 0)
+        XCTAssertFalse(fixture.assertions.isHoldingAssertions)
+    }
+
     func testMobileActivitySummaryDeduplicatesHookAndLocalSessions()
         throws
     {
@@ -227,6 +278,7 @@ final class CodexSleepProtectionCoordinatorTests: XCTestCase {
             assertionController: assertions,
             hookInstaller: installer,
             localActivityProvider: nil,
+            kimiActivityProvider: nil,
             closedLidModeManager: closedLidManager,
             workspaceNotificationCenter: workspaceCenter
         )

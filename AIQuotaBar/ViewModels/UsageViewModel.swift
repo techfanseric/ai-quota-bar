@@ -102,6 +102,43 @@ final class UsageViewModel {
         }
     }
 
+    var menuBarRingQuotaWindow: MenuBarRingQuotaWindow {
+        didSet {
+            UserDefaults.standard.set(
+                menuBarRingQuotaWindow.rawValue,
+                forKey: MenuBarRingQuotaWindow.storageKey)
+            updateStatusBarText()
+        }
+    }
+
+    var menuBarCompactHorizontalPadding: Double {
+        didSet {
+            let clamped = MenuBarCompactLayoutPreferences.horizontalPadding(
+                menuBarCompactHorizontalPadding)
+            if clamped != menuBarCompactHorizontalPadding {
+                menuBarCompactHorizontalPadding = clamped
+                return
+            }
+            UserDefaults.standard.set(
+                clamped,
+                forKey: MenuBarCompactLayoutPreferences.horizontalPaddingKey)
+        }
+    }
+
+    var menuBarCompactRingSpacing: Double {
+        didSet {
+            let clamped = MenuBarCompactLayoutPreferences.ringSpacing(
+                menuBarCompactRingSpacing)
+            if clamped != menuBarCompactRingSpacing {
+                menuBarCompactRingSpacing = clamped
+                return
+            }
+            UserDefaults.standard.set(
+                clamped,
+                forKey: MenuBarCompactLayoutPreferences.ringSpacingKey)
+        }
+    }
+
     var cloudSyncEnabled: Bool {
         didSet {
             saveCloudSyncSettings()
@@ -173,6 +210,16 @@ final class UsageViewModel {
         state: .loading,
         isLowQuota: false,
         tooltip: "")
+    private(set) var menuBarSnapshots = [MenuBarSnapshot(
+        provider: .codex,
+        modelName: nil,
+        remainingPercent: nil,
+        ringPercent: nil,
+        paceDeltaPercent: nil,
+        resetsAt: nil,
+        state: .loading,
+        isLowQuota: false,
+        tooltip: "")]
 
     var availableModels: [ModelUsageData] {
         guard let data = usageData else { return [] }
@@ -188,40 +235,25 @@ final class UsageViewModel {
             let provider = fallbackMenuBarProvider()
             let failed = providerErrors[provider] != nil || (error != nil && usageData == nil)
             let state: MenuBarSnapshotState = failed ? .failed : (isLoading || usageData == nil ? .loading : .unavailable)
-            menuBarSnapshot = MenuBarSnapshot(
+            let snapshot = makeMenuBarStateSnapshot(
                 provider: provider,
-                modelName: nil,
-                remainingPercent: nil,
-                ringPercent: nil,
-                paceDeltaPercent: nil,
-                resetsAt: nil,
-                state: state,
-                isLowQuota: false,
-                tooltip: menuBarStateTooltip(provider: provider, state: state))
+                state: state)
+            menuBarSnapshot = snapshot
+            menuBarSnapshots = compactMenuBarStateSnapshots(
+                fallback: snapshot,
+                defaultState: state)
             statusBarText = "\(provider.displayName)\n\(statusBarStateText(state))"
             return
         }
 
-        let paceSource = menuBarPaceSource(for: primary, models: allModels)
-        let paceDelta = paceSource.currentIntervalPaceDeltaPercent
-        let remaining = primary.currentIntervalPercentageRemaining
-        let ringPercent = menuBarRingPercent(for: primary, models: allModels)
-        let warningLimit = warningThresholdEnabled ? warningThreshold : 20
-        let isLowQuota = remaining <= warningLimit
-
-        menuBarSnapshot = MenuBarSnapshot(
-            provider: primary.provider,
-            modelName: primary.modelName,
-            remainingPercent: remaining,
-            ringPercent: ringPercent,
-            paceDeltaPercent: paceDelta,
-            resetsAt: primary.endTime,
-            state: .ready,
-            isLowQuota: isLowQuota,
-            tooltip: menuBarReadyTooltip(
-                primary: primary,
-                weeklyRemainingPercent: primary.provider == .codex ? ringPercent : nil,
-                paceDelta: paceDelta))
+        let primarySnapshot = makeMenuBarSnapshot(
+            primary: primary,
+            models: allModels)
+        menuBarSnapshot = primarySnapshot
+        menuBarSnapshots = compactMenuBarSnapshots(
+            primarySnapshot: primarySnapshot,
+            candidates: candidates,
+            models: allModels)
 
         if let automaticText = detailedAutomaticStatusBarText(
             primary: primary,
@@ -234,18 +266,110 @@ final class UsageViewModel {
 
         statusBarText = [
             primary.provider.displayName,
-            primary.formattedStatusBarLine(paceSource: paceSource)
+            primary.formattedStatusBarLine(
+                paceSource: menuBarPaceSource(
+                    for: primary,
+                    models: allModels))
         ].joined(separator: "\n")
     }
 
-    /// Detailed + Automatic 有足够数据时每行显示一家；紧凑环仍只消费 menuBarSnapshot。
+    private func compactMenuBarSnapshots(
+        primarySnapshot: MenuBarSnapshot,
+        candidates: [ModelUsageData],
+        models: [ModelUsageData]
+    ) -> [MenuBarSnapshot] {
+        guard menuBarAppearance == .compactRing,
+              menuBarContentSelection == .all
+                || menuBarContentSelection == .automatic else {
+            return [primarySnapshot]
+        }
+
+        let displayOrder: [UsageProvider] = [.codex, .kimi]
+        let snapshots = displayOrder.compactMap { provider -> MenuBarSnapshot? in
+            guard let primary = pickPrimary(
+                from: candidates.filter { $0.provider == provider }) else {
+                return nil
+            }
+            return makeMenuBarSnapshot(primary: primary, models: models)
+        }
+        return snapshots
+    }
+
+    private func compactMenuBarStateSnapshots(
+        fallback: MenuBarSnapshot,
+        defaultState: MenuBarSnapshotState
+    ) -> [MenuBarSnapshot] {
+        guard menuBarAppearance == .compactRing,
+              menuBarContentSelection == .all
+                || menuBarContentSelection == .automatic else {
+            return [fallback]
+        }
+
+        let registered = taskProtectionProviders
+        let providers = [UsageProvider.codex, .kimi].filter {
+            registered.contains($0)
+        }
+        return (providers.isEmpty ? [.codex] : providers).map { provider in
+            let state: MenuBarSnapshotState = providerErrors[provider] == nil
+                ? defaultState
+                : .failed
+            return makeMenuBarStateSnapshot(provider: provider, state: state)
+        }
+    }
+
+    private func makeMenuBarStateSnapshot(
+        provider: UsageProvider,
+        state: MenuBarSnapshotState
+    ) -> MenuBarSnapshot {
+        MenuBarSnapshot(
+            provider: provider,
+            modelName: nil,
+            remainingPercent: nil,
+            ringPercent: nil,
+            paceDeltaPercent: nil,
+            resetsAt: nil,
+            state: state,
+            isLowQuota: false,
+            tooltip: menuBarStateTooltip(provider: provider, state: state))
+    }
+
+    private func makeMenuBarSnapshot(
+        primary: ModelUsageData,
+        models: [ModelUsageData]
+    ) -> MenuBarSnapshot {
+        let paceSource = menuBarPaceSource(for: primary, models: models)
+        let paceDelta = paceSource.currentIntervalPaceDeltaPercent
+        let remaining = primary.currentIntervalPercentageRemaining
+        let ringPercent = menuBarRingPercent(for: primary, models: models)
+        let warningLimit = warningThresholdEnabled ? warningThreshold : 20
+
+        return MenuBarSnapshot(
+            provider: primary.provider,
+            modelName: primary.modelName,
+            remainingPercent: remaining,
+            ringPercent: ringPercent,
+            paceDeltaPercent: paceDelta,
+            resetsAt: primary.endTime,
+            state: .ready,
+            isLowQuota: remaining <= warningLimit,
+            tooltip: menuBarReadyTooltip(
+                primary: primary,
+                weeklyRemainingPercent: menuBarRingQuotaWindow == .weekly
+                    && (primary.provider == .codex || primary.provider == .kimi)
+                        ? ringPercent
+                        : nil,
+                paceDelta: paceDelta))
+    }
+
+    /// Detailed + Automatic 有足够数据时每行显示一家。
     private func detailedAutomaticStatusBarText(
         primary: ModelUsageData,
         candidates: [ModelUsageData],
         metricModels: [ModelUsageData]
     ) -> String? {
         guard menuBarAppearance == .detailedText,
-              menuBarContentSelection == .automatic else {
+              menuBarContentSelection == .all
+                || menuBarContentSelection == .automatic else {
             return nil
         }
 
@@ -275,18 +399,29 @@ final class UsageViewModel {
     }
 
     /// 选 status bar 主显示 model:
-    /// - codex 选 "5h" model(显示 5h 短周期剩余%/reset)
+    /// - Codex/Kimi 选 "5h" model(显示 5h 短周期剩余%/reset)
     /// - 其他 provider 取 candidates 第一个(已按 reset 排序)
     private func pickPrimary(from candidates: [ModelUsageData]) -> ModelUsageData? {
-        if let codex = candidates.first(where: { $0.provider == .codex && $0.modelName.localizedCaseInsensitiveContains("5h") }) {
-            return codex
+        if let shortWindow = candidates.first(where: {
+            ($0.provider == .codex || $0.provider == .kimi)
+                && $0.modelName.localizedCaseInsensitiveContains("5h")
+        }) {
+            return shortWindow
         }
         return candidates.first
     }
 
-    /// 从完整 model 集合里找 Codex Weekly；已用尽的 Weekly 仍要能把外环画空。
-    private func weeklyModel(in models: [ModelUsageData]) -> ModelUsageData? {
-        models.first(where: { $0.provider == .codex && $0.modelName.localizedCaseInsensitiveContains("Weekly") })
+    /// Finds a provider's seven-day window, including an exhausted one so the
+    /// outer ring can correctly render an empty arc.
+    private func weeklyModel(
+        for provider: UsageProvider,
+        in models: [ModelUsageData]
+    ) -> ModelUsageData? {
+        models.first(where: { model in
+            guard model.provider == provider else { return false }
+            let name = model.modelName.lowercased()
+            return name.contains("weekly") || name == "7d"
+        })
     }
 
     private func selectedMenuBarModel(from candidates: [ModelUsageData]) -> ModelUsageData? {
@@ -330,20 +465,30 @@ final class UsageViewModel {
         models: [ModelUsageData]
     ) -> ModelUsageData {
         guard primary.provider == .codex else { return primary }
-        return weeklyModel(in: models.filter { $0.normalizedAccountName == primary.normalizedAccountName })
+        return weeklyModel(
+            for: primary.provider,
+            in: models.filter {
+                $0.normalizedAccountName == primary.normalizedAccountName
+            })
             ?? primary
     }
 
-    /// Codex 的外环专门显示 Weekly 剩余比例；没有 Weekly 窗口时只保留空轨道。
-    /// 其他 provider 继续沿用现有的剩余额度环，避免改变它们的既有语义。
+    /// Codex and Kimi can source the outer arc from either their weekly quota
+    /// or the selected short/current quota. Providers without weekly data keep
+    /// their existing current-window behavior.
     private func menuBarRingPercent(
         for primary: ModelUsageData,
         models: [ModelUsageData]
     ) -> Double? {
-        guard primary.provider == .codex else {
+        guard menuBarRingQuotaWindow == .weekly,
+              primary.provider == .codex || primary.provider == .kimi else {
             return primary.currentIntervalPercentageRemaining
         }
-        return weeklyModel(in: models.filter { $0.normalizedAccountName == primary.normalizedAccountName })?
+        return weeklyModel(
+            for: primary.provider,
+            in: models.filter {
+                $0.normalizedAccountName == primary.normalizedAccountName
+            })?
             .currentIntervalPercentageRemaining
     }
 
@@ -386,6 +531,40 @@ final class UsageViewModel {
 
     var configuredProviders: [UsageProvider] {
         UsageProvider.allCases.filter { isConfigured($0) }
+    }
+
+    /// Providers whose local task lifecycle can participate in sleep
+    /// protection. Unlike quota refresh, Codex is included only when a local
+    /// account, auth file, or running Codex app/CLI is actually present.
+    var taskProtectionProviders: Set<UsageProvider> {
+        var providers = Set<UsageProvider>()
+        if hasLocalCodexRegistration {
+            providers.insert(.codex)
+        }
+        if KeychainService.shared.hasCredential(for: .kimi)
+            || KimiService.shared.hasCLICredential {
+            providers.insert(.kimi)
+        }
+        return providers
+    }
+
+    private var hasLocalCodexRegistration: Bool {
+        if CodexAccountCoordinator.shared.hasManagedAccount {
+            return true
+        }
+        let environment = ProcessInfo.processInfo.environment
+        let codexHome: URL
+        if let configured = environment["CODEX_HOME"],
+           !configured.isEmpty {
+            codexHome = URL(
+                fileURLWithPath: configured,
+                isDirectory: true)
+        } else {
+            codexHome = FileManager.default.homeDirectoryForCurrentUser
+                .appendingPathComponent(".codex", isDirectory: true)
+        }
+        return FileManager.default.fileExists(
+            atPath: codexHome.appendingPathComponent("auth.json").path)
     }
 
     /// 判断 provider 是否应该被纳入刷新与下拉菜单。
@@ -487,6 +666,22 @@ final class UsageViewModel {
         self.menuBarPaceDisplayMode = UserDefaults.standard.string(forKey: MenuBarPaceDisplayMode.storageKey)
             .flatMap(MenuBarPaceDisplayMode.init(rawValue:))
             ?? .continuous
+        self.menuBarRingQuotaWindow = UserDefaults.standard.string(
+            forKey: MenuBarRingQuotaWindow.storageKey)
+            .flatMap(MenuBarRingQuotaWindow.init(rawValue:))
+            ?? .weekly
+        self.menuBarCompactHorizontalPadding =
+            MenuBarCompactLayoutPreferences.horizontalPadding(
+                UserDefaults.standard.object(
+                    forKey: MenuBarCompactLayoutPreferences.horizontalPaddingKey)
+                    as? Double
+                    ?? MenuBarCompactLayoutPreferences.defaultHorizontalPadding)
+        self.menuBarCompactRingSpacing =
+            MenuBarCompactLayoutPreferences.ringSpacing(
+                UserDefaults.standard.object(
+                    forKey: MenuBarCompactLayoutPreferences.ringSpacingKey)
+                    as? Double
+                    ?? MenuBarCompactLayoutPreferences.defaultRingSpacing)
         let cloudSyncSettings = CloudSyncSettings.current
         self.cloudSyncEnabled = cloudSyncSettings.isEnabled
         self.utilizationHistoryMode = UserDefaults.standard.string(forKey: Self.utilizationHistoryModeKey)

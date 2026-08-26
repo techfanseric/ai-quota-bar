@@ -304,6 +304,101 @@ final class MenuBarRingRenderingTests: XCTestCase {
     }
 
     @MainActor
+    func testHoverTemporarilyReplacesKimiPaceCoreWithProviderInitial() throws {
+        let view = StatusBarCompactRingView(
+            frame: NSRect(x: 0, y: 0, width: 22, height: 22))
+        let snapshot = MenuBarSnapshot(
+            provider: .kimi,
+            modelName: "Kimi",
+            remainingPercent: 42,
+            ringPercent: 42,
+            paceDeltaPercent: -12,
+            resetsAt: nil,
+            state: .ready,
+            isLowQuota: false,
+            tooltip: "Kimi")
+        view.setSnapshot(
+            snapshot,
+            connectivity: .unknown,
+            accessibilityLabel: "Kimi")
+
+        let normal = try renderedPNG(of: view)
+        view.setHoveredForTesting(true)
+        let hovered = try renderedPNG(of: view)
+        view.setHoveredForTesting(false)
+        let restored = try renderedPNG(of: view)
+
+        XCTAssertNotEqual(normal, hovered)
+        XCTAssertEqual(normal, restored)
+    }
+
+    @MainActor
+    func testHoveringCompactStripRevealsEveryProviderInitialTogether() {
+        let view = StatusBarCompactRingsView(
+            frame: NSRect(x: 0, y: 0, width: 44, height: 22))
+        let snapshots = [UsageProvider.codex, .kimi].map { provider in
+            MenuBarSnapshot(
+                provider: provider,
+                modelName: provider.displayName,
+                remainingPercent: 50,
+                ringPercent: 50,
+                paceDeltaPercent: 0,
+                resetsAt: nil,
+                state: .ready,
+                isLowQuota: false,
+                tooltip: provider.displayName)
+        }
+        view.setSnapshots(
+            snapshots,
+            codexConnectivity: .reachable,
+            paceDisplayMode: .staged,
+            isSelfTesting: false,
+            activeTaskCounts: [:],
+            accessibilityLabel: "Codex and Kimi")
+
+        XCTAssertEqual(view.providerInitialCountForTesting, 0)
+        view.setHoveredForTesting(true)
+        XCTAssertEqual(view.providerInitialCountForTesting, 2)
+        view.setHoveredForTesting(false)
+        XCTAssertEqual(view.providerInitialCountForTesting, 0)
+    }
+
+    @MainActor
+    func testCompactStripRoutesActivityCountsToMatchingProviderRings() {
+        let view = StatusBarCompactRingsView()
+        let snapshots = [UsageProvider.codex, .kimi].map { provider in
+            MenuBarSnapshot(
+                provider: provider,
+                modelName: provider.displayName,
+                remainingPercent: 50,
+                ringPercent: 50,
+                paceDeltaPercent: 0,
+                resetsAt: nil,
+                state: .ready,
+                isLowQuota: false,
+                tooltip: provider.displayName)
+        }
+        view.setSnapshots(
+            snapshots,
+            codexConnectivity: .reachable,
+            paceDisplayMode: .staged,
+            isSelfTesting: false,
+            activeTaskCounts: [.codex: 2, .kimi: 3],
+            accessibilityLabel: "Codex and Kimi")
+
+        XCTAssertEqual(view.activeTaskCountsForTesting, [2, 3])
+    }
+
+    @MainActor
+    private func renderedPNG(
+        of view: NSView
+    ) throws -> Data {
+        let bitmap = try XCTUnwrap(view.bitmapImageRepForCachingDisplay(in: view.bounds))
+        view.cacheDisplay(in: view.bounds, to: bitmap)
+        return try XCTUnwrap(bitmap.representation(using: .png, properties: [:]))
+    }
+
+    @MainActor
     private func renderTaskRing(
         activeTaskCount: Int,
         orbitPhase: CGFloat
