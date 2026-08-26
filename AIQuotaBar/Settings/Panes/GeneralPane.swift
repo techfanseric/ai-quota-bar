@@ -93,6 +93,19 @@ struct GeneralPane: View {
             }
             .disabled(viewModel.menuBarAppearance != .compactRing)
 
+            PreferencePickerRow(
+                title: language.menuBarReserveQuotaWindowLabel(),
+                subtitle: language.menuBarReserveQuotaWindowDescription(),
+                selection: $viewModel.menuBarReserveQuotaWindow,
+                maxWidth: 180
+            ) {
+                ForEach(MenuBarReserveQuotaWindow.allCases) { window in
+                    Text(language.menuBarReserveQuotaWindowDisplayName(window))
+                        .tag(window)
+                }
+            }
+            .disabled(viewModel.menuBarAppearance != .compactRing)
+
             VStack(alignment: .leading, spacing: 8) {
                 Text(language.menuBarCompactLayoutLabel())
                     .font(.body)
