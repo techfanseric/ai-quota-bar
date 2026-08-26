@@ -7,13 +7,16 @@ final class MenuBarRingRenderingTests: XCTestCase {
     func testIdleRingIsOpaqueAndTaskRingUsesMovingOpacityWave() throws {
         let idle = try renderTaskRing(
             activeTaskCount: 0,
-            orbitPhase: 0.5)
+            orbitPhase: 0)
         let activeWaveAway = try renderTaskRing(
             activeTaskCount: 1,
-            orbitPhase: 0.75)
-        let activeWaveAtSample = try renderTaskRing(
+            orbitPhase: 0)
+        let activeWaveOnThickArc = try renderTaskRing(
             activeTaskCount: 1,
-            orbitPhase: 0.5)
+            orbitPhase: 0.76)
+        let activeWaveOnThinArc = try renderTaskRing(
+            activeTaskCount: 1,
+            orbitPhase: 0.26)
 
         let scale: CGFloat = 4
         let center = Int(11 * scale)
@@ -32,7 +35,7 @@ final class MenuBarRingRenderingTests: XCTestCase {
             idleRingLuminance + 0.2)
 
         let waveLuminance = try luminance(
-            activeWaveAtSample,
+            activeWaveOnThickArc,
             x: center + radius,
             y: center)
         XCTAssertLessThan(
@@ -45,51 +48,102 @@ final class MenuBarRingRenderingTests: XCTestCase {
             x: consumedSampleX,
             y: center)
         let consumedWaveLuminance = try luminance(
-            activeWaveAtSample,
+            activeWaveOnThinArc,
             x: consumedSampleX,
             y: center)
-        XCTAssertEqual(
-            consumedAwayLuminance,
+        XCTAssertLessThan(
             consumedWaveLuminance,
-            accuracy: 0.02)
+            consumedAwayLuminance - 0.05,
+            "The energy wave must remain visible after it hands off to the thin consumed arc.")
     }
 
-    func testTaskEnergyMovesCounterclockwiseOnlyWithinRemainingArc() {
-        let remaining: CGFloat = 0.5
-        let phases: [CGFloat] = [0, 0.25, 0.5, 0.75, 0.99]
+    func testTaskEnergyMovesCounterclockwiseAcrossCompleteRing() {
+        let phases: [CGFloat] = [0, 0.25, 0.5, 0.75, 0.99, 1]
         let positions = phases.map {
-            MenuBarTaskEnergyMotion.liveArcPosition(
-                remainingFraction: remaining,
-                phase: $0)
+            MenuBarTaskEnergyMotion.orbitPosition(phase: $0)
         }
 
-        XCTAssertEqual(positions[0], 0.5, accuracy: 0.0001)
-        XCTAssertEqual(positions[1], 0.375, accuracy: 0.0001)
-        XCTAssertEqual(positions[2], 0.25, accuracy: 0.0001)
-        XCTAssertEqual(positions[3], 0.125, accuracy: 0.0001)
-        XCTAssertEqual(positions[4], 0.005, accuracy: 0.0001)
+        XCTAssertEqual(positions[0], 0, accuracy: 0.0001)
+        XCTAssertEqual(positions[1], 0.75, accuracy: 0.0001)
+        XCTAssertEqual(positions[2], 0.5, accuracy: 0.0001)
+        XCTAssertEqual(positions[3], 0.25, accuracy: 0.0001)
+        XCTAssertEqual(positions[4], 0.01, accuracy: 0.0001)
+        XCTAssertEqual(positions[5], 0, accuracy: 0.0001)
 
         for position in positions {
             XCTAssertGreaterThanOrEqual(position, 0)
-            XCTAssertLessThanOrEqual(position, remaining)
-        }
-        for pair in zip(positions, positions.dropFirst()) {
-            XCTAssertGreaterThan(pair.0, pair.1)
+            XCTAssertLessThan(position, 1)
         }
     }
 
-    func testTaskEnergyFadesBeforeRestartingAtRealEndpoint() {
+    func testTaskEnergySeamlesslySwitchesWidthAtQuotaBoundary() {
         XCTAssertEqual(
-            MenuBarTaskEnergyMotion.visibility(phase: 0),
-            0,
+            MenuBarTaskEnergyMotion.waveLineWidth(
+                at: 0.499,
+                remainingFraction: 0.5),
+            MenuBarTaskEnergyMotion.thickWaveLineWidth,
             accuracy: 0.0001)
         XCTAssertEqual(
-            MenuBarTaskEnergyMotion.visibility(phase: 0.5),
+            MenuBarTaskEnergyMotion.waveLineWidth(
+                at: 0.5,
+                remainingFraction: 0.5),
+            MenuBarTaskEnergyMotion.thinWaveLineWidth,
+            accuracy: 0.0001)
+        XCTAssertEqual(
+            MenuBarTaskEnergyMotion.orbitPosition(phase: 0),
+            MenuBarTaskEnergyMotion.orbitPosition(phase: 1),
+            accuracy: 0.0001)
+        XCTAssertLessThanOrEqual(
+            8 + MenuBarTaskEnergyMotion.thickWaveLineWidth / 2,
+            9.5,
+            "The thick electrical wave must stay inside the 19pt ring view.")
+    }
+
+    func testTaskEnergyIsSubduedAcrossThinConsumedArc() {
+        XCTAssertEqual(
+            MenuBarTaskEnergyMotion.waveOpacityScale(
+                at: 0.499,
+                remainingFraction: 0.5),
             1,
             accuracy: 0.0001)
+        XCTAssertEqual(
+            MenuBarTaskEnergyMotion.waveOpacityScale(
+                at: 0.5,
+                remainingFraction: 0.5),
+            MenuBarTaskEnergyMotion.thinWaveOpacityScale,
+            accuracy: 0.0001)
         XCTAssertLessThan(
-            MenuBarTaskEnergyMotion.visibility(phase: 0.99),
-            0.1)
+            MenuBarTaskEnergyMotion.thinWaveOpacityScale,
+            0.5,
+            "The current on the thin arc should stay visible without competing with the thick quota arc.")
+    }
+
+    @MainActor
+    func testNearlyExhaustedRingStillAnimatesAcrossThinArc() throws {
+        let waveAway = try renderTaskRing(
+            activeTaskCount: 1,
+            orbitPhase: 0,
+            ringPercent: 5)
+        let waveOnConsumedArc = try renderTaskRing(
+            activeTaskCount: 1,
+            orbitPhase: 0.26,
+            ringPercent: 5)
+        let scale: CGFloat = 4
+        let center = Int(11 * scale)
+        let radius = Int(8 * scale)
+
+        let away = try luminance(
+            waveAway,
+            x: center - radius,
+            y: center)
+        let energized = try luminance(
+            waveOnConsumedArc,
+            x: center - radius,
+            y: center)
+        XCTAssertLessThan(
+            energized,
+            away - 0.05,
+            "A 5%-remaining ring must still show current around its thin consumed arc.")
     }
 
     func testTaskEnergyWaveFadesClockwiseBehindOpaqueHead() {
@@ -401,7 +455,8 @@ final class MenuBarRingRenderingTests: XCTestCase {
     @MainActor
     private func renderTaskRing(
         activeTaskCount: Int,
-        orbitPhase: CGFloat
+        orbitPhase: CGFloat,
+        ringPercent: Double = 50
     ) throws -> NSBitmapImageRep {
         let size = NSSize(width: 22, height: 22)
         let scale: CGFloat = 4
@@ -427,8 +482,8 @@ final class MenuBarRingRenderingTests: XCTestCase {
             MenuBarSnapshot(
                 provider: .codex,
                 modelName: "Weekly",
-                remainingPercent: 50,
-                ringPercent: 50,
+                remainingPercent: ringPercent,
+                ringPercent: ringPercent,
                 paceDeltaPercent: 0,
                 resetsAt: Date().addingTimeInterval(3_600),
                 state: .ready,

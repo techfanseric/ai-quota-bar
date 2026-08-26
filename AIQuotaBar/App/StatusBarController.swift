@@ -114,8 +114,6 @@ final class StatusBarController {
             statusView.translatesAutoresizingMaskIntoConstraints = true
             statusView.frame = NSRect(x: 0, y: 0, width: initialStatusItemLength, height: 22)
             statusView.autoresizingMask = [.width, .height]
-            button.wantsLayer = true
-            button.layer?.masksToBounds = false
             button.addSubview(statusView)
             updateStatusItem()
             installActiveScreenObservers(button: button)
@@ -526,12 +524,8 @@ private final class StatusBarContentView: NSView {
         isCompact ? compactView.preferredWidth : detailedView.preferredWidth
     }
 
-    override var wantsDefaultClipping: Bool { false }
-
     override init(frame frameRect: NSRect) {
         super.init(frame: frameRect)
-        wantsLayer = true
-        layer?.masksToBounds = false
         addSubview(detailedView)
         addSubview(compactView)
         compactView.isHidden = true
@@ -539,8 +533,6 @@ private final class StatusBarContentView: NSView {
 
     required init?(coder: NSCoder) {
         super.init(coder: coder)
-        wantsLayer = true
-        layer?.masksToBounds = false
         addSubview(detailedView)
         addSubview(compactView)
         compactView.isHidden = true
@@ -606,7 +598,6 @@ private final class StatusBarContentView: NSView {
 @MainActor
 final class StatusBarCompactRingsView: NSView {
     private static let ringWidth: CGFloat = 19
-    private static let minimumLogicalWidth: CGFloat = 3
     private var ringViews: [StatusBarCompactRingView] = []
     private var hoverTrackingArea: NSTrackingArea?
     private var isHovered = false
@@ -617,24 +608,9 @@ final class StatusBarCompactRingsView: NSView {
 
     var preferredWidth: CGFloat {
         let count = max(1, ringViews.count)
-        return max(Self.minimumLogicalWidth,
-            horizontalPadding * 2
+        return horizontalPadding * 2
             + CGFloat(count) * Self.ringWidth
-            + CGFloat(max(0, count - 1)) * ringSpacing)
-    }
-
-    override var wantsDefaultClipping: Bool { false }
-
-    override init(frame frameRect: NSRect) {
-        super.init(frame: frameRect)
-        wantsLayer = true
-        layer?.masksToBounds = false
-    }
-
-    required init?(coder: NSCoder) {
-        super.init(coder: coder)
-        wantsLayer = true
-        layer?.masksToBounds = false
+            + CGFloat(max(0, count - 1)) * ringSpacing
     }
 
     func setSnapshots(
@@ -702,11 +678,8 @@ final class StatusBarCompactRingsView: NSView {
         if let hoverTrackingArea {
             removeTrackingArea(hoverTrackingArea)
         }
-        let trackingRect = ringViews.reduce(bounds) { partial, ringView in
-            partial.union(ringView.frame)
-        }
         let trackingArea = NSTrackingArea(
-            rect: trackingRect,
+            rect: bounds,
             options: [.mouseEnteredAndExited, .activeAlways],
             owner: self,
             userInfo: nil)
@@ -751,6 +724,9 @@ final class StatusBarCompactRingsView: NSView {
 enum MenuBarTaskEnergyMotion {
     static let waveSpanFraction: CGFloat = 0.16
     static let maximumWaveCount = 5
+    static let thickWaveLineWidth: CGFloat = 2.6
+    static let thinWaveLineWidth: CGFloat = 1.6
+    static let thinWaveOpacityScale: CGFloat = 0.45
 
     static func waveCount(activeTaskCount: Int) -> Int {
         min(maximumWaveCount, max(0, activeTaskCount))
@@ -768,28 +744,41 @@ enum MenuBarTaskEnergyMotion {
         return combined < 0 ? combined + 1 : combined
     }
 
-    static func liveArcPosition(
-        remainingFraction: CGFloat,
-        phase: CGFloat
-    ) -> CGFloat {
-        let remaining = min(1, max(0, remainingFraction))
+    /// Counterclockwise orbit position across the complete ring. Both ends of
+    /// the phase map to the same top point, so a cycle restarts without a jump.
+    static func orbitPosition(phase: CGFloat) -> CGFloat {
         let normalizedPhase = phase
             .truncatingRemainder(dividingBy: 1)
         let forwardPhase = normalizedPhase < 0
             ? normalizedPhase + 1
             : normalizedPhase
-        return remaining * (1 - forwardPhase)
+        return (1 - forwardPhase).truncatingRemainder(dividingBy: 1)
     }
 
-    static func visibility(phase: CGFloat) -> CGFloat {
-        let normalizedPhase = phase
+    static func waveLineWidth(
+        at position: CGFloat,
+        remainingFraction: CGFloat
+    ) -> CGFloat {
+        let normalizedPosition = position
             .truncatingRemainder(dividingBy: 1)
-        let forwardPhase = normalizedPhase < 0
-            ? normalizedPhase + 1
-            : normalizedPhase
-        let fadeIn = min(1, forwardPhase / 0.08)
-        let fadeOut = min(1, (1 - forwardPhase) / 0.15)
-        return max(0, min(fadeIn, fadeOut))
+        let position = normalizedPosition < 0
+            ? normalizedPosition + 1
+            : normalizedPosition
+        let remaining = min(1, max(0, remainingFraction))
+        return position < remaining
+            ? thickWaveLineWidth
+            : thinWaveLineWidth
+    }
+
+    static func waveOpacityScale(
+        at position: CGFloat,
+        remainingFraction: CGFloat
+    ) -> CGFloat {
+        waveLineWidth(
+            at: position,
+            remainingFraction: remainingFraction) == thinWaveLineWidth
+            ? thinWaveOpacityScale
+            : 1
     }
 
     static func waveOpacity(
@@ -1398,8 +1387,9 @@ final class StatusBarCompactRingView: NSView {
         dot.fill()
     }
 
-    /// 每个活跃任务映射为一道逆时针前进的能量波，最多五道。
-    /// 波头最实，沿顺时针方向的尾部逐渐透明；所有波形都限制在有效弧内。
+    /// 每个活跃任务映射为一道沿完整环逆时针前进的能量波，最多五道。
+    /// 波头最实，尾部沿顺时针方向逐渐透明；经过剩余段时使用粗线，
+    /// 经过已消耗段时无缝切换为细线，二者始终共用同一圆心轨道。
     private func drawTaskEnergyWave(
         center: NSPoint,
         radius: CGFloat,
@@ -1409,46 +1399,32 @@ final class StatusBarCompactRingView: NSView {
         let remainingFraction = min(
             1,
             max(0, CGFloat(originFraction)))
-        guard remainingFraction > 0.01 else { return }
-
         let waveCount = MenuBarTaskEnergyMotion.waveCount(
             activeTaskCount: activeTaskCount)
         guard waveCount > 0 else { return }
 
-        let maximumSeparatedSpan = remainingFraction
+        let maximumSeparatedSpan = 1
             / (CGFloat(waveCount) * 1.45)
         let waveSpan = min(
             MenuBarTaskEnergyMotion.waveSpanFraction,
             maximumSeparatedSpan)
-        let segmentCount = 12
+        let segmentCount = 18
 
         for waveIndex in 0 ..< waveCount {
             let phase = MenuBarTaskEnergyMotion.phase(
                 basePhase: taskOrbitPhase,
                 waveIndex: waveIndex,
                 waveCount: waveCount)
-            let waveHead =
-                MenuBarTaskEnergyMotion.liveArcPosition(
-                    remainingFraction: remainingFraction,
-                    phase: phase)
-            let travelVisibility =
-                MenuBarTaskEnergyMotion.visibility(
-                    phase: phase)
-            guard travelVisibility > 0.001 else { continue }
-
-            let waveTail = min(
-                remainingFraction,
-                waveHead + waveSpan)
-            guard waveTail > waveHead else { continue }
+            let waveHead = MenuBarTaskEnergyMotion.orbitPosition(
+                phase: phase)
+            let waveTail = waveHead + waveSpan
 
             let segmentWidth = (waveTail - waveHead)
                 / CGFloat(segmentCount)
             for segmentIndex in 0 ..< segmentCount {
                 let start = waveHead
                     + CGFloat(segmentIndex) * segmentWidth
-                let end = min(
-                    waveTail,
-                    start + segmentWidth * 1.08)
+                let end = start + segmentWidth * 1.08
                 let midpoint = (start + end) / 2
                 let clockwiseDistance = (midpoint - waveHead)
                     / (waveTail - waveHead)
@@ -1456,20 +1432,63 @@ final class StatusBarCompactRingView: NSView {
                     MenuBarTaskEnergyMotion.waveOpacity(
                         clockwiseDistanceFromHead:
                             clockwiseDistance)
+                drawTaskEnergyArcSegment(
+                    center: center,
+                    radius: radius,
+                    startFraction: start,
+                    endFraction: end,
+                    remainingFraction: remainingFraction,
+                    color: NSColor.labelColor.withAlphaComponent(
+                        min(
+                            1,
+                            alpha
+                                * waveOpacity
+                                * 0.78)))
+            }
+        }
+    }
+
+    private func drawTaskEnergyArcSegment(
+        center: NSPoint,
+        radius: CGFloat,
+        startFraction: CGFloat,
+        endFraction: CGFloat,
+        remainingFraction: CGFloat,
+        color: NSColor
+    ) {
+        var cursor = startFraction
+        while cursor < endFraction - 0.000_001 {
+            let revolution = floor(cursor)
+            let revolutionEnd = revolution + 1
+            let pieceEnd = min(endFraction, revolutionEnd)
+            let normalizedStart = cursor - revolution
+            let normalizedEnd = pieceEnd >= revolutionEnd - 0.000_001
+                ? CGFloat(1)
+                : pieceEnd - revolution
+
+            var boundaries = [normalizedStart, normalizedEnd]
+            if remainingFraction > normalizedStart + 0.000_001,
+               remainingFraction < normalizedEnd - 0.000_001 {
+                boundaries.insert(remainingFraction, at: 1)
+            }
+            for (start, end) in zip(boundaries, boundaries.dropFirst()) {
+                let midpoint = (start + end) / 2
+                let opacityScale =
+                    MenuBarTaskEnergyMotion.waveOpacityScale(
+                        at: midpoint,
+                        remainingFraction: remainingFraction)
                 drawArcSegment(
                     center: center,
                     radius: radius,
                     startFraction: start,
                     endFraction: end,
-                    color: NSColor.labelColor.withAlphaComponent(
-                        min(
-                            1,
-                            alpha
-                                * travelVisibility
-                                * waveOpacity
-                                * 0.78)),
-                    lineWidth: 2.6)
+                    color: color.withAlphaComponent(
+                        color.alphaComponent * opacityScale),
+                    lineWidth: MenuBarTaskEnergyMotion.waveLineWidth(
+                        at: midpoint,
+                        remainingFraction: remainingFraction))
             }
+            cursor = pieceEnd
         }
     }
 
