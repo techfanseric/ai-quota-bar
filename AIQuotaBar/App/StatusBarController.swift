@@ -114,6 +114,8 @@ final class StatusBarController {
             statusView.translatesAutoresizingMaskIntoConstraints = true
             statusView.frame = NSRect(x: 0, y: 0, width: initialStatusItemLength, height: 22)
             statusView.autoresizingMask = [.width, .height]
+            button.wantsLayer = true
+            button.layer?.masksToBounds = false
             button.addSubview(statusView)
             updateStatusItem()
             installActiveScreenObservers(button: button)
@@ -524,8 +526,12 @@ private final class StatusBarContentView: NSView {
         isCompact ? compactView.preferredWidth : detailedView.preferredWidth
     }
 
+    override var wantsDefaultClipping: Bool { false }
+
     override init(frame frameRect: NSRect) {
         super.init(frame: frameRect)
+        wantsLayer = true
+        layer?.masksToBounds = false
         addSubview(detailedView)
         addSubview(compactView)
         compactView.isHidden = true
@@ -533,6 +539,8 @@ private final class StatusBarContentView: NSView {
 
     required init?(coder: NSCoder) {
         super.init(coder: coder)
+        wantsLayer = true
+        layer?.masksToBounds = false
         addSubview(detailedView)
         addSubview(compactView)
         compactView.isHidden = true
@@ -598,6 +606,7 @@ private final class StatusBarContentView: NSView {
 @MainActor
 final class StatusBarCompactRingsView: NSView {
     private static let ringWidth: CGFloat = 19
+    private static let minimumLogicalWidth: CGFloat = 3
     private var ringViews: [StatusBarCompactRingView] = []
     private var hoverTrackingArea: NSTrackingArea?
     private var isHovered = false
@@ -608,9 +617,24 @@ final class StatusBarCompactRingsView: NSView {
 
     var preferredWidth: CGFloat {
         let count = max(1, ringViews.count)
-        return horizontalPadding * 2
+        return max(Self.minimumLogicalWidth,
+            horizontalPadding * 2
             + CGFloat(count) * Self.ringWidth
-            + CGFloat(max(0, count - 1)) * ringSpacing
+            + CGFloat(max(0, count - 1)) * ringSpacing)
+    }
+
+    override var wantsDefaultClipping: Bool { false }
+
+    override init(frame frameRect: NSRect) {
+        super.init(frame: frameRect)
+        wantsLayer = true
+        layer?.masksToBounds = false
+    }
+
+    required init?(coder: NSCoder) {
+        super.init(coder: coder)
+        wantsLayer = true
+        layer?.masksToBounds = false
     }
 
     func setSnapshots(
@@ -678,8 +702,11 @@ final class StatusBarCompactRingsView: NSView {
         if let hoverTrackingArea {
             removeTrackingArea(hoverTrackingArea)
         }
+        let trackingRect = ringViews.reduce(bounds) { partial, ringView in
+            partial.union(ringView.frame)
+        }
         let trackingArea = NSTrackingArea(
-            rect: bounds,
+            rect: trackingRect,
             options: [.mouseEnteredAndExited, .activeAlways],
             owner: self,
             userInfo: nil)

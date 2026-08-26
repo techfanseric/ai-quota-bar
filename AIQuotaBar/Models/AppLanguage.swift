@@ -1419,9 +1419,9 @@ enum AppLanguage: String, CaseIterable, Codable, Identifiable {
     func menuBarPaceDisplayModeDescription() -> String {
         switch self {
         case .english:
-            return "Two days of Weekly pace deviation fill a side; choose continuous detail or alerting stages."
+            return "Controls whether the selected reserve cycle's pace deviation is shown continuously or in alerting stages."
         case .simplifiedChinese:
-            return "Weekly 节奏偏差两天填满半圆，可选择连续细节或醒目的分级显示。"
+            return "控制所选 Reserve 周期的节奏偏差采用连续细节还是醒目的分级显示。"
         }
     }
 
@@ -1461,6 +1461,35 @@ enum AppLanguage: String, CaseIterable, Codable, Identifiable {
         }
     }
 
+    func menuBarReserveQuotaWindowLabel() -> String {
+        switch self {
+        case .english: return "Center reserve cycle"
+        case .simplifiedChinese: return "中心 Reserve 周期"
+        }
+    }
+
+    func menuBarReserveQuotaWindowDescription() -> String {
+        switch self {
+        case .english:
+            return "Choose which quota cycle drives the split center's reserve or deficit; by default it follows the outer ring."
+        case .simplifiedChinese:
+            return "选择中心分半元素的 reserve / deficit 采用哪个额度周期；默认跟随外环。"
+        }
+    }
+
+    func menuBarReserveQuotaWindowDisplayName(
+        _ window: MenuBarReserveQuotaWindow
+    ) -> String {
+        switch (self, window) {
+        case (.english, .synchronized): return "Follow outer ring"
+        case (.english, .weekly): return "Weekly cycle"
+        case (.english, .current): return "Current cycle"
+        case (.simplifiedChinese, .synchronized): return "同步外环"
+        case (.simplifiedChinese, .weekly): return "周周期"
+        case (.simplifiedChinese, .current): return "当前短周期"
+        }
+    }
+
     func menuBarCompactLayoutLabel() -> String {
         switch self {
         case .english: return "Compact ring layout"
@@ -1471,9 +1500,9 @@ enum AppLanguage: String, CaseIterable, Codable, Identifiable {
     func menuBarCompactLayoutDescription() -> String {
         switch self {
         case .english:
-            return "Adjust the space at both outer edges and between multiple rings."
+            return "Adjust both outer edges and the gap between rings. Negative side padding compensates for macOS menu-item spacing."
         case .simplifiedChinese:
-            return "调整菜单栏项目两侧留白，以及多个环之间的距离。"
+            return "调整菜单栏项目两侧留白与环间距；负边距可补偿 macOS 菜单栏项目的系统间隔。"
         }
     }
 

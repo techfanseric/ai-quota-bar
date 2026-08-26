@@ -55,12 +55,31 @@ enum MenuBarRingQuotaWindow: String, CaseIterable, Codable, Identifiable {
     var id: String { rawValue }
 }
 
+/// Which quota window supplies the split center's reserve/deficit pace.
+enum MenuBarReserveQuotaWindow: String, CaseIterable, Codable, Identifiable {
+    case synchronized
+    case weekly
+    case current
+
+    static let storageKey = "menuBarReserveQuotaWindow"
+
+    var id: String { rawValue }
+
+    func resolved(outerRing: MenuBarRingQuotaWindow) -> MenuBarRingQuotaWindow {
+        switch self {
+        case .synchronized: return outerRing
+        case .weekly: return .weekly
+        case .current: return .current
+        }
+    }
+}
+
 enum MenuBarCompactLayoutPreferences {
     static let horizontalPaddingKey = "menuBarCompactHorizontalPadding"
     static let ringSpacingKey = "menuBarCompactRingSpacing"
     static let defaultHorizontalPadding = 0.5
     static let defaultRingSpacing = 1.0
-    static let horizontalPaddingRange = 0.0...6.0
+    static let horizontalPaddingRange = -8.0...6.0
     static let ringSpacingRange = 0.0...8.0
 
     static func horizontalPadding(_ value: Double) -> Double {

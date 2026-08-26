@@ -111,6 +111,15 @@ final class UsageViewModel {
         }
     }
 
+    var menuBarReserveQuotaWindow: MenuBarReserveQuotaWindow {
+        didSet {
+            UserDefaults.standard.set(
+                menuBarReserveQuotaWindow.rawValue,
+                forKey: MenuBarReserveQuotaWindow.storageKey)
+            updateStatusBarText()
+        }
+    }
+
     var menuBarCompactHorizontalPadding: Double {
         didSet {
             let clamped = MenuBarCompactLayoutPreferences.horizontalPadding(
@@ -459,12 +468,17 @@ final class UsageViewModel {
         return (lhs.endTime ?? .distantFuture) < (rhs.endTime ?? .distantFuture)
     }
 
-    /// Codex 的 glance 语义保持为“5h 剩余 + Weekly pace”；其余 provider 使用主额度本身。
+    /// Codex and Kimi can independently source the split center's pace from
+    /// their weekly or current window. Missing weekly data falls back safely.
     private func menuBarPaceSource(
         for primary: ModelUsageData,
         models: [ModelUsageData]
     ) -> ModelUsageData {
-        guard primary.provider == .codex else { return primary }
+        guard primary.provider == .codex || primary.provider == .kimi,
+              menuBarReserveQuotaWindow.resolved(
+                outerRing: menuBarRingQuotaWindow) == .weekly else {
+            return primary
+        }
         return weeklyModel(
             for: primary.provider,
             in: models.filter {
@@ -670,6 +684,10 @@ final class UsageViewModel {
             forKey: MenuBarRingQuotaWindow.storageKey)
             .flatMap(MenuBarRingQuotaWindow.init(rawValue:))
             ?? .weekly
+        self.menuBarReserveQuotaWindow = UserDefaults.standard.string(
+            forKey: MenuBarReserveQuotaWindow.storageKey)
+            .flatMap(MenuBarReserveQuotaWindow.init(rawValue:))
+            ?? .synchronized
         self.menuBarCompactHorizontalPadding =
             MenuBarCompactLayoutPreferences.horizontalPadding(
                 UserDefaults.standard.object(

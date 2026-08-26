@@ -352,6 +352,7 @@ final class MenuBarPresentationTests: XCTestCase {
             MenuBarAppearance.storageKey,
             MenuBarPaceDisplayMode.storageKey,
             MenuBarRingQuotaWindow.storageKey,
+            MenuBarReserveQuotaWindow.storageKey,
             CloudSyncSettings.enabledKey,
         ]
         let previousValues = keys.map { key in
@@ -370,6 +371,7 @@ final class MenuBarPresentationTests: XCTestCase {
         defaults.set(MenuBarContentSelection.codex.rawValue, forKey: MenuBarContentSelection.storageKey)
         defaults.set(MenuBarAppearance.compactRing.rawValue, forKey: MenuBarAppearance.storageKey)
         defaults.set(MenuBarRingQuotaWindow.weekly.rawValue, forKey: MenuBarRingQuotaWindow.storageKey)
+        defaults.set(MenuBarReserveQuotaWindow.synchronized.rawValue, forKey: MenuBarReserveQuotaWindow.storageKey)
         defaults.set(false, forKey: CloudSyncSettings.enabledKey)
 
         let now = Date()
@@ -416,6 +418,7 @@ final class MenuBarPresentationTests: XCTestCase {
             MenuBarContentSelection.storageKey,
             MenuBarAppearance.storageKey,
             MenuBarRingQuotaWindow.storageKey,
+            MenuBarReserveQuotaWindow.storageKey,
             CloudSyncSettings.enabledKey,
         ]
         let previousValues = keys.map { key in
@@ -440,6 +443,9 @@ final class MenuBarPresentationTests: XCTestCase {
         defaults.set(
             MenuBarRingQuotaWindow.weekly.rawValue,
             forKey: MenuBarRingQuotaWindow.storageKey)
+        defaults.set(
+            MenuBarReserveQuotaWindow.synchronized.rawValue,
+            forKey: MenuBarReserveQuotaWindow.storageKey)
         defaults.set(false, forKey: CloudSyncSettings.enabledKey)
 
         let now = Date()
@@ -466,9 +472,15 @@ final class MenuBarPresentationTests: XCTestCase {
         XCTAssertEqual(viewModel.menuBarSnapshot.remainingPercent, 82)
         XCTAssertEqual(viewModel.menuBarSnapshot.ringPercent, 37)
         XCTAssertTrue(viewModel.menuBarSnapshot.tooltip.contains("37%"))
+        XCTAssertLessThan(viewModel.menuBarSnapshot.paceDeltaPercent ?? 0, 0)
 
         viewModel.menuBarRingQuotaWindow = .current
         XCTAssertEqual(viewModel.menuBarSnapshot.ringPercent, 82)
+        XCTAssertGreaterThan(viewModel.menuBarSnapshot.paceDeltaPercent ?? 0, 0)
+
+        viewModel.menuBarReserveQuotaWindow = .weekly
+        XCTAssertEqual(viewModel.menuBarSnapshot.ringPercent, 82)
+        XCTAssertLessThan(viewModel.menuBarSnapshot.paceDeltaPercent ?? 0, 0)
     }
 
     @MainActor
@@ -478,6 +490,7 @@ final class MenuBarPresentationTests: XCTestCase {
             MenuBarContentSelection.storageKey,
             MenuBarAppearance.storageKey,
             MenuBarPaceDisplayMode.storageKey,
+            MenuBarReserveQuotaWindow.storageKey,
             CloudSyncSettings.enabledKey,
         ]
         let previousValues = keys.map { key in
@@ -495,6 +508,7 @@ final class MenuBarPresentationTests: XCTestCase {
 
         defaults.set(MenuBarContentSelection.automatic.rawValue, forKey: MenuBarContentSelection.storageKey)
         defaults.set(MenuBarAppearance.compactRing.rawValue, forKey: MenuBarAppearance.storageKey)
+        defaults.set(MenuBarReserveQuotaWindow.synchronized.rawValue, forKey: MenuBarReserveQuotaWindow.storageKey)
         defaults.set(false, forKey: CloudSyncSettings.enabledKey)
 
         let now = Date()
@@ -695,6 +709,26 @@ final class MenuBarPresentationTests: XCTestCase {
             ringSpacing: 4,
             accessibilityLabel: "Codex and Kimi")
         XCTAssertEqual(view.preferredWidth, 46)
+
+        view.setSnapshots(
+            snapshots,
+            codexConnectivity: .reachable,
+            paceDisplayMode: .staged,
+            isSelfTesting: false,
+            activeTaskCounts: [:],
+            horizontalPadding: -8,
+            ringSpacing: 4,
+            accessibilityLabel: "Codex and Kimi")
+        XCTAssertEqual(view.preferredWidth, 26)
+        view.frame = NSRect(x: 0, y: 0, width: 26, height: 22)
+        view.layoutSubtreeIfNeeded()
+        XCTAssertEqual(view.subviews.map(\.frame), [
+            NSRect(x: -8, y: 0, width: 19, height: 22),
+            NSRect(x: 15, y: 0, width: 19, height: 22),
+        ])
+        XCTAssertEqual(
+            MenuBarCompactLayoutPreferences.horizontalPadding(-20),
+            -8)
     }
 
     @MainActor
