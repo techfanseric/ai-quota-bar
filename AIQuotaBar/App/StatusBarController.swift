@@ -1,6 +1,37 @@
 import AppKit
 import SwiftUI
 
+private final class StatusButtonHoverTrackingView: NSView {
+    var onHoverChanged: ((Bool) -> Void)?
+    private var hoverTrackingArea: NSTrackingArea?
+
+    override func updateTrackingAreas() {
+        super.updateTrackingAreas()
+        if let hoverTrackingArea {
+            removeTrackingArea(hoverTrackingArea)
+        }
+        let trackingArea = NSTrackingArea(
+            rect: bounds,
+            options: [.mouseEnteredAndExited, .activeAlways, .inVisibleRect],
+            owner: self,
+            userInfo: nil)
+        addTrackingArea(trackingArea)
+        hoverTrackingArea = trackingArea
+    }
+
+    override func mouseEntered(with event: NSEvent) {
+        onHoverChanged?(true)
+    }
+
+    override func mouseExited(with event: NSEvent) {
+        onHoverChanged?(false)
+    }
+
+    override func hitTest(_ point: NSPoint) -> NSView? {
+        nil
+    }
+}
+
 /// 状态栏显示：两行 NSTextField 直接 addSubview 到 NSStatusBarButton。
 ///
 /// 第一行：剩余百分比（如 "60%"）
@@ -88,6 +119,12 @@ final class StatusBarController {
     private var consecutiveUnreachableChecks = 0
     private var hasHandledCurrentOutage = false
     private var recoveryTask: Task<Void, Never>?
+    private var compactImageAnimationTask: Task<Void, Never>?
+    private let compactHoverTrackingView = StatusButtonHoverTrackingView()
+    private var compactImageFrames: [NSImage] = []
+    private var compactHoverImage: NSImage?
+    private var compactImageFrameIndex = 0
+    private var isCompactButtonHovered = false
 
     init() {
         sleepProtectionCoordinator.setProtectedProviders(
@@ -115,6 +152,12 @@ final class StatusBarController {
             statusView.frame = NSRect(x: 0, y: 0, width: initialStatusItemLength, height: 22)
             statusView.autoresizingMask = [.width, .height]
             button.addSubview(statusView)
+            compactHoverTrackingView.frame = button.bounds
+            compactHoverTrackingView.autoresizingMask = [.width, .height]
+            compactHoverTrackingView.onHoverChanged = { [weak self] isHovered in
+                self?.setCompactButtonHovered(isHovered)
+            }
+            button.addSubview(compactHoverTrackingView)
             updateStatusItem()
             installActiveScreenObservers(button: button)
         }
@@ -382,6 +425,8 @@ final class StatusBarController {
     }
 
     func stop() {
+        compactImageAnimationTask?.cancel()
+        compactImageAnimationTask = nil
         recoveryTask?.cancel()
         recoveryTask = nil
         sleepProtectionCoordinator.stop()
@@ -413,6 +458,14 @@ final class StatusBarController {
     private func updateStatusItem() {
         switch viewModel.menuBarAppearance {
         case .detailedText:
+            compactImageAnimationTask?.cancel()
+            compactImageAnimationTask = nil
+            compactImageFrames.removeAll()
+            compactHoverImage = nil
+            isCompactButtonHovered = false
+            statusItem?.button?.image = nil
+            attachStatusViewIfNeeded()
+            statusView.isHidden = false
             let text = viewModel.statusBarText
             let parts = text.split(separator: "\n", maxSplits: 1, omittingEmptySubsequences: false).map(String.init)
             statusView.showDetailed(
@@ -431,6 +484,87 @@ final class StatusBarController {
         }
         statusItem?.button?.toolTip = statusItemTooltip
         updateStatusItemLength()
+        if viewModel.menuBarAppearance == .compactRing {
+            presentCompactButtonImages()
+        }
+    }
+
+    private func attachStatusViewIfNeeded() {
+        guard let button = statusItem?.button,
+              statusView.superview !== button else { return }
+        statusView.removeFromSuperview()
+        statusView.frame = button.bounds
+        statusView.autoresizingMask = [.width, .height]
+        button.addSubview(statusView)
+    }
+
+    private func presentCompactButtonImages() {
+        guard let button = statusItem?.button else { return }
+        compactImageAnimationTask?.cancel()
+        compactImageAnimationTask = nil
+
+        // A custom status-item subview forces AppKit to bitmap-snapshot the
+        // complete view hierarchy for every menu-bar replica. Compact mode is
+        // already fully rasterizable, so detach that hierarchy and use the
+        // status button's optimized image path instead.
+        statusView.removeFromSuperview()
+        let scale = button.window?.backingScaleFactor
+            ?? NSScreen.main?.backingScaleFactor
+            ?? 2
+        let frames = statusView.renderedCompactFrames(scale: scale)
+        guard let firstFrame = frames.first else {
+            button.image = nil
+            return
+        }
+
+        compactImageFrames = frames
+        compactHoverImage = statusView.renderedCompactFrames(
+            scale: scale,
+            showsProviderInitials: true).first
+        compactImageFrameIndex = 0
+        presentCompactImage(firstFrame, on: button)
+        button.setAccessibilityLabel(statusItemTooltip)
+        guard frames.count > 1 else { return }
+
+        compactImageAnimationTask = Task { @MainActor [weak self, weak button] in
+            var index = 0
+            while !Task.isCancelled {
+                index = (index + 1) % frames.count
+                self?.compactImageFrameIndex = index
+                if self?.isCompactButtonHovered == false {
+                    if let button {
+                        self?.presentCompactImage(frames[index], on: button)
+                    }
+                }
+                do {
+                    try await Task.sleep(
+                        nanoseconds: StatusBarAnimationCadence.continuousNanoseconds)
+                } catch {
+                    return
+                }
+                guard self != nil, button != nil else { return }
+            }
+        }
+    }
+
+    private func setCompactButtonHovered(_ isHovered: Bool) {
+        guard viewModel.menuBarAppearance == .compactRing,
+              isHovered != isCompactButtonHovered,
+              let button = statusItem?.button else { return }
+        isCompactButtonHovered = isHovered
+        if isHovered, let compactHoverImage {
+            presentCompactImage(compactHoverImage, on: button)
+        } else if compactImageFrames.indices.contains(compactImageFrameIndex) {
+            presentCompactImage(
+                compactImageFrames[compactImageFrameIndex],
+                on: button)
+        }
+    }
+
+    private func presentCompactImage(_ image: NSImage, on button: NSStatusBarButton) {
+        button.imagePosition = .imageOnly
+        button.imageScaling = .scaleNone
+        button.image = image
     }
 
     private var statusItemTooltip: String {
@@ -590,6 +724,16 @@ private final class StatusBarContentView: NSView {
         wantsLayer = true
         layer?.opacity = isOnActiveScreen ? 1.0 : 0.5
     }
+
+    func renderedCompactFrames(
+        scale: CGFloat,
+        showsProviderInitials: Bool = false
+    ) -> [NSImage] {
+        compactView.renderedFrames(
+            scale: scale,
+            height: max(22, frame.height),
+            showsProviderInitials: showsProviderInitials)
+    }
 }
 
 /// A compact strip containing one quota ring per provider. Automatic selection
@@ -701,6 +845,76 @@ final class StatusBarCompactRingsView: NSView {
         ringViews.forEach { $0.suspendAnimationLoops() }
     }
 
+    func renderedFrames(
+        scale: CGFloat,
+        height: CGFloat,
+        showsProviderInitials: Bool = false
+    ) -> [NSImage] {
+        ringViews.forEach { $0.setHovered(showsProviderInitials) }
+        defer { ringViews.forEach { $0.setHovered(false) } }
+        let pointSize = NSSize(width: preferredWidth, height: height)
+        let frameCount = !showsProviderInitials
+            && ringViews.contains(where: { $0.hasActiveTaskForRendering })
+            ? Int(
+                StatusBarAnimationCadence.taskWaveDuration
+                    * Double(StatusBarAnimationCadence.taskWaveFramesPerSecond))
+            : 1
+        let pixelsWide = max(1, Int(ceil(pointSize.width * scale)))
+        let pixelsHigh = max(1, Int(ceil(pointSize.height * scale)))
+
+        let frames = (0 ..< frameCount).compactMap { frameIndex -> NSImage? in
+            guard let bitmap = NSBitmapImageRep(
+                bitmapDataPlanes: nil,
+                pixelsWide: pixelsWide,
+                pixelsHigh: pixelsHigh,
+                bitsPerSample: 8,
+                samplesPerPixel: 4,
+                hasAlpha: true,
+                isPlanar: false,
+                colorSpaceName: .deviceRGB,
+                bytesPerRow: 0,
+                bitsPerPixel: 0),
+                let context = NSGraphicsContext(bitmapImageRep: bitmap)
+            else { return nil }
+
+            bitmap.size = pointSize
+            NSGraphicsContext.saveGraphicsState()
+            NSGraphicsContext.current = context
+            // NSGraphicsContext(bitmapImageRep:) keeps an identity CTM even
+            // when the bitmap representation has a 2x logical size. Draw in
+            // points explicitly so Retina frames preserve the on-screen size
+            // of the original custom status view.
+            context.cgContext.scaleBy(x: scale, y: scale)
+            context.cgContext.clear(NSRect(origin: .zero, size: pointSize))
+
+            for (index, ringView) in ringViews.enumerated() {
+                let ringFrame = NSRect(
+                    x: horizontalPadding
+                        + CGFloat(index) * (Self.ringWidth + ringSpacing),
+                    y: 0,
+                    width: Self.ringWidth,
+                    height: height)
+                ringView.frame = NSRect(
+                    origin: .zero,
+                    size: ringFrame.size)
+                ringView.setTaskOrbitPhaseForRendering(
+                    CGFloat(frameIndex) / CGFloat(frameCount))
+                context.cgContext.saveGState()
+                context.cgContext.translateBy(x: ringFrame.minX, y: 0)
+                ringView.draw(ringView.bounds)
+                context.cgContext.restoreGState()
+            }
+            NSGraphicsContext.restoreGraphicsState()
+
+            let image = NSImage(size: pointSize)
+            image.addRepresentation(bitmap)
+            image.isTemplate = true
+            return image
+        }
+        ringViews.forEach { $0.suspendAnimationLoops() }
+        return frames
+    }
+
 #if DEBUG
     func setHoveredForTesting(_ value: Bool) {
         isHovered = value
@@ -794,12 +1008,24 @@ enum MenuBarTaskEnergyMotion {
     }
 }
 
+enum StatusBarAnimationCadence {
+    // NSStatusItem mirrors its custom view into every menu-bar replica by
+    // snapshotting the complete layer tree after each invalidation. Driving a
+    // 22-point icon at 30 fps therefore costs substantially more than drawing
+    // an ordinary in-window view. These cadences keep continuous motion clear
+    // without continuously waking and rasterizing every replica.
+    static let selfTestNanoseconds: UInt64 = 66_000_000
+    static let taskWaveFramesPerSecond = 15
+    static let taskWaveDuration: TimeInterval = 1.8
+    static let continuousNanoseconds: UInt64 = 66_000_000
+    static let taskWaveSegmentCount = 6
+}
+
 @MainActor
 final class StatusBarCompactRingView: NSView {
     let preferredWidth: CGFloat = 22
     private static let consumedStrokeAlpha: CGFloat = 0.12
     private static let activeLiveRingOpacity: CGFloat = 0.60
-    private static let taskWaveDuration: TimeInterval = 1.8
     private static let offlinePulseMinimumOpacity: CGFloat = 0.32
     private static let offlinePulseDuration: TimeInterval = 1
     private var snapshot = MenuBarSnapshot(
@@ -854,14 +1080,24 @@ final class StatusBarCompactRingView: NSView {
         activeTaskCount: Int = 0,
         accessibilityLabel: String
     ) {
+        let normalizedTaskCount = max(0, activeTaskCount)
+        let normalizedSelfTesting = isSelfTesting && snapshot.provider == .codex
+        let stateChanged = self.snapshot != snapshot
+            || self.connectivity != connectivity
+            || self.paceDisplayMode != paceDisplayMode
+            || self.isSelfTesting != normalizedSelfTesting
+            || self.activeTaskCount != normalizedTaskCount
+
+        setAccessibilityLabel(accessibilityLabel)
+        guard stateChanged else { return }
+
         let wasOffline = isOffline
         self.snapshot = snapshot
         self.connectivity = connectivity
         self.paceDisplayMode = paceDisplayMode
-        self.isSelfTesting = isSelfTesting && snapshot.provider == .codex
-        self.activeTaskCount = max(0, activeTaskCount)
+        self.isSelfTesting = normalizedSelfTesting
+        self.activeTaskCount = normalizedTaskCount
         let shouldBeOffline = isOffline
-        setAccessibilityLabel(accessibilityLabel)
         if wasOffline != shouldBeOffline {
             animateOfflineMorph(to: shouldBeOffline ? 1 : 0)
         }
@@ -961,6 +1197,18 @@ final class StatusBarCompactRingView: NSView {
         activeTaskCount > 0 && !isOffline && !isSelfTesting
     }
 
+    var hasActiveTaskForRendering: Bool { showsTaskEnergy }
+
+    func setTaskOrbitPhaseForRendering(_ value: CGFloat) {
+        taskEnergyTask?.cancel()
+        taskEnergyTask = nil
+        taskOrbitPhase = value
+            .truncatingRemainder(dividingBy: 1)
+        if taskOrbitPhase < 0 {
+            taskOrbitPhase += 1
+        }
+    }
+
     private func updateSelfTestAnimation() {
         guard isSelfTesting else {
             selfTestTask?.cancel()
@@ -984,7 +1232,9 @@ final class StatusBarCompactRingView: NSView {
                 let reduceMotion = NSWorkspace.shared.accessibilityDisplayShouldReduceMotion
                 do {
                     try await Task.sleep(
-                        nanoseconds: reduceMotion ? 1_000_000_000 : 33_000_000)
+                        nanoseconds: reduceMotion
+                            ? 1_000_000_000
+                            : StatusBarAnimationCadence.selfTestNanoseconds)
                 } catch {
                     return
                 }
@@ -1037,12 +1287,13 @@ final class StatusBarCompactRingView: NSView {
                 let elapsed = ProcessInfo.processInfo.systemUptime - startTime
                 taskOrbitPhase = CGFloat(
                     elapsed.truncatingRemainder(
-                        dividingBy: Self.taskWaveDuration)
-                        / Self.taskWaveDuration)
+                        dividingBy: StatusBarAnimationCadence.taskWaveDuration)
+                        / StatusBarAnimationCadence.taskWaveDuration)
                 needsDisplay = true
 
                 do {
-                    try await Task.sleep(nanoseconds: 33_000_000)
+                    try await Task.sleep(
+                        nanoseconds: StatusBarAnimationCadence.continuousNanoseconds)
                 } catch {
                     return
                 }
@@ -1057,7 +1308,6 @@ final class StatusBarCompactRingView: NSView {
             offlinePulseOpacity = 1
             return
         }
-
         guard !NSWorkspace.shared.accessibilityDisplayShouldReduceMotion else {
             offlinePulseTask?.cancel()
             offlinePulseTask = nil
@@ -1086,9 +1336,9 @@ final class StatusBarCompactRingView: NSView {
                 self?.offlinePulseOpacity = Self.offlinePulseMinimumOpacity
                     + (1 - Self.offlinePulseMinimumOpacity) * CGFloat(wave)
                 self?.needsDisplay = true
-
                 do {
-                    try await Task.sleep(nanoseconds: 33_000_000)
+                    try await Task.sleep(
+                        nanoseconds: StatusBarAnimationCadence.continuousNanoseconds)
                 } catch {
                     return
                 }
@@ -1148,13 +1398,7 @@ final class StatusBarCompactRingView: NSView {
     }
 
     func setTaskOrbitPhaseForTesting(_ value: CGFloat) {
-        taskEnergyTask?.cancel()
-        taskEnergyTask = nil
-        taskOrbitPhase = value
-            .truncatingRemainder(dividingBy: 1)
-        if taskOrbitPhase < 0 {
-            taskOrbitPhase += 1
-        }
+        setTaskOrbitPhaseForRendering(value)
         needsDisplay = true
     }
 #endif
@@ -1280,7 +1524,7 @@ final class StatusBarCompactRingView: NSView {
             divider.lineCapStyle = .butt
             let dividerAlpha: CGFloat = state == .ready ? 1 : activeAlpha
             NSColor.labelColor
-                .withAlphaComponent(dividerAlpha * normalAmount)
+                .withAlphaComponent(dividerAlpha)
                 .setStroke()
             divider.stroke()
         }
@@ -1408,7 +1652,7 @@ final class StatusBarCompactRingView: NSView {
         let waveSpan = min(
             MenuBarTaskEnergyMotion.waveSpanFraction,
             maximumSeparatedSpan)
-        let segmentCount = 18
+        let segmentCount = StatusBarAnimationCadence.taskWaveSegmentCount
 
         for waveIndex in 0 ..< waveCount {
             let phase = MenuBarTaskEnergyMotion.phase(

@@ -23,15 +23,15 @@ AI coding work is hard to manage when quota, network routes, and Mac sleep setti
   <img src="./docs/images/control-center.png" alt="AI Quota Bar control center" width="342">
 </p>
 
-## What’s new in v1.9.0
+## What’s new in v1.10.0
 
-This release adds Kimi Code plan tracking, gives you precise control over the left-click quota menu, and hardens long-running Codex and Mobile Dashboard monitoring.
+This release makes the compact menu-bar view dramatically lighter while expanding its multi-provider and routing workflows.
 
-- **Track Kimi without spending model tokens.** When no API key is configured, AI Quota Bar starts the real Kimi Code CLI in a local PTY and runs `/status`. The official CLI refreshes its own login while the command returns 5-hour and weekly quota without creating a model turn.
-- **Choose exactly what the left-click menu shows.** Accounts and individual quota windows can be hidden independently without disabling background refresh, history, alerts, sync, or menu-bar pinning.
-- **Keep explicit 5-hour limits visible.** Quota curves now retain short-window data when provider metadata is incomplete, including Kimi's 5-hour limit.
-- **Avoid missing Codex tasks with very large logs.** Activity detection reconstructs lifecycle state before reading the bounded log tail, so a task that started outside the most recent 16 MB is still counted.
-- **Use a denser, OLED-friendly phone dashboard.** The mobile layout makes better use of compact landscape displays, improves independent status panels, and gives confirmed idle its own pure-black screen with bounded animation lifecycles.
+- **Keep the 15 FPS task animation without the old CPU cost.** Compact rings now use pre-rendered `NSStatusBarButton` frames instead of forcing AppKit to snapshot a custom view every frame. On the release machine, active-animation CPU dropped from roughly 54–62% to mostly 8–10%.
+- **Preserve the original Retina geometry and hover details.** Rings retain their original point size and spacing, hovering reveals provider initials, and diagonal pace dividers use the same color as their vertical state.
+- **See Codex and Kimi activity together.** Work-aware selection and protection can keep independent provider rings visible while tasks are active.
+- **Understand quota direction sooner.** Consumption forecasts and reserve/deficit rendering make it easier to judge whether current usage can last until reset.
+- **Edit Clash route filters deliberately.** Saved filters stay readable by default and enter an explicit editing mode only when requested, including regex controls and localized actions.
 
 ## What it helps you do
 

@@ -3,6 +3,16 @@ import XCTest
 @testable import AIQuotaBar
 
 final class MenuBarRingRenderingTests: XCTestCase {
+    func testInteractiveSelfTestAnimationUsesABoundedFrameRate() {
+        XCTAssertGreaterThanOrEqual(
+            StatusBarAnimationCadence.selfTestNanoseconds,
+            50_000_000)
+        XCTAssertLessThanOrEqual(
+            StatusBarAnimationCadence.taskWaveSegmentCount,
+            6)
+        XCTAssertEqual(StatusBarAnimationCadence.taskWaveFramesPerSecond, 15)
+    }
+
     @MainActor
     func testIdleRingIsOpaqueAndTaskRingUsesMovingOpacityWave() throws {
         let idle = try renderTaskRing(
@@ -224,6 +234,7 @@ final class MenuBarRingRenderingTests: XCTestCase {
             (35, -MenuBarPaceGlyph.percentPointsPerDay, .continuous, .reachable, 0, 1),
             (70, MenuBarPaceGlyph.fullScaleDeltaPercent, .continuous, .reachable, 0, 1),
             (70, MenuBarPaceGlyph.fullScaleDeltaPercent + 1, .continuous, .reachable, 0, 1),
+            (70, 0, .staged, .unreachable, 0.5, 1),
             (70, 42, .staged, .unreachable, 1, 1),
             (70, 42, .staged, .unreachable, 1, 0.32),
         ]
@@ -318,6 +329,12 @@ final class MenuBarRingRenderingTests: XCTestCase {
         let onPaceDivider = borderLuminance(stateIndex: 2, xOffset: 0)
         XCTAssertLessThan(abs(onPaceLeft - onPaceRight), 40)
         XCTAssertLessThan(onPaceDivider + 150, min(onPaceLeft, onPaceRight))
+
+        let diagonalDivider = borderLuminance(stateIndex: 7, xOffset: 0)
+        XCTAssertLessThan(
+            abs(diagonalDivider - onPaceDivider),
+            80,
+            "The diagonal pace divider should use the same color as the vertical divider")
 
         let reserveLeft = borderLuminance(stateIndex: 3, xOffset: -4.25)
         let reserveRight = borderLuminance(stateIndex: 3, xOffset: 4.25)
@@ -441,6 +458,61 @@ final class MenuBarRingRenderingTests: XCTestCase {
             accessibilityLabel: "Codex and Kimi")
 
         XCTAssertEqual(view.activeTaskCountsForTesting, [2, 3])
+    }
+
+    @MainActor
+    func testCompactButtonFramesPreserveSizeAndAnimate() throws {
+        let view = StatusBarCompactRingsView(
+            frame: NSRect(x: 0, y: 0, width: 44, height: 22))
+        let snapshot = MenuBarSnapshot(
+            provider: .codex,
+            modelName: "5h",
+            remainingPercent: 65,
+            ringPercent: 65,
+            paceDeltaPercent: 5,
+            resetsAt: nil,
+            state: .ready,
+            isLowQuota: false,
+            tooltip: "Codex")
+        view.setSnapshots(
+            [snapshot],
+            codexConnectivity: .reachable,
+            paceDisplayMode: .staged,
+            isSelfTesting: false,
+            activeTaskCounts: [.codex: 1],
+            accessibilityLabel: "Codex")
+
+        let frames = view.renderedFrames(scale: 2, height: 22)
+        let hoverFrames = view.renderedFrames(
+            scale: 2,
+            height: 22,
+            showsProviderInitials: true)
+
+        XCTAssertEqual(frames.count, 27)
+        XCTAssertEqual(frames.first?.size.height, 22)
+        XCTAssertEqual(hoverFrames.count, 1)
+        XCTAssertNotEqual(
+            try XCTUnwrap(frames.first?.tiffRepresentation),
+            try XCTUnwrap(frames.dropFirst(5).first?.tiffRepresentation))
+        XCTAssertNotEqual(
+            try XCTUnwrap(frames.first?.tiffRepresentation),
+            try XCTUnwrap(hoverFrames.first?.tiffRepresentation))
+
+        let bitmap = try XCTUnwrap(
+            frames.first?.representations
+                .compactMap { $0 as? NSBitmapImageRep }
+                .first)
+        var occupiedRows = Set<Int>()
+        for y in 0 ..< bitmap.pixelsHigh {
+            for x in 0 ..< bitmap.pixelsWide
+            where bitmap.colorAt(x: x, y: y)?.alphaComponent ?? 0 > 0.01 {
+                occupiedRows.insert(y)
+            }
+        }
+        XCTAssertGreaterThanOrEqual(
+            occupiedRows.count,
+            30,
+            "A 2x Retina ring must occupy its original ~16pt height")
     }
 
     @MainActor

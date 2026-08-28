@@ -79,4 +79,23 @@ final class ClashRouteFilterTests: XCTestCase {
         XCTAssertTrue(result.routes.isEmpty)
         XCTAssertNotNil(result.errorMessage)
     }
+
+    @MainActor
+    func testFilterEditingStartsReadOnlyAndRequiresExplicitEntry() {
+        let suiteName = "ClashRouteFilterTests.\(UUID())"
+        let defaults = UserDefaults(suiteName: suiteName)!
+        defer {
+            defaults.removePersistentDomain(forName: suiteName)
+        }
+        defaults.set(#"^(JP|SG)"#, forKey: "clashRouteFilterQuery")
+
+        let viewModel = ClashRouteViewModel(defaults: defaults)
+
+        XCTAssertFalse(viewModel.isFilterEditing)
+        viewModel.beginFilterEditing()
+        XCTAssertTrue(viewModel.isFilterEditing)
+        viewModel.endFilterEditing()
+        XCTAssertFalse(viewModel.isFilterEditing)
+        XCTAssertEqual(viewModel.filterQuery, #"^(JP|SG)"#)
+    }
 }

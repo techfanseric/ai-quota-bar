@@ -29,6 +29,20 @@ extension AppLanguage {
         }
     }
 
+    func clashEditFilter() -> String {
+        switch self {
+        case .english: return "Edit"
+        case .simplifiedChinese: return "编辑"
+        }
+    }
+
+    func clashFinishEditingFilter() -> String {
+        switch self {
+        case .english: return "Done"
+        case .simplifiedChinese: return "完成"
+        }
+    }
+
     func clashAutoSelectBest() -> String {
         switch self {
         case .english: return "On connection failure, switch to the fastest match"

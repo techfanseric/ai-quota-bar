@@ -40,6 +40,7 @@ final class ClashRoutePopoverController: NSObject {
         panel.setContentSize(contentSize)
         panel.onDismiss = { [weak self] in
             self?.connectionViewModel.endLiveUpdates()
+            self?.routeViewModel.endFilterEditing()
         }
     }
 
@@ -68,6 +69,7 @@ final class ClashRoutePopoverController: NSObject {
 
         let appearance = StatusItemMenuAppearance.resolved(
             from: NSApp.effectiveAppearance)
+        routeViewModel.endFilterEditing()
         panel.appearance = appearance
         hostingView.appearance = appearance
         panel.present(
