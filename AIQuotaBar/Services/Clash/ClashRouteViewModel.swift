@@ -34,6 +34,7 @@ final class ClashRouteViewModel {
 
     var language: AppLanguage = .current
 
+    private(set) var isFilterEditing = false
     private(set) var phase: ClashPanelPhase = .idle
     private(set) var routes: [ClashRoute] = []
     private(set) var groupName: String?
@@ -82,6 +83,14 @@ final class ClashRouteViewModel {
 
     var hasActiveFilter: Bool {
         !filterQuery.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    }
+
+    func beginFilterEditing() {
+        isFilterEditing = true
+    }
+
+    func endFilterEditing() {
+        isFilterEditing = false
     }
 
     func prepareForDisplay(automaticallyTest: Bool) async {

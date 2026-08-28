@@ -3,7 +3,7 @@ import SwiftUI
 
 struct ClashRoutePopoverView: View {
     @Bindable var viewModel: ClashRouteViewModel
-    @FocusState private var isSearchFocused: Bool
+    @FocusState private var isFilterFieldFocused: Bool
 
     var body: some View {
         VStack(spacing: 0) {
@@ -15,11 +15,6 @@ struct ClashRoutePopoverView: View {
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(Color(nsColor: .windowBackgroundColor))
-        .onAppear {
-            DispatchQueue.main.async {
-                isSearchFocused = true
-            }
-        }
     }
 
     private var language: AppLanguage {
@@ -54,52 +49,102 @@ struct ClashRoutePopoverView: View {
                 }
             }
 
-            HStack(spacing: 8) {
-                HStack(spacing: 6) {
-                    Image(systemName: "magnifyingglass")
-                        .font(.system(size: 11, weight: .medium))
-                        .foregroundStyle(.tertiary)
+            HStack(spacing: 7) {
+                if viewModel.isFilterEditing {
+                    HStack(spacing: 6) {
+                        Image(systemName: "magnifyingglass")
+                            .font(.system(size: 11, weight: .medium))
+                            .foregroundStyle(.tertiary)
 
-                    TextField(
-                        language.clashSearchPlaceholder(),
-                        text: $viewModel.filterQuery)
-                        .textFieldStyle(.plain)
-                        .font(.system(size: 12))
-                        .focused($isSearchFocused)
+                        TextField(
+                            language.clashSearchPlaceholder(),
+                            text: $viewModel.filterQuery)
+                            .textFieldStyle(.plain)
+                            .font(.system(size: 12))
+                            .focused($isFilterFieldFocused)
+                            .onSubmit {
+                                finishFilterEditing()
+                            }
 
-                    if !viewModel.filterQuery.isEmpty {
-                        Button {
-                            viewModel.filterQuery = ""
-                        } label: {
-                            Image(systemName: "xmark.circle.fill")
-                                .font(.system(size: 11))
+                        if !viewModel.filterQuery.isEmpty {
+                            Button {
+                                viewModel.filterQuery = ""
+                            } label: {
+                                Image(systemName: "xmark.circle.fill")
+                                    .font(.system(size: 11))
+                                    .foregroundStyle(.tertiary)
+                            }
+                            .buttonStyle(.plain)
+                            .accessibilityLabel(Text("Clear"))
+                        }
+                    }
+                    .padding(.horizontal, 9)
+                    .frame(maxWidth: .infinity)
+                    .frame(height: 28)
+                    .background(filterFieldBackground)
+                    .overlay { filterFieldBorder }
+
+                    Toggle(
+                        language.clashRegexToggle(),
+                        isOn: $viewModel.usesRegularExpression)
+                        .toggleStyle(.button)
+                        .controlSize(.small)
+                        .font(.system(size: 10, weight: .semibold))
+                        .help(language.clashRegexHelp())
+
+                    Button {
+                        finishFilterEditing()
+                    } label: {
+                        Image(systemName: "checkmark")
+                            .font(.system(size: 10, weight: .semibold))
+                    }
+                    .controlSize(.small)
+                    .accessibilityLabel(
+                        Text(language.clashFinishEditingFilter()))
+                } else {
+                    Button {
+                        beginFilterEditing()
+                    } label: {
+                        HStack(spacing: 6) {
+                            Image(systemName: "magnifyingglass")
+                                .font(.system(size: 11, weight: .medium))
+                                .foregroundStyle(.tertiary)
+
+                            Text(
+                                viewModel.hasActiveFilter
+                                    ? viewModel.filterQuery
+                                    : language.clashSearchPlaceholder())
+                                .font(.system(size: 12))
+                                .foregroundStyle(
+                                    viewModel.hasActiveFilter
+                                        ? .primary
+                                        : .tertiary)
+                                .lineLimit(1)
+                                .truncationMode(.middle)
+
+                            Spacer(minLength: 0)
+
+                            if viewModel.usesRegularExpression,
+                               viewModel.hasActiveFilter {
+                                Text(language.clashRegexToggle())
+                                    .font(.system(size: 8, weight: .semibold))
+                                    .foregroundStyle(.secondary)
+                            }
+
+                            Image(systemName: "pencil")
+                                .font(.system(size: 9, weight: .semibold))
                                 .foregroundStyle(.tertiary)
                         }
-                        .buttonStyle(.plain)
-                        .accessibilityLabel(Text("Clear"))
+                        .padding(.horizontal, 9)
+                        .frame(maxWidth: .infinity)
+                        .frame(height: 28)
+                        .contentShape(Rectangle())
                     }
+                    .buttonStyle(.plain)
+                    .background(filterFieldBackground)
+                    .overlay { filterFieldBorder }
+                    .accessibilityLabel(Text(language.clashEditFilter()))
                 }
-                .padding(.horizontal, 9)
-                .frame(height: 28)
-                .background(
-                    RoundedRectangle(cornerRadius: 7, style: .continuous)
-                        .fill(Color.primary.opacity(0.055)))
-                .overlay {
-                    RoundedRectangle(cornerRadius: 7, style: .continuous)
-                        .stroke(
-                            viewModel.filterErrorMessage == nil
-                                ? Color.primary.opacity(0.09)
-                                : Color.red.opacity(0.65),
-                            lineWidth: 1)
-                }
-
-                Toggle(
-                    language.clashRegexToggle(),
-                    isOn: $viewModel.usesRegularExpression)
-                    .toggleStyle(.button)
-                    .controlSize(.small)
-                    .font(.system(size: 10, weight: .semibold))
-                    .help(language.clashRegexHelp())
             }
 
             if let filterError = viewModel.filterErrorMessage {
@@ -142,6 +187,32 @@ struct ClashRoutePopoverView: View {
         .padding(.horizontal, 14)
         .padding(.top, 13)
         .padding(.bottom, 12)
+    }
+
+    private var filterFieldBackground: some View {
+        RoundedRectangle(cornerRadius: 7, style: .continuous)
+            .fill(Color.primary.opacity(0.055))
+    }
+
+    private var filterFieldBorder: some View {
+        RoundedRectangle(cornerRadius: 7, style: .continuous)
+            .stroke(
+                viewModel.filterErrorMessage == nil
+                    ? Color.primary.opacity(0.09)
+                    : Color.red.opacity(0.65),
+                lineWidth: 1)
+    }
+
+    private func beginFilterEditing() {
+        viewModel.beginFilterEditing()
+        DispatchQueue.main.async {
+            isFilterFieldFocused = true
+        }
+    }
+
+    private func finishFilterEditing() {
+        isFilterFieldFocused = false
+        viewModel.endFilterEditing()
     }
 
     @ViewBuilder
