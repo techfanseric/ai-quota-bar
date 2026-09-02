@@ -23,15 +23,16 @@ AI coding work is hard to manage when quota, network routes, and Mac sleep setti
   <img src="./docs/images/control-center.png" alt="AI Quota Bar control center" width="342">
 </p>
 
-## What’s new in v1.10.0
+## What’s new in v1.11.0
 
-This release makes the compact menu-bar view dramatically lighter while expanding its multi-provider and routing workflows.
+Choose quota chart styles per model and reduce unnecessary cloud-sync database work without changing normal refresh frequency or history retention.
 
-- **Keep the 15 FPS task animation without the old CPU cost.** Compact rings now use pre-rendered `NSStatusBarButton` frames instead of forcing AppKit to snapshot a custom view every frame. On the release machine, active-animation CPU dropped from roughly 54–62% to mostly 8–10%.
-- **Preserve the original Retina geometry and hover details.** Rings retain their original point size and spacing, hovering reveals provider initials, and diagonal pace dividers use the same color as their vertical state.
-- **See Codex and Kimi activity together.** Work-aware selection and protection can keep independent provider rings visible while tasks are active.
-- **Understand quota direction sooner.** Consumption forecasts and reserve/deficit rendering make it easier to judge whether current usage can last until reset.
-- **Edit Clash route filters deliberately.** Saved filters stay readable by default and enter an explicit editing mode only when requested, including regex controls and localized actions.
+- **Choose automatic, area chart, or progress bar for each model.** Preferences persist locally and are shared by the Mac menu and Mobile Dashboard.
+- **Avoid futile cloud-sync retries.** Client errors and explicit D1 daily-quota errors stop same-round retries; temporary network and ordinary server errors still retry.
+- **Read latest snapshots through a small index.** The companion backend uses maintained latest-snapshot pointers, bounded per-device history queries, and indexed retention cleanup. Identical uploads no longer rewrite samples or device heartbeats.
+- **Keep existing data and behavior.** No history is discarded by the upgrade and normal refresh frequency is unchanged. Account-wide D1 quota exhaustion can still prevent history requests until the quota resets.
+
+See the [release notes](./docs/releases/v1.11.0.md) for validation results and self-hosted backend rollout details.
 
 ## What it helps you do
 
