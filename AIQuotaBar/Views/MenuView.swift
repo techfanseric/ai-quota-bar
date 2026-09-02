@@ -319,7 +319,8 @@ private struct ProviderModelsSection: View {
             .map(\.id))
         return QuotaCurveModelSelector.curveModelIDs(
             in: data.models,
-            renderableModelIDs: renderableModelIDs)
+            renderableModelIDs: renderableModelIDs,
+            preferences: viewModel.quotaChartDisplayPreferences)
     }
 
     private var exhaustedModels: [ModelUsageData] {

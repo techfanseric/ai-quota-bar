@@ -174,6 +174,12 @@ final class UsageViewModel {
         }
     }
 
+    var quotaChartDisplayPreferences: QuotaChartDisplayPreferences {
+        didSet {
+            quotaChartDisplayPreferences.save()
+        }
+    }
+
     var cloudCurrentWindowVisibilityLimit: CloudDataVisibilityLimit {
         didSet {
             UserDefaults.standard.set(cloudCurrentWindowVisibilityLimit.rawValue, forKey: Self.cloudCurrentWindowVisibilityLimitKey)
@@ -710,6 +716,7 @@ final class UsageViewModel {
                 forKey: Self.quotaForecastLookbackIntervalsKey) as? Int ?? 3,
             1), 5)
         self.leftClickMenuDisplayPreferences = LeftClickMenuDisplayPreferences.load()
+        self.quotaChartDisplayPreferences = QuotaChartDisplayPreferences.load()
         self.cloudCurrentWindowVisibilityLimit = UserDefaults.standard.string(forKey: Self.cloudCurrentWindowVisibilityLimitKey)
             .flatMap(CloudDataVisibilityLimit.init(rawValue:))
             ?? .oneHour
@@ -765,6 +772,19 @@ final class UsageViewModel {
         var preferences = leftClickMenuDisplayPreferences
         preferences.showAll()
         leftClickMenuDisplayPreferences = preferences
+    }
+
+    func quotaChartDisplayMode(for model: ModelUsageData) -> QuotaChartDisplayMode {
+        quotaChartDisplayPreferences.mode(for: model)
+    }
+
+    func setQuotaChartDisplayMode(
+        _ mode: QuotaChartDisplayMode,
+        model: ModelUsageData
+    ) {
+        var preferences = quotaChartDisplayPreferences
+        preferences.setMode(mode, for: model)
+        quotaChartDisplayPreferences = preferences
     }
 
     /// User-visible refreshes run at least one complete compact-icon self-test
@@ -1469,7 +1489,8 @@ final class UsageViewModel {
             .map(\.id))
         let curveModelIDs = QuotaCurveModelSelector.curveModelIDs(
             in: data.models,
-            renderableModelIDs: renderableModelIDs)
+            renderableModelIDs: renderableModelIDs,
+            preferences: quotaChartDisplayPreferences)
         let sampledModelIDs = Self.sampledModelIDs(
             curveModelIDs: curveModelIDs,
             models: data.models,

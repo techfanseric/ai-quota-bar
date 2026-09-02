@@ -8,7 +8,8 @@ import Foundation
 enum QuotaCurveModelSelector {
     static func curveModelIDs(
         in models: [ModelUsageData],
-        renderableModelIDs: Set<String>
+        renderableModelIDs: Set<String>,
+        preferences: QuotaChartDisplayPreferences = .init()
     ) -> Set<String> {
         let renderableModels = models.filter {
             renderableModelIDs.contains($0.id)
@@ -36,6 +37,17 @@ enum QuotaCurveModelSelector {
                 result.insert(fiveHour.id)
             } else if let weekly = preferredWeeklyWindow(in: accountModels) {
                 result.insert(weekly.id)
+            }
+        }
+
+        for model in renderableModels {
+            switch preferences.mode(for: model) {
+            case .automatic:
+                break
+            case .areaChart:
+                result.insert(model.id)
+            case .progressBar:
+                result.remove(model.id)
             }
         }
 

@@ -958,6 +958,33 @@ enum AppLanguage: String, CaseIterable, Codable, Identifiable {
         }
     }
 
+    func quotaChartDisplayTitle() -> String {
+        switch self {
+        case .english: return "Quota chart style"
+        case .simplifiedChinese: return "额度图表样式"
+        }
+    }
+
+    func quotaChartDisplayDescription() -> String {
+        switch self {
+        case .english:
+            return "Automatic keeps the current selection logic. Override any quota dimension to use an area chart or progress bar."
+        case .simplifiedChinese:
+            return "“自动”沿用现有判断逻辑；也可为任意额度维度固定使用曲线图或进度条。"
+        }
+    }
+
+    func quotaChartDisplayModeName(_ mode: QuotaChartDisplayMode) -> String {
+        switch (self, mode) {
+        case (.english, .automatic): return "Automatic"
+        case (.english, .areaChart): return "Area chart"
+        case (.english, .progressBar): return "Progress bar"
+        case (.simplifiedChinese, .automatic): return "自动"
+        case (.simplifiedChinese, .areaChart): return "曲线图"
+        case (.simplifiedChinese, .progressBar): return "进度条"
+        }
+    }
+
     func leftClickMenuAllHiddenTitle() -> String {
         switch self {
         case .english: return "All menu items are hidden"

@@ -14,6 +14,8 @@ struct UsagePane: View {
                 Divider()
                 leftClickMenuSection
                 Divider()
+                chartDisplaySection
+                Divider()
                 refreshSection
                 Divider()
                 historySection
@@ -21,6 +23,33 @@ struct UsagePane: View {
             .frame(maxWidth: .infinity, alignment: .leading)
             .padding(.horizontal, 20)
             .padding(.vertical, 12)
+        }
+    }
+
+    private var chartDisplaySection: some View {
+        SettingsSection(
+            title: language.quotaChartDisplayTitle(),
+            caption: language.quotaChartDisplayDescription(),
+            contentSpacing: 8
+        ) {
+            if leftClickMenuModels.isEmpty {
+                Text(language.leftClickMenuModelsEmpty())
+                    .font(.footnote)
+                    .foregroundStyle(.tertiary)
+            } else {
+                ForEach(leftClickMenuModels) { model in
+                    PreferencePickerRow(
+                        title: model.modelName,
+                        subtitle: chartDisplayModelDescription(model),
+                        selection: quotaChartDisplayBinding(model),
+                        maxWidth: 130
+                    ) {
+                        ForEach(QuotaChartDisplayMode.allCases) { mode in
+                            Text(language.quotaChartDisplayModeName(mode)).tag(mode)
+                        }
+                    }
+                }
+            }
         }
     }
 
@@ -248,6 +277,24 @@ struct UsagePane: View {
         Binding(
             get: { viewModel.isLeftClickMenuModelVisible(model) },
             set: { viewModel.setLeftClickMenuModelVisible($0, model: model) })
+    }
+
+    private func quotaChartDisplayBinding(
+        _ model: ModelUsageData
+    ) -> Binding<QuotaChartDisplayMode> {
+        Binding(
+            get: { viewModel.quotaChartDisplayMode(for: model) },
+            set: { viewModel.setQuotaChartDisplayMode($0, model: model) })
+    }
+
+    private func chartDisplayModelDescription(_ model: ModelUsageData) -> String {
+        let account = model.accountName?.trimmingCharacters(in: .whitespacesAndNewlines)
+        return [model.provider.displayName, account]
+            .compactMap { value in
+                guard let value, !value.isEmpty else { return nil }
+                return value
+            }
+            .joined(separator: " · ")
     }
 }
 
