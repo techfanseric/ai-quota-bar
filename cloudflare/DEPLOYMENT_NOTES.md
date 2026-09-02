@@ -31,11 +31,19 @@ a historical aggregate; do not poll it routinely.
   running Mac application has not been rebuilt/replaced; other pre-existing
   user changes were deliberately left intact.
 
+## Subsequent production verification
+
+Using the Mac's existing HTTP proxy for the authenticated service/Cloudflare API,
+the health and latest endpoints returned HTTP 200. Latest returned 24 samples;
+the same latest SQL returned **176 rows read, 0 rows written, about 0.83 ms**.
+Small-table validation found **26 heads, 0 invalid pointers, and all 3 triggers**.
+This verifies the deployed latest path; it is not a full-day billing comparison.
+The history endpoint remains blocked by the explicit existing D1 daily quota.
+
 ## Required follow-up after daily quota reset
 
-Read only small results first: heads count, dangling/mismatched pointers, and the
-new global/device latest query. Inspect actual `meta.rows_read` / `rows_written`.
-Then verify normal client refresh and history remain correct. Avoid re-running
+Verify normal client refresh and the history endpoint after the existing quota
+block clears. Observe a full day's actual read/write totals. Avoid re-running
 the old full-history aggregate merely to measure the baseline.
 
 If rollback is needed, redeploy **this compatible Worker** with the flag false;
