@@ -32,7 +32,8 @@ enum MobileDashboardSnapshotBuilder {
         }.map(\.id))
         let curveModelIDs = QuotaCurveModelSelector.curveModelIDs(
             in: allModels,
-            renderableModelIDs: renderableModelIDs)
+            renderableModelIDs: renderableModelIDs,
+            preferences: usageViewModel.quotaChartDisplayPreferences)
         let selectedModels = selectedModelKeys.compactMap { selection in
             allModels.first { selection.matches($0) }
         }

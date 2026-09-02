@@ -117,6 +117,64 @@ final class QuotaCurveFallbackTests: XCTestCase {
         XCTAssertEqual(selected, [weekly.id])
     }
 
+    func testUserCanForceNonCurveModelToAreaChart() {
+        let now = Date()
+        let monthly = makeModel(
+            account: "account@example.com",
+            name: "Monthly",
+            duration: 30 * 86_400,
+            remainingPercent: 55,
+            now: now)
+        var preferences = QuotaChartDisplayPreferences()
+        preferences.setMode(.areaChart, for: monthly)
+
+        let selected = QuotaCurveModelSelector.curveModelIDs(
+            in: [monthly],
+            renderableModelIDs: [monthly.id],
+            preferences: preferences)
+
+        XCTAssertEqual(selected, [monthly.id])
+    }
+
+    func testUserCanForceDefaultCurveModelToProgressBar() {
+        let now = Date()
+        let fiveHour = makeModel(
+            account: "account@example.com",
+            name: "5h",
+            duration: 5 * 3_600,
+            remainingPercent: 55,
+            now: now)
+        var preferences = QuotaChartDisplayPreferences()
+        preferences.setMode(.progressBar, for: fiveHour)
+
+        let selected = QuotaCurveModelSelector.curveModelIDs(
+            in: [fiveHour],
+            renderableModelIDs: [fiveHour.id],
+            preferences: preferences)
+
+        XCTAssertTrue(selected.isEmpty)
+    }
+
+    func testAutomaticModeRemovesStoredOverride() {
+        let now = Date()
+        let monthly = makeModel(
+            account: "account@example.com",
+            name: "Monthly",
+            duration: 30 * 86_400,
+            remainingPercent: 55,
+            now: now)
+        var preferences = QuotaChartDisplayPreferences()
+        preferences.setMode(.areaChart, for: monthly)
+        preferences.setMode(.automatic, for: monthly)
+
+        XCTAssertEqual(preferences.mode(for: monthly), .automatic)
+        let selected = QuotaCurveModelSelector.curveModelIDs(
+            in: [monthly],
+            renderableModelIDs: [monthly.id],
+            preferences: preferences)
+        XCTAssertTrue(selected.isEmpty)
+    }
+
     func testChartTicksUseHoursForFiveHourAndDaysForWeekly() {
         let start = Date(timeIntervalSince1970: 1_700_000_000)
         let fiveHourTicks = QuotaChartTimeTickBuilder.ticks(
