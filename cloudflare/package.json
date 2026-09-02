@@ -4,6 +4,7 @@
   "type": "module",
   "scripts": {
     "check": "node --check src/worker.js",
+    "test": "node --experimental-sqlite --test tests/*.test.js",
     "deploy": "wrangler deploy",
     "db:migrate": "wrangler d1 execute ai-quota-bar --file=./schema.sql"
   },

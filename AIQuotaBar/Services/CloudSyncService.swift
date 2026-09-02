@@ -83,12 +83,14 @@ final class CloudSyncService {
     private let session: URLSession
     private let encoder: JSONEncoder
     private let queue: CloudSyncQueue
+    private let retryBackoffs: [UInt64]
 
     /// view 可读：`Last sync: 2m ago` 或 `Failed: 5m ago`
     private(set) var lastSyncStatus: CloudSyncStatus = .idle
 
-    private init(session: URLSession = .shared) {
+    init(session: URLSession = .shared, retryBackoffs: [UInt64] = [1, 4, 16]) {
         self.session = session
+        self.retryBackoffs = retryBackoffs
         let encoder = JSONEncoder()
         encoder.dateEncodingStrategy = .iso8601
         self.encoder = encoder
@@ -265,11 +267,10 @@ final class CloudSyncService {
     /// 重试 3 次：1s, 4s, 16s 指数退避
     /// 任务被 cancel 时 sleep 会抛 `CancellationError`，立即退出不再重试，
     /// 避免用户切 endpoint / disable cloud sync 后还在后台跑 21s。
-    private func sendWithRetry(request: URLRequest, body: Data) async throws {
-        let backoffs: [UInt64] = [1, 4, 16]
+    func sendWithRetry(request: URLRequest, body: Data) async throws {
         var lastError: Error?
 
-        for attempt in 0...backoffs.count {
+        for attempt in 0...retryBackoffs.count {
             try Task.checkCancellation()
 
             var req = request
@@ -283,25 +284,42 @@ final class CloudSyncService {
                     return
                 }
                 let message = String(data: data, encoding: .utf8) ?? ""
-                lastError = CloudSyncError.serverError(http.statusCode, message)
-                // 4xx 不重试
-                if (400...499).contains(http.statusCode) {
-                    throw lastError!
-                }
+                throw CloudSyncError.serverError(http.statusCode, message)
             } catch is CancellationError {
                 throw CancellationError()
             } catch {
+                // Permanent HTTP failures must escape this catch, not re-enter
+                // the retry loop. Daily D1 quota cannot recover in seconds.
+                if Self.isNonRetryable(error) {
+                    throw error
+                }
                 lastError = error
             }
 
-            if attempt < backoffs.count {
+            if attempt < retryBackoffs.count {
                 // 用 try 而非 try?：让 cancel 立即抛 CancellationError，循环立即退出，
                 // 避免用户切 endpoint / disable cloud sync 后还在后台跑 21s 退避。
-                try await Task.sleep(nanoseconds: backoffs[attempt] * 1_000_000_000)
+                try await Task.sleep(nanoseconds: retryBackoffs[attempt] * 1_000_000_000)
             }
         }
 
         throw lastError ?? CloudSyncError.invalidResponse
+    }
+
+    private static func isNonRetryable(_ error: Error) -> Bool {
+        guard case let CloudSyncError.serverError(status, message) = error else {
+            return false
+        }
+        if (400...499).contains(status) { return true }
+        let normalized = message.lowercased()
+        return (500...599).contains(status) && normalized.contains("d1")
+            && (normalized.contains("daily_limit")
+                || normalized.contains("daily_read_limit")
+                || normalized.contains("daily_write_limit")
+                || ((normalized.contains("daily") || normalized.contains("per day"))
+                    && normalized.contains("exceeded")
+                    && (normalized.contains("row read") || normalized.contains("rows read")
+                        || normalized.contains("row write") || normalized.contains("rows written"))))
     }
 
     func deleteRemoteData(endpointURLString: String, token: String) async throws -> CloudDeleteDataResponse {
@@ -361,18 +379,16 @@ final class CloudSyncService {
                     modelCount: account.modelCount
                 )
             }
-            if !summaries.isEmpty {
-                return summaries.sorted { lhs, rhs in
-                    if lhs.provider.rawValue != rhs.provider.rawValue {
-                        return lhs.provider.rawValue < rhs.provider.rawValue
-                    }
-                    if lhs.latestSampledAt != rhs.latestSampledAt {
-                        return lhs.latestSampledAt > rhs.latestSampledAt
-                    }
-                    return lhs.accountName.localizedStandardCompare(rhs.accountName) == .orderedAscending
+            return summaries.sorted { lhs, rhs in
+                if lhs.provider.rawValue != rhs.provider.rawValue {
+                    return lhs.provider.rawValue < rhs.provider.rawValue
                 }
+                if lhs.latestSampledAt != rhs.latestSampledAt {
+                    return lhs.latestSampledAt > rhs.latestSampledAt
+                }
+                return lhs.accountName.localizedStandardCompare(rhs.accountName) == .orderedAscending
             }
-        } catch {
+        } catch CloudSyncError.serverError(404, _) {
             // Older sync services do not expose account summaries. Fall back to latest samples.
         }
 
