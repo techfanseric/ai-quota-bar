@@ -24,7 +24,10 @@ enum PowerAssertionError: LocalizedError {
 
 final class PowerAssertionController: PowerAssertionControlling {
     private static let reason = "AI Quota Bar: Codex is working"
-    private static let activityRefreshInterval: TimeInterval = 60
+    // A declared user activity only suppresses the screen saver for a few
+    // seconds, so it must be re-declared well under the shortest plausible
+    // screen-saver timer. 45s keeps a working margin below one minute.
+    private static let activityRefreshInterval: TimeInterval = 45
 
     private var systemSleepAssertion: IOPMAssertionID = 0
     private var displaySleepAssertion: IOPMAssertionID = 0
@@ -105,7 +108,7 @@ final class PowerAssertionController: PowerAssertionControlling {
                 ) { [weak self] _ in
                     try? self?.refreshUserActivity()
                 }
-                activityTimer?.tolerance = 5
+                activityTimer?.tolerance = 2
             }
         } else {
             activityTimer?.invalidate()

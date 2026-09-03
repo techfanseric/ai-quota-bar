@@ -252,7 +252,52 @@ final class CodexSleepProtectionCoordinatorTests: XCTestCase {
         XCTAssertNil(summary.elapsedSeconds)
     }
 
-    private func makeFixture() throws -> (
+    func testTurnEndGraceKeepsProtectionUntilGraceExpires() throws {
+        let fixture = try makeFixture(turnEndGracePeriod: 0.5)
+        fixture.coordinator.start()
+        fixture.coordinator.receive(event(.userPromptSubmit))
+        XCTAssertTrue(fixture.assertions.isHoldingAssertions)
+
+        fixture.coordinator.receive(event(.stop))
+
+        XCTAssertTrue(
+            fixture.assertions.isHoldingAssertions,
+            "Protection must survive the end of a turn for the grace period.")
+        XCTAssertEqual(fixture.coordinator.protectionStatus, .active)
+        XCTAssertTrue(fixture.coordinator.keepDisplayAwakeEffective)
+
+        RunLoop.main.run(until: Date().addingTimeInterval(0.2))
+        XCTAssertTrue(fixture.assertions.isHoldingAssertions)
+
+        RunLoop.main.run(until: Date().addingTimeInterval(0.6))
+        XCTAssertFalse(
+            fixture.assertions.isHoldingAssertions,
+            "Protection must be released once the grace period elapses.")
+        XCTAssertEqual(fixture.coordinator.protectionStatus, .idle)
+    }
+
+    func testNewActivityDuringGraceCancelsPendingRelease() throws {
+        let fixture = try makeFixture(turnEndGracePeriod: 0.5)
+        fixture.coordinator.start()
+        fixture.coordinator.receive(event(.userPromptSubmit))
+        fixture.coordinator.receive(event(.stop))
+        RunLoop.main.run(until: Date().addingTimeInterval(0.2))
+
+        fixture.coordinator.receive(event(
+            .userPromptSubmit,
+            sessionID: "session-2",
+            turnID: "turn-2"))
+
+        RunLoop.main.run(until: Date().addingTimeInterval(0.6))
+        XCTAssertTrue(
+            fixture.assertions.isHoldingAssertions,
+            "A new turn during the grace period must cancel the pending release.")
+        XCTAssertEqual(fixture.coordinator.protectionStatus, .active)
+    }
+
+    private func makeFixture(
+        turnEndGracePeriod: TimeInterval = 0
+    ) throws -> (
         coordinator: CodexSleepProtectionCoordinator,
         assertions: FakePowerAssertionController,
         workspaceCenter: NotificationCenter
@@ -280,7 +325,8 @@ final class CodexSleepProtectionCoordinatorTests: XCTestCase {
             localActivityProvider: nil,
             kimiActivityProvider: nil,
             closedLidModeManager: closedLidManager,
-            workspaceNotificationCenter: workspaceCenter
+            workspaceNotificationCenter: workspaceCenter,
+            turnEndGracePeriod: turnEndGracePeriod
         )
         addTeardownBlock {
             await MainActor.run {

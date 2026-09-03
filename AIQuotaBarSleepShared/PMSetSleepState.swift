@@ -24,6 +24,17 @@ public struct PMSetSleepState: Codable, Equatable {
             || charger != nil
             || ups != nil
     }
+
+    /// Whether sleep is disabled on every reported power source.
+    /// Returns false when no source was reported, so callers treat an
+    /// unreadable state as "not disabled" and re-assert.
+    public var isSleepDisabled: Bool {
+        if let global {
+            return global
+        }
+        let sources = [battery, charger, ups].compactMap { $0 }
+        return !sources.isEmpty && sources.allSatisfy { $0 }
+    }
 }
 
 public struct PMSetCommand: Equatable {

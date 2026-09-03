@@ -94,4 +94,20 @@ final class PMSetSleepStateTests: XCTestCase {
             [PMSetCommand(arguments: ["-a", "disablesleep", "0"])]
         )
     }
+
+    func testIsSleepDisabledReadsSystemWideFlag() {
+        XCTAssertTrue(PMSetSleepState(global: true).isSleepDisabled)
+        XCTAssertFalse(PMSetSleepState(global: false).isSleepDisabled)
+    }
+
+    func testIsSleepDisabledRequiresEverySourceDisabled() {
+        XCTAssertTrue(
+            PMSetSleepState(battery: true, charger: true).isSleepDisabled)
+        XCTAssertFalse(
+            PMSetSleepState(battery: true, charger: false).isSleepDisabled)
+    }
+
+    func testIsSleepDisabledTreatsUnknownStateAsNotDisabled() {
+        XCTAssertFalse(PMSetSleepState().isSleepDisabled)
+    }
 }
