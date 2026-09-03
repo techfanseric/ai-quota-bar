@@ -127,6 +127,57 @@ final class CloudSyncRequestPolicyTests: XCTestCase {
         } catch {}
         XCTAssertEqual(CloudSyncStubProtocol.requestPaths, ["/v1/account-summaries"])
     }
+
+    func testTimeoutErrorDescriptionIncludesProxyHint() {
+        let error = CloudSyncError.network(URLError(.timedOut))
+        let description = error.errorDescription ?? ""
+        XCTAssertTrue(description.contains("workers.dev"), description)
+        XCTAssertTrue(description.contains("代理"), description)
+    }
+
+    func testDNSErrorDescriptionMentionsPollution() {
+        let error = CloudSyncError.network(URLError(.cannotFindHost))
+        XCTAssertTrue(error.errorDescription?.contains("DNS") == true)
+    }
+
+    func testD1DailyLimitServerErrorHasPlainLanguageDescription() {
+        let coded = CloudSyncError.serverError(503, "{\"error\":\"d1_daily_limit_exceeded\"}")
+        XCTAssertEqual(
+            coded.errorDescription,
+            "Cloud database daily quota exceeded; it resets at 00:00 UTC.")
+
+        let legacy = CloudSyncError.serverError(
+            500, "{\"error\":\"internal_error\",\"message\":\"D1_ERROR: exceeded D1's free tier daily row read limit\"}")
+        XCTAssertEqual(legacy.errorDescription, coded.errorDescription)
+
+        let otherD1 = CloudSyncError.serverError(503, "{\"error\":\"d1_error\",\"message\":\"D1_ERROR: no such table\"}")
+        XCTAssertTrue(otherD1.errorDescription?.contains("Cloud database error") == true)
+
+        let unrelated = CloudSyncError.serverError(500, "model quota unavailable")
+        XCTAssertTrue(unrelated.errorDescription?.contains("Cloud sync failed (500)") == true)
+    }
+
+    func testD1UsageStateDecodesAvailablePayload() throws {
+        let json = """
+        {"ok":true,"rowsRead":2500000,"rowsWritten":12000,"databaseRowsRead":400000,
+         "databaseRowsWritten":9000,"remaining":2500000,"limit":5000000,"pct":50.0,
+         "observedAt":"2026-09-03T00:00:00.000Z","resetsAt":"2026-09-04T00:00:00.000Z"}
+        """
+        let usage = try JSONDecoder().decode(CloudD1Usage.self, from: Data(json.utf8))
+        XCTAssertEqual(usage.rowsRead, 2_500_000)
+        XCTAssertEqual(usage.severity, .warning)
+        XCTAssertEqual(d1Usage(pct: 10).severity, .normal)
+        XCTAssertEqual(d1Usage(pct: 80).severity, .critical)
+    }
+
+    private func d1Usage(pct: Double) -> CloudD1Usage {
+        let json = """
+        {"ok":true,"rowsRead":0,"rowsWritten":0,"databaseRowsRead":0,
+         "databaseRowsWritten":0,"remaining":0,"limit":5000000,"pct":\(pct),
+         "observedAt":"","resetsAt":""}
+        """
+        return try! JSONDecoder().decode(CloudD1Usage.self, from: Data(json.utf8))
+    }
 }
 
 private final class CloudSyncStubProtocol: URLProtocol {

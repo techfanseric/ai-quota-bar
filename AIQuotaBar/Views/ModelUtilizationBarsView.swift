@@ -10,6 +10,9 @@ struct ModelUtilizationBarsView: View {
     let cycleDuration: TimeInterval?
     let tint: Color
     let isHovered: Bool
+    /// 悬停 cycle 变化时回调其时间窗口（悬停结束回调 nil），
+    /// 供调用方把曲线图切换到该周期的消耗预览。
+    var onHoverCycle: (((start: Date, end: Date)?) -> Void)?
 
     @State private var hoverLocation: CGPoint?
 
@@ -27,6 +30,7 @@ struct ModelUtilizationBarsView: View {
     var body: some View {
         GeometryReader { geometry in
             let size = geometry.size
+            let hoveredIndex = hoveredCycle(in: size)?.index
 
             ZStack(alignment: .topLeading) {
                 Canvas { context, size in
@@ -47,8 +51,25 @@ struct ModelUtilizationBarsView: View {
                     hoverLocation = nil
                 }
             }
+            .onChange(of: hoveredIndex) {
+                onHoverCycle?(hoveredIndex.map(cycleWindow(for:)))
+            }
+            .onDisappear {
+                onHoverCycle?(nil)
+            }
         }
         .frame(height: Self.totalHeight)
+    }
+
+    /// 悬停 cycle 的时间窗口：当前周期用 `currentCycle` 的精确边界，
+    /// 历史周期用 `cycleStart` 推导的起点 + `resetsAt` 终点。
+    private func cycleWindow(for index: Int) -> (start: Date, end: Date) {
+        let orderedCycles = displayCycles
+        let end = orderedCycles[index].resetsAt
+        if let currentCycle, isCurrentCycle(orderedCycles[index]) {
+            return (currentCycle.start, currentCycle.end)
+        }
+        return (cycleStart(for: index, end: end), end)
     }
 
     private func drawBars(context: inout GraphicsContext, size: CGSize) {

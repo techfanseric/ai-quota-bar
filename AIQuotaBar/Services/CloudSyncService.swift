@@ -19,9 +19,43 @@ enum CloudSyncError: Error, LocalizedError {
         case .invalidResponse:
             return "Cloud sync returned an invalid response."
         case .serverError(let statusCode, let message):
+            if CloudSyncService.isD1DailyLimitExceeded(statusCode: statusCode, message: message) {
+                return "Cloud database daily quota exceeded; it resets at 00:00 UTC."
+            }
+            if CloudSyncService.isD1Error(statusCode: statusCode, message: message) {
+                return "Cloud database error (\(statusCode)): \(message)"
+            }
             return "Cloud sync failed (\(statusCode)): \(message)"
         case .network(let error):
-            return "Cloud sync network error: \(error.localizedDescription)"
+            return "Cloud sync network error: \(Self.describeNetworkError(error))"
+        }
+    }
+
+    /// 把 URLError 翻译成可操作的诊断：超时/DNS/TLS/无连接分别给排查方向。
+    private static func describeNetworkError(_ error: Error) -> String {
+        guard let urlError = error as? URLError else {
+            return error.localizedDescription
+        }
+        switch urlError.code {
+        case .timedOut:
+            return "request timed out — 到 Cloudflare workers.dev 的链路无响应；请检查代理是否把 *.workers.dev 走了直连（本机 DNS 对该域有污染，直连必超时）"
+        case .notConnectedToInternet:
+            return "no internet connection"
+        case .cannotFindHost, .dnsLookupFailed:
+            return "DNS lookup failed for the sync endpoint — 本机 DNS 可能被污染，试试走代理或换 DNS"
+        case .cannotConnectToHost:
+            return "cannot connect to the sync server"
+        case .networkConnectionLost:
+            return "connection lost during the request"
+        case .secureConnectionFailed, .serverCertificateHasBadDate,
+             .serverCertificateUntrusted, .serverCertificateHasUnknownRoot,
+             .serverCertificateNotYetValid, .clientCertificateRejected,
+             .clientCertificateRequired:
+            return "TLS handshake failed — 中间链路拦截/重置了加密连接，检查代理出口节点"
+        case .appTransportSecurityRequiresSecureConnection:
+            return "connection blocked by App Transport Security"
+        default:
+            return "\(urlError.localizedDescription) (\(urlError.code.rawValue))"
         }
     }
 }
@@ -311,15 +345,28 @@ final class CloudSyncService {
             return false
         }
         if (400...499).contains(status) { return true }
+        return isD1DailyLimitExceeded(statusCode: status, message: message)
+    }
+
+    /// 服务端 D1 当日配额耗尽：worker 分类后返回 503 `d1_daily_limit_exceeded`，
+    /// 旧部署则是 500 内嵌原始 D1 报错文本。日配额秒级内不可能恢复，不重试。
+    nonisolated static func isD1DailyLimitExceeded(statusCode: Int, message: String) -> Bool {
+        guard (500...599).contains(statusCode) else { return false }
         let normalized = message.lowercased()
-        return (500...599).contains(status) && normalized.contains("d1")
-            && (normalized.contains("daily_limit")
-                || normalized.contains("daily_read_limit")
-                || normalized.contains("daily_write_limit")
-                || ((normalized.contains("daily") || normalized.contains("per day"))
-                    && normalized.contains("exceeded")
-                    && (normalized.contains("row read") || normalized.contains("rows read")
-                        || normalized.contains("row write") || normalized.contains("rows written"))))
+        guard normalized.contains("d1") else { return false }
+        return normalized.contains("daily_limit")
+            || normalized.contains("daily_read_limit")
+            || normalized.contains("daily_write_limit")
+            || ((normalized.contains("daily") || normalized.contains("per day"))
+                && normalized.contains("exceeded")
+                && (normalized.contains("row read") || normalized.contains("rows read")
+                    || normalized.contains("row write") || normalized.contains("rows written")))
+    }
+
+    /// 任意 D1 层错误（worker 分类为 503 `d1_*`，或 500 内嵌 D1_ERROR 文本）。
+    nonisolated static func isD1Error(statusCode: Int, message: String) -> Bool {
+        guard (500...599).contains(statusCode) else { return false }
+        return message.lowercased().contains("d1")
     }
 
     func deleteRemoteData(endpointURLString: String, token: String) async throws -> CloudDeleteDataResponse {
@@ -460,6 +507,36 @@ final class CloudSyncService {
         let decoder = JSONDecoder()
         let response = try decoder.decode(CloudQuotaSamplesResponse.self, from: responseData)
         return remoteModelQuotaSamples(from: response.samples)
+    }
+
+    /// D1 当日配额状态（参考 TunnelWatchPage `/api/usage` widget）。
+    /// 不抛错：worker 未部署该端点 / 未配 token / GraphQL 失败都归一为状态枚举，
+    /// 设置面板按状态渲染，不打扰主流程。
+    func fetchD1UsageState() async -> CloudD1UsageState {
+        let request: URLRequest
+        do {
+            request = try makeRequest(
+                endpointURLString: CloudSyncSettings.defaultEndpointURLString,
+                path: "/v1/d1-usage",
+                token: CloudSyncSettings.defaultServiceToken,
+                method: "GET"
+            )
+        } catch {
+            return .unavailable(error.localizedDescription)
+        }
+
+        do {
+            let responseData = try await data(for: request)
+            let usage = try JSONDecoder().decode(CloudD1Usage.self, from: responseData)
+            return .available(usage)
+        } catch CloudSyncError.serverError(_, let message) {
+            if message.contains("missing_token") || message.contains("missing_config") {
+                return .notConfigured
+            }
+            return .unavailable(message)
+        } catch {
+            return .unavailable(error.localizedDescription)
+        }
     }
 
     func makeRemoteDataReport(endpointURLString: String, token: String, limit: Int = 300) async throws -> URL {
@@ -1231,6 +1308,41 @@ struct CloudDeleteDataResponse: Decodable {
         case deletedDevices = "deleted_devices"
         case deletedSettings = "deleted_settings"
     }
+}
+
+/// `/v1/d1-usage` 的配额快照（worker 端字段即此结构）。
+struct CloudD1Usage: Decodable, Equatable {
+    let rowsRead: Int
+    let rowsWritten: Int
+    let databaseRowsRead: Int
+    let databaseRowsWritten: Int
+    let remaining: Int
+    let limit: Int
+    let pct: Double
+    let observedAt: String
+    let resetsAt: String
+
+    /// TunnelWatchPage 同款阈值：绿 <50% / 黄 50-80% / 红 ≥80%
+    var severity: CloudD1UsageSeverity {
+        if pct >= 80 { return .critical }
+        if pct >= 50 { return .warning }
+        return .normal
+    }
+}
+
+enum CloudD1UsageSeverity: Equatable {
+    case normal
+    case warning
+    case critical
+}
+
+/// D1 配额查询的三态：不打扰主流程，由设置面板按状态渲染。
+enum CloudD1UsageState: Equatable {
+    case available(CloudD1Usage)
+    /// worker 未配 CF_API_TOKEN / CF_ACCOUNT_ID（503 missing_token / missing_config）
+    case notConfigured
+    /// 网络失败、端点未部署、GraphQL 失败等，附可读原因
+    case unavailable(String)
 }
 
 struct CloudRemoteAccountSummary: Identifiable, Hashable {
