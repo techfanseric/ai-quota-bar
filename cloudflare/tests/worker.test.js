@@ -161,3 +161,78 @@ test('deterministic mixed corrections keep exact head sets, including timestamp 
   }
   db.close();
 });
+
+function failingEnvironment(message) {
+  return {
+    SYNC_TOKEN: 'test-only',
+    DB: {
+      prepare() { throw new Error(message); },
+      async batch() { throw new Error(message); },
+    },
+  };
+}
+async function rawRequest(env, path) {
+  const response = await worker.fetch(new Request(`https://test.invalid${path}`, {
+    method: 'GET', headers: { authorization: 'Bearer test-only' },
+  }), env);
+  return { status: response.status, body: await response.json() };
+}
+
+test('D1 daily quota errors map to 503 d1_daily_limit_exceeded', async () => {
+  const { status, body } = await rawRequest(
+    failingEnvironment("D1_ERROR: exceeded D1's free tier daily row read limit"),
+    '/v1/quota-samples?limit=10');
+  assert.equal(status, 503);
+  assert.equal(body.error, 'd1_daily_limit_exceeded');
+  assert.match(body.hint, /00:00 UTC/);
+});
+
+test('other D1 errors map to 503 d1_error, non-D1 stays 500', async () => {
+  const d1 = await rawRequest(failingEnvironment('D1_ERROR: no such table: quota_samples'), '/v1/devices');
+  assert.equal(d1.status, 503);
+  assert.equal(d1.body.error, 'd1_error');
+  const other = await rawRequest(failingEnvironment('something else broke'), '/v1/devices');
+  assert.equal(other.status, 500);
+  assert.equal(other.body.error, 'internal_error');
+});
+
+test('/v1/d1-usage without token returns 503 missing_token with help', async () => {
+  const env = { SYNC_TOKEN: 'test-only', DB: {}, CF_ACCOUNT_ID: 'acct', D1_DATABASE_ID: 'db' };
+  const { status, body } = await rawRequest(env, '/v1/d1-usage');
+  assert.equal(status, 503);
+  assert.equal(body.code, 'missing_token');
+  assert.match(body.help, /Account Analytics: Read/);
+});
+
+test('/v1/d1-usage aggregates account and database rows from GraphQL', async () => {
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = async (url, init) => {
+    const { query, variables } = JSON.parse(init.body);
+    assert.match(query, /d1AnalyticsAdaptiveGroups/);
+    assert.equal(variables.accountTag, 'acct');
+    assert.equal(variables.databaseId, 'db');
+    assert.equal(variables.start, variables.end); // 只统计今天（闭区间）
+    return new Response(JSON.stringify({
+      data: { viewer: { accounts: [{
+        accountUsage: [{ sum: { rowsRead: 2_500_000, rowsWritten: 12_000 } }],
+        databaseUsage: [{ sum: { rowsRead: 400_000, rowsWritten: 9_000 } }],
+      }] } },
+    }), { status: 200, headers: { 'content-type': 'application/json' } });
+  };
+  try {
+    const env = {
+      SYNC_TOKEN: 'test-only', DB: {},
+      CF_API_TOKEN: 'token', CF_ACCOUNT_ID: 'acct', D1_DATABASE_ID: 'db',
+    };
+    const { status, body } = await rawRequest(env, '/v1/d1-usage');
+    assert.equal(status, 200);
+    assert.equal(body.ok, true);
+    assert.equal(body.rowsRead, 2_500_000);
+    assert.equal(body.databaseRowsRead, 400_000);
+    assert.equal(body.remaining, 2_500_000);
+    assert.equal(body.pct, 50);
+    assert.equal(body.limit, 5_000_000);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});

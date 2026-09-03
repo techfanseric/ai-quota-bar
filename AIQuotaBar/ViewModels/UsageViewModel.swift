@@ -1117,14 +1117,19 @@ final class UsageViewModel {
               let endTime = model.endTime else {
             return []
         }
+        return samples(for: model, in: (start: startTime, end: endTime))
+    }
 
+    /// 任意窗口的曲线样本：当前周期图表与历史 cycle 悬停预览共用。
+    /// 历史窗口样本来自本地 90 天缓存（release）；DEBUG 用合成数据近似。
+    func samples(for model: ModelUsageData, in window: (start: Date, end: Date)) -> [ModelQuotaSample] {
 #if DEBUG
-        return syntheticChartSamples(for: model, startTime: startTime, endTime: endTime)
+        return syntheticChartSamples(for: model, startTime: window.start, endTime: window.end)
 #else
         let localSamples = modelQuotaSamples[model.id] ?? []
         let remoteSamples = cloudModelQuotaSamples[model.id] ?? []
         return Self.mergedQuotaSamples(localSamples, remoteSamples)
-            .filter { $0.timestamp >= startTime && $0.timestamp <= endTime }
+            .filter { $0.timestamp >= window.start && $0.timestamp <= window.end }
             .sorted { $0.timestamp < $1.timestamp }
 #endif
     }
@@ -1483,7 +1488,9 @@ final class UsageViewModel {
     }
 
     private func recordSamples(from data: UsageData, timestamp: Date) {
-        var nextSamples: [String: [ModelQuotaSample]] = [:]
+        // 从现有样本合并：本次刷新缺失的 model 保留历史，
+        // 历史周期样本也保留（悬停 cycle 预览曲线依赖它们）。
+        var nextSamples = modelQuotaSamples
         let renderableModelIDs = Set(data.models
             .filter { $0.containsCurrentInterval(at: timestamp) }
             .map(\.id))
@@ -1510,8 +1517,7 @@ final class UsageViewModel {
                 percent: model.currentIntervalRemainingPercent
             )
 
-            var samples = (modelQuotaSamples[model.id] ?? [])
-                .filter { $0.timestamp >= startTime && $0.timestamp <= endTime }
+            var samples = (nextSamples[model.id] ?? [])
                 .sorted { $0.timestamp < $1.timestamp }
 
             if let lastSample = samples.last,
@@ -1521,11 +1527,36 @@ final class UsageViewModel {
                 samples.append(newSample)
             }
 
-            nextSamples[model.id] = samples
+            nextSamples[model.id] = Self.prunedQuotaSamples(samples, now: timestamp)
+        }
+
+        // 历史 model 也统一裁剪，避免不再上报的 model 永久占用磁盘
+        for (modelID, samples) in nextSamples where !sampledModelIDs.contains(modelID) {
+            nextSamples[modelID] = Self.prunedQuotaSamples(samples, now: timestamp)
         }
 
         modelQuotaSamples = nextSamples
         quotaSampleStore.saveAll(modelQuotaSamples)
+    }
+
+    /// 曲线样本本地保留策略：按年龄保留 `quotaSampleRetention`（90 天），
+    /// 并按 `maxSamplesPerModel` 封顶，超出丢最旧。
+    /// 默认 10 分钟刷新 ≈ 13k 样本/90 天，不会触顶。
+    nonisolated static let quotaSampleRetention: TimeInterval = 90 * 86_400
+    nonisolated static let maxSamplesPerModel = 30_000
+
+    nonisolated static func prunedQuotaSamples(
+        _ samples: [ModelQuotaSample],
+        now: Date
+    ) -> [ModelQuotaSample] {
+        let cutoff = now.addingTimeInterval(-quotaSampleRetention)
+        var result = samples
+            .filter { $0.timestamp >= cutoff }
+            .sorted { $0.timestamp < $1.timestamp }
+        if result.count > maxSamplesPerModel {
+            result.removeFirst(result.count - maxSamplesPerModel)
+        }
+        return result
     }
 
     nonisolated static func sampledModelIDs(

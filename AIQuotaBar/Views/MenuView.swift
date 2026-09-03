@@ -797,6 +797,8 @@ private struct ModelRow: View {
 
     @State private var isHovered: Bool = false
     @State private var isFullQuotaExpanded: Bool = false
+    /// 悬停历史 cycle 时的预览窗口：非 nil 则曲线图切换到该周期。
+    @State private var previewWindow: (start: Date, end: Date)?
 
     var body: some View {
         Group {
@@ -830,7 +832,7 @@ private struct ModelRow: View {
                 if rendersAreaChart {
                     QuotaAreaChart(
                         model: model,
-                        samples: samples,
+                        samples: chartSamples,
                         tint: tint,
                         warningThreshold: warningThreshold,
                         forecastLookbackIntervals:
@@ -839,7 +841,8 @@ private struct ModelRow: View {
                             QuotaConsumptionForecaster.maximumSampleGap(
                                 refreshInterval: viewModel.refreshInterval),
                         language: language,
-                        isHovered: isHovered
+                        isHovered: isHovered,
+                        windowOverride: previewWindow
                     )
                     .frame(height: 84)
                 } else {
@@ -855,7 +858,7 @@ private struct ModelRow: View {
                                     .frame(width: geo.size.width * model.currentIntervalBarPercent / 100, height: 6)
                             }
 
-                            // 天分隔线（周窗口特有：6 道线，按 7 天等分，常驻）
+                            // 天分隔线（周窗口特有：按本地 0:00 对齐，常驻）
                             ForEach(Array(weeklyDayMarkerPercents().enumerated()), id: \.offset) { _, percent in
                                 Rectangle()
                                     .fill(Color.primary.opacity(0.20))
@@ -893,10 +896,24 @@ private struct ModelRow: View {
                     currentCycle: currentUtilizationCycle,
                     cycleDuration: model.currentIntervalDuration,
                     tint: cycleTint,
-                    isHovered: isHovered
+                    isHovered: isHovered,
+                    onHoverCycle: supportsCyclePreview ? { previewWindow = $0 } : nil
                 )
             }
         }
+    }
+
+    /// 只有当前正在渲染曲线图的行，悬停 cycle 才有东西可预览。
+    private var supportsCyclePreview: Bool {
+        isCurrentWindow && rendersAreaChart
+    }
+
+    /// 曲线图样本：悬停历史 cycle 时取该窗口的历史样本，否则用当前窗口样本。
+    private var chartSamples: [ModelQuotaSample] {
+        if let previewWindow {
+            return viewModel.samples(for: model, in: previewWindow)
+        }
+        return samples
     }
 
     private var headerRow: some View {
@@ -1110,14 +1127,12 @@ private struct ModelRow: View {
         model.progressBarPercentOverride == nil ? .green : .secondary
     }
 
-    /// 周窗口才画天分隔线：返回 6 个位置（1/7..6/7）
+    /// 周窗口才画天分隔线：按本地 0:00 对齐（与曲线图日界线一致）
     private func weeklyDayMarkerPercents() -> [Double] {
         guard !model.isShortCurrentInterval else { return [] }
-        guard let duration = model.currentIntervalDuration, duration > 0 else { return [] }
-        let totalDays = duration / 86_400
-        let wholeDays = Int(totalDays)
-        guard wholeDays >= 2 else { return [] }
-        return (1..<wholeDays).map { Double($0) * 100.0 / totalDays }
+        guard let startTime = model.startTime, let endTime = model.endTime else { return [] }
+        return QuotaChartTimeTickBuilder.midnightTicks(startTime: startTime, endTime: endTime)
+            .map { $0.ratio * 100 }
     }
 
     /// reset time 行里 pace 文字颜色：reserve（你有余量）用 secondary 灰，
@@ -1173,8 +1188,23 @@ private struct QuotaAreaChart: View {
     let maximumForecastSampleGap: TimeInterval
     let language: AppLanguage
     let isHovered: Bool
+    /// 历史 cycle 悬停预览：非 nil 时 x 轴/刻度/坐标定位改用该窗口，
+    /// 并跳过 pace 参考线与消耗预测（都是"当前周期"概念）。
+    var windowOverride: (start: Date, end: Date)?
 
     @State private var hoverLocation: CGPoint?
+
+    private var windowStart: Date? { windowOverride?.start ?? model.startTime }
+    private var windowEnd: Date? { windowOverride?.end ?? model.endTime }
+
+    /// Y 轴上限：预览历史 count 窗口时，旧周期总量可能与当前不同，
+    /// 用窗口内样本最大值兜底防截断；percent 模式恒 100。
+    private var yAxisMax: Double {
+        let base = model.currentIntervalYAxisMax
+        guard windowOverride != nil, !model.isCurrentIntervalPercentMode else { return base }
+        let maxRemaining = samples.map { Double($0.remaining) }.max() ?? 0
+        return max(base, maxRemaining)
+    }
 
     var body: some View {
         GeometryReader { geometry in
@@ -1220,7 +1250,7 @@ private struct QuotaAreaChart: View {
         axisPath.addLine(to: CGPoint(x: layout.plotRect.maxX, y: layout.plotRect.maxY))
         context.stroke(axisPath, with: .color(Color.primary.opacity(0.14)), lineWidth: 1)
 
-        let yAxisMax = model.currentIntervalYAxisMax
+        let yAxisMax = yAxisMax
         if yAxisMax > 0, warningThreshold > 0, warningThreshold < 100 {
             let thresholdY = yPosition(forRemaining: yAxisMax * warningThreshold / 100, layout: layout)
             var thresholdPath = Path()
@@ -1245,22 +1275,22 @@ private struct QuotaAreaChart: View {
 
         let topLabel = model.isCurrentIntervalPercentMode
             ? axisLabel("100%")
-            : axisLabel("\(model.currentIntervalTotal)")
+            : axisLabel("\(Int(yAxisMax))")
         context.draw(topLabel, at: CGPoint(x: layout.leftAxisLabelX, y: layout.plotRect.minY), anchor: .leading)
         context.draw(axisLabel("0"), at: CGPoint(x: layout.leftAxisLabelX, y: layout.plotRect.maxY), anchor: .leading)
 
-        if let startTime = model.startTime, let endTime = model.endTime {
+        if let startTime = windowStart, let endTime = windowEnd {
             context.draw(axisLabel(axisTimeText(for: startTime)), at: CGPoint(x: layout.plotRect.minX, y: layout.axisLabelY), anchor: .topLeading)
             context.draw(axisLabel(axisTimeText(for: endTime)), at: CGPoint(x: layout.plotRect.maxX, y: layout.axisLabelY), anchor: .topTrailing)
         }
     }
 
-    /// Short curves use hourly divisions; promoted Weekly curves use daily
+    /// Short curves use hourly divisions; multi-day curves use local-midnight
     /// divisions. Grid lines remain visible and labels appear on hover.
     private func drawTimeTicks(context: inout GraphicsContext, layout: QuotaChartLayout) {
         let ticks = QuotaChartTimeTickBuilder.ticks(
-            startTime: model.startTime,
-            endTime: model.endTime)
+            startTime: windowStart,
+            endTime: windowEnd)
         guard !ticks.isEmpty else { return }
 
         for tick in ticks {
@@ -1287,6 +1317,7 @@ private struct QuotaAreaChart: View {
         context: inout GraphicsContext,
         layout: QuotaChartLayout
     ) {
+        guard windowOverride == nil else { return }
         guard let pace = model.currentIntervalPace else { return }
 
         let color: Color = pace.stage.isAhead ? .green : .red
@@ -1373,7 +1404,7 @@ private struct QuotaAreaChart: View {
         context: inout GraphicsContext,
         layout: QuotaChartLayout
     ) {
-        guard let windowEnd = model.endTime else { return }
+        guard windowOverride == nil, let windowEnd = model.endTime else { return }
         let forecasts = QuotaConsumptionForecaster.forecasts(
             samples: samples,
             isPercentMode: model.isCurrentIntervalPercentMode,
@@ -1451,7 +1482,7 @@ private struct QuotaAreaChart: View {
     }
 
     private func xPosition(for date: Date, layout: QuotaChartLayout) -> CGFloat {
-        guard let startTime = model.startTime, let endTime = model.endTime else {
+        guard let startTime = windowStart, let endTime = windowEnd else {
             return layout.plotRect.minX
         }
 
@@ -1462,7 +1493,7 @@ private struct QuotaAreaChart: View {
     }
 
     private func yPosition(forRemaining remaining: Double, layout: QuotaChartLayout) -> CGFloat {
-        let yAxisMax = model.currentIntervalYAxisMax
+        let yAxisMax = yAxisMax
         guard yAxisMax > 0 else { return layout.plotRect.maxY }
         let clampedRemaining = min(max(remaining, 0), yAxisMax)
         let ratio = clampedRemaining / yAxisMax

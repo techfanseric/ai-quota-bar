@@ -20,6 +20,7 @@ struct SyncPane: View {
     @State private var isShowingAdvancedCleanup: Bool = false
     @State private var remoteAccounts: [CloudRemoteAccountSummary] = []
     @State private var selectedRemoteAccountID: String = ""
+    @State private var d1UsageState: CloudD1UsageState?
 
     private var language: AppLanguage { viewModel.appLanguage }
 
@@ -91,6 +92,7 @@ struct SyncPane: View {
             } else {
                 selectFirstRemoteAccountIfNeeded()
             }
+            await loadD1Usage()
         }
         .onChange(of: displayedRemoteAccountIDs) { _, _ in
             selectFirstRemoteAccountIfNeeded()
@@ -140,6 +142,10 @@ struct SyncPane: View {
                 if let syncFeedback {
                     InlineFeedbackView(feedback: syncFeedback)
                 }
+            }
+
+            if viewModel.cloudSyncEnabled {
+                D1UsageStatusLine(state: d1UsageState, language: language)
             }
         }
     }
@@ -481,6 +487,63 @@ struct SyncPane: View {
 
     private func normalizedAccountName(_ accountName: String) -> String {
         accountName.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+    }
+
+    private func loadD1Usage() async {
+        guard viewModel.cloudSyncEnabled else { return }
+        d1UsageState = await CloudSyncService.shared.fetchD1UsageState()
+    }
+}
+
+/// D1 当日配额状态行：参考 TunnelWatchPage footer 的 D1 widget。
+/// 绿 <50% / 黄 50-80% / 红 ≥80%；未配置 token / 查询失败降级为灰点 + 说明。
+@MainActor
+private struct D1UsageStatusLine: View {
+    let state: CloudD1UsageState?
+    let language: AppLanguage
+
+    var body: some View {
+        HStack(spacing: 6) {
+            Circle()
+                .fill(dotColor)
+                .frame(width: 6, height: 6)
+
+            Text(text)
+                .font(.footnote)
+                .foregroundStyle(.secondary)
+                .lineLimit(2)
+        }
+    }
+
+    private var isChinese: Bool { language == .simplifiedChinese }
+
+    private var dotColor: Color {
+        guard case .available(let usage) = state else { return .secondary }
+        switch usage.severity {
+        case .normal: return .green
+        case .warning: return .yellow
+        case .critical: return .red
+        }
+    }
+
+    private var text: String {
+        switch state {
+        case nil:
+            return isChinese ? "D1 配额：加载中…" : "D1 quota: loading…"
+        case .available(let usage):
+            let pct = String(format: "%.1f", usage.pct)
+            return isChinese
+                ? "D1 今日 \(usage.rowsRead.formatted()) / \(usage.limit.formatted())（\(pct)%）· UTC 0:00 重置"
+                : "D1 today \(usage.rowsRead.formatted()) / \(usage.limit.formatted()) (\(pct)%) · resets 00:00 UTC"
+        case .notConfigured:
+            return isChinese
+                ? "D1 配额监控未配置：需 CF_API_TOKEN（Account Analytics: Read 只读 token）"
+                : "D1 quota monitor not configured: needs CF_API_TOKEN (Account Analytics: Read)"
+        case .unavailable(let reason):
+            return isChinese
+                ? "D1 配额状态不可用：\(reason)"
+                : "D1 quota status unavailable: \(reason)"
+        }
     }
 }
 

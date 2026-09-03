@@ -70,4 +70,35 @@ final class ModelQuotaSampleStoreTests: XCTestCase {
 
         XCTAssertTrue(store.loadAll().isEmpty)
     }
+
+    func test_prunedQuotaSamples_dropsSamplesOlderThanRetention() {
+        let now = Date(timeIntervalSince1970: 1_700_000_000)
+        let inside = now.addingTimeInterval(-UsageViewModel.quotaSampleRetention + 60)
+        let outside = now.addingTimeInterval(-UsageViewModel.quotaSampleRetention - 60)
+        let samples = [
+            ModelQuotaSample(timestamp: outside, remaining: 90, percent: 90),
+            ModelQuotaSample(timestamp: inside, remaining: 80, percent: 80),
+            ModelQuotaSample(timestamp: now, remaining: 70, percent: 70),
+        ]
+
+        let pruned = UsageViewModel.prunedQuotaSamples(samples, now: now)
+
+        XCTAssertEqual(pruned.map(\.timestamp), [inside, now])
+    }
+
+    func test_prunedQuotaSamples_capsCountDroppingOldest() {
+        let now = Date(timeIntervalSince1970: 1_700_000_000)
+        let samples = (0 ..< UsageViewModel.maxSamplesPerModel + 5).map { index in
+            ModelQuotaSample(
+                timestamp: now.addingTimeInterval(Double(index)),
+                remaining: index,
+                percent: nil)
+        }
+
+        let pruned = UsageViewModel.prunedQuotaSamples(samples, now: samples.last!.timestamp)
+
+        XCTAssertEqual(pruned.count, UsageViewModel.maxSamplesPerModel)
+        XCTAssertEqual(pruned.first?.timestamp, samples[5].timestamp)
+        XCTAssertEqual(pruned.last?.timestamp, samples.last?.timestamp)
+    }
 }

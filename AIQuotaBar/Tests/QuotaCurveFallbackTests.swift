@@ -175,20 +175,41 @@ final class QuotaCurveFallbackTests: XCTestCase {
         XCTAssertTrue(selected.isEmpty)
     }
 
-    func testChartTicksUseHoursForFiveHourAndDaysForWeekly() {
+    func testChartTicksUseHoursForFiveHourAndMidnightsForWeekly() {
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = TimeZone(identifier: "Asia/Shanghai")!
+
         let start = Date(timeIntervalSince1970: 1_700_000_000)
         let fiveHourTicks = QuotaChartTimeTickBuilder.ticks(
             startTime: start,
-            endTime: start.addingTimeInterval(5 * 3_600))
+            endTime: start.addingTimeInterval(5 * 3_600),
+            calendar: calendar)
         XCTAssertEqual(fiveHourTicks.map(\.label), ["1h", "2h", "3h", "4h"])
 
+        let weeklyEnd = start.addingTimeInterval(7 * 86_400)
         let weeklyTicks = QuotaChartTimeTickBuilder.ticks(
             startTime: start,
-            endTime: start.addingTimeInterval(7 * 86_400))
-        XCTAssertEqual(
-            weeklyTicks.map(\.label),
-            ["1d", "2d", "3d", "4d", "5d", "6d"])
-        XCTAssertEqual(weeklyTicks.last?.ratio ?? 0, 6.0 / 7.0, accuracy: 0.0001)
+            endTime: weeklyEnd,
+            calendar: calendar)
+
+        // 每个刻度都必须精确落在本地 0:00，label 为 MM/dd
+        XCTAssertFalse(weeklyTicks.isEmpty)
+        let labelFormatter = DateFormatter()
+        labelFormatter.timeZone = calendar.timeZone
+        labelFormatter.dateFormat = "MM/dd"
+        for tick in weeklyTicks {
+            let tickDate = start.addingTimeInterval(tick.ratio * 7 * 86_400)
+            XCTAssertEqual(tickDate, calendar.startOfDay(for: tickDate))
+            XCTAssertGreaterThan(tickDate, start)
+            XCTAssertLessThan(tickDate, weeklyEnd)
+            XCTAssertEqual(tick.label, labelFormatter.string(from: tickDate))
+        }
+
+        // 相邻刻度相隔恰好一天
+        let tickDates = weeklyTicks.map { start.addingTimeInterval($0.ratio * 7 * 86_400) }
+        for (previous, next) in zip(tickDates, tickDates.dropFirst()) {
+            XCTAssertEqual(next.timeIntervalSince(previous), 86_400, accuracy: 1)
+        }
     }
 
     func testSampledModelsUnionDesktopCurvesWithTwoMobileSelections() {

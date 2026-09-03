@@ -15,9 +15,9 @@ struct UtilizationHistoryEntry: Codable, Equatable {
 struct ModelUtilizationHistory: Codable, Equatable {
     static let resetBoundaryMergeTolerance: TimeInterval = 120
 
-    /// 单个 model 历史样本上限：1000 条 × 1h 节流 ≈ 41 天。
+    /// 单个 model 历史样本上限：2200 条 × 1h 节流 ≈ 91 天（3 个月）。
     /// 超出按 `capturedAt` 升序丢最旧的（同步调用方在 `append` 后应调 `trimToLimit()`）。
-    static let maxEntriesPerModel = 1000
+    static let maxEntriesPerModel = 2200
 
     let modelId: String
     var entries: [UtilizationHistoryEntry] = []
