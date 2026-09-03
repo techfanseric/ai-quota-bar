@@ -1,6 +1,7 @@
 import AIQuotaBarSleepShared
 import CryptoKit
 import Foundation
+import IOKit.ps
 import Security
 
 private struct RestoreMarker: Codable {
@@ -10,6 +11,7 @@ private struct RestoreMarker: Codable {
 
 private struct Lease {
     let ownerID: UUID
+    let heartbeatTimeout: TimeInterval
     var expiresAt: Date
 }
 
@@ -35,12 +37,15 @@ private final class ClosedLidLeaseService {
     )
     private var leases: [String: Lease] = [:]
     private var expiryTimer: DispatchSourceTimer?
+    private var powerSourceNotification: CFRunLoopSource?
+    private var lastPowerSourceReconcileAt = Date.distantPast
 
     private init() {
         queue.sync {
             restoreInterruptedChangeIfNeeded()
             startExpiryTimer()
         }
+        startPowerSourceMonitoring()
     }
 
     func acquire(
@@ -57,6 +62,7 @@ private final class ClosedLidLeaseService {
                 let timeout = min(120, max(45, heartbeatTimeout))
                 self.leases[leaseID] = Lease(
                     ownerID: ownerID,
+                    heartbeatTimeout: timeout,
                     expiresAt: Date().addingTimeInterval(timeout)
                 )
                 reply(true, nil)
@@ -77,7 +83,7 @@ private final class ClosedLidLeaseService {
                 reply(false)
                 return
             }
-            lease.expiresAt = Date().addingTimeInterval(90)
+            lease.expiresAt = Date().addingTimeInterval(lease.heartbeatTimeout)
             self.leases[leaseID] = lease
             reply(true)
         }
@@ -103,15 +109,6 @@ private final class ClosedLidLeaseService {
         }
     }
 
-    func releaseAll(ownerID: UUID) {
-        queue.async {
-            self.leases = self.leases.filter { $0.value.ownerID != ownerID }
-            if self.leases.isEmpty {
-                try? self.restoreOriginalState()
-            }
-        }
-    }
-
     private func startExpiryTimer() {
         let timer = DispatchSource.makeTimerSource(queue: queue)
         timer.schedule(deadline: .now() + 15, repeating: 15)
@@ -121,10 +118,56 @@ private final class ClosedLidLeaseService {
             self.leases = self.leases.filter { $0.value.expiresAt > now }
             if self.leases.isEmpty {
                 try? self.restoreOriginalState()
+            } else {
+                self.reconcileSleepDisabledFlag()
             }
         }
         timer.resume()
         expiryTimer = timer
+    }
+
+    /// Read-back verification: while any lease is active, the kernel
+    /// SleepDisabled flag must stay set. Power-source transitions on Apple
+    /// Silicon and system updates can silently clear it, so re-assert on
+    /// drift instead of trusting the one-time write.
+    private func reconcileSleepDisabledFlag() {
+        guard !leases.isEmpty,
+              FileManager.default.fileExists(atPath: markerURL.path) else {
+            return
+        }
+        guard let state = try? readCurrentState(),
+              !state.isSleepDisabled else {
+            return
+        }
+        _ = try? runPMSet(arguments: ["-a", "disablesleep", "1"])
+    }
+
+    private func handlePowerSourceChange() {
+        queue.async {
+            // Power-source notifications also fire on battery percentage
+            // ticks; throttle the pmset read-back to at most once per 10s.
+            let now = Date()
+            guard now.timeIntervalSince(self.lastPowerSourceReconcileAt) >= 10
+            else { return }
+            self.lastPowerSourceReconcileAt = now
+            self.reconcileSleepDisabledFlag()
+        }
+    }
+
+    private func startPowerSourceMonitoring() {
+        let callback: IOPowerSourceCallbackType = { context in
+            guard let context else { return }
+            Unmanaged<ClosedLidLeaseService>
+                .fromOpaque(context)
+                .takeUnretainedValue()
+                .handlePowerSourceChange()
+        }
+        guard let source = IOPSNotificationCreateRunLoopSource(
+            callback,
+            Unmanaged.passUnretained(self).toOpaque()
+        )?.takeRetainedValue() else { return }
+        CFRunLoopAddSource(CFRunLoopGetCurrent(), source, .defaultMode)
+        powerSourceNotification = source
     }
 
     private func enableClosedLidMode() throws {
@@ -264,12 +307,13 @@ private final class SleepHelperListenerDelegate: NSObject, NSXPCListenerDelegate
             with: AIQuotaBarSleepHelperProtocol.self
         )
         connection.exportedObject = client
-        connection.invalidationHandler = {
-            ClosedLidLeaseService.shared.releaseAll(ownerID: client.ownerID)
-        }
-        connection.interruptionHandler = {
-            ClosedLidLeaseService.shared.releaseAll(ownerID: client.ownerID)
-        }
+        // Deliberately no invalidation/interruption handlers that drop
+        // leases: XPC interruptions are transient and the client may
+        // reconnect within seconds. Leases expire on their own after one
+        // heartbeat timeout, and the expiry timer then restores the
+        // original sleep state, so a genuinely dead client still
+        // re-enables sleep automatically — without a connection hiccup
+        // re-enabling sleep while the lid is closed.
         connection.resume()
         return true
     }
@@ -372,6 +416,12 @@ private final class SleepHelperListenerDelegate: NSObject, NSXPCListenerDelegate
         return information as? [String: Any]
     }
 }
+
+// Eagerly initialize the lease service on the main thread so its startup
+// self-heal, expiry timer, and power-source monitoring are all live even
+// before the first client connects (the power-source run-loop source must
+// be attached to this main run loop).
+_ = ClosedLidLeaseService.shared
 
 private let delegate = SleepHelperListenerDelegate()
 private let listener = NSXPCListener(

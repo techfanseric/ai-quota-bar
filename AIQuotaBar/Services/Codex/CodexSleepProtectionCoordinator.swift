@@ -64,6 +64,10 @@ final class CodexSleepProtectionCoordinator {
     static let mobileActivityFreshnessWindow: TimeInterval = 10 * 60
     static let mobileActivityRecentEventLimit = 5
     static let mobileActivityTaskCountLimit = 99
+    /// How long power assertions and the closed-lid lease are kept after the
+    /// last active turn ends. Bridges gaps between turns and activity
+    /// detection dropouts so protection does not flap mid-task.
+    nonisolated static let defaultTurnEndGracePeriod: TimeInterval = 5 * 60
 
     var isEnabled: Bool {
         didSet {
@@ -114,12 +118,28 @@ final class CodexSleepProtectionCoordinator {
     private var workspaceObserverTokens: [NSObjectProtocol] = []
     private var isSessionActive = true
     private var hasStarted = false
+    private let turnEndGracePeriod: TimeInterval
+    @ObservationIgnored private var lastActiveTurnEndedAt: Date?
+    @ObservationIgnored private var turnEndGraceTimer: Timer?
+
+    /// True while a turn is running or the post-turn grace period has not
+    /// elapsed yet. Protection decisions use this instead of the raw turn
+    /// count so assertions do not flap between consecutive turns.
+    private var hasProtectionNeed: Bool {
+        activeTurnCount > 0 || isWithinTurnEndGrace
+    }
+
+    private var isWithinTurnEndGrace: Bool {
+        guard turnEndGracePeriod > 0,
+              let endedAt = lastActiveTurnEndedAt else { return false }
+        return Date().timeIntervalSince(endedAt) < turnEndGracePeriod
+    }
 
     var keepDisplayAwakeEffective: Bool {
         guard case .active = protectionStatus else { return false }
         return hasStarted
             && isEnabled
-            && activeTurnCount > 0
+            && hasProtectionNeed
             && keepDisplayAwake
             && isSessionActive
     }
@@ -143,7 +163,8 @@ final class CodexSleepProtectionCoordinator {
             any KimiLocalActivityProviding
         )? = KimiLocalActivityDetector(),
         closedLidModeManager: ClosedLidModeManager? = nil,
-        workspaceNotificationCenter: NotificationCenter = NSWorkspace.shared.notificationCenter
+        workspaceNotificationCenter: NotificationCenter = NSWorkspace.shared.notificationCenter,
+        turnEndGracePeriod: TimeInterval = CodexSleepProtectionCoordinator.defaultTurnEndGracePeriod
     ) {
         self.defaults = defaults
         self.assertionController = assertionController
@@ -154,6 +175,7 @@ final class CodexSleepProtectionCoordinator {
             defaults: defaults
         )
         self.workspaceNotificationCenter = workspaceNotificationCenter
+        self.turnEndGracePeriod = turnEndGracePeriod
         isEnabled = Self.bool(
             defaults: defaults,
             key: Self.enabledKey,
@@ -221,6 +243,9 @@ final class CodexSleepProtectionCoordinator {
         activeTurnCount = 0
         activeTaskCounts = [:]
         lastEventAt = nil
+        lastActiveTurnEndedAt = nil
+        turnEndGraceTimer?.invalidate()
+        turnEndGraceTimer = nil
         assertionController.release()
         closedLidModeManager.stop()
         protectionStatus = .idle
@@ -597,10 +622,26 @@ final class CodexSleepProtectionCoordinator {
 
     private func applyCurrentState() {
         let isWorking = activeTurnCount > 0
+        if isWorking {
+            lastActiveTurnEndedAt = nil
+            turnEndGraceTimer?.invalidate()
+            turnEndGraceTimer = nil
+        } else if assertionController.isHoldingAssertions,
+                  lastActiveTurnEndedAt == nil {
+            // The last turn just ended: keep protecting for a grace period
+            // so gaps between turns or activity-detection dropouts do not
+            // let the machine sleep mid-task.
+            lastActiveTurnEndedAt = Date()
+            scheduleTurnEndGraceTimer()
+        }
+        let keepsProtecting = hasProtectionNeed
         closedLidModeManager.setTaskActive(
-            hasStarted && isEnabled && isWorking
+            hasStarted && isEnabled && keepsProtecting
         )
-        guard hasStarted, isEnabled, isWorking else {
+        guard hasStarted, isEnabled, keepsProtecting else {
+            lastActiveTurnEndedAt = nil
+            turnEndGraceTimer?.invalidate()
+            turnEndGraceTimer = nil
             assertionController.release()
             protectionStatus = .idle
             return
@@ -620,6 +661,21 @@ final class CodexSleepProtectionCoordinator {
             assertionController.release()
             protectionStatus = .failed(error.localizedDescription)
         }
+    }
+
+    private func scheduleTurnEndGraceTimer() {
+        guard turnEndGracePeriod > 0 else { return }
+        turnEndGraceTimer?.invalidate()
+        let timer = Timer.scheduledTimer(
+            withTimeInterval: turnEndGracePeriod,
+            repeats: false
+        ) { [weak self] _ in
+            Task { @MainActor [weak self] in
+                self?.applyCurrentState()
+            }
+        }
+        timer.tolerance = min(5, turnEndGracePeriod * 0.1)
+        turnEndGraceTimer = timer
     }
 
     private func startLocalActivityMonitoring() {
