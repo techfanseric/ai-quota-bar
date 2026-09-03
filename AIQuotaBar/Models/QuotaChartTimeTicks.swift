@@ -59,6 +59,36 @@ enum QuotaChartTimeTickBuilder {
         return ticks
     }
 
+    /// 完整落在 [start, end] 内的自然日，在其正午位置给出 `MM/dd` 标签：
+    /// 只有一整天都在窗口里的日子才配标签，居中显示在当天中间点。
+    static func fullDayTicks(
+        startTime: Date,
+        endTime: Date,
+        calendar: Calendar = .current
+    ) -> [QuotaChartTimeTick] {
+        let duration = endTime.timeIntervalSince(startTime)
+        guard duration > 0 else { return [] }
+
+        let formatter = DateFormatter()
+        formatter.timeZone = calendar.timeZone
+        formatter.locale = .current
+        formatter.dateFormat = "MM/dd"
+
+        var ticks: [QuotaChartTimeTick] = []
+        var dayStart = calendar.startOfDay(for: startTime)
+        while dayStart <= endTime {
+            guard let dayEnd = calendar.date(byAdding: .day, value: 1, to: dayStart) else { break }
+            if dayStart >= startTime, dayEnd <= endTime {
+                let midpoint = dayStart.addingTimeInterval(dayEnd.timeIntervalSince(dayStart) / 2)
+                ticks.append(QuotaChartTimeTick(
+                    ratio: midpoint.timeIntervalSince(startTime) / duration,
+                    label: formatter.string(from: dayStart)))
+            }
+            dayStart = dayEnd
+        }
+        return ticks
+    }
+
     private static func ticks(
         duration: TimeInterval,
         unitDuration: TimeInterval,
