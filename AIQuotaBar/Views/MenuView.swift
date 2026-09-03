@@ -846,42 +846,60 @@ private struct ModelRow: View {
                     )
                     .frame(height: 84)
                 } else {
+                    let dayLabels = weeklyFullDayLabelPercents()
+                    let barHeight: CGFloat = 10
                     GeometryReader { geo in
-                        ZStack(alignment: .leading) {
-                            Capsule()
-                                .fill(Color.primary.opacity(0.22))
-                                .frame(height: 6)
-
-                            if model.currentIntervalBarPercent > 0 {
+                        ZStack(alignment: .topLeading) {
+                            ZStack(alignment: .leading) {
                                 Capsule()
-                                    .fill(tint)
-                                    .frame(width: geo.size.width * model.currentIntervalBarPercent / 100, height: 6)
-                            }
+                                    .fill(Color.primary.opacity(0.22))
+                                    .frame(height: 6)
 
-                            // 天分隔线（周窗口特有：按本地 0:00 对齐，常驻）
-                            ForEach(Array(weeklyDayMarkerPercents().enumerated()), id: \.offset) { _, percent in
-                                Rectangle()
-                                    .fill(Color.primary.opacity(0.20))
-                                    .frame(width: 1, height: 8)
-                                    .position(
-                                        x: geo.size.width * percent / 100,
-                                        y: geo.size.height / 2
-                                    )
-                            }
+                                if model.currentIntervalBarPercent > 0 {
+                                    Capsule()
+                                        .fill(tint)
+                                        .frame(width: geo.size.width * model.currentIntervalBarPercent / 100, height: 6)
+                                }
 
-                            // 节奏指针：onTrack 不画（跟 codexbar 一致）
-                            if let pace = model.currentIntervalPace,
-                               pace.stage != .onTrack,
-                               let pacePercent = model.currentIntervalPaceUsedPercent {
-                                PaceTipStripes(
-                                    percent: pacePercent,
-                                    width: geo.size.width,
-                                    isAhead: pace.stage.isAhead)
+                                // 天分隔线（周窗口特有：按本地 0:00 对齐，常驻）
+                                ForEach(Array(weeklyDayMarkerPercents().enumerated()), id: \.offset) { _, percent in
+                                    Rectangle()
+                                        .fill(Color.primary.opacity(0.20))
+                                        .frame(width: 1, height: 8)
+                                        .position(
+                                            x: geo.size.width * percent / 100,
+                                            y: barHeight / 2
+                                        )
+                                }
+
+                                // 节奏指针：onTrack 不画（跟 codexbar 一致）
+                                if let pace = model.currentIntervalPace,
+                                   pace.stage != .onTrack,
+                                   let pacePercent = model.currentIntervalPaceUsedPercent {
+                                    PaceTipStripes(
+                                        percent: pacePercent,
+                                        width: geo.size.width,
+                                        isAhead: pace.stage.isAhead)
+                                }
+                            }
+                            .frame(width: geo.size.width, height: barHeight)
+                            .contentShape(Rectangle())
+
+                            // 完整自然日的 MM/dd 标签：居中于当天正午，hover 才显示
+                            if isHovered {
+                                ForEach(Array(dayLabels.enumerated()), id: \.offset) { _, dayLabel in
+                                    Text(dayLabel.label)
+                                        .font(.system(size: 7, design: .rounded))
+                                        .foregroundStyle(.secondary)
+                                        .position(
+                                            x: geo.size.width * dayLabel.percent / 100,
+                                            y: barHeight + 4
+                                        )
+                                }
                             }
                         }
-                        .contentShape(Rectangle())
                     }
-                    .frame(height: 10)
+                    .frame(height: dayLabels.isEmpty ? barHeight : barHeight + 8)
                 }
 
                 metadataRow
@@ -1135,6 +1153,14 @@ private struct ModelRow: View {
             .map { $0.ratio * 100 }
     }
 
+    /// 周窗口内完整自然日的 MM/dd 标签位置（居中于当天正午），hover 时显示
+    private func weeklyFullDayLabelPercents() -> [(percent: Double, label: String)] {
+        guard !model.isShortCurrentInterval else { return [] }
+        guard let startTime = model.startTime, let endTime = model.endTime else { return [] }
+        return QuotaChartTimeTickBuilder.fullDayTicks(startTime: startTime, endTime: endTime)
+            .map { (percent: $0.ratio * 100, label: $0.label) }
+    }
+
     /// reset time 行里 pace 文字颜色：reserve（你有余量）用 secondary 灰，
     /// deficit（你快用完）用红色提醒
     private func paceLabelColor(pace: UsagePace) -> Color {
@@ -1286,12 +1312,21 @@ private struct QuotaAreaChart: View {
     }
 
     /// Short curves use hourly divisions; multi-day curves use local-midnight
-    /// divisions. Grid lines remain visible and labels appear on hover.
+    /// divisions. Grid lines remain visible; labels appear on hover — hourly
+    /// labels for short curves, MM/dd labels (smaller font) centered on each
+    /// fully-contained day for multi-day curves.
     private func drawTimeTicks(context: inout GraphicsContext, layout: QuotaChartLayout) {
         let ticks = QuotaChartTimeTickBuilder.ticks(
             startTime: windowStart,
             endTime: windowEnd)
         guard !ticks.isEmpty else { return }
+
+        let isMultiDay: Bool
+        if let windowStart, let windowEnd {
+            isMultiDay = windowEnd.timeIntervalSince(windowStart) > 24 * 3_600
+        } else {
+            isMultiDay = false
+        }
 
         for tick in ticks {
             let x = layout.plotRect.minX + layout.plotRect.width * tick.ratio
@@ -1302,9 +1337,23 @@ private struct QuotaAreaChart: View {
                 path,
                 with: .color(Color.primary.opacity(0.10)),
                 style: StrokeStyle(lineWidth: 1, dash: [2, 3]))
-            if isHovered {
+            if isHovered, !isMultiDay {
                 context.draw(
                     axisLabel(tick.label),
+                    at: CGPoint(x: x, y: layout.axisLabelY - 11),
+                    anchor: .center)
+            }
+        }
+
+        // 多日窗口：只有完整落在窗口内的自然日才显示 MM/dd，居中于当天正午
+        if isHovered, isMultiDay, let windowStart, let windowEnd {
+            let dayTicks = QuotaChartTimeTickBuilder.fullDayTicks(
+                startTime: windowStart,
+                endTime: windowEnd)
+            for tick in dayTicks {
+                let x = layout.plotRect.minX + layout.plotRect.width * tick.ratio
+                context.draw(
+                    dayTickLabel(tick.label),
                     at: CGPoint(x: x, y: layout.axisLabelY - 11),
                     anchor: .center)
             }
@@ -1534,6 +1583,13 @@ private struct QuotaAreaChart: View {
     private func axisLabel(_ text: String) -> Text {
         Text(text)
             .font(.system(size: 9, design: .rounded))
+            .foregroundStyle(.secondary)
+    }
+
+    /// 完整自然日的 MM/dd 标签：比轴标签更小，避免喧宾夺主。
+    private func dayTickLabel(_ text: String) -> Text {
+        Text(text)
+            .font(.system(size: 7, design: .rounded))
             .foregroundStyle(.secondary)
     }
 

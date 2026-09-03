@@ -212,6 +212,43 @@ final class QuotaCurveFallbackTests: XCTestCase {
         }
     }
 
+    func testFullDayTicksOnlyCoverCompleteDaysAtNoon() {
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = TimeZone(identifier: "Asia/Shanghai")!
+
+        // 起点 = 2023-11-15 06:13:20 本地时间，7 天窗口 → 完整日为 11/16 … 11/21
+        let start = Date(timeIntervalSince1970: 1_700_000_000)
+        let end = start.addingTimeInterval(7 * 86_400)
+        let ticks = QuotaChartTimeTickBuilder.fullDayTicks(
+            startTime: start,
+            endTime: end,
+            calendar: calendar)
+
+        XCTAssertEqual(ticks.map(\.label), ["11/16", "11/17", "11/18", "11/19", "11/20", "11/21"])
+
+        // 每个标签都落在当天正午（窗口内居中）
+        for tick in ticks {
+            let tickDate = start.addingTimeInterval(tick.ratio * 7 * 86_400)
+            XCTAssertEqual(calendar.component(.hour, from: tickDate), 12)
+            XCTAssertEqual(calendar.component(.minute, from: tickDate), 0)
+        }
+
+        // 窗口两端恰好对齐 0:00 时，7 天全部算完整日
+        let alignedStart = calendar.startOfDay(for: start)
+        let alignedTicks = QuotaChartTimeTickBuilder.fullDayTicks(
+            startTime: alignedStart,
+            endTime: alignedStart.addingTimeInterval(7 * 86_400),
+            calendar: calendar)
+        XCTAssertEqual(alignedTicks.count, 7)
+        XCTAssertEqual(alignedTicks.first?.ratio ?? 0, 0.5 / 7, accuracy: 0.000_001)
+
+        // 不足一天的窗口没有完整日
+        XCTAssertTrue(QuotaChartTimeTickBuilder.fullDayTicks(
+            startTime: start,
+            endTime: start.addingTimeInterval(5 * 3_600),
+            calendar: calendar).isEmpty)
+    }
+
     func testSampledModelsUnionDesktopCurvesWithTwoMobileSelections() {
         let now = Date()
         let desktopCurve = makeModel(
