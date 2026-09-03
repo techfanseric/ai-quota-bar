@@ -175,16 +175,25 @@ final class QuotaCurveFallbackTests: XCTestCase {
         XCTAssertTrue(selected.isEmpty)
     }
 
-    func testChartTicksUseHoursForFiveHourAndMidnightsForWeekly() {
+    func testChartTicksUseHourBoundariesForFiveHourAndMidnightsForWeekly() {
         var calendar = Calendar(identifier: .gregorian)
         calendar.timeZone = TimeZone(identifier: "Asia/Shanghai")!
 
+        // 起点 = 2023-11-15 06:13:20 本地时间
         let start = Date(timeIntervalSince1970: 1_700_000_000)
         let fiveHourTicks = QuotaChartTimeTickBuilder.ticks(
             startTime: start,
             endTime: start.addingTimeInterval(5 * 3_600),
             calendar: calendar)
-        XCTAssertEqual(fiveHourTicks.map(\.label), ["1h", "2h", "3h", "4h"])
+
+        // 每个刻度都必须精确落在本地自然整点（07:00 … 11:00）
+        XCTAssertEqual(fiveHourTicks.count, 5)
+        for tick in fiveHourTicks {
+            let tickDate = start.addingTimeInterval(tick.ratio * 5 * 3_600)
+            XCTAssertEqual(tickDate, calendar.dateInterval(of: .hour, for: tickDate)?.start)
+            XCTAssertGreaterThan(tickDate, start)
+            XCTAssertLessThan(tickDate, start.addingTimeInterval(5 * 3_600))
+        }
 
         let weeklyEnd = start.addingTimeInterval(7 * 86_400)
         let weeklyTicks = QuotaChartTimeTickBuilder.ticks(
@@ -246,6 +255,43 @@ final class QuotaCurveFallbackTests: XCTestCase {
         XCTAssertTrue(QuotaChartTimeTickBuilder.fullDayTicks(
             startTime: start,
             endTime: start.addingTimeInterval(5 * 3_600),
+            calendar: calendar).isEmpty)
+    }
+
+    func testFullHourTicksOnlyCoverCompleteHoursAtHalfPast() {
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = TimeZone(identifier: "Asia/Shanghai")!
+
+        // 起点 = 2023-11-15 06:13:20 本地时间，5 小时窗口 → 完整小时为 7AM … 10AM
+        let start = Date(timeIntervalSince1970: 1_700_000_000)
+        let end = start.addingTimeInterval(5 * 3_600)
+        let ticks = QuotaChartTimeTickBuilder.fullHourTicks(
+            startTime: start,
+            endTime: end,
+            calendar: calendar)
+
+        XCTAssertEqual(ticks.map(\.label), ["7AM", "8AM", "9AM", "10AM"])
+
+        // 每个标签都落在该小时半点（窗口内居中）
+        for tick in ticks {
+            let tickDate = start.addingTimeInterval(tick.ratio * 5 * 3_600)
+            XCTAssertEqual(calendar.component(.minute, from: tickDate), 30)
+            XCTAssertEqual(calendar.component(.second, from: tickDate), 0)
+        }
+
+        // 窗口两端恰好对齐整点时，5 个小时全部算完整时段
+        let alignedStart = calendar.dateInterval(of: .hour, for: start)!.start
+        let alignedTicks = QuotaChartTimeTickBuilder.fullHourTicks(
+            startTime: alignedStart,
+            endTime: alignedStart.addingTimeInterval(5 * 3_600),
+            calendar: calendar)
+        XCTAssertEqual(alignedTicks.count, 5)
+        XCTAssertEqual(alignedTicks.first?.ratio ?? 0, 0.5 / 5, accuracy: 0.000_001)
+
+        // 不足一小时的窗口没有完整时段
+        XCTAssertTrue(QuotaChartTimeTickBuilder.fullHourTicks(
+            startTime: start,
+            endTime: start.addingTimeInterval(30 * 60),
             calendar: calendar).isEmpty)
     }
 

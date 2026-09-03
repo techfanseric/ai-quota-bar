@@ -1311,22 +1311,15 @@ private struct QuotaAreaChart: View {
         }
     }
 
-    /// Short curves use hourly divisions; multi-day curves use local-midnight
-    /// divisions. Grid lines remain visible; labels appear on hover — hourly
-    /// labels for short curves, MM/dd labels (smaller font) centered on each
-    /// fully-contained day for multi-day curves.
+    /// Short curves use natural-hour divisions; multi-day curves use local-midnight
+    /// divisions. Grid lines remain visible; labels appear on hover, centered on
+    /// each fully-contained segment — `3PM`-style labels on hour midpoints for
+    /// short curves, MM/dd labels on day midpoints for multi-day curves.
     private func drawTimeTicks(context: inout GraphicsContext, layout: QuotaChartLayout) {
         let ticks = QuotaChartTimeTickBuilder.ticks(
             startTime: windowStart,
             endTime: windowEnd)
         guard !ticks.isEmpty else { return }
-
-        let isMultiDay: Bool
-        if let windowStart, let windowEnd {
-            isMultiDay = windowEnd.timeIntervalSince(windowStart) > 24 * 3_600
-        } else {
-            isMultiDay = false
-        }
 
         for tick in ticks {
             let x = layout.plotRect.minX + layout.plotRect.width * tick.ratio
@@ -1337,23 +1330,19 @@ private struct QuotaAreaChart: View {
                 path,
                 with: .color(Color.primary.opacity(0.10)),
                 style: StrokeStyle(lineWidth: 1, dash: [2, 3]))
-            if isHovered, !isMultiDay {
-                context.draw(
-                    axisLabel(tick.label),
-                    at: CGPoint(x: x, y: layout.axisLabelY - 11),
-                    anchor: .center)
-            }
         }
 
-        // 多日窗口：只有完整落在窗口内的自然日才显示 MM/dd，居中于当天正午
-        if isHovered, isMultiDay, let windowStart, let windowEnd {
-            let dayTicks = QuotaChartTimeTickBuilder.fullDayTicks(
-                startTime: windowStart,
-                endTime: windowEnd)
-            for tick in dayTicks {
+        // hover 标签：只有完整落在窗口内的时段（自然小时/自然日）才显示，
+        // 居中于该时段中间点
+        if isHovered, let windowStart, let windowEnd {
+            let isMultiDay = windowEnd.timeIntervalSince(windowStart) > 24 * 3_600
+            let labelTicks = isMultiDay
+                ? QuotaChartTimeTickBuilder.fullDayTicks(startTime: windowStart, endTime: windowEnd)
+                : QuotaChartTimeTickBuilder.fullHourTicks(startTime: windowStart, endTime: windowEnd)
+            for tick in labelTicks {
                 let x = layout.plotRect.minX + layout.plotRect.width * tick.ratio
                 context.draw(
-                    dayTickLabel(tick.label),
+                    segmentTickLabel(tick.label),
                     at: CGPoint(x: x, y: layout.axisLabelY - 11),
                     anchor: .center)
             }
@@ -1586,8 +1575,8 @@ private struct QuotaAreaChart: View {
             .foregroundStyle(.secondary)
     }
 
-    /// 完整自然日的 MM/dd 标签：比轴标签更小，避免喧宾夺主。
-    private func dayTickLabel(_ text: String) -> Text {
+    /// 完整时段（自然小时/自然日）的 hover 标签：比轴标签更小，避免喧宾夺主。
+    private func segmentTickLabel(_ text: String) -> Text {
         Text(text)
             .font(.system(size: 7, design: .rounded))
             .foregroundStyle(.secondary)
