@@ -103,7 +103,7 @@ enum MobileDashboardSnapshotBuilder {
             : [MobileDashboardSafeText.cloudUsageError(language: language)]
 
         return MobileDashboardSnapshot(
-            schemaVersion: 3,
+            schemaVersion: 4,
             generatedAt: Date(),
             language: language.rawValue,
             macName: Host.current().localizedName
@@ -277,6 +277,20 @@ enum MobileDashboardSnapshotBuilder {
         sharesTaskProgressText: Bool = false
     ) -> MobileActivitySummarySnapshot {
         let summary = coordinator.mobileActivitySummary(now: now)
+        var activeProviders: [String] = []
+        for task in summary.tasks where task.state == .working {
+            let provider: String
+            if task.source == "Kimi Code"
+                || (task.modelProvider?
+                    .localizedCaseInsensitiveContains("kimi") ?? false) {
+                provider = "kimi"
+            } else {
+                provider = "codex"
+            }
+            if !activeProviders.contains(provider) {
+                activeProviders.append(provider)
+            }
+        }
         return MobileActivitySummarySnapshot(
             state: summary.state.rawValue,
             activeTaskCount: summary.activeTaskCount,
@@ -327,7 +341,8 @@ enum MobileDashboardSnapshotBuilder {
                             kind: $0.kind.rawValue,
                             at: $0.at)
                     })
-            })
+            },
+            activeProviders: activeProviders)
     }
 
     private static func paceStage(_ stage: UsagePace.Stage) -> String {

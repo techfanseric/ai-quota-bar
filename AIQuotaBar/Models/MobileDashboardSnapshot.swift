@@ -124,6 +124,10 @@ struct MobileActivitySummarySnapshot: Codable, Equatable {
     let progressLines: [String]?
     let recentEvents: [MobileActivityEventSnapshot]
     let tasks: [MobileActivityTaskSnapshot]
+    /// Providers with at least one working task, deduplicated in
+    /// first-appearance order. Values are `"kimi"` and `"codex"`. Empty when
+    /// no task is working, so clients fall back to the neutral layout.
+    let activeProviders: [String]
 
     init(
         state: String,
@@ -136,7 +140,8 @@ struct MobileActivitySummarySnapshot: Codable, Equatable {
         toolStatus: String? = nil,
         progressLines: [String]? = nil,
         recentEvents: [MobileActivityEventSnapshot],
-        tasks: [MobileActivityTaskSnapshot] = []
+        tasks: [MobileActivityTaskSnapshot] = [],
+        activeProviders: [String] = []
     ) {
         self.state = state
         self.activeTaskCount = activeTaskCount
@@ -149,6 +154,35 @@ struct MobileActivitySummarySnapshot: Codable, Equatable {
         self.progressLines = progressLines
         self.recentEvents = recentEvents
         self.tasks = tasks
+        self.activeProviders = activeProviders
+    }
+
+    /// `activeProviders` (schema 4) defaults to empty so payloads cached or
+    /// produced by older builds still decode.
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        state = try container.decode(String.self, forKey: .state)
+        activeTaskCount = try container.decode(Int.self, forKey: .activeTaskCount)
+        oldestStartedAt = try container.decodeIfPresent(
+            Date.self, forKey: .oldestStartedAt)
+        elapsedSeconds = try container.decodeIfPresent(
+            TimeInterval.self, forKey: .elapsedSeconds)
+        lastActivityAt = try container.decodeIfPresent(
+            Date.self, forKey: .lastActivityAt)
+        phase = try container.decodeIfPresent(String.self, forKey: .phase)
+            ?? "unknown"
+        toolCategory = try container.decodeIfPresent(
+            String.self, forKey: .toolCategory)
+        toolStatus = try container.decodeIfPresent(
+            String.self, forKey: .toolStatus)
+        progressLines = try container.decodeIfPresent(
+            [String].self, forKey: .progressLines)
+        recentEvents = try container.decode(
+            [MobileActivityEventSnapshot].self, forKey: .recentEvents)
+        tasks = try container.decodeIfPresent(
+            [MobileActivityTaskSnapshot].self, forKey: .tasks) ?? []
+        activeProviders = try container.decodeIfPresent(
+            [String].self, forKey: .activeProviders) ?? []
     }
 }
 

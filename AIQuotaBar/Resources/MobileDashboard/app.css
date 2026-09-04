@@ -455,6 +455,13 @@ body[data-connection-recovery="true"] .disconnect-address-panel {
   display: grid;
 }
 
+/* Kimi-only activity: connections are Codex/Clash data, and the route
+   section only matters for Codex traffic, so both drop out of the grid. */
+body[data-active-providers="kimi"] .route-section,
+body[data-active-providers="kimi"] .connections-section {
+  display: none;
+}
+
 .lan-address-heading {
   display: flex;
   align-items: center;

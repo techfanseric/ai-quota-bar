@@ -618,6 +618,95 @@ test("activity summary state matrix never promotes stale or unavailable work", a
   );
 });
 
+test("active provider mix drives hero copy, quota order, and section visibility", async () => {
+  const css = await readText("app.css");
+  const script = await readText("app.js");
+  const activityProviderMix = namedFunction(
+    script,
+    "activityProviderMix",
+    "const safeNumber = (value) => Number.isFinite(Number(value)) ? Number(value) : 0",
+  );
+
+  assert.equal(activityProviderMix(null), "none");
+  assert.equal(
+    activityProviderMix({ state: "idle", activeTaskCount: 0 }),
+    "none",
+  );
+  assert.equal(
+    activityProviderMix({ state: "stale", activeTaskCount: 2, activeProviders: ["kimi"] }),
+    "none",
+  );
+  assert.equal(
+    activityProviderMix({
+      state: "working",
+      activeTaskCount: 1,
+      activeProviders: ["kimi"],
+    }),
+    "kimi",
+  );
+  assert.equal(
+    activityProviderMix({
+      state: "working",
+      activeTaskCount: 2,
+      activeProviders: ["kimi", "codex", "kimi", "other"],
+    }),
+    "mixed",
+  );
+  // Snapshots from older builds lack the field: derive from working tasks.
+  assert.equal(
+    activityProviderMix({
+      state: "working",
+      activeTaskCount: 1,
+      tasks: [{ state: "working", source: "Kimi Code" }],
+    }),
+    "kimi",
+  );
+  assert.equal(
+    activityProviderMix({
+      state: "working",
+      activeTaskCount: 2,
+      tasks: [
+        { state: "working", modelProvider: "Kimi" },
+        { state: "working", modelProvider: "OpenAI" },
+        { state: "stale", source: "Kimi Code" },
+      ],
+    }),
+    "mixed",
+  );
+
+  const envelopeSource = namedFunction(script, "renderEnvelope").toString();
+  assert.match(
+    envelopeSource,
+    /dataset\.activeProviders = state\.activeProviderMix/,
+  );
+  assert.match(
+    envelopeSource,
+    /activityProviderMix\(snapshot\.activitySummary\)[\s\S]*renderQuota\(/,
+  );
+
+  const commitSource = namedFunction(script, "commitTaskState").toString();
+  assert.match(commitSource, /dataset\.activeProviders = providerMix/);
+  assert.match(commitSource, /taskStateKickerKimi/);
+  assert.match(commitSource, /taskStateKickerGeneric/);
+
+  const renderQuotaSource = namedFunction(script, "renderQuota").toString();
+  assert.match(
+    renderQuotaSource,
+    /hasChanged\("quota", \{ quota, providerMix \}/,
+  );
+  assert.match(renderQuotaSource, /provider\?\.id === "kimi"/);
+
+  assert.match(script, /taskStateKickerKimi: "Kimi activity"/);
+  assert.match(script, /taskStateKickerKimi: "Kimi 活动"/);
+  assert.match(script, /taskStateKickerGeneric: "Activity"/);
+  assert.match(script, /taskStateKickerGeneric: "活动"/);
+
+  assert.match(
+    css,
+    /body\[data-active-providers="kimi"\] \.route-section,\s*body\[data-active-providers="kimi"\] \.connections-section\s*\{[^}]*display:\s*none/s,
+  );
+});
+
 test("grainy digital rain is bounded, state-derived, and lifecycle controlled", async () => {
   const html = await readText("index.html");
   const css = await readText("app.css");

@@ -394,6 +394,7 @@ final class MobileDashboardSecurityTests: XCTestCase {
                 "toolStatus",
                 "recentEvents",
                 "tasks",
+                "activeProviders",
             ]))
         XCTAssertEqual(activityObject["activeTaskCount"] as? Int, 1)
         XCTAssertEqual(activityObject["state"] as? String, "working")
@@ -528,6 +529,84 @@ final class MobileDashboardSecurityTests: XCTestCase {
             idleSharedObject["progressLines"] as? [String],
             [],
             "An enabled share serializes an empty array while idle.")
+    }
+
+    @MainActor
+    func testActivitySummaryReportsActiveProvidersFromWorkingTasks() throws {
+        let suiteName = "MobileDashboardActiveProvidersTests.\(UUID())"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suiteName))
+        defaults.removePersistentDomain(forName: suiteName)
+        defaults.set(false, forKey: ClosedLidModeManager.enabledKey)
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        let missingHelper = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString)
+        let coordinator = CodexSleepProtectionCoordinator(
+            defaults: defaults,
+            hookInstaller: CodexHookInstaller(
+                hooksURL: missingHelper.appendingPathComponent("hooks.json"),
+                helperURL: missingHelper.appendingPathComponent("helper")),
+            localActivityProvider: nil,
+            closedLidModeManager: ClosedLidModeManager(
+                defaults: defaults,
+                bundle: .main))
+        coordinator.start()
+        defer { coordinator.stop() }
+        coordinator.setProtectedProviders([.codex, .kimi])
+
+        let now = Date(timeIntervalSince1970: 90_000)
+        coordinator.receiveKimiSnapshot(KimiLocalActivitySnapshot(
+            activeSessionIDs: ["kimi:test-session"],
+            lastEventAt: now))
+        let kimiOnly = MobileDashboardSnapshotBuilder.activitySummary(
+            coordinator,
+            now: now)
+        XCTAssertEqual(kimiOnly.state, "working")
+        XCTAssertEqual(kimiOnly.activeProviders, ["kimi"])
+
+        coordinator.receive(CodexHookEvent(
+            name: .userPromptSubmit,
+            sessionID: "codex-session",
+            turnID: "turn-1",
+            agentID: nil,
+            date: now))
+        let mixed = MobileDashboardSnapshotBuilder.activitySummary(
+            coordinator,
+            now: now)
+        XCTAssertEqual(
+            Set(mixed.activeProviders),
+            Set(["kimi", "codex"]))
+
+        coordinator.receiveKimiSnapshot(.empty)
+        coordinator.receive(CodexHookEvent(
+            name: .sessionEnd,
+            sessionID: "codex-session",
+            turnID: nil,
+            agentID: nil,
+            date: now))
+        let idle = MobileDashboardSnapshotBuilder.activitySummary(
+            coordinator,
+            now: now)
+        XCTAssertEqual(idle.activeProviders, [])
+    }
+
+    func testActivitySummaryDecodesLegacyPayloadWithoutActiveProviders()
+        throws
+    {
+        let legacyJSON = """
+            {
+              "state": "working",
+              "activeTaskCount": 1,
+              "phase": "unknown",
+              "recentEvents": [],
+              "tasks": []
+            }
+            """.data(using: .utf8)!
+        let decoded = try JSONDecoder().decode(
+            MobileActivitySummarySnapshot.self,
+            from: legacyJSON)
+        XCTAssertEqual(decoded.state, "working")
+        XCTAssertEqual(decoded.activeTaskCount, 1)
+        XCTAssertEqual(decoded.activeProviders, [])
     }
 
     func testQuotaSampleKeepsRawRemainingAndCompatiblePercent() throws {
@@ -3517,7 +3596,7 @@ final class MobileDashboardSecurityTests: XCTestCase {
             ],
             lastRouteTestedAt: nil)
 
-        XCTAssertEqual(snapshot.schemaVersion, 3)
+        XCTAssertEqual(snapshot.schemaVersion, 4)
         XCTAssertEqual(snapshot.quota.primaryRemainingPercent, 25)
         XCTAssertEqual(snapshot.quota.providers.count, 1)
         XCTAssertEqual(
