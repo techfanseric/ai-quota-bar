@@ -1,6 +1,7 @@
 import AIQuotaBarSleepShared
 import Foundation
 import IOKit.ps
+import OSLog
 
 enum ClosedLidModeStatus: Equatable {
     case disabled
@@ -83,7 +84,19 @@ final class ClosedLidModeManager {
         }
     }
 
-    private(set) var status: ClosedLidModeStatus = .disabled
+    private(set) var status: ClosedLidModeStatus = .disabled {
+        didSet {
+            guard status != oldValue else { return }
+            logger.notice(
+                "Closed-lid status: \(String(describing: oldValue), privacy: .public) -> \(String(describing: self.status), privacy: .public)"
+            )
+        }
+    }
+
+    private let logger = Logger(
+        subsystem: "com.techfanseric.aiquotabar",
+        category: "ClosedLidMode"
+    )
 
     private let defaults: UserDefaults
     private let helperInstaller: PrivilegedSleepHelperInstaller

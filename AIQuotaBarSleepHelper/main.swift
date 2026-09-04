@@ -2,7 +2,13 @@ import AIQuotaBarSleepShared
 import CryptoKit
 import Foundation
 import IOKit.ps
+import OSLog
 import Security
+
+private let logger = Logger(
+    subsystem: "com.techfanseric.aiquotabar.sleep-helper",
+    category: "ClosedLidLease"
+)
 
 private struct RestoreMarker: Codable {
     let previousState: PMSetSleepState
@@ -58,6 +64,7 @@ private final class ClosedLidLeaseService {
             do {
                 if self.leases.isEmpty {
                     try self.enableClosedLidMode()
+                    logger.notice("Closed-lid mode enabled (disablesleep=1)")
                 }
                 let timeout = min(120, max(45, heartbeatTimeout))
                 self.leases[leaseID] = Lease(
@@ -65,8 +72,14 @@ private final class ClosedLidLeaseService {
                     heartbeatTimeout: timeout,
                     expiresAt: Date().addingTimeInterval(timeout)
                 )
+                logger.notice(
+                    "Lease acquired (\(leaseID, privacy: .public), timeout \(timeout, privacy: .public)s)"
+                )
                 reply(true, nil)
             } catch {
+                logger.error(
+                    "Lease acquire failed: \(error.localizedDescription, privacy: .public)"
+                )
                 reply(false, error.localizedDescription)
             }
         }
@@ -80,6 +93,9 @@ private final class ClosedLidLeaseService {
         queue.async {
             guard var lease = self.leases[leaseID],
                   lease.ownerID == ownerID else {
+                logger.warning(
+                    "Heartbeat rejected for unknown lease \(leaseID, privacy: .public)"
+                )
                 reply(false)
                 return
             }
@@ -97,6 +113,9 @@ private final class ClosedLidLeaseService {
         queue.async {
             if self.leases[leaseID]?.ownerID == ownerID {
                 self.leases.removeValue(forKey: leaseID)
+                logger.notice(
+                    "Lease released (\(leaseID, privacy: .public))"
+                )
             }
             do {
                 if self.leases.isEmpty {
@@ -104,6 +123,9 @@ private final class ClosedLidLeaseService {
                 }
                 reply(true, nil)
             } catch {
+                logger.error(
+                    "Lease release failed to restore sleep: \(error.localizedDescription, privacy: .public)"
+                )
                 reply(false, error.localizedDescription)
             }
         }
@@ -111,11 +133,19 @@ private final class ClosedLidLeaseService {
 
     private func startExpiryTimer() {
         let timer = DispatchSource.makeTimerSource(queue: queue)
-        timer.schedule(deadline: .now() + 15, repeating: 15)
+        // 5s sweep: keeps the external-override window (another tool writing
+        // disablesleep 0) short while a lease is active.
+        timer.schedule(deadline: .now() + 5, repeating: 5)
         timer.setEventHandler { [weak self] in
             guard let self else { return }
             let now = Date()
+            let countBefore = self.leases.count
             self.leases = self.leases.filter { $0.value.expiresAt > now }
+            if self.leases.count < countBefore {
+                logger.notice(
+                    "Lease(s) expired without heartbeat (\(countBefore - self.leases.count, privacy: .public) dropped)"
+                )
+            }
             if self.leases.isEmpty {
                 try? self.restoreOriginalState()
             } else {
@@ -135,11 +165,21 @@ private final class ClosedLidLeaseService {
               FileManager.default.fileExists(atPath: markerURL.path) else {
             return
         }
-        guard let state = try? readCurrentState(),
-              !state.isSleepDisabled else {
+        guard let state = try? readCurrentState() else {
+            logger.error("Reconcile could not read pmset state")
             return
         }
-        _ = try? runPMSet(arguments: ["-a", "disablesleep", "1"])
+        guard !state.isSleepDisabled else { return }
+        logger.warning(
+            "SleepDisabled was cleared externally while a lease is active; re-asserting (possible conflict with another power-management tool)"
+        )
+        do {
+            try runPMSet(arguments: ["-a", "disablesleep", "1"])
+        } catch {
+            logger.error(
+                "Re-asserting disablesleep failed: \(error.localizedDescription, privacy: .public)"
+            )
+        }
     }
 
     private func handlePowerSourceChange() {
@@ -190,6 +230,9 @@ private final class ClosedLidLeaseService {
 
     private func restoreInterruptedChangeIfNeeded() {
         guard FileManager.default.fileExists(atPath: markerURL.path) else { return }
+        logger.notice(
+            "Found leftover restore marker at startup; restoring original sleep state"
+        )
         try? restoreOriginalState()
     }
 
@@ -211,6 +254,7 @@ private final class ClosedLidLeaseService {
         }
 
         try FileManager.default.removeItem(at: markerURL)
+        logger.notice("Original sleep state restored (disablesleep off)")
     }
 
     private func readCurrentState() throws -> PMSetSleepState {
