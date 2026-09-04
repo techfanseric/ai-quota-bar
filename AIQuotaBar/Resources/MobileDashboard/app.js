@@ -197,6 +197,8 @@
       noActiveTasks: "None active",
       taskUnit: ["task", "tasks"],
       taskStateKicker: "Codex activity",
+      taskStateKickerKimi: "Kimi activity",
+      taskStateKickerGeneric: "Activity",
       taskWorking: "Working",
       taskIdle: "Idle",
       idleBlackout: "IDLE",
@@ -425,6 +427,8 @@
       noActiveTasks: "暂无",
       taskUnit: ["个任务", "个任务"],
       taskStateKicker: "Codex 活动",
+      taskStateKickerKimi: "Kimi 活动",
+      taskStateKickerGeneric: "活动",
       taskWorking: "工作中",
       taskIdle: "空闲",
       idleBlackout: "空闲",
@@ -663,6 +667,7 @@
     displayedActiveTaskCount: null,
     explicitHasActiveTasks: null,
     activitySummary: null,
+    activeProviderMix: "none",
     activityBackgroundEffect: "grainyDigitalRain",
     taskTelemetryFields: new Set(TASK_TELEMETRY_FIELD_ORDER),
     colorScheme: COLOR_SCHEMES.has(document.documentElement.dataset.colorScheme)
@@ -2156,7 +2161,8 @@
   }
 
   function renderQuota(quota, force) {
-    if (!hasChanged("quota", quota, force)) return;
+    const providerMix = state.activeProviderMix || "none";
+    if (!hasChanged("quota", { quota, providerMix }, force)) return;
     elements.quotaTime.textContent = quota.lastRefreshAt
       ? formatRelative(quota.lastRefreshAt)
       : "";
@@ -2176,6 +2182,14 @@
     }
 
     const models = orderedQuotaModels(quota);
+    if (providerMix === "kimi") {
+      // Kimi-only activity: promote Kimi cards, demote (not hide) Codex.
+      // The sort is stable, so the selected display order is kept per group.
+      models.sort((left, right) =>
+        (left.provider?.id === "kimi" ? 0 : 1) -
+        (right.provider?.id === "kimi" ? 0 : 1),
+      );
+    }
     if (models.length === 0) {
       elements.quotaContent.replaceChildren(emptyState(t("emptyQuota")));
       return;
@@ -3527,6 +3541,44 @@
     document.body.dataset.taskWaves = String(poweredWaves);
   }
 
+  // Resolves which providers have working tasks: "none", "kimi", "codex",
+  // or "mixed". Prefers the snapshot's `activeProviders` field and derives
+  // from working tasks when the field is absent (older snapshots).
+  function activityProviderMix(rawSummary) {
+    if (
+      !rawSummary ||
+      rawSummary.state !== "working" ||
+      safeNumber(rawSummary.activeTaskCount) <= 0
+    ) {
+      return "none";
+    }
+    const providers = [];
+    const addProvider = (provider) => {
+      if (
+        (provider === "kimi" || provider === "codex") &&
+        !providers.includes(provider)
+      ) {
+        providers.push(provider);
+      }
+    };
+    if (Array.isArray(rawSummary.activeProviders)) {
+      rawSummary.activeProviders.forEach(addProvider);
+    } else {
+      (Array.isArray(rawSummary.tasks) ? rawSummary.tasks : [])
+        .filter((task) => task?.state === "working")
+        .forEach((task) => {
+          addProvider(
+            task.source === "Kimi Code" ||
+              /kimi/i.test(String(task.modelProvider || ""))
+              ? "kimi"
+              : "codex",
+          );
+        });
+    }
+    if (providers.length === 0) return "none";
+    return providers.length === 1 ? providers[0] : "mixed";
+  }
+
   function commitTaskState(tasks) {
     const active = typeof state.explicitHasActiveTasks === "boolean"
       ? state.explicitHasActiveTasks
@@ -3559,6 +3611,17 @@
     document.body.dataset.taskState = active ? "active" : "idle";
     document.body.dataset.dashboardState = dashboardState;
     document.body.dataset.protectionIssue = protectionIssue || "none";
+    const providerMix = active
+      ? state.activeProviderMix || "none"
+      : "none";
+    document.body.dataset.activeProviders = providerMix;
+    elements.taskStateKicker.textContent = t(
+      providerMix === "kimi"
+        ? "taskStateKickerKimi"
+        : providerMix === "mixed"
+          ? "taskStateKickerGeneric"
+          : "taskStateKicker",
+    );
     elements.taskStateTitle.textContent = stateCopy.title;
     elements.taskWatermark.textContent = stateCopy.title;
     elements.taskHero.setAttribute(
@@ -4532,6 +4595,8 @@
     state.taskTelemetryFields = nextTaskTelemetryFields;
     document.body.dataset.activityEffect = nextActivityEffect;
     state.snapshot = snapshot;
+    state.activeProviderMix = activityProviderMix(snapshot.activitySummary);
+    document.body.dataset.activeProviders = state.activeProviderMix;
     state.explicitHasActiveTasks =
       typeof snapshot.protection?.hasActiveTasks === "boolean"
         ? snapshot.protection.hasActiveTasks
