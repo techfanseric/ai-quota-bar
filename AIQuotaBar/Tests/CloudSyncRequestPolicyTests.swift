@@ -86,6 +86,26 @@ final class CloudSyncRequestPolicyTests: XCTestCase {
         XCTAssertEqual(CloudSyncStubProtocol.requestPaths.count, 2)
     }
 
+    func testFetchRetriesNetworkErrorThenRecovers() async throws {
+        let (service, session) = fixture([
+            .network(.timedOut), .http(200, "{\"ok\":true,\"samples\":[]}")
+        ])
+        defer { session.invalidateAndCancel() }
+        let data = try await service.fetchRemoteUsageData()
+        XCTAssertTrue(data.isEmpty)
+        XCTAssertEqual(CloudSyncStubProtocol.requestPaths.count, 2)
+    }
+
+    func testFetchDoesNotRetryServerError() async {
+        let (service, session) = fixture([.http(500, "D1 unavailable")])
+        defer { session.invalidateAndCancel() }
+        do {
+            _ = try await service.fetchRemoteUsageData()
+            XCTFail("Expected server error")
+        } catch {}
+        XCTAssertEqual(CloudSyncStubProtocol.requestPaths.count, 1)
+    }
+
     func testAccountSummary404FallsBackToLatestSamples() async throws {
         let (service, session) = fixture([
             .http(404, "not found"), .http(200, "{\"ok\":true,\"samples\":[]}")

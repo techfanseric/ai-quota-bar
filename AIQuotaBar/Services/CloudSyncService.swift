@@ -27,7 +27,7 @@ enum CloudSyncError: Error, LocalizedError {
             }
             return "Cloud sync failed (\(statusCode)): \(message)"
         case .network(let error):
-            return "Cloud sync network error: \(Self.describeNetworkError(error))"
+            return Self.describeNetworkError(error)
         }
     }
 
@@ -38,20 +38,20 @@ enum CloudSyncError: Error, LocalizedError {
         }
         switch urlError.code {
         case .timedOut:
-            return "request timed out — 到 Cloudflare workers.dev 的链路无响应；请检查代理是否把 *.workers.dev 走了直连（本机 DNS 对该域有污染，直连必超时）"
+            return "请求超时：到同步服务器（workers.dev）的链路不通，请检查代理是否覆盖该域名"
         case .notConnectedToInternet:
-            return "no internet connection"
+            return "无网络连接"
         case .cannotFindHost, .dnsLookupFailed:
-            return "DNS lookup failed for the sync endpoint — 本机 DNS 可能被污染，试试走代理或换 DNS"
+            return "DNS 解析失败：本机 DNS 可能被污染，试试走代理或更换 DNS"
         case .cannotConnectToHost:
-            return "cannot connect to the sync server"
+            return "无法连接同步服务器"
         case .networkConnectionLost:
-            return "connection lost during the request"
+            return "连接中断，正在自动重试"
         case .secureConnectionFailed, .serverCertificateHasBadDate,
              .serverCertificateUntrusted, .serverCertificateHasUnknownRoot,
              .serverCertificateNotYetValid, .clientCertificateRejected,
              .clientCertificateRequired:
-            return "TLS handshake failed — 中间链路拦截/重置了加密连接，检查代理出口节点"
+            return "TLS 握手失败：加密链路被拦截，请检查代理节点"
         case .appTransportSecurityRequiresSecureConnection:
             return "connection blocked by App Transport Security"
         default:
@@ -774,7 +774,30 @@ final class CloudSyncService {
         return request
     }
 
+    /// 读取路径统一入口。瞬态网络错误（超时/DNS/TLS/断连）按 `retryBackoffs`
+    /// 指数退避自动重试，与写入路径 `sendWithRetry` 对齐；
+    /// `serverError`（4xx/5xx）与 `invalidResponse` 不可自愈，立即抛出。
+    /// 任务被 cancel 时 checkCancellation/sleep 会抛 `CancellationError`，立即退出重试。
     private func data(for request: URLRequest) async throws -> Data {
+        for attempt in 0...retryBackoffs.count {
+            try Task.checkCancellation()
+            do {
+                return try await performRequest(request)
+            } catch is CancellationError {
+                throw CancellationError()
+            } catch {
+                guard case CloudSyncError.network = error,
+                      attempt < retryBackoffs.count else {
+                    throw error
+                }
+                try await Task.sleep(nanoseconds: retryBackoffs[attempt] * 1_000_000_000)
+            }
+        }
+        // 循环必然在最后一次 attempt 内 return 或 throw，此处仅满足编译器
+        throw CloudSyncError.invalidResponse
+    }
+
+    private func performRequest(_ request: URLRequest) async throws -> Data {
         let data: Data
         let response: URLResponse
         do {
