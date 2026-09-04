@@ -829,11 +829,12 @@ private struct ModelRow: View {
             }
 
             if isCurrentWindow {
-                if rendersAreaChart {
+                // 样本为空时不渲染 84pt 曲线图容器，落到下方紧凑胶囊条兜底。
+                if rendersAreaChart && !chartSamples.isEmpty {
                     QuotaAreaChart(
                         model: model,
                         samples: chartSamples,
-                        tint: tint,
+                        tint: chartTint,
                         warningThreshold: warningThreshold,
                         forecastLookbackIntervals:
                             viewModel.quotaForecastLookbackIntervals,
@@ -1130,15 +1131,38 @@ private struct ModelRow: View {
     }
 
     private var tint: Color {
+        tint(usedPercent: model.currentIntervalPercentageUsed,
+             remainingPercent: model.currentIntervalPercentageRemaining)
+    }
+
+    private func tint(usedPercent: Double, remainingPercent: Double) -> Color {
         // 反向语义（credits）：使用中性的 secondary 颜色，避免被"已用%==100"的规则染红
         if model.progressBarPercentOverride != nil {
             return .secondary
         }
-        if model.currentIntervalPercentageUsed >= 100 { return .red }
-        if model.currentIntervalPercentageUsed >= 80 { return .orange }
-        if model.currentIntervalPercentageUsed > 0 && model.currentIntervalPercentageRemaining <= warningThreshold { return .orange }
-        if model.currentIntervalPercentageUsed > 0 { return .green }
+        if usedPercent >= 100 { return .red }
+        if usedPercent >= 80 { return .orange }
+        if usedPercent > 0 && remainingPercent <= warningThreshold { return .orange }
+        if usedPercent > 0 { return .green }
         return .secondary
+    }
+
+    /// 曲线图 tint：悬停预览历史 cycle 时，用该周期自己的 peak used% 判定告警色，
+    /// 避免当前周期低额度的 warning 色泄漏到历史周期预览。
+    private var chartTint: Color {
+        guard let previewWindow else { return tint }
+        // 悬停的是当前 cycle：仍用实时剩余判定
+        if let current = currentUtilizationCycle,
+           abs(previewWindow.end.timeIntervalSince(current.end))
+               <= ModelUtilizationHistory.resetBoundaryMergeTolerance {
+            return tint
+        }
+        guard let cycle = cycles.first(where: {
+            abs($0.resetsAt.timeIntervalSince(previewWindow.end))
+                <= ModelUtilizationHistory.resetBoundaryMergeTolerance
+        }) else { return cycleTint }
+        return tint(usedPercent: cycle.peakPercent,
+                    remainingPercent: 100 - cycle.peakPercent)
     }
 
     private var cycleTint: Color {

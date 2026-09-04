@@ -25,8 +25,8 @@ final class UsageViewModel {
     private(set) var modelQuotaSamples: [String: [ModelQuotaSample]] = [:]
     private var mobileDashboardSelectedModelKeys =
         Set<MobileDashboardModelSelectionKey>()
-    private var cloudModelQuotaSamples: [String: [ModelQuotaSample]] = [:]
-    private var utilizationHistories: [UsageProvider: ModelUtilizationStoreData] = [:]
+    private(set) var cloudModelQuotaSamples: [String: [ModelQuotaSample]] = [:]
+    private(set) var utilizationHistories: [UsageProvider: ModelUtilizationStoreData] = [:]
     private let utilizationStore = ModelUtilizationHistoryStore.shared
     private let quotaSampleStore = ModelQuotaSampleStore.shared
     private let utilizationSampleThrottle: TimeInterval = 3600
@@ -36,6 +36,7 @@ final class UsageViewModel {
     var refreshInterval: Int {
         didSet {
             UserDefaults.standard.set(refreshInterval, forKey: "refreshInterval")
+            invalidateCycleEndTimer()
             restartTimer()
         }
     }
@@ -663,6 +664,10 @@ final class UsageViewModel {
     // MARK: - Private
 
     private var timer: Timer?
+    private var cycleEndTimer: Timer?
+    private var cycleEndFireDate: Date?
+    /// 周期结束后触发对齐刷新的延迟（秒），避免踩在服务端重置生效的边界上。
+    private let cycleEndRefreshDelay: TimeInterval = 15
 
     // MARK: - Initialization
 
@@ -806,6 +811,7 @@ final class UsageViewModel {
             isLoading = false
             isMenuBarSelfTesting = false
             updateStatusBarText()
+            scheduleCycleEndRefresh()
         }
         error = nil
         providerErrors = [:]
@@ -915,6 +921,7 @@ final class UsageViewModel {
     }
 
     func startAutoRefresh() {
+        invalidateCycleEndTimer()
         restartTimer()
 
         if autoRefreshOnLaunch || usageData == nil {
@@ -930,6 +937,7 @@ final class UsageViewModel {
     func stopAutoRefresh() {
         timer?.invalidate()
         timer = nil
+        invalidateCycleEndTimer()
     }
 
     func setMobileDashboardSelectedModelKeys(
@@ -1164,6 +1172,54 @@ final class UsageViewModel {
         }
     }
 
+    /// 每次刷新完成后调用：按本地已取回数据中最早的未来周期结束时间，
+    /// 调度一次性定时器在结束 `cycleEndRefreshDelay` 秒后刷新，并让
+    /// 10 分钟重复定时器从该时刻重新对齐。云端同步模型不参与。
+    private func scheduleCycleEndRefresh(now: Date = Date()) {
+        let fetchableProviders = Set(configuredProviders.filter(shouldFetchProvider))
+        guard let endTime = nextCycleEndDate(at: now, fetchableProviders: fetchableProviders) else {
+            invalidateCycleEndTimer()
+            return
+        }
+        let fireDate = endTime.addingTimeInterval(cycleEndRefreshDelay)
+        guard fireDate != cycleEndFireDate else { return }
+        invalidateCycleEndTimer()
+        let timer = Timer.scheduledTimer(
+            withTimeInterval: fireDate.timeIntervalSince(now),
+            repeats: false
+        ) { [weak self] _ in
+            Task { @MainActor [weak self] in
+                guard let self else { return }
+                invalidateCycleEndTimer()
+                await refresh(showIconSelfTest: false)
+                restartTimer()
+            }
+        }
+        timer.tolerance = 5
+        cycleEndFireDate = fireDate
+        cycleEndTimer = timer
+    }
+
+    /// 本地已取回数据中最早的未来周期结束时间（5h `endTime` 与周
+    /// `weeklyEndTime`），跳过已过去的结束时间；只统计会被实际 fetch 的 provider。
+    func nextCycleEndDate(
+        at now: Date,
+        fetchableProviders: Set<UsageProvider>
+    ) -> Date? {
+        providerUsageData.values
+            .filter { fetchableProviders.contains($0.provider) }
+            .flatMap(\.models)
+            .flatMap { [$0.endTime, $0.weeklyEndTime].compactMap { $0 } }
+            .filter { $0 > now }
+            .min()
+    }
+
+    private func invalidateCycleEndTimer() {
+        cycleEndTimer?.invalidate()
+        cycleEndTimer = nil
+        cycleEndFireDate = nil
+    }
+
     /// init 同步预加载所有 provider 的历史（文件小可接受）。
     private func loadUtilizationHistories() {
         for provider in UsageProvider.allCases {
@@ -1377,7 +1433,7 @@ final class UsageViewModel {
             do {
                 cloudModelQuotaSamples = try await CloudSyncService.shared.fetchRemoteModelQuotaSamples()
             } catch {
-                cloudModelQuotaSamples = [:]
+                // 瞬时失败保留上次样本，避免面板曲线图闪空。
                 cloudUsageLoadError = error.localizedDescription
                 return
             }
@@ -1385,7 +1441,7 @@ final class UsageViewModel {
         } catch {
             // Cloud rows are supplemental. Keep local quota usable if remote history cannot load.
             cloudProviderUsageData = [:]
-            cloudModelQuotaSamples = [:]
+            // 保留上次 cloudModelQuotaSamples，避免瞬时失败导致曲线图闪空。
             cloudUsageLoadError = error.localizedDescription
         }
     }
