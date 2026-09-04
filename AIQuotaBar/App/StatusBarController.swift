@@ -250,6 +250,10 @@ final class StatusBarController {
             _ = vm.error
             _ = vm.providerUsageData
             _ = vm.providerErrors
+            _ = vm.cloudProviderUsageData
+            _ = vm.cloudModelQuotaSamples
+            _ = vm.modelQuotaSamples
+            _ = vm.utilizationHistories
             _ = vm.lastRefreshTime
             _ = vm.appLanguage
             _ = vm.isLoading
