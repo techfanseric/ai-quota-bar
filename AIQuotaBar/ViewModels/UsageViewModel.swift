@@ -205,6 +205,15 @@ final class UsageViewModel {
         }
     }
 
+    /// Temporarily excluded providers. Credentials are intentionally retained.
+    private(set) var pausedProviders: Set<UsageProvider> {
+        didSet {
+            UserDefaults.standard.set(
+                pausedProviders.map(\.rawValue).sorted(),
+                forKey: Self.pausedProvidersKey)
+        }
+    }
+
     private static let utilizationHistoryModeKey = "utilizationHistoryMode"
     private static let quotaForecastLookbackIntervalsKey =
         "quotaForecastLookbackIntervals"
@@ -212,6 +221,7 @@ final class UsageViewModel {
     private static let cloudShortCyclesVisibilityLimitKey = "cloudShortCyclesVisibilityLimit"
     private static let cloudWeeklyCyclesVisibilityLimitKey = "cloudWeeklyCyclesVisibilityLimit"
     private static let cloudDataRetentionLimitKey = CloudDataRetentionLimit.storageKey
+    static let pausedProvidersKey = "pausedUsageProviders"
 
     // MARK: - Computed Properties
 
@@ -514,7 +524,8 @@ final class UsageViewModel {
     }
 
     private func fallbackMenuBarProvider() -> UsageProvider {
-        if let fixedProvider = menuBarContentSelection.provider {
+        if let fixedProvider = menuBarContentSelection.provider,
+           isProviderEnabled(fixedProvider) {
             return fixedProvider
         }
         return configuredProviders.first ?? .codex
@@ -547,11 +558,42 @@ final class UsageViewModel {
     }
 
     var hasAnyCredential: Bool {
-        configuredProviders.isEmpty == false
+        registeredProviders.isEmpty == false
     }
 
     var configuredProviders: [UsageProvider] {
+        registeredProviders.filter(isProviderEnabled)
+    }
+
+    /// Configured providers, including those temporarily paused.
+    var registeredProviders: [UsageProvider] {
         UsageProvider.allCases.filter { isConfigured($0) }
+    }
+
+    var allConfiguredProvidersPaused: Bool {
+        !registeredProviders.isEmpty && configuredProviders.isEmpty
+    }
+
+    func isProviderEnabled(_ provider: UsageProvider) -> Bool {
+        !pausedProviders.contains(provider)
+    }
+
+    func setProviderEnabled(_ isEnabled: Bool, provider: UsageProvider) {
+        guard isEnabled != isProviderEnabled(provider) else { return }
+
+        if isEnabled {
+            pausedProviders.remove(provider)
+        } else {
+            pausedProviders.insert(provider)
+            providerUsageData.removeValue(forKey: provider)
+            providerErrors.removeValue(forKey: provider)
+            usageData = combinedUsageData(
+                from: providerUsageData.values,
+                timestamp: lastRefreshTime ?? Date())
+        }
+        updateStatusBarText()
+        checkThreshold()
+        scheduleCycleEndRefresh()
     }
 
     /// Providers whose local task lifecycle can participate in sleep
@@ -559,10 +601,11 @@ final class UsageViewModel {
     /// account, auth file, or running Codex app/CLI is actually present.
     var taskProtectionProviders: Set<UsageProvider> {
         var providers = Set<UsageProvider>()
-        if hasLocalCodexRegistration {
+        if isProviderEnabled(.codex), hasLocalCodexRegistration {
             providers.insert(.codex)
         }
-        if KeychainService.shared.hasCredential(for: .kimi)
+        if isProviderEnabled(.kimi),
+           KeychainService.shared.hasCredential(for: .kimi)
             || KimiService.shared.hasCLICredential {
             providers.insert(.kimi)
         }
@@ -620,6 +663,7 @@ final class UsageViewModel {
         let cloudModelKeys = Set(cloudModels.map(\.quotaIdentityKey))
 
         return UsageProvider.allCases
+            .filter(isProviderEnabled)
             .compactMap { provider -> UsageData? in
                 let localModels = (localDataByProvider[provider]?.models ?? []).map { model in
                     cloudModelKeys.contains(model.quotaIdentityKey)
@@ -666,6 +710,7 @@ final class UsageViewModel {
     private var timer: Timer?
     private var cycleEndTimer: Timer?
     private var cycleEndFireDate: Date?
+    private var refreshRequestedWhileLoading = false
     /// 周期结束后触发对齐刷新的延迟（秒），避免踩在服务端重置生效的边界上。
     private let cycleEndRefreshDelay: TimeInterval = 15
 
@@ -732,6 +777,9 @@ final class UsageViewModel {
             .flatMap(CloudDataVisibilityLimit.init(rawValue:))
             ?? .oneWeek
         self.cloudDataRetentionLimit = .current
+        self.pausedProviders = Set(
+            (UserDefaults.standard.stringArray(forKey: Self.pausedProvidersKey) ?? [])
+                .compactMap(UsageProvider.init(rawValue:)))
 
         loadUtilizationHistories()
         modelQuotaSamples = quotaSampleStore.loadAll()
@@ -796,6 +844,7 @@ final class UsageViewModel {
     /// cycle and continue until the request completes. Background timer refreshes opt out.
     func refresh(showIconSelfTest: Bool = true) async {
         guard !isLoading else {
+            refreshRequestedWhileLoading = true
             return
         }
 
@@ -812,6 +861,12 @@ final class UsageViewModel {
             isMenuBarSelfTesting = false
             updateStatusBarText()
             scheduleCycleEndRefresh()
+            if refreshRequestedWhileLoading {
+                refreshRequestedWhileLoading = false
+                Task { @MainActor [weak self] in
+                    await self?.refresh(showIconSelfTest: false)
+                }
+            }
         }
         error = nil
         providerErrors = [:]
@@ -859,6 +914,8 @@ final class UsageViewModel {
                     group.cancelAll()
                     break
                 }
+                // A provider may have been paused while its request was in flight.
+                guard isProviderEnabled(provider) else { continue }
                 switch result {
                 case .success(let data):
                     nextProviderData[provider] = data

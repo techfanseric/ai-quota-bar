@@ -97,7 +97,12 @@ struct ProvidersPane: View {
                     .font(.body)
                     .foregroundStyle(isSelected ? Color.accentColor : .primary)
                 Spacer()
-                if viewModel.configuredProviders.contains(provider) {
+                if !viewModel.isProviderEnabled(provider) {
+                    Image(systemName: "pause.circle.fill")
+                        .font(.system(size: 10))
+                        .foregroundStyle(.secondary)
+                        .help(language.providerPausedStatus())
+                } else if viewModel.registeredProviders.contains(provider) {
                     Circle()
                         .fill(Color.green)
                         .frame(width: 6, height: 6)

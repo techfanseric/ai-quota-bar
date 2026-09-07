@@ -140,6 +140,14 @@ struct MenuView: View {
                 primaryActionTitle: language.text(.settings),
                 primaryAction: onOpenSettings
             )
+        } else if viewModel.allConfiguredProvidersPaused {
+            MenuPlaceholderCard(
+                icon: "pause.circle.fill",
+                title: language.providerPausedStatus(),
+                message: language.allProvidersPausedDescription(),
+                primaryActionTitle: language.text(.settings),
+                primaryAction: onOpenSettings
+            )
         } else if !viewModel.hasAPIKey {
             MenuPlaceholderCard(
                 icon: "key.fill",
@@ -539,6 +547,17 @@ private struct ProviderModelsSection: View {
                 .font(.system(size: 10, weight: .medium, design: .rounded))
                 .foregroundStyle(.secondary)
                 .lineLimit(1)
+
+            Button {
+                viewModel.setProviderEnabled(false, provider: data.provider)
+                notifyLayoutChange()
+            } label: {
+                Image(systemName: "pause.circle")
+                    .font(.system(size: 10, weight: .medium))
+                    .foregroundStyle(.secondary)
+            }
+            .buttonStyle(.plain)
+            .help(language.pauseProviderAction(provider: data.provider))
         }
         .padding(.horizontal, 8)
         .padding(.top, 6)

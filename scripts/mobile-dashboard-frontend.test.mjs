@@ -79,6 +79,8 @@ test("HTML is unnumbered, installable, and exposes the compact monitor regions",
   assert.match(html, /id="idle-blackout"[\s\S]*aria-live="polite"[\s\S]*aria-hidden="true"[\s\S]*hidden/);
   assert.doesNotMatch(html, /id="task-state-symbol"/);
   assert.match(html, /class="ticker-window"/);
+  assert.match(html, /id="protection-title">Status<\/h2>/);
+  assert.doesNotMatch(html, /id="quota-errors"/);
   assert.doesNotMatch(html, /class="section-index"|>0[1-4]</);
 });
 
@@ -1281,6 +1283,23 @@ test("protection ticker keeps one DOM track and restores normalized animation ph
   assert.match(script, /const phase = tickerPhase\(ticker\.track\)/);
   assert.match(script, /restoreTickerPhase\(ticker\.track, phase\)/);
   assert.match(script, /if \(semantic === state\.protectionTickerSemantic\) return/);
+});
+
+test("quota errors move into the scrolling status ticker as red text", async () => {
+  const script = await readText("app.js");
+  const renderQuotaSource = namedFunction(script, "renderQuota").toString();
+  const statusTickerSource = namedFunction(
+    script,
+    "updateDashboardStatusTicker",
+  ).toString();
+
+  assert.match(script, /statusTitle: "Status"/);
+  assert.match(script, /statusTitle: "状态"/);
+  assert.match(renderQuotaSource, /state\.quotaStatusItems = \(quota\.errors \|\| \[\]\)\.map/);
+  assert.match(renderQuotaSource, /"danger"/);
+  assert.match(renderQuotaSource, /updateDashboardStatusTicker\(\)/);
+  assert.match(statusTickerSource, /\.\.\.state\.quotaStatusItems/);
+  assert.match(statusTickerSource, /\.\.\.state\.protectionStatusItems/);
 });
 
 test("recent route switches compress only Unicode-safe meaningful repeated prefixes", async () => {
