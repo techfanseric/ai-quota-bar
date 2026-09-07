@@ -30,13 +30,40 @@ struct ProviderDetailView: View {
         ScrollView(.vertical, showsIndicators: true) {
             VStack(alignment: .leading, spacing: 16) {
                 SettingsSection(title: provider.displayName) {
-                    providerContent
+                    VStack(alignment: .leading, spacing: 14) {
+                        Toggle(isOn: providerEnabledBinding) {
+                            VStack(alignment: .leading, spacing: 3) {
+                                Text(language.providerMonitoringTitle())
+                                Text(language.providerMonitoringDescription())
+                                    .font(.caption)
+                                    .foregroundStyle(.secondary)
+                            }
+                        }
+                        .toggleStyle(.switch)
+
+                        Divider()
+
+                        providerContent
+                            .disabled(!viewModel.isProviderEnabled(provider))
+                            .opacity(viewModel.isProviderEnabled(provider) ? 1 : 0.55)
+                    }
                 }
             }
             .frame(maxWidth: .infinity, alignment: .leading)
             .padding(.horizontal, 20)
             .padding(.vertical, 12)
         }
+    }
+
+    private var providerEnabledBinding: Binding<Bool> {
+        Binding(
+            get: { viewModel.isProviderEnabled(provider) },
+            set: { isEnabled in
+                viewModel.setProviderEnabled(isEnabled, provider: provider)
+                if isEnabled {
+                    Task { await viewModel.refresh() }
+                }
+            })
     }
 
     @ViewBuilder

@@ -184,7 +184,7 @@
       addressCheckDisclosure:
         "Checks send no token and only rank HTTP reachability.",
       quotaTitle: "Quota",
-      tasksTitle: "Protection",
+      statusTitle: "Status",
       routeTitle: "Route",
       connectionsTitle: "Connections",
       footer: "Local · read only · screen may sleep",
@@ -414,7 +414,7 @@
       addressConnecting: "正在连接所选 Mac…",
       addressCheckDisclosure: "检查不发送令牌，仅用于排序 HTTP 可达性。",
       quotaTitle: "配额",
-      tasksTitle: "保护",
+      statusTitle: "状态",
       routeTitle: "线路",
       connectionsTitle: "连接",
       footer: "局域网 · 只读 · 允许锁屏",
@@ -622,7 +622,6 @@
     taskTelemetryMarquee: document.getElementById("task-telemetry-marquee"),
     wakeAmbientVideo: document.getElementById("wake-ambient-video"),
     quotaTime: document.getElementById("quota-time"),
-    quotaErrors: document.getElementById("quota-errors"),
     quotaContent: document.getElementById("quota-content"),
     protectionContent: document.getElementById("protection-content"),
     routeContent: document.getElementById("route-content"),
@@ -705,6 +704,8 @@
     wakeWorkActive: false,
     protectionTicker: null,
     protectionTickerSemantic: "",
+    quotaStatusItems: [],
+    protectionStatusItems: [],
     fingerprints: Object.create(null),
   };
 
@@ -912,7 +913,7 @@
       node.setAttribute("aria-label", t("addressCheckDisclosure"));
     });
     document.querySelector("#quota-title").textContent = t("quotaTitle");
-    document.querySelector("#protection-title").textContent = t("tasksTitle");
+    document.querySelector("#protection-title").textContent = t("statusTitle");
     document.querySelector("#route-title").textContent = t("routeTitle");
     document.querySelector("#connections-title").textContent = t("connectionsTitle");
     elements.taskStateKicker.textContent = t("taskStateKicker");
@@ -2166,11 +2167,12 @@
     elements.quotaTime.textContent = quota.lastRefreshAt
       ? formatRelative(quota.lastRefreshAt)
       : "";
-    elements.quotaErrors.replaceChildren(
-      ...(quota.errors || []).slice(0, 1).map((error) =>
-          element("p", "notice notice-error", error),
-        ),
-    );
+    state.quotaStatusItems = (quota.errors || []).map((error) => [
+      "",
+      String(error),
+      "danger",
+    ]);
+    updateDashboardStatusTicker();
 
     if (quota.state === "loading" && !(quota.providers || []).length) {
       elements.quotaContent.replaceChildren(emptyState(t("loadingQuota")));
@@ -2480,6 +2482,7 @@
       tickerItems.forEach(([label, value, cssClass = ""], index) => {
         const item = items[index];
         item.keyNode.textContent = label;
+        item.keyNode.hidden = !label;
         item.valueNode.textContent = value;
         item.valueNode.className = "ticker-value";
         if (cssClass) item.valueNode.classList.add(cssClass);
@@ -2487,6 +2490,13 @@
     }
     state.protectionTickerSemantic = semantic;
     restoreTickerPhase(ticker.track, phase);
+  }
+
+  function updateDashboardStatusTicker() {
+    updateProtectionTicker([
+      ...state.quotaStatusItems,
+      ...state.protectionStatusItems,
+    ]);
   }
 
   function triggerStatusBoost(signal) {
@@ -3766,7 +3776,8 @@
           : statusClass(protection.closedLidStatus),
       ],
     ];
-    updateProtectionTicker(tickerItems);
+    state.protectionStatusItems = tickerItems;
+    updateDashboardStatusTicker();
   }
 
   function compressedRouteTarget(fromRoute, toRoute) {

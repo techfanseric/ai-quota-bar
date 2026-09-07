@@ -1626,6 +1626,45 @@ enum AppLanguage: String, CaseIterable, Codable, Identifiable {
             return "\(base)\nOpenAI 当前不可达"
         }
     }
+
+    func providerMonitoringTitle() -> String {
+        switch self {
+        case .english: return "Use this provider"
+        case .simplifiedChinese: return "使用此服务商"
+        }
+    }
+
+    func providerMonitoringDescription() -> String {
+        switch self {
+        case .english:
+            return "Turn this off to pause refresh, display, and alerts without removing credentials."
+        case .simplifiedChinese:
+            return "关闭后将暂停刷新、显示和提醒，但不会删除凭据。"
+        }
+    }
+
+    func providerPausedStatus() -> String {
+        switch self {
+        case .english: return "Provider paused"
+        case .simplifiedChinese: return "服务商已暂停"
+        }
+    }
+
+    func pauseProviderAction(provider: UsageProvider) -> String {
+        switch self {
+        case .english: return "Pause \(provider.displayName)"
+        case .simplifiedChinese: return "暂停使用 \(provider.displayName)"
+        }
+    }
+
+    func allProvidersPausedDescription() -> String {
+        switch self {
+        case .english:
+            return "All configured providers are paused. Re-enable one in Settings to resume monitoring."
+        case .simplifiedChinese:
+            return "所有已配置的服务商都已暂停。请在设置中重新启用一个以继续监控。"
+        }
+    }
 }
 
 enum AppText {
