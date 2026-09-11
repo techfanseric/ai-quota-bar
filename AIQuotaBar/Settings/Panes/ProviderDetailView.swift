@@ -6,16 +6,21 @@ import SwiftUI
 struct ProviderDetailView: View {
     let provider: UsageProvider
     @Bindable var viewModel: UsageViewModel
+    let savedCredentials: [UsageProvider: String]
     @Binding var miniMaxCredential: String
     @Binding var kimiCredential: String
+    @Binding var glmCredential: String
     @Binding var codexSourceMode: CodexDataSourceMode
     let codexAccounts: [CodexAccountDraft]
     let miniMaxTestResult: InlineFeedback?
     let kimiTestResult: InlineFeedback?
+    let glmTestResult: InlineFeedback?
     let isTestingMiniMax: Bool
     let isTestingKimi: Bool
+    let isTestingGLM: Bool
     let miniMaxInputID: UUID
     let kimiInputID: UUID
+    let glmInputID: UUID
     let onTestConnection: (UsageProvider) -> Void
     let onSaveCredential: (String, UsageProvider) -> Bool
     let onAddCodexAccount: () -> Void
@@ -73,12 +78,13 @@ struct ProviderDetailView: View {
             ProviderCredentialSection(
                 provider: .miniMax,
                 credential: $miniMaxCredential,
+                savedCredential: savedCredentials[.miniMax] ?? "",
                 inputID: miniMaxInputID,
                 language: language,
                 isTesting: isTestingMiniMax,
                 feedback: miniMaxTestResult,
                 onTest: { onTestConnection(.miniMax) },
-                onSave: { _ = onSaveCredential(miniMaxCredential, .miniMax) }
+                onSave: { onSaveCredential(miniMaxCredential, .miniMax) }
             )
         case .codex:
             CodexSettingsSection(
@@ -95,16 +101,29 @@ struct ProviderDetailView: View {
             ProviderCredentialSection(
                 provider: .kimi,
                 credential: $kimiCredential,
+                savedCredential: savedCredentials[.kimi] ?? "",
                 inputID: kimiInputID,
                 language: language,
                 isTesting: isTestingKimi,
                 feedback: kimiTestResult,
                 allowsEmptyCredentialTest: true,
                 onTest: { onTestConnection(.kimi) },
-                onSave: { _ = onSaveCredential(kimiCredential, .kimi) }
+                onSave: { onSaveCredential(kimiCredential, .kimi) }
             )
         case .glm:
-            EmptyView()
+            ProviderCredentialSection(
+                provider: .glm,
+                credential: $glmCredential,
+                savedCredential: savedCredentials[.glm] ?? "",
+                inputID: glmInputID,
+                language: language,
+                isTesting: isTestingGLM,
+                feedback: glmTestResult,
+                onTest: { onTestConnection(.glm) },
+                onSave: { onSaveCredential(glmCredential, .glm) }
+            )
+            Link(language == .simplifiedChinese ? "打开GLM 用量页面" : "Open BigModel usage",
+                 destination: URL(string: "https://bigmodel.cn/coding-plan/personal/usage")!)
         }
     }
 }

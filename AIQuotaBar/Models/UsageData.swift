@@ -661,6 +661,7 @@ struct GLMQuotaLimitResponse: Decodable {
 
 struct GLMQuotaLimitData: Decodable {
     let limits: [GLMUsageLimitItem]
+    let level: String?
 }
 
 struct GLMUsageLimitItem: Decodable {

@@ -38,7 +38,7 @@ See the [release notes](./docs/releases/v1.11.0.md) for validation results and s
 
 | Your goal | How AI Quota Bar helps |
 | --- | --- |
-| Plan work before quota runs out | See remaining Codex, Kimi, and MiniMax quota, reset times, recent usage, and whether your current pace is sustainable |
+| Plan work before quota runs out | See remaining Codex, Kimi, GLM, and MiniMax quota, reset times, recent usage, and whether your current pace is sustainable |
 | Get OpenAI working again quickly | Test and switch Clash/Mihomo routes from the menu bar, or let the app recover automatically after a real outage |
 | Understand a slow connection | See whether OpenAI has active traffic, whether data is moving, and whether old connections are piling up |
 | Let long Codex tasks finish | Keep the Mac awake only while Codex is working, then return to normal automatically |
@@ -127,6 +127,10 @@ kimi
 
 AI Quota Bar reads quota by sending `/status` to the real CLI in a local PTY. This local slash command does not create a model turn or consume context tokens, and the official CLI remains responsible for refreshing its login. You can alternatively store a Kimi Code API key in macOS Keychain.
 
+### GLM
+
+Open **Settings → Providers → GLM**, enter a personal GLM Coding Plan API key, test the connection, and save. Five-hour and weekly credit quotas are supported; credentials stay in macOS Keychain. Alternatively, open the [BigModel usage page](https://bigmodel.cn/coding-plan/personal/usage), use DevTools → Network → Copy as cURL on the `quota/limit` request, and paste it into settings. Web credentials must be copied again when the session expires.
+
 ### MiniMax
 
 Open **Settings → Providers → MiniMax**, paste your MiniMax coding-plan token, and refresh. The token stays in macOS Keychain.
@@ -149,7 +153,7 @@ Manual pairing is optional. When enabled, the short code expires after five minu
 
 AI Quota Bar does more than show a percentage. It combines remaining quota, reset time, and recent pace so you can decide whether to continue a large task now, slow down, or move work to another account.
 
-- Track Codex, Kimi, and MiniMax from one menu, including multiple Codex accounts.
+- Track Codex, Kimi, GLM, and MiniMax from one menu, including multiple Codex accounts.
 - See both short limits such as **5h** and longer limits such as **Weekly**.
 - Use the trend line to see how quickly quota is falling.
 - Use the reserve/deficit message to see whether your current pace can last until reset.
@@ -216,7 +220,7 @@ You stay in control:
 - Inspect what is stored in a local report.
 - Delete one account or clear all local/remote history.
 
-Cloud sync is off by default. It uploads quota metadata and account labels, but never uploads Kimi, MiniMax, or Codex credentials. The exact data boundary is documented below.
+Cloud sync is off by default. It uploads quota metadata and account labels, but never uploads Kimi, GLM, MiniMax, or Codex credentials. The exact data boundary is documented below.
 
 ## Privacy and security boundaries
 

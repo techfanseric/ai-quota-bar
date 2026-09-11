@@ -84,11 +84,7 @@ final class UsageService {
         )
     }
 
-    private func decodeGLMUsageData(from data: Data) throws -> UsageData {
-        try decodeGLMUsageData(from: data, subscriptionResetTime: nil)
-    }
-
-    private func decodeGLMUsageData(from data: Data, subscriptionResetTime: Date?) throws -> UsageData {
+    func decodeGLMUsageData(from data: Data, subscriptionResetTime: Date? = nil) throws -> UsageData {
         let decoder = JSONDecoder()
         let response = try decoder.decode(GLMQuotaLimitResponse.self, from: data)
 
@@ -99,7 +95,8 @@ final class UsageService {
         let models = response.data?.limits.compactMap {
             glmModel(from: $0, subscriptionResetTime: subscriptionResetTime)
         } ?? []
-        let trackedModelCount = max(models.count, 1)
+        guard !models.isEmpty else { throw UsageError.invalidResponse }
+        let trackedModelCount = models.count
         let readyModelsCount = models.filter(\.isCurrentIntervalAvailable).count
 
         return UsageData(
@@ -108,7 +105,7 @@ final class UsageService {
             total: trackedModelCount,
             timestamp: Date(),
             models: models,
-            subscribeTitle: nil,
+            subscribeTitle: response.data?.level,
             subscribeEndTime: nil
         )
     }
@@ -119,9 +116,9 @@ final class UsageService {
 
         let endTime = limit.nextResetTime.flatMap(date(fromMilliseconds:))
             ?? (limit.type == "TIME_LIMIT" ? subscriptionResetTime : nil)
-        let startTime = limit.type == "TOKENS_LIMIT"
-            ? endTime?.addingTimeInterval(-5 * 60 * 60)
-            : nil
+        let startTime = glmWindowDuration(for: limit).flatMap { duration in
+            endTime?.addingTimeInterval(-duration)
+        }
 
         return ModelUsageData(
             provider: .glm,
@@ -147,15 +144,18 @@ final class UsageService {
     }
 
     private func normalizedGLMQuotaValues(for limit: GLMUsageLimitItem) -> (used: Int, remaining: Int, total: Int, valueSuffix: String?) {
-        if limit.usage > 0 {
+        if limit.usage.isFinite, limit.usage > 0, limit.usage.rounded() < Double(Int.max),
+           limit.currentValue.isFinite {
             let total = Int(limit.usage.rounded())
-            let used = Int(limit.currentValue.rounded())
-            let remaining = Int((limit.remaining ?? max(0, limit.usage - limit.currentValue)).rounded())
-            return (used: used, remaining: max(0, remaining), total: total, valueSuffix: nil)
+            let used = Int(min(max(0, limit.currentValue), limit.usage).rounded())
+            let rawRemaining = limit.remaining.flatMap { $0.isFinite ? $0 : nil }
+                ?? max(0, limit.usage - limit.currentValue)
+            let remaining = Int(min(max(0, rawRemaining), limit.usage).rounded())
+            return (used: used, remaining: remaining, total: total, valueSuffix: nil)
         }
 
-        if let percentage = limit.percentage {
-            let used = min(max(Int(percentage.rounded()), 0), 100)
+        if let percentage = limit.percentage, percentage.isFinite {
+            let used = Int(min(max(percentage, 0), 100).rounded())
             return (used: used, remaining: max(0, 100 - used), total: 100, valueSuffix: "%")
         }
 
@@ -164,6 +164,8 @@ final class UsageService {
 
     private func glmModelName(for limit: GLMUsageLimitItem) -> String {
         switch limit.type {
+        case "CREDIT_LIMIT":
+            return "GLM Credits (\(glmPeriodText(unit: limit.unit, number: limit.number, fallback: "unknown")))"
         case "TOKENS_LIMIT":
             return "GLM Tokens (\(glmPeriodText(unit: limit.unit, number: limit.number, fallback: "5h")))"
         case "TIME_LIMIT":
@@ -196,22 +198,29 @@ final class UsageService {
     }
 
     private func glmPeriodText(unit: Int?, number: Int?, fallback: String) -> String {
-        guard let unit, let number else { return fallback }
-
+        guard let unit, let number, number > 0 else { return fallback }
         switch unit {
-        case 1:
-            return "\(number)m"
-        case 2:
-            return "\(number)h"
-        case 3:
-            return "\(number)h"
-        case 4:
-            return "\(number)d"
-        case 5:
-            return number == 1 ? "month" : "\(number)mo"
-        default:
-            return fallback
+        case 1: return "\(number)d"
+        case 3: return "\(number)h"
+        case 5: return "\(number)m"
+        case 6: return number == 1 ? "weekly" : "\(number)w"
+        default: return fallback
         }
+    }
+
+    private func glmWindowDuration(for limit: GLMUsageLimitItem) -> TimeInterval? {
+        guard let unit = limit.unit, let number = limit.number, number > 0 else {
+            return limit.type == "TOKENS_LIMIT" ? 5 * 3600 : nil
+        }
+        let multiplier: Double
+        switch unit {
+        case 1: multiplier = 24 * 3600
+        case 3: multiplier = 3600
+        case 5: multiplier = 60
+        case 6: multiplier = 7 * 24 * 3600
+        default: return nil
+        }
+        return Double(number) * multiplier
     }
 
     private func date(fromMilliseconds value: Int64) -> Date? {
@@ -348,12 +357,20 @@ final class UsageService {
         }
 
         do {
-            let subscriptionResetTime = try? await fetchGLMSubscriptionResetTime(credential: credential)
+            // Only legacy MCP quotas need the web subscription fallback. API keys and
+            // credit windows use the quota response alone, including absent reset times.
+            let quota = try JSONDecoder().decode(GLMQuotaLimitResponse.self, from: data)
+            var subscriptionResetTime: Date?
+            if quota.success, quota.code == 200,
+               quota.data?.limits.contains(where: { $0.type == "TIME_LIMIT" && $0.nextResetTime == nil }) == true,
+               URL(string: credential.apiURL)?.host == "bigmodel.cn" {
+                subscriptionResetTime = try? await fetchGLMSubscriptionResetTime(credential: credential)
+            }
             return try decodeGLMUsageData(from: data, subscriptionResetTime: subscriptionResetTime)
         } catch let usageError as UsageError {
             throw usageError
         } catch {
-            throw UsageError.apiError("Unable to parse GLM response: \(responseSnippet(from: data))")
+            throw UsageError.invalidResponse
         }
     }
 
@@ -469,20 +486,6 @@ final class UsageService {
         if let cookie = credential.cookie, !cookie.isEmpty {
             request.setValue(cookie, forHTTPHeaderField: "Cookie")
         }
-    }
-
-    private func responseSnippet(from data: Data) -> String {
-        guard let string = String(data: data, encoding: .utf8) else {
-            return "non-UTF8 response (\(data.count) bytes)"
-        }
-
-        let compact = string
-            .replacingOccurrences(of: "\n", with: " ")
-            .replacingOccurrences(of: "\r", with: " ")
-            .trimmingCharacters(in: .whitespacesAndNewlines)
-
-        guard compact.count > 700 else { return compact }
-        return "\(compact.prefix(700))..."
     }
 
     /// Test API connection with given provider credential

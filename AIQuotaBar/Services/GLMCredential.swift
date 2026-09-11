@@ -1,6 +1,7 @@
 import Foundation
 
 struct GLMCredential: Codable {
+    static let apiKeyURL = "https://open.bigmodel.cn/api/monitor/usage/quota/limit"
     static let defaultAPIURL = "https://bigmodel.cn/api/monitor/usage/quota/limit"
 
     let apiURL: String
@@ -53,6 +54,28 @@ struct GLMCredential: Codable {
         return string
     }
 
+    /// Keep storage JSON out of the editor while preserving web request context.
+    var editableString: String {
+        if apiURL == Self.apiKeyURL, headers.isEmpty,
+           organization == nil, project == nil, cookie == nil {
+            return authorization.lowercased().hasPrefix("bearer ")
+                ? String(authorization.dropFirst(7)) : authorization
+        }
+        func quote(_ value: String) -> String {
+            "'" + value.replacingOccurrences(of: "'", with: "'\\''") + "'"
+        }
+        var requestHeaders = headers
+        requestHeaders["authorization"] = authorization
+        if let organization { requestHeaders["bigmodel-organization"] = organization }
+        if let project { requestHeaders["bigmodel-project"] = project }
+        var parts = ["curl", quote(apiURL)]
+        for name in requestHeaders.keys.sorted() {
+            parts += ["-H", quote(name + ": " + requestHeaders[name]!)]
+        }
+        if let cookie { parts += ["-b", quote(cookie)] }
+        return parts.joined(separator: " ")
+    }
+
     static func parse(_ input: String) throws -> GLMCredential {
         let trimmed = input.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else {
@@ -70,8 +93,8 @@ struct GLMCredential: Codable {
         }
 
         return GLMCredential(
-            apiURL: defaultAPIURL,
-            authorization: trimmed,
+            apiURL: apiKeyURL,
+            authorization: trimmed.lowercased().hasPrefix("bearer ") ? trimmed : "Bearer \(trimmed)",
             organization: nil,
             project: nil,
             cookie: nil,

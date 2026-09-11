@@ -7,7 +7,7 @@ enum UsageProvider: String, CaseIterable, Codable, Identifiable {
     case kimi = "kimi"
 
     static var allCases: [UsageProvider] {
-        [.miniMax, .codex, .kimi]
+        [.miniMax, .codex, .kimi, .glm]
     }
 
     var id: String { rawValue }
@@ -31,7 +31,7 @@ enum UsageProvider: String, CaseIterable, Codable, Identifiable {
     }
 
     var usesCurlCredential: Bool {
-        false
+        self == .glm
     }
 
     /// 老 chatGPTCredential keychain account，用于一次性迁移

@@ -256,7 +256,7 @@ enum AppLanguage: String, CaseIterable, Codable, Identifiable {
         case (.english, .miniMax):
             return "MiniMax API key"
         case (.english, .glm):
-            return "Paste GLM quota curl command"
+            return "GLM Coding Plan API key or quota cURL"
         case (.english, .codex):
             return "Codex account email"
         case (.english, .kimi):
@@ -264,7 +264,7 @@ enum AppLanguage: String, CaseIterable, Codable, Identifiable {
         case (.simplifiedChinese, .miniMax):
             return "MiniMax API Key"
         case (.simplifiedChinese, .glm):
-            return "粘贴 GLM 额度接口 curl 命令"
+            return "GLM Coding Plan API Key 或额度接口 cURL"
         case (.simplifiedChinese, .codex):
             return "Codex 账号邮箱"
         case (.simplifiedChinese, .kimi):
@@ -277,7 +277,7 @@ enum AppLanguage: String, CaseIterable, Codable, Identifiable {
         case (.english, .miniMax):
             return "Use the bearer token for the MiniMax coding plan remains endpoint."
         case (.english, .glm):
-            return "Required fields are the quota endpoint URL and authorization header; organization, project, and cookie are preserved when present."
+            return "Enter a personal Coding Plan API key, stored in Keychain. You can also paste a cURL copied from the usage page’s quota/limit request; copy it again when the web session expires."
         case (.english, .codex):
             return "Codex is configured through the codexbar subsystem. Use the Codex section above to manage accounts and source mode."
         case (.english, .kimi):
@@ -285,7 +285,7 @@ enum AppLanguage: String, CaseIterable, Codable, Identifiable {
         case (.simplifiedChinese, .miniMax):
             return "填入 MiniMax coding plan remains 接口使用的 Bearer token。"
         case (.simplifiedChinese, .glm):
-            return "至少需要额度接口 URL 和 authorization 头；如果 curl 里有组织、项目和 cookie，也会一并保存用于请求。"
+            return "填写个人版 Coding Plan API Key，凭据保存在钥匙串。也支持粘贴用量页面中 quota/limit 请求的 cURL；网页会话过期后需重新复制。"
         case (.simplifiedChinese, .codex):
             return "Codex 通过 codexbar 子系统配置。请使用上方的 Codex 区管理账号和数据源模式。"
         case (.simplifiedChinese, .kimi):

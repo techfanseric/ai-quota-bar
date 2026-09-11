@@ -6,9 +6,14 @@ import SwiftUI
 struct ProvidersPane: View {
     @Bindable var viewModel: UsageViewModel
 
+    @State private var savedCredentials: [UsageProvider: String] = [:]
     @State private var selectedProvider: UsageProvider? = nil
     @State private var miniMaxCredential: String = ""
     @State private var miniMaxInputID: UUID = UUID()
+    @State private var glmCredential: String = ""
+    @State private var glmInputID: UUID = UUID()
+    @State private var glmTestResult: InlineFeedback? = nil
+    @State private var isTestingGLM: Bool = false
     @State private var kimiCredential: String = ""
     @State private var kimiInputID: UUID = UUID()
     @State private var codexSourceMode: CodexDataSourceMode = .default
@@ -39,16 +44,21 @@ struct ProvidersPane: View {
             ProviderDetailView(
                 provider: currentProvider,
                 viewModel: viewModel,
+                savedCredentials: savedCredentials,
                 miniMaxCredential: $miniMaxCredential,
                 kimiCredential: $kimiCredential,
+                glmCredential: $glmCredential,
                 codexSourceMode: $codexSourceMode,
                 codexAccounts: codexAccounts,
                 miniMaxTestResult: miniMaxTestResult,
                 kimiTestResult: kimiTestResult,
+                glmTestResult: glmTestResult,
                 isTestingMiniMax: isTestingMiniMax,
                 isTestingKimi: isTestingKimi,
+                isTestingGLM: isTestingGLM,
                 miniMaxInputID: miniMaxInputID,
                 kimiInputID: kimiInputID,
+                glmInputID: glmInputID,
                 onTestConnection: testConnection,
                 onSaveCredential: saveCredential,
                 onAddCodexAccount: addCodexAccount,
@@ -61,6 +71,9 @@ struct ProvidersPane: View {
         .onAppear {
             loadFromViewModel()
         }
+        .onChange(of: miniMaxCredential) { _, _ in miniMaxTestResult = nil }
+        .onChange(of: kimiCredential) { _, _ in kimiTestResult = nil }
+        .onChange(of: glmCredential) { _, _ in glmTestResult = nil }
     }
 
     // MARK: - Sidebar
@@ -137,6 +150,10 @@ struct ProvidersPane: View {
         miniMaxInputID = UUID()
         kimiCredential = KeychainService.shared.getCredential(for: .kimi) ?? ""
         kimiInputID = UUID()
+        let storedGLM = KeychainService.shared.getCredential(for: .glm) ?? ""
+        glmCredential = (try? GLMCredential.parse(storedGLM).editableString) ?? storedGLM
+        savedCredentials = [.miniMax: miniMaxCredential, .kimi: kimiCredential, .glm: glmCredential]
+        glmInputID = UUID()
         codexSourceMode = CodexService.shared.sourceMode
         codexAccounts = CodexAccountCoordinator.shared.listAccountDrafts()
     }
@@ -175,6 +192,7 @@ struct ProvidersPane: View {
         if trimmedCredential.isEmpty {
             let success = KeychainService.shared.deleteCredential(for: provider)
             if success {
+                savedCredentials[provider] = credential
                 setFeedback(InlineFeedback(kind: .success, message: language.text(.settingsSaved)), for: provider)
                 Task { await viewModel.refresh() }
             } else {
@@ -194,6 +212,7 @@ struct ProvidersPane: View {
         }
         let success = KeychainService.shared.saveCredential(preparedCredential, for: provider)
         if success {
+            savedCredentials[provider] = credential
             setFeedback(InlineFeedback(kind: .success, message: language.text(.settingsSaved)), for: provider)
             Task { await viewModel.refresh() }
         } else {
@@ -206,7 +225,7 @@ struct ProvidersPane: View {
         switch provider {
         case .miniMax: return miniMaxCredential
         case .codex: return ""
-        case .glm: return ""
+        case .glm: return glmCredential
         case .kimi: return kimiCredential
         }
     }
@@ -215,7 +234,7 @@ struct ProvidersPane: View {
         switch provider {
         case .miniMax: miniMaxTestResult = feedback
         case .codex: break
-        case .glm: break
+        case .glm: glmTestResult = feedback
         case .kimi: kimiTestResult = feedback
         }
     }
@@ -224,7 +243,7 @@ struct ProvidersPane: View {
         switch provider {
         case .miniMax: isTestingMiniMax = isTesting
         case .codex: break
-        case .glm: break
+        case .glm: isTestingGLM = isTesting
         case .kimi: isTestingKimi = isTesting
         }
     }

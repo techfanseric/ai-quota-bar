@@ -1,17 +1,24 @@
 import SwiftUI
 
-/// 单个 provider 的凭据 section。codexbar 风格：input + 描述 + 测试/反馈。
 @MainActor
 struct ProviderCredentialSection: View {
     let provider: UsageProvider
     @Binding var credential: String
+    let savedCredential: String
     let inputID: UUID
     let language: AppLanguage
     let isTesting: Bool
     let feedback: InlineFeedback?
     var allowsEmptyCredentialTest: Bool = false
     let onTest: () -> Void
-    let onSave: () -> Void
+    let onSave: () -> Bool
+
+    @State private var fieldRevision = UUID()
+
+    private var hasChanges: Bool {
+        return credential != savedCredential
+    }
+    private var isChinese: Bool { language == .simplifiedChinese }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
@@ -20,46 +27,52 @@ struct ProviderCredentialSection: View {
                 credential: $credential,
                 language: language
             )
-            .id(inputID)
+            .id(fieldRevision)
+            .disabled(isTesting)
 
             Text(language.credentialHelpText(for: provider))
-                .font(.footnote)
-                .foregroundStyle(.tertiary)
+                .font(.callout)
+                .foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
 
-            HStack(spacing: 10) {
-                Button {
-                    onSave()
-                } label: {
-                    Label(language.text(.saveChanges), systemImage: "checkmark.circle")
+            HStack(spacing: 8) {
+                Button(language.text(.saveChanges)) {
+                    if onSave() {
+                        fieldRevision = UUID()
+                    }
                 }
                 .buttonStyle(.borderedProminent)
-                .controlSize(.small)
-                .disabled(isTesting)
+                .disabled(isTesting || !hasChanges)
 
-                Button {
-                    onTest()
-                } label: {
-                    Label(language.text(.testConnection), systemImage: "bolt.horizontal.circle")
+                Button(language.text(.testConnection), action: onTest)
+                    .buttonStyle(.bordered)
+                    .disabled(isTesting || (!allowsEmptyCredentialTest
+                        && credential.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty))
+
+                if hasChanges {
+                    Button(isChinese ? "撤销修改" : "Revert Changes") {
+                        credential = savedCredential
+                        fieldRevision = UUID()
+                    }
+                    .buttonStyle(.bordered)
+                    .disabled(isTesting)
                 }
-                .buttonStyle(.bordered)
-                .controlSize(.small)
-                .disabled(
-                    (!allowsEmptyCredentialTest
-                        && credential.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
-                        || isTesting)
 
                 if isTesting {
                     ProgressView()
                         .controlSize(.small)
-                }
-
-                Spacer()
-
-                if let feedback {
-                    InlineFeedbackView(feedback: feedback)
+                        .accessibilityLabel(isChinese ? "正在测试连接" : "Testing connection")
                 }
             }
+            .controlSize(.regular)
+
+            if let feedback {
+                InlineFeedbackView(feedback: feedback)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+            }
+        }
+        .onChange(of: inputID) { _, _ in
+            fieldRevision = UUID()
         }
     }
 }
