@@ -1,145 +1,67 @@
 import AppKit
 import SwiftUI
 
-/// Provider 凭据输入框。支持 mask 显示与编辑模式切换；CURL 类 provider 提供粘贴/全选辅助。
+/// A stable native field for both API keys and imported request credentials.
 @MainActor
 struct CredentialInputField: View {
     let provider: UsageProvider
     @Binding var credential: String
     let language: AppLanguage
 
-    @State private var isEditing: Bool = false
-    @State private var draftKey: String = ""
-    @FocusState private var isTextEditorFocused: Bool
-
-    private var maskedKey: String {
-        let trimmed = credential.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard trimmed.count > 8 else { return trimmed }
-        let prefix = String(trimmed.prefix(6))
-        let suffix = String(trimmed.suffix(4))
-        return "\(prefix)…\(suffix)"
-    }
+    @State private var isRevealed = false
+    @FocusState private var focusedField: Field?
+    private enum Field: Hashable { case secure, revealed }
+    private var isChinese: Bool { language == .simplifiedChinese }
 
     var body: some View {
-        HStack(spacing: 8) {
-            if credential.isEmpty || isEditing {
-                if provider.usesCurlCredential {
-                    VStack(alignment: .trailing, spacing: 8) {
-                        TextEditor(text: $draftKey)
-                            .font(.system(size: 11, design: .monospaced))
-                            .scrollContentBackground(.hidden)
-                            .focused($isTextEditorFocused)
-                            .frame(maxWidth: .infinity, minHeight: 88, maxHeight: 88, alignment: .topLeading)
-                            .padding(8)
-                            .background(
-                                RoundedRectangle(cornerRadius: 6, style: .continuous)
-                                    .fill(Color(nsColor: .textBackgroundColor))
-                            )
-                            .overlay(alignment: .topLeading) {
-                                if draftKey.isEmpty {
-                                    Text(language.credentialPlaceholder(for: provider))
-                                        .font(.system(size: 11, design: .monospaced))
-                                        .foregroundStyle(.tertiary)
-                                        .padding(.horizontal, 14)
-                                        .padding(.vertical, 16)
-                                        .allowsHitTesting(false)
-                                }
-                            }
-                            .overlay(
-                                RoundedRectangle(cornerRadius: 6, style: .continuous)
-                                    .stroke(Color.primary.opacity(0.15), lineWidth: 1)
-                            )
-                            .onChange(of: draftKey) { _, newValue in
-                                credential = newValue
-                            }
+        VStack(alignment: .leading, spacing: 8) {
+            Text(provider == .kimi
+                 ? (isChinese ? "API Key（可选）" : "API key (optional)")
+                 : (isChinese ? "API Key" : "API key"))
+                .font(.body.weight(.medium))
 
-                        HStack(spacing: 8) {
-                            Button {
-                                selectAllText()
-                            } label: {
-                                Label(language.selectAllText(), systemImage: "selection.pin.in.out")
-                            }
-                            .buttonStyle(.bordered)
-                            .controlSize(.small)
-
-                            Button {
-                                pasteFromClipboard()
-                            } label: {
-                                Label(language.pasteFromClipboardText(), systemImage: "doc.on.clipboard")
-                            }
-                            .buttonStyle(.bordered)
-                            .controlSize(.small)
-                        }
+            HStack(spacing: 8) {
+                Group {
+                    if isRevealed {
+                        TextField(language.credentialPlaceholder(for: provider), text: $credential)
+                            .focused($focusedField, equals: .revealed)
+                    } else {
+                        SecureField(language.credentialPlaceholder(for: provider), text: $credential)
+                            .focused($focusedField, equals: .secure)
                     }
-                    .frame(maxWidth: .infinity)
-                    .onAppear {
-                        if draftKey.isEmpty {
-                            draftKey = credential
-                        }
-                        isEditing = true
-                    }
-                } else {
-                    TextField(language.credentialPlaceholder(for: provider), text: $draftKey)
-                        .textFieldStyle(.roundedBorder)
-                        .frame(maxWidth: .infinity)
-                        .onChange(of: draftKey) { _, newValue in
-                            credential = newValue
-                        }
-                        .onAppear {
-                            if draftKey.isEmpty {
-                                draftKey = credential
-                            }
-                            isEditing = true
-                        }
                 }
-            } else {
-                Text(maskedKey)
-                    .font(.system(size: 13, design: .monospaced))
-                    .foregroundStyle(.secondary)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .padding(.horizontal, 12)
-                    .padding(.vertical, 8)
-                    .background(
-                        RoundedRectangle(cornerRadius: 6, style: .continuous)
-                            .fill(Color(nsColor: .textBackgroundColor))
-                    )
-                    .overlay(
-                        RoundedRectangle(cornerRadius: 6, style: .continuous)
-                            .stroke(Color.primary.opacity(0.15), lineWidth: 1)
-                    )
+                .textFieldStyle(.roundedBorder)
+                .controlSize(.large)
+                .autocorrectionDisabled()
+                .accessibilityLabel(provider.displayName + " API Key")
+                .frame(maxWidth: .infinity)
 
                 Button {
-                    credential = ""
-                    draftKey = ""
-                    isEditing = true
+                    isRevealed.toggle()
+                    focusedField = isRevealed ? .revealed : .secure
                 } label: {
-                    Image(systemName: "xmark.circle.fill")
-                        .foregroundStyle(.secondary)
+                    Image(systemName: isRevealed ? "eye.slash" : "eye")
+                        .frame(width: 20, height: 20)
                 }
-                .buttonStyle(.plain)
+                .help(isRevealed
+                      ? (isChinese ? "隐藏凭据" : "Hide credential")
+                      : (isChinese ? "显示凭据" : "Show credential"))
+                .accessibilityLabel(isRevealed
+                                    ? (isChinese ? "隐藏凭据" : "Hide credential")
+                                    : (isChinese ? "显示凭据" : "Show credential"))
+                .disabled(credential.isEmpty)
+
+                Button(isChinese ? "粘贴" : "Paste") {
+                    guard let value = NSPasteboard.general.string(forType: .string) else { return }
+                    credential = value.trimmingCharacters(in: .whitespacesAndNewlines)
+                    isRevealed = false
+                    focusedField = .secure
+                }
+                .help(language.pasteFromClipboardText())
             }
+            .buttonStyle(.bordered)
+            .controlSize(.regular)
         }
-    }
-
-    private func pasteFromClipboard() {
-        guard let string = NSPasteboard.general.string(forType: .string),
-              !string.isEmpty else {
-            return
-        }
-
-        draftKey = string
-        credential = string
-        isEditing = true
-    }
-
-    private func selectAllText() {
-        if draftKey.isEmpty {
-            draftKey = credential
-        }
-
-        isTextEditorFocused = true
-        DispatchQueue.main.async {
-            NSApp.sendAction(#selector(NSText.selectAll(_:)), to: nil, from: nil)
-        }
+        .onDisappear { isRevealed = false }
     }
 }

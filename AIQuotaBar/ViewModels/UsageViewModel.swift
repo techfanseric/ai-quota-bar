@@ -971,7 +971,7 @@ final class UsageViewModel {
         case .miniMax:
             return true
         case .glm:
-            return false
+            return true
         case .kimi:
             return true
         }

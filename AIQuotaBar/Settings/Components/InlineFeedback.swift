@@ -17,12 +17,12 @@ struct InlineFeedbackView: View {
     let feedback: InlineFeedback
 
     var body: some View {
-        HStack(spacing: 6) {
+        HStack(alignment: .firstTextBaseline, spacing: 6) {
             Image(systemName: symbolName)
                 .font(.system(size: 11, weight: .semibold))
             Text(feedback.message)
-                .font(.system(size: 11))
-                .lineLimit(2)
+                .font(.callout)
+                .fixedSize(horizontal: false, vertical: true)
         }
         .foregroundStyle(color)
     }

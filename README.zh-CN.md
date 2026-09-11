@@ -127,6 +127,10 @@ kimi
 
 AI Quota Bar 会在本地 PTY 中向真实 CLI 发送 `/status` 来读取配额。这个本地斜杠指令不会创建模型对话或消耗上下文 Token，登录刷新仍由官方 CLI 负责。也可以选择把 Kimi Code API Key 存入 macOS 钥匙串。
 
+### GLM
+
+打开“Settings → Providers → GLM”，填写个人版 GLM Coding Plan API Key，测试连接后保存。支持 5 小时与周积分额度，凭据保存在 macOS 钥匙串。也可在[GLM 用量页面](https://bigmodel.cn/coding-plan/personal/usage)的 DevTools → Network 中复制 `quota/limit` 请求为 cURL 后粘贴；网页会话过期后需重新复制。详见[接口字段说明](./docs/glm-api-field-mapping.md)。
+
 ### MiniMax
 
 打开“Settings → Providers → MiniMax”，粘贴你的 MiniMax 编程套餐 token，然后刷新。Token 会留在 macOS 钥匙串中。
@@ -149,7 +153,7 @@ Mobile Dashboard 是为常亮监控设计的：
 
 AI Quota Bar 不只是显示一个百分比。它会把剩余配额、重置时间和近期消耗放在一起，让你判断现在适不适合开始一个大任务，是否需要放慢使用速度，或者换到另一个账户继续。
 
-- 在同一个菜单里查看 Codex、Kimi 与 MiniMax，包括多个 Codex 账户。
+- 在同一个菜单里查看 Codex、Kimi、GLM 与 MiniMax，包括多个 Codex 账户。
 - 同时看到 **5h** 这类短周期和 **Weekly** 这类长周期限制。
 - 从趋势线看出配额下降速度。
 - 用“盈余/透支”判断当前节奏能否坚持到重置。
@@ -216,7 +220,7 @@ AI Quota Bar 不只是显示一个百分比。它会把剩余配额、重置时�
 - 用本地报告检查保存了什么。
 - 单独删除一个账户，或清空全部本地/云端历史。
 
-云同步默认关闭。它会上传配额元数据和账户标签，但不会上传 Kimi、MiniMax 或 Codex 凭证。准确的数据边界见下一节。
+云同步默认关闭。它会上传配额元数据和账户标签，但不会上传 Kimi、GLM、MiniMax 或 Codex 凭证。准确的数据边界见下一节。
 
 ## 隐私与安全边界
 
