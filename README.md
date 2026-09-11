@@ -23,13 +23,14 @@ AI coding work is hard to manage when quota, network routes, and Mac sleep setti
   <img src="./docs/images/control-center.png" alt="AI Quota Bar control center" width="342">
 </p>
 
-## What’s new in v1.15.0
+## What’s new in v1.16.0
 
-- **GLM Coding Plan support.** Use a personal API key or an imported usage-page cURL and monitor five-hour and weekly credit limits.
-- **Cleaner credential editing.** Provider API keys now use one native secure field with reveal, paste, and revert actions.
-- **Existing data remains compatible.** Stored GLM web credentials and legacy Tokens and MCP/Search responses continue to work; credentials stay in Keychain or the provider CLI's local storage.
+- **Choose your Ring combination.** Display mode and provider selection are now separate: select any combination of Codex, Kimi, MiniMax, and GLM, or select all.
+- **MiniMax and GLM quota rings.** Show their latest remaining quota without task tracking; GLM prioritizes its five-hour window, including an exhausted 0% ring.
+- **Provider switches stay in sync.** Disabled providers are excluded from Ring options and Select all. Existing selections migrate automatically.
+- **Work-aware display.** Selected MiniMax and GLM remain visible while Codex/Kimi follow task activity, with the lowest remaining selected Codex/Kimi quota shown while idle.
 
-See the [v1.15.0 release notes](./docs/releases/v1.15.0.md) for the complete change and validation details.
+See the [v1.16.0 release notes](./docs/releases/v1.16.0.md) for the complete change and validation details.
 
 ## What it helps you do
 

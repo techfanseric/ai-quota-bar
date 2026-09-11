@@ -88,6 +88,48 @@ final class UsageViewModel {
         }
     }
 
+    var menuBarRingDisplayMode: MenuBarRingDisplayMode {
+        didSet {
+            saveRingPreferences()
+            updateStatusBarText()
+        }
+    }
+
+    var menuBarRingSelectedProviders: Set<UsageProvider> {
+        didSet {
+            saveRingPreferences()
+            updateStatusBarText()
+        }
+    }
+
+    private func saveRingPreferences() {
+        UserDefaults.standard.set(menuBarRingDisplayMode.rawValue,
+                                  forKey: MenuBarRingDisplayMode.storageKey)
+        UserDefaults.standard.set(menuBarRingSelectedProviders.map(\.rawValue).sorted(),
+                                  forKey: MenuBarRingPreferences.providersKey)
+    }
+
+    var availableMenuBarRingProviders: [UsageProvider] {
+        MenuBarRingPreferences.providerOrder.filter(isProviderEnabled)
+    }
+
+    var enabledMenuBarRingSelection: Set<UsageProvider> {
+        menuBarRingSelectedProviders.intersection(availableMenuBarRingProviders)
+    }
+
+    func selectAllMenuBarRingProviders() {
+        menuBarRingSelectedProviders = Set(availableMenuBarRingProviders)
+    }
+
+    func setMenuBarRingProvider(_ provider: UsageProvider, selected: Bool) {
+        guard isProviderEnabled(provider) else { return }
+        if selected {
+            menuBarRingSelectedProviders.insert(provider)
+        } else if enabledMenuBarRingSelection.count > 1 {
+            menuBarRingSelectedProviders.remove(provider)
+        }
+    }
+
     var menuBarAppearance: MenuBarAppearance {
         didSet {
             UserDefaults.standard.set(menuBarAppearance.rawValue, forKey: MenuBarAppearance.storageKey)
@@ -304,43 +346,59 @@ final class UsageViewModel {
         candidates: [ModelUsageData],
         models: [ModelUsageData]
     ) -> [MenuBarSnapshot] {
-        guard menuBarAppearance == .compactRing,
-              menuBarContentSelection == .all
-                || menuBarContentSelection == .automatic else {
-            return [primarySnapshot]
-        }
-
-        let displayOrder: [UsageProvider] = [.codex, .kimi]
-        let snapshots = displayOrder.compactMap { provider -> MenuBarSnapshot? in
-            guard let primary = pickPrimary(
-                from: candidates.filter { $0.provider == provider }) else {
-                return nil
-            }
-            return makeMenuBarSnapshot(primary: primary, models: models)
-        }
-        return snapshots
+        guard menuBarAppearance == .compactRing else { return [primarySnapshot] }
+        return allProviderRingSnapshots(models: models, defaultState: .unavailable)
     }
 
     private func compactMenuBarStateSnapshots(
         fallback: MenuBarSnapshot,
         defaultState: MenuBarSnapshotState
     ) -> [MenuBarSnapshot] {
-        guard menuBarAppearance == .compactRing,
-              menuBarContentSelection == .all
-                || menuBarContentSelection == .automatic else {
-            return [fallback]
-        }
+        guard menuBarAppearance == .compactRing else { return [fallback] }
+        return allProviderRingSnapshots(
+            models: usageData?.models ?? [], defaultState: defaultState)
+    }
 
-        let registered = taskProtectionProviders
-        let providers = [UsageProvider.codex, .kimi].filter {
-            registered.contains($0)
+    /// Always-on rings depend on quota registration, not task tracking support.
+    /// Keep exhausted windows visible so 0% never makes a provider disappear.
+    private func allProviderRingSnapshots(
+        models: [ModelUsageData],
+        defaultState: MenuBarSnapshotState
+    ) -> [MenuBarSnapshot] {
+        let now = Date()
+        let registered = Set(configuredProviders).union(models.map(\.provider))
+        let selected = availableMenuBarRingProviders.filter {
+            menuBarRingSelectedProviders.contains($0)
         }
-        return (providers.isEmpty ? [.codex] : providers).map { provider in
-            let state: MenuBarSnapshotState = providerErrors[provider] == nil
-                ? defaultState
-                : .failed
-            return makeMenuBarStateSnapshot(provider: provider, state: state)
+        let visible = selected.filter { registered.contains($0) && isProviderEnabled($0) }
+        // Preserve access to settings even before any selected provider is configured.
+        guard !visible.isEmpty else {
+            return [makeMenuBarStateSnapshot(
+                provider: selected.first ?? availableMenuBarRingProviders.first ?? .codex, state: defaultState)]
         }
+        return visible.map { provider in
+                let currentModels = models.filter {
+                    $0.provider == provider
+                        && ($0.endTime.map { $0 > now } ?? true)
+                        && ($0.startTime.map { $0 <= now } ?? true)
+                }.sorted {
+                    let lhsPriority = menuBarSourcePriority($0.parsedDetail.source)
+                    let rhsPriority = menuBarSourcePriority($1.parsedDetail.source)
+                    if lhsPriority != rhsPriority { return lhsPriority < rhsPriority }
+                    return ($0.endTime ?? .distantFuture) < ($1.endTime ?? .distantFuture)
+                }
+                let primary = provider == .glm
+                    ? currentModels.first(where: {
+                        $0.modelName.localizedCaseInsensitiveContains("5h")
+                    }) ?? pickPrimary(from: currentModels)
+                    : pickPrimary(from: currentModels)
+                if let primary {
+                    return makeMenuBarSnapshot(primary: primary, models: models)
+                }
+                return makeMenuBarStateSnapshot(
+                    provider: provider,
+                    state: providerErrors[provider] == nil ? defaultState : .failed)
+            }
     }
 
     private func makeMenuBarStateSnapshot(
@@ -730,6 +788,9 @@ final class UsageViewModel {
         self.menuBarContentSelection = UserDefaults.standard.string(forKey: MenuBarContentSelection.storageKey)
             .flatMap(MenuBarContentSelection.init(rawValue:))
             ?? .automatic
+        let ringPreferences = MenuBarRingPreferences.load(from: UserDefaults.standard)
+        self.menuBarRingDisplayMode = ringPreferences.mode
+        self.menuBarRingSelectedProviders = ringPreferences.providers
         self.menuBarAppearance = UserDefaults.standard.string(forKey: MenuBarAppearance.storageKey)
             .flatMap(MenuBarAppearance.init(rawValue:))
             ?? .detailedText

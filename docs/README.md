@@ -4,13 +4,14 @@
 
 ## 当前文档
 
-- [产品规格](./SPEC.md)：v1.15.0 的功能、数据来源、安全边界和设置结构。
+- [产品规格](./SPEC.md)：v1.16.0 的功能、数据来源、安全边界和设置结构。
 - [MiniMax API 字段](./api-field-mapping.md)：MiniMax 剩余额度字段与时间单位。
 - [GLM API 字段](./glm-api-field-mapping.md)：GLM API Key、网页 cURL、新旧额度类型及周期映射。
 - [云同步后端](../cloudflare/README.md)：Worker API、D1 结构、部署和迁移。
 
 ## 发布说明
 
+- [v1.16.0](./releases/v1.16.0.md)
 - [v1.15.0](./releases/v1.15.0.md)
 - [全部发布说明](https://github.com/techfanseric/ai-quota-bar/releases)
 

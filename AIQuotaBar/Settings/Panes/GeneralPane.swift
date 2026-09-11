@@ -47,17 +47,6 @@ struct GeneralPane: View {
     private var menuBarSection: some View {
         SettingsSection(title: language.menuBarSectionTitle(), contentSpacing: 12) {
             PreferencePickerRow(
-                title: language.menuBarContentLabel(),
-                subtitle: language.menuBarContentDescription(),
-                selection: $viewModel.menuBarContentSelection,
-                maxWidth: 160
-            ) {
-                ForEach(MenuBarContentSelection.allCases) { selection in
-                    Text(language.menuBarContentDisplayName(selection)).tag(selection)
-                }
-            }
-
-            PreferencePickerRow(
                 title: language.menuBarAppearanceLabel(),
                 subtitle: language.menuBarAppearanceDescription(),
                 selection: $viewModel.menuBarAppearance,
@@ -65,6 +54,21 @@ struct GeneralPane: View {
             ) {
                 ForEach(MenuBarAppearance.allCases) { appearance in
                     Text(language.menuBarAppearanceDisplayName(appearance)).tag(appearance)
+                }
+            }
+
+            if viewModel.menuBarAppearance == .compactRing {
+                ringContentControls
+            } else {
+                PreferencePickerRow(
+                    title: language.menuBarContentLabel(),
+                    subtitle: language.menuBarContentDescription(),
+                    selection: $viewModel.menuBarContentSelection,
+                    maxWidth: 160
+                ) {
+                    ForEach(MenuBarContentSelection.allCases) { selection in
+                        Text(language.menuBarContentDisplayName(selection)).tag(selection)
+                    }
                 }
             }
 
@@ -124,6 +128,48 @@ struct GeneralPane: View {
                     range: MenuBarCompactLayoutPreferences.ringSpacingRange)
             }
             .disabled(viewModel.menuBarAppearance != .compactRing)
+        }
+    }
+
+    private var ringContentControls: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            PreferencePickerRow(
+                title: language.ringDisplayModeLabel,
+                subtitle: language.ringDisplayModeDescription,
+                selection: $viewModel.menuBarRingDisplayMode,
+                maxWidth: 180
+            ) {
+                ForEach(MenuBarRingDisplayMode.allCases) { mode in
+                    Text(language.ringDisplayModeName(mode)).tag(mode)
+                }
+            }
+
+            HStack {
+                Text(language.ringProvidersLabel)
+                Spacer()
+                Button(language.ringSelectAllLabel) {
+                    viewModel.selectAllMenuBarRingProviders()
+                }
+                .disabled(viewModel.enabledMenuBarRingSelection.count == viewModel.availableMenuBarRingProviders.count)
+            }
+            ForEach(viewModel.availableMenuBarRingProviders, id: \.self) { provider in
+                HStack {
+                    Toggle(provider.displayName, isOn: Binding(
+                        get: { viewModel.menuBarRingSelectedProviders.contains(provider) },
+                        set: { viewModel.setMenuBarRingProvider(provider, selected: $0) }))
+                        .toggleStyle(.checkbox)
+                        .disabled(viewModel.enabledMenuBarRingSelection == Set([provider]))
+                    if provider == .miniMax || provider == .glm {
+                        Text(language.ringQuotaOnlyLabel)
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+                }
+            }
+            Text(language.ringProvidersDescription)
+                .font(.footnote)
+                .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
         }
     }
 

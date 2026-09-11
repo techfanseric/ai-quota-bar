@@ -349,6 +349,8 @@ final class MenuBarPresentationTests: XCTestCase {
         let defaults = UserDefaults.standard
         let keys = [
             MenuBarContentSelection.storageKey,
+            MenuBarRingDisplayMode.storageKey,
+            MenuBarRingPreferences.providersKey,
             MenuBarAppearance.storageKey,
             MenuBarPaceDisplayMode.storageKey,
             MenuBarRingQuotaWindow.storageKey,
@@ -378,6 +380,7 @@ final class MenuBarPresentationTests: XCTestCase {
         let fiveHour = makeModel(provider: .codex, name: "5h", remainingPercent: 80, now: now)
         let weekly = makeModel(provider: .codex, name: "Weekly", remainingPercent: 65, now: now)
         let viewModel = UsageViewModel()
+        viewModel.menuBarRingSelectedProviders = Set(MenuBarRingPreferences.providerOrder)
 
         viewModel.usageData = UsageData(
             provider: .codex,
@@ -416,6 +419,8 @@ final class MenuBarPresentationTests: XCTestCase {
         let defaults = UserDefaults.standard
         let keys = [
             MenuBarContentSelection.storageKey,
+            MenuBarRingDisplayMode.storageKey,
+            MenuBarRingPreferences.providersKey,
             MenuBarAppearance.storageKey,
             MenuBarRingQuotaWindow.storageKey,
             MenuBarReserveQuotaWindow.storageKey,
@@ -488,6 +493,8 @@ final class MenuBarPresentationTests: XCTestCase {
         let defaults = UserDefaults.standard
         let keys = [
             MenuBarContentSelection.storageKey,
+            MenuBarRingDisplayMode.storageKey,
+            MenuBarRingPreferences.providersKey,
             MenuBarAppearance.storageKey,
             MenuBarPaceDisplayMode.storageKey,
             MenuBarReserveQuotaWindow.storageKey,
@@ -515,6 +522,7 @@ final class MenuBarPresentationTests: XCTestCase {
         let codex = makeModel(provider: .codex, name: "5h", remainingPercent: 80, now: now)
         let miniMax = makeModel(provider: .miniMax, name: "MiniMax", remainingPercent: 10, now: now)
         let viewModel = UsageViewModel()
+        viewModel.menuBarRingSelectedProviders = Set(MenuBarRingPreferences.providerOrder)
 
         viewModel.usageData = UsageData(
             provider: .codex,
@@ -559,10 +567,12 @@ final class MenuBarPresentationTests: XCTestCase {
     }
 
     @MainActor
-    func testAutomaticCompactModeBuildsIndependentCodexAndKimiRings() {
+    func testAlwaysShowAllBuildsQuotaRingsIncludingMiniMaxAndGLM() {
         let defaults = UserDefaults.standard
         let keys = [
             MenuBarContentSelection.storageKey,
+            MenuBarRingDisplayMode.storageKey,
+            MenuBarRingPreferences.providersKey,
             MenuBarAppearance.storageKey,
             MenuBarRingQuotaWindow.storageKey,
             CloudSyncSettings.enabledKey,
@@ -617,59 +627,156 @@ final class MenuBarPresentationTests: XCTestCase {
             name: "MiniMax",
             remainingPercent: 23,
             now: now)
+        let glmFiveHour = makeModel(
+            provider: .glm,
+            name: "GLM Credits (5h)",
+            remainingPercent: 0,
+            now: now)
+        let glmWeekly = makeModel(
+            provider: .glm,
+            name: "GLM Credits (weekly)",
+            remainingPercent: 67,
+            now: now)
         let viewModel = UsageViewModel()
+        viewModel.menuBarRingSelectedProviders = Set(MenuBarRingPreferences.providerOrder)
 
         viewModel.usageData = UsageData(
             provider: .codex,
             remains: 3,
             total: 3,
             timestamp: now,
-            models: [miniMax, kimiFiveHour, kimiWeekly, codexFiveHour, codexWeekly],
+            models: [miniMax, glmWeekly, glmFiveHour, kimiFiveHour, kimiWeekly, codexFiveHour, codexWeekly],
             subscribeTitle: nil,
             subscribeEndTime: nil)
 
-        XCTAssertEqual(viewModel.menuBarSnapshots.map(\.provider), [.codex, .kimi])
-        XCTAssertEqual(viewModel.menuBarSnapshots.map(\.ringPercent), [65, 42])
+        XCTAssertEqual(viewModel.menuBarSnapshots.map(\.provider), [.codex, .kimi, .miniMax, .glm])
+        XCTAssertEqual(viewModel.menuBarSnapshots.map(\.ringPercent), [65, 42, 23, 0])
+        XCTAssertEqual(viewModel.menuBarSnapshots.last?.modelName, "GLM Credits (5h)")
+        XCTAssertEqual(viewModel.menuBarSnapshots.last?.state, .ready)
 
-        viewModel.menuBarContentSelection = .kimi
+        viewModel.menuBarRingDisplayMode = .automatic
+        XCTAssertEqual(viewModel.menuBarSnapshots.map(\.provider), [.codex, .kimi, .miniMax, .glm])
+
+        viewModel.menuBarRingSelectedProviders = [.miniMax, .glm]
+        XCTAssertEqual(viewModel.menuBarSnapshots.map(\.provider), [.miniMax, .glm])
+        XCTAssertEqual(MenuBarCompactSnapshotSelector.select(
+            mode: .automatic, snapshots: viewModel.menuBarSnapshots,
+            activeProviders: [.codex]).map(\.provider), [.miniMax, .glm])
+        XCTAssertEqual(MenuBarRingPreferences.load(from: defaults).providers, [.miniMax, .glm])
+        XCTAssertEqual(MenuBarRingPreferences.load(from: defaults).mode, .automatic)
+        viewModel.setMenuBarRingProvider(.miniMax, selected: false)
+        viewModel.setMenuBarRingProvider(.glm, selected: false)
+        XCTAssertEqual(viewModel.menuBarRingSelectedProviders, [.glm])
+
+        viewModel.menuBarRingSelectedProviders = [.kimi]
         XCTAssertEqual(viewModel.menuBarSnapshots.map(\.provider), [.kimi])
         XCTAssertEqual(viewModel.menuBarSnapshots.first?.ringPercent, 42)
+
+        // With no positive quota, the normal primary-model path has no candidate.
+        // Always Show All must still render GLM's exhausted quota as a ready ring.
+        viewModel.menuBarRingSelectedProviders = [.glm]
+        viewModel.menuBarRingDisplayMode = .all
+        viewModel.usageData = UsageData(
+            provider: .glm,
+            remains: 0,
+            total: 1,
+            timestamp: now,
+            models: [glmFiveHour],
+            subscribeTitle: nil,
+            subscribeEndTime: nil)
+        let exhausted = viewModel.menuBarSnapshots.first { $0.provider == .glm }
+        XCTAssertEqual(exhausted?.ringPercent, 0)
+        XCTAssertEqual(exhausted?.state, .ready)
+    }
+
+    @MainActor
+    func testRingOptionsAndSelectAllRespectPausedProviders() {
+        let defaults = UserDefaults.standard
+        let keys = [MenuBarRingPreferences.providersKey, MenuBarRingDisplayMode.storageKey,
+                    UsageViewModel.pausedProvidersKey, CloudSyncSettings.enabledKey]
+        let previous = keys.map { ($0, defaults.object(forKey: $0)) }
+        defer {
+            for (key, value) in previous {
+                if let value { defaults.set(value, forKey: key) }
+                else { defaults.removeObject(forKey: key) }
+            }
+        }
+        defaults.set(false, forKey: CloudSyncSettings.enabledKey)
+        defaults.set([UsageProvider.kimi.rawValue], forKey: UsageViewModel.pausedProvidersKey)
+        let model = UsageViewModel()
+        model.menuBarRingSelectedProviders = [.kimi, .glm]
+        XCTAssertEqual(model.availableMenuBarRingProviders, [.codex, .miniMax, .glm])
+        model.setMenuBarRingProvider(.glm, selected: false)
+        XCTAssertEqual(model.enabledMenuBarRingSelection, [.glm])
+        model.selectAllMenuBarRingProviders()
+        XCTAssertEqual(model.menuBarRingSelectedProviders, [.codex, .miniMax, .glm])
+        model.setMenuBarRingProvider(.kimi, selected: true)
+        XCTAssertFalse(model.menuBarRingSelectedProviders.contains(.kimi))
+        model.setProviderEnabled(true, provider: .kimi)
+        XCTAssertTrue(model.availableMenuBarRingProviders.contains(.kimi))
+    }
+
+    func testRingPreferencesMigrateLegacySelectionsAndRestoreCustomCombination() {
+        let suite = "RingPreferencesTests.\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suite)!
+        defer { defaults.removePersistentDomain(forName: suite) }
+        for legacy in MenuBarContentSelection.allCases {
+            defaults.set(legacy.rawValue, forKey: MenuBarContentSelection.storageKey)
+            let preferences = MenuBarRingPreferences.load(from: defaults)
+            XCTAssertEqual(preferences.mode, legacy == .automatic ? .automatic : .all)
+            XCTAssertEqual(preferences.providers,
+                           legacy.provider.map { Set([$0]) } ?? Set(MenuBarRingPreferences.providerOrder))
+        }
+        defaults.set("automatic", forKey: MenuBarRingDisplayMode.storageKey)
+        defaults.set(["minimax", "glm"], forKey: MenuBarRingPreferences.providersKey)
+        let restored = MenuBarRingPreferences.load(from: defaults)
+        XCTAssertEqual(restored.mode, .automatic)
+        XCTAssertEqual(restored.providers, [.miniMax, .glm])
+        defaults.set(["unknown-provider"], forKey: MenuBarRingPreferences.providersKey)
+        XCTAssertFalse(MenuBarRingPreferences.load(from: defaults).providers.isEmpty)
     }
 
     func testCompactSelectionSupportsAlwaysWorkAwareAndFixedModes() {
         let codex = makeSnapshot(provider: .codex, ringPercent: 65)
         let kimi = makeSnapshot(provider: .kimi, ringPercent: 42)
         let miniMax = makeSnapshot(provider: .miniMax, ringPercent: 10)
-        let snapshots = [codex, kimi, miniMax]
+        let glm = makeSnapshot(provider: .glm, ringPercent: 0)
+        let snapshots = [codex, kimi, miniMax, glm]
 
         XCTAssertEqual(
             MenuBarCompactSnapshotSelector.select(
-                selection: .all,
+                mode: .all,
                 snapshots: snapshots,
                 activeProviders: []),
-            [codex, kimi])
+            snapshots)
         XCTAssertEqual(
             MenuBarCompactSnapshotSelector.select(
-                selection: .automatic,
-                snapshots: snapshots,
-                activeProviders: [.codex, .kimi]),
-            [codex, kimi])
-        XCTAssertEqual(
-            MenuBarCompactSnapshotSelector.select(
-                selection: .automatic,
+                mode: .all,
                 snapshots: snapshots,
                 activeProviders: [.kimi]),
-            [kimi])
+            snapshots)
         XCTAssertEqual(
             MenuBarCompactSnapshotSelector.select(
-                selection: .automatic,
+                mode: .automatic,
+                snapshots: snapshots,
+                activeProviders: [.codex, .kimi]),
+            [codex, kimi, miniMax, glm])
+        XCTAssertEqual(
+            MenuBarCompactSnapshotSelector.select(
+                mode: .automatic,
+                snapshots: snapshots,
+                activeProviders: [.kimi]),
+            [kimi, miniMax, glm])
+        XCTAssertEqual(
+            MenuBarCompactSnapshotSelector.select(
+                mode: .automatic,
                 snapshots: snapshots,
                 activeProviders: []),
-            [kimi],
-            "Idle work-aware mode should ignore MiniMax and show the lowest remaining supported provider.")
+            [kimi, miniMax, glm],
+            "Idle mode keeps quota-only providers alongside the lowest remaining tracked provider.")
         XCTAssertEqual(
             MenuBarCompactSnapshotSelector.select(
-                selection: .miniMax,
+                mode: .all,
                 snapshots: [miniMax],
                 activeProviders: []),
             [miniMax])
@@ -739,6 +846,8 @@ final class MenuBarPresentationTests: XCTestCase {
         let defaults = UserDefaults.standard
         let keys = [
             MenuBarContentSelection.storageKey,
+            MenuBarRingDisplayMode.storageKey,
+            MenuBarRingPreferences.providersKey,
             MenuBarAppearance.storageKey,
             CloudSyncSettings.enabledKey,
         ]
@@ -767,7 +876,7 @@ final class MenuBarPresentationTests: XCTestCase {
         viewModel.isLoading = true
         viewModel.usageData = nil
         let displayed = MenuBarCompactSnapshotSelector.select(
-            selection: .automatic,
+            mode: .automatic,
             snapshots: viewModel.menuBarSnapshots,
             activeProviders: [])
 

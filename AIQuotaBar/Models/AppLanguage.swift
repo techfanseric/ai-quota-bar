@@ -1380,6 +1380,34 @@ enum AppLanguage: String, CaseIterable, Codable, Identifiable {
         }
     }
 
+    var ringDisplayModeLabel: String {
+        self == .english ? "Display mode" : "显示方式"
+    }
+
+    var ringDisplayModeDescription: String {
+        self == .english
+            ? "Work-aware follows Codex/Kimi activity; selected MiniMax and GLM quotas stay visible."
+            : "工作感知根据 Codex/Kimi 的任务活动显示；选中的 MiniMax 和 GLM 额度保持常驻。"
+    }
+
+    func ringDisplayModeName(_ mode: MenuBarRingDisplayMode) -> String {
+        switch mode {
+        case .all: return self == .english ? "Always visible" : "常驻显示"
+        case .automatic: return self == .english ? "Work-aware" : "工作感知"
+        }
+    }
+
+    var ringProvidersLabel: String { self == .english ? "Providers to show" : "显示服务商" }
+    var ringSelectAllLabel: String { self == .english ? "Select all" : "全选" }
+    var ringQuotaOnlyLabel: String {
+        self == .english ? "Always visible · task activity unavailable" : "常驻额度 · 暂不支持任务检测"
+    }
+    var ringProvidersDescription: String {
+        self == .english
+            ? "Choose at least one. Quotas appear after the provider is configured and enabled."
+            : "至少选择一家；服务商配置并启用后显示额度。"
+    }
+
     func menuBarContentLabel() -> String {
         switch self {
         case .english: return "Compact content"
@@ -1390,9 +1418,9 @@ enum AppLanguage: String, CaseIterable, Codable, Identifiable {
     func menuBarContentDescription() -> String {
         switch self {
         case .english:
-            return "Always shows Codex and Kimi. Work-aware shows active providers, or the lowest remaining quota while idle."
+            return "Always shows all configured, enabled providers, including MiniMax and GLM. Work-aware shows active Codex/Kimi providers, or their lowest remaining quota while idle."
         case .simplifiedChinese:
-            return "常驻模式显示 Codex 与 Kimi；工作感知模式显示活跃服务商，全部空闲时显示剩余额度最少的一家。"
+            return "常驻模式显示所有已配置并启用的服务商，包括 MiniMax 和 GLM；工作感知模式显示活跃的 Codex/Kimi，空闲时显示其中剩余额度最少的一家。"
         }
     }
 

@@ -165,6 +165,7 @@ final class StatusBarController {
         observeProperties(viewModel) { viewModel in
             _ = viewModel.statusBarText
             _ = viewModel.menuBarSnapshot
+            _ = viewModel.menuBarRingDisplayMode
             _ = viewModel.menuBarSnapshots
             _ = viewModel.menuBarAppearance
             _ = viewModel.menuBarPaceDisplayMode
@@ -588,7 +589,7 @@ final class StatusBarController {
 
     private var displayedCompactSnapshots: [MenuBarSnapshot] {
         MenuBarCompactSnapshotSelector.select(
-            selection: viewModel.menuBarContentSelection,
+            mode: viewModel.menuBarRingDisplayMode,
             snapshots: viewModel.menuBarSnapshots,
             activeProviders: sleepProtectionCoordinator.activeProviders)
     }
