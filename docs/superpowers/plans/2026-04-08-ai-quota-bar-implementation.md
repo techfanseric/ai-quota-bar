@@ -1,5 +1,7 @@
 # AI Quota Bar Implementation Plan
 
+> 已完成的历史实施计划，不是当前操作手册。现行架构、目录和构建方式见 [`../../SPEC.md`](../../SPEC.md) 与根目录 README。
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Build a macOS menu-bar app that monitors MiniMax API usage quota with configurable display and warning notifications.

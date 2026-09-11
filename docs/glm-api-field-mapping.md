@@ -1,4 +1,4 @@
-# 智谱 GLM Coding Plan 额度接口
+# GLM Coding Plan 额度接口
 
 ## 接入方式
 
@@ -11,7 +11,7 @@ Authorization: Bearer <API Key>
 
 项目本地依赖 CodexBar 的 `ZaiAPIRegion.bigmodelCN` / `ZaiUsageFetcher` 已使用此端点和认证方式。其解析器目前只支持 `TOKENS_LIMIT` / `TIME_LIMIT`，因此本项目保留自己的解析器来支持新版积分额度。
 
-备用方式：在 [智谱用量页面](https://bigmodel.cn/coding-plan/personal/usage) 打开 DevTools → Network，刷新后找到 `quota/limit`，选择 Copy as cURL，粘贴到设置中。网页请求使用 `https://bigmodel.cn/api/monitor/usage/quota/limit`。应用只解析请求，不执行 cURL 命令；保留 authorization、组织、项目和 Cookie。两种凭据都由现有钥匙串存储管理。网页会话过期时需要重新复制；已保存的旧 JSON 凭据仍使用原来的端点与认证头。
+备用方式：在 [GLM 用量页面](https://bigmodel.cn/coding-plan/personal/usage) 打开 DevTools → Network，刷新后找到 `quota/limit`，选择 Copy as cURL，粘贴到设置中。网页请求使用 `https://bigmodel.cn/api/monitor/usage/quota/limit`。应用只解析请求，不执行 cURL 命令；保留 authorization、组织、项目和 Cookie。两种凭据都由现有钥匙串存储管理。网页会话过期时需要重新复制；已保存的旧 JSON 凭据仍使用原来的端点与认证头。
 
 官方也提供[个人套餐用量查询插件](https://docs.bigmodel.cn/cn/coding-plan/extension/usage-query-plugin)。本次在 Chrome 验证了网页接口的实际响应；API Key 接入依据本地 CodexBar 实现，未用用户密钥进行在线调用验证。
 

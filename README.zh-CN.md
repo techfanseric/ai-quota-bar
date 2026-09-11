@@ -23,16 +23,13 @@
   <img src="./docs/images/control-center.png" alt="AI Quota Bar 右键控制中心" width="342">
 </p>
 
-## v1.11.0 有什么变化
+## v1.15.0 有什么变化
 
-按模型选择配额图表样式，并在不改变正常刷新频率和历史保留策略的前提下，减少云同步的无效数据库读写。
+- **新增 GLM Coding Plan。** 支持个人套餐 API Key，也兼容从用量页面复制的 cURL；展示 5 小时和周积分额度。
+- **重新整理凭据输入。** API Key 使用统一的原生密码框，并提供显示、隐藏、粘贴和撤销修改操作。
+- **继续兼容现有数据。** 旧 GLM 网页凭据和 Tokens、MCP/Search 响应仍可读取，所有服务商凭据继续保存在 macOS 钥匙串或各自 CLI 的本机存储中。
 
-- **每个模型独立选择自动、面积图或进度条。** 偏好保存在本机，Mac 菜单与手机面板使用同一套设置。
-- **停止无效的云同步重试。** 客户端错误及明确的 D1 每日配额错误不再在同一轮反复重试；临时网络错误和普通服务端错误仍会重试。
-- **通过小型索引读取最新快照。** 配套后端维护最新记录指针，按设备限定历史查询，并使用索引清理过期记录；完全相同的上传不再重复写入快照或设备心跳。
-- **保留已有数据与日常使用方式。** 升级不会丢弃历史，正常刷新频率不变。账号级 D1 配额耗尽后，历史请求仍可能需要等待配额重置。
-
-测试结果及自托管后端升级说明见[发布说明](./docs/releases/v1.11.0.md)。
+完整改动和校验结果见 [v1.15.0 发布说明](./docs/releases/v1.15.0.md)。
 
 ## 它能帮你解决什么
 
@@ -79,6 +76,7 @@
 - 至少配置一个配额来源：
   - 已安装并登录的 Codex CLI。
   - 已安装并登录的 Kimi Code CLI，或 Kimi Code API Key。
+  - GLM Coding Plan API Key，或从 GLM 用量页面复制的额度请求 cURL。
   - MiniMax 编程套餐 bearer token。
 - 可选：启用了本地 external controller 的 Clash Verge Rev、Mihomo 或 Clash。
 - 可选：启用合盖继续运行时需要管理员授权。
@@ -225,6 +223,7 @@ AI Quota Bar 不只是显示一个百分比。它会把剩余配额、重置时�
 ## 隐私与安全边界
 
 - MiniMax 凭证存储在 macOS 钥匙串。
+- GLM API Key 或网页请求凭据存储在 macOS 钥匙串。
 - 可选的 Kimi API Key 存储在 macOS 钥匙串；CLI 凭证继续由 Kimi Code 管理。
 - Codex 凭证由本机 Codex/CodexBar 管理。
 - Clash/Mihomo 只允许访问回环地址的 external controller。
@@ -236,6 +235,8 @@ AI Quota Bar 不只是显示一个百分比。它会把剩余配额、重置时�
 - 合盖相关系统修改必须明确管理员授权，并由辅助程序自动恢复。
 
 ## 从源码构建
+
+架构和维护文档索引见 [`docs/README.md`](./docs/README.md)。
 
 Swift Package 当前要求 CodexBar 与本仓库处于同级目录：
 

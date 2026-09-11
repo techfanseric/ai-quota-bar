@@ -23,16 +23,13 @@ AI coding work is hard to manage when quota, network routes, and Mac sleep setti
   <img src="./docs/images/control-center.png" alt="AI Quota Bar control center" width="342">
 </p>
 
-## What’s new in v1.11.0
+## What’s new in v1.15.0
 
-Choose quota chart styles per model and reduce unnecessary cloud-sync database work without changing normal refresh frequency or history retention.
+- **GLM Coding Plan support.** Use a personal API key or an imported usage-page cURL and monitor five-hour and weekly credit limits.
+- **Cleaner credential editing.** Provider API keys now use one native secure field with reveal, paste, and revert actions.
+- **Existing data remains compatible.** Stored GLM web credentials and legacy Tokens and MCP/Search responses continue to work; credentials stay in Keychain or the provider CLI's local storage.
 
-- **Choose automatic, area chart, or progress bar for each model.** Preferences persist locally and are shared by the Mac menu and Mobile Dashboard.
-- **Avoid futile cloud-sync retries.** Client errors and explicit D1 daily-quota errors stop same-round retries; temporary network and ordinary server errors still retry.
-- **Read latest snapshots through a small index.** The companion backend uses maintained latest-snapshot pointers, bounded per-device history queries, and indexed retention cleanup. Identical uploads no longer rewrite samples or device heartbeats.
-- **Keep existing data and behavior.** No history is discarded by the upgrade and normal refresh frequency is unchanged. Account-wide D1 quota exhaustion can still prevent history requests until the quota resets.
-
-See the [release notes](./docs/releases/v1.11.0.md) for validation results and self-hosted backend rollout details.
+See the [v1.15.0 release notes](./docs/releases/v1.15.0.md) for the complete change and validation details.
 
 ## What it helps you do
 
@@ -79,6 +76,7 @@ Choose how long recent quota history is kept, inspect the stored data, or delete
 - At least one quota provider:
   - Codex CLI installed and signed in.
   - Kimi Code CLI installed and signed in, or a Kimi Code API key.
+  - A GLM Coding Plan API key, or a quota-request cURL copied from the GLM usage page.
   - MiniMax coding-plan bearer token.
 - Optional: Clash Verge Rev, Mihomo, or Clash with a loopback-bound external controller.
 - Optional: administrator approval to install the closed-lid helper.
@@ -225,6 +223,7 @@ Cloud sync is off by default. It uploads quota metadata and account labels, but 
 ## Privacy and security boundaries
 
 - MiniMax credentials are stored in macOS Keychain.
+- GLM API keys and imported web-request credentials are stored in macOS Keychain.
 - Optional Kimi API keys are stored in macOS Keychain; CLI credentials remain managed by Kimi Code.
 - Codex credentials are managed locally by Codex/CodexBar.
 - Clash/Mihomo access is limited to a loopback external controller.
@@ -236,6 +235,8 @@ Cloud sync is off by default. It uploads quota metadata and account labels, but 
 - Closed-lid changes require explicit administrator approval and are automatically restored by the helper.
 
 ## Build from source
+
+See [`docs/README.md`](./docs/README.md) for the architecture and maintenance documentation index.
 
 The Swift package currently expects CodexBar as a sibling checkout:
 

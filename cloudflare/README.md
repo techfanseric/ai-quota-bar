@@ -2,7 +2,7 @@
 
 This directory contains the Cloudflare Worker and D1 schema used by AI Quota
 Bar's optional cloud sync. The app uploads quota metadata and account labels,
-but does not upload MiniMax or Codex provider credentials.
+but does not upload Codex, Kimi, GLM, or MiniMax provider credentials.
 
 The current public app uses the built-in service endpoint. This backend can be
 deployed independently for development; using a private deployment currently
@@ -23,7 +23,13 @@ wrangler login
 wrangler d1 create ai-quota-bar
 ```
 
-3. Copy `wrangler.toml.example` to `wrangler.toml`, then paste the returned `database_id`.
+3. Copy `wrangler.toml.example` to `wrangler.toml`, then fill the D1 binding's
+   `database_id`. For the optional D1 usage meter, also fill `CF_ACCOUNT_ID` and
+   `D1_DATABASE_ID` under `[vars]` and create a read-only Account Analytics token:
+
+```bash
+wrangler secret put CF_API_TOKEN
+```
 
 4. Apply the schema.
 
@@ -52,9 +58,18 @@ Do not commit production tokens or a populated `wrangler.toml`.
 ## API
 
 - `GET /v1/health`: checks authentication and Worker availability.
+- `GET /v1/app-update`: public update manifest backed by the latest GitHub release.
+- `GET /v1/d1-usage`: returns account and database D1 usage when the optional Cloudflare analytics credentials are configured.
 - `POST /v1/quota-samples`: stores one refresh snapshot.
 - `GET /v1/quota-samples?device_id=...&limit=100`: returns the latest sample per model for inspection.
 - `GET /v1/quota-samples?history=1&limit=500`: returns refresh-history samples for chart reconstruction.
+- `GET /v1/account-summaries?limit=500`: summarizes retained data by provider and account for the settings data manager.
+- `GET /v1/devices`: lists synchronized devices.
+- `DELETE /v1/data?device_id=...`: deletes one device's synchronized data.
+- `DELETE /v1/data?provider=...&account_name=...`: deletes one provider/account group across devices.
+
+`/v1/app-update` is public. Every sync, inspection, usage, and deletion endpoint
+requires `Authorization: Bearer <SYNC_TOKEN>`.
 
 ## D1 read-cost safeguards
 

@@ -1,5 +1,7 @@
 # AI Quota Bar - Design Specification
 
+> 历史设计规格，记录项目初始范围。当前产品规格见 [`../../SPEC.md`](../../SPEC.md)。其中的目录结构和单提供商假设已被后续实现替代。
+
 **Date**: 2026-04-08
 **Version**: 1.0
 

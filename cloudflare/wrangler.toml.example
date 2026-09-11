@@ -2,6 +2,15 @@ name = "ai-quota-bar-sync"
 main = "src/worker.js"
 compatibility_date = "2026-05-14"
 
+[vars]
+# Leave false for an existing database until migrations/0001_latest_heads.sql
+# has completed, then switch to true and redeploy.
+LATEST_INDEX_ENABLED = "false"
+# Optional: enables /v1/d1-usage together with a CF_API_TOKEN secret that has
+# Account Analytics: Read permission.
+CF_ACCOUNT_ID = "replace-with-your-cloudflare-account-id"
+D1_DATABASE_ID = "replace-with-your-d1-database-id"
+
 [[d1_databases]]
 binding = "DB"
 database_name = "ai-quota-bar"

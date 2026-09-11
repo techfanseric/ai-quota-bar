@@ -16,7 +16,7 @@
 | `current_interval_usage_count` | 当前周期**剩余**数量 | 3734 |
 | `current_weekly_total_count` | 周总限额 | 133000 |
 | `current_weekly_usage_count` | 周**剩余**数量 | 133000 |
-| `remains_time` | 距离重置的秒数 | 1618725 (~18.7天) |
+| `remains_time` | 距离重置的毫秒数 | 1618725（约 27 分钟） |
 | `start_time` / `end_time` | 当前周期时间范围（毫秒时间戳） | 1775649600000 |
 
 ## 换算公式
@@ -76,7 +76,7 @@
 
 **1. 5小时周期 (如 MiniMax-M*)**
 - 使用 `start_time` 和 `end_time` 表示周期范围
-- 例如: 20:00-00:00 (UTC+8)
+- 周期长度和边界以接口返回的 `start_time`、`end_time` 为准
 - `remains_time` 表示距离当前周期结束的毫秒数
 
 **2. 每日重置 (其他模型)**
