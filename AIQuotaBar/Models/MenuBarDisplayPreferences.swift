@@ -22,6 +22,33 @@ enum MenuBarContentSelection: String, CaseIterable, Codable, Identifiable {
     }
 }
 
+/// Ring preferences are separate from the legacy text-mode provider picker.
+enum MenuBarRingDisplayMode: String, CaseIterable, Identifiable {
+    case all
+    case automatic
+    static let storageKey = "menuBarRingDisplayMode"
+    var id: String { rawValue }
+}
+
+struct MenuBarRingPreferences {
+    static let providersKey = "menuBarRingSelectedProviders"
+    static let providerOrder: [UsageProvider] = [.codex, .kimi, .miniMax, .glm]
+    let mode: MenuBarRingDisplayMode
+    let providers: Set<UsageProvider>
+
+    static func load(from defaults: UserDefaults) -> Self {
+        let legacy = defaults.string(forKey: MenuBarContentSelection.storageKey)
+            .flatMap(MenuBarContentSelection.init(rawValue:)) ?? .automatic
+        let mode = defaults.string(forKey: MenuBarRingDisplayMode.storageKey)
+            .flatMap(MenuBarRingDisplayMode.init(rawValue:))
+            ?? (legacy == .automatic ? .automatic : .all)
+        let saved = defaults.stringArray(forKey: providersKey)
+            .map { Set($0.compactMap(UsageProvider.init(rawValue:))) }
+        let migrated = legacy.provider.map { Set([$0]) } ?? Set(providerOrder)
+        return Self(mode: mode, providers: saved.flatMap { $0.isEmpty ? nil : $0 } ?? migrated)
+    }
+}
+
 /// How the selected provider is rendered in the macOS menu bar.
 enum MenuBarAppearance: String, CaseIterable, Codable, Identifiable {
     case detailedText
@@ -108,27 +135,31 @@ enum MenuBarPaceDirection: Equatable {
 
 enum MenuBarCompactSnapshotSelector {
     static func select(
-        selection: MenuBarContentSelection,
+        mode: MenuBarRingDisplayMode,
         snapshots: [MenuBarSnapshot],
         activeProviders: Set<UsageProvider>
     ) -> [MenuBarSnapshot] {
-        guard selection.provider == nil else { return snapshots }
+        guard mode == .automatic else { return snapshots }
         let supported = snapshots.filter {
             $0.provider == .codex || $0.provider == .kimi
         }
-        guard selection == .automatic else { return supported }
 
         let active = supported.filter {
             activeProviders.contains($0.provider)
         }
-        if !active.isEmpty { return active }
+        let persistent = snapshots.filter {
+            $0.provider == .miniMax || $0.provider == .glm
+        }
+        if !active.isEmpty {
+            return snapshots.filter { active.contains($0) || persistent.contains($0) }
+        }
         guard let lowestRemaining = supported.min(by: {
             ($0.ringPercent ?? $0.remainingPercent ?? .greatestFiniteMagnitude)
                 < ($1.ringPercent ?? $1.remainingPercent ?? .greatestFiniteMagnitude)
         }) else {
-            return []
+            return persistent
         }
-        return [lowestRemaining]
+        return snapshots.filter { $0 == lowestRemaining || persistent.contains($0) }
     }
 }
 
