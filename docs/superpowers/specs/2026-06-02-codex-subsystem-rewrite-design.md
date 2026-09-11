@@ -1,5 +1,7 @@
 # AI Quota Bar - Codex 子系统重写设计
 
+> 历史设计记录。CodexBarCore 接入已实施，当前提供商和设置结构见 [`../../SPEC.md`](../../SPEC.md)。
+
 **Date**: 2026-06-02
 **Status**: Approved (pending user spec review)
 **Scope**: 替换 ai-quota-bar 中现有的 ChatGPT/Codex GPT 读取与展示实现，全面对齐 codexbar 的 Codex 子系统

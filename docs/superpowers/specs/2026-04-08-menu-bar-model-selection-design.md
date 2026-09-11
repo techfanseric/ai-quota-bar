@@ -1,5 +1,7 @@
 # AI Quota Bar - Menu Bar Model Selection
 
+> 历史设计记录。功能已实施并继续演进；当前行为见 [`../../SPEC.md`](../../SPEC.md)，本文中的文件路径不保证仍然有效。
+
 ## Overview
 
 Add ability for users to select which model with remaining quota is displayed in the menu bar, showing its remaining count and reset time.

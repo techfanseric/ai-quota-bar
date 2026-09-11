@@ -1,74 +1,54 @@
-# Cloud Sync Implementation Summary
+# 云同步实现沿革
 
-Date: 2026-05-14
+首次实现：2026-05-14。当前状态：2026-09-11，v1.15.0。
 
-## Goal
+本文记录云同步从初版到当前实现的变化。部署和迁移操作以 [`cloudflare/README.md`](../cloudflare/README.md) 为准。
 
-Preserve AI Quota Bar's important quota history online with a free database, while keeping provider credentials local and secure.
+## 当前架构
 
-## Implemented Architecture
+- 客户端：`CloudSyncService` 负责请求和错误分类，`CloudSyncQueue` 负责顺序上传。
+- 服务端：Cloudflare Worker + D1，公开服务地址内置于应用。
+- 身份：每台 Mac 有持久化 `deviceID`；同步接口使用服务 bearer token。
+- 本机存储：提供商凭据保存在 Keychain 或各自 CLI；开关、设备 ID、可见性和保留偏好保存在 UserDefaults。
+- 数据：按设备、提供商、标准化账户和模型保存额度采样；`quota_sample_heads` 保存各组最新指针。
 
-- Cloud database: Cloudflare D1
-- API layer: Cloudflare Worker
-- macOS client storage:
-  - Provider credentials remain in macOS Keychain.
-  - Cloud sync token is stored separately in macOS Keychain.
-  - Worker URL and enablement are stored in UserDefaults.
+当前公开应用固定使用内置端点，不在设置中暴露自定义 Worker URL 或同步 token。私有部署需要修改 `CloudSyncSettings` 并重新构建。
 
-## Cloudflare Resources
+## 同步内容
 
-- D1 database: `ai-quota-bar`
-- Worker: `ai-quota-bar-sync`
-- Worker URL: `https://ai-quota-bar-sync.techfanseric.workers.dev`
-- Worker secret: `SYNC_TOKEN`
-- Local token backup: `cloudflare/.sync-token` (ignored by git)
+每次成功的提供商刷新会上传精简额度快照，包括：
 
-## App Changes
+- 设备 ID 与设备名；
+- 提供商、账户标签、模型 ID 与模型名；
+- 当前周期和周周期的总量、剩余量与起止时间；
+- 值后缀、展示细节和采样时间。
 
-- Added `CloudSyncService.swift` to upload quota snapshots and test cloud connectivity.
-- Extended `KeychainService.swift` to store the cloud sync token.
-- Updated `UsageViewModel.swift` to upload a snapshot after each successful refresh.
-- Updated `SettingsView.swift` with a Cloud Backup section:
-  - enable switch
-  - Worker URL
-  - sync token
-  - test button
-- Added localized English and Simplified Chinese cloud-sync copy.
+Codex、Kimi、GLM、MiniMax 凭据及 Clash/Mihomo 密钥不会上传。账户标签属于同步数据，用户应把它视为可能含有邮箱或自定义名称的个人数据。
+
+## 客户端行为
+
+- 云同步默认关闭。
+- 上传失败时保留最新待同步快照；后续成功会替换过时的队列内容。
+- 临时网络与普通服务端错误会重试；客户端错误和明确的 D1 每日额度错误停止本轮重试。
+- 本机历史可用于恢复图表；纯云端当前窗口、短周期和周周期有独立可见时长。
+- 保留期支持 7、14、30、60、90 和 180 天。
+- Sync 设置页可查看同步状态、D1 当日用量、远端账户摘要和本地 HTML 数据报告，并可删除一个远端账户、当前设备数据或全部本机历史。
 
 ## Worker API
 
-- `GET /v1/health`: authenticated health check.
-- `POST /v1/quota-samples`: stores one refresh snapshot.
-- `GET /v1/quota-samples?limit=300`: returns recent samples.
-- `GET /v1/quota-samples?device_id=...&limit=100`: returns recent samples for one device.
-- `GET /v1/devices`: lists synced devices.
+当前 API 包括健康检查、更新清单、D1 用量、采样上传与读取、设备列表、账户摘要以及按设备或账户删除。完整路径和鉴权规则见后端 README。
 
-## One-Click Data Viewer
+## D1 成本优化
 
-Preferred path: open AI Quota Bar Settings, then click **View remote data** in the Cloud Backup section.
-The app fetches remote D1 data through the authenticated Worker, generates a local HTML report, and opens it in the browser.
+2026-09-02 增加 `quota_sample_heads`、维护触发器和按设备有界的历史合并：
 
-Fallback command:
+- 最新数据查询读取小型 heads 表，避免每次刷新扫描完整历史。
+- 完全相同的重复上传不再重写采样或设备心跳。
+- 清理按设备与采样时间索引执行。
+- 账户摘要仍需要精确聚合历史，只应按需调用。
 
-```bash
-open /Users/ericyim/ai-quota-bar/cloudflare/view-remote-data.command
-```
+迁移为可回滚的分阶段开关。生产执行证据和当时的 D1 配额状态见 [`cloudflare/DEPLOYMENT_NOTES.md`](../cloudflare/DEPLOYMENT_NOTES.md)。
 
-The command reads `cloudflare/.sync-token`, calls the deployed Worker with authorization, generates the same kind of local HTML report, and opens it in the browser.
+## 当前验证
 
-## Verification Completed
-
-- `swift build`
-- `node --check cloudflare/src/worker.js`
-- Remote D1 schema migration
-- Worker deployment
-- Authenticated `/v1/health` check
-- Remote write/read smoke test
-- Smoke test data cleanup
-- `make install`
-
-## Security Notes
-
-- MiniMax, GLM, and ChatGPT credentials are not uploaded.
-- Cloud data contains quota snapshots only: provider name, account display name, model name, totals, remaining quota, reset times, and detail text.
-- The Worker requires Bearer token authentication for every endpoint.
+v1.15.0 发布时：Swift 309 项测试通过（3 项按环境跳过），Mobile Dashboard 34 项通过，Worker 10 项通过。发布 DMG 的签名和镜像完整性校验通过。

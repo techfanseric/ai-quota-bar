@@ -1,5 +1,7 @@
 # D1 read-cost optimization — 2026-09-02
 
+> Historical production record. The migration below has completed. For current deployment and rollback instructions, use [`README.md`](./README.md).
+
 ## Production sequence
 
 1. Deployed the compatible UPSERT Worker with `LATEST_INDEX_ENABLED=false`.

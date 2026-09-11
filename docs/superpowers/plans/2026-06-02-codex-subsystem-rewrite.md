@@ -1,5 +1,7 @@
 # Codex 子系统重写实施计划
 
+> 已完成的历史实施计划。当前 Codex 数据源、设置结构和文件位置见 [`../../SPEC.md`](../../SPEC.md) 与代码。
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** 全面替换 ai-quota-bar 中 ChatGPT/Codex GPT 的数据读取与展示逻辑，引入 codexbar 的 `CodexBarCore` 作为本地 SwiftPM 依赖，写适配层把 `UsageSnapshot` 映射到现有 `UsageData`/`ModelUsageData`，UI 沿用现有规范。

@@ -1,5 +1,7 @@
 # Menu Bar Model Selection Implementation Plan
 
+> 已完成的历史实施计划。当前模型选择和菜单栏行为见 [`../../SPEC.md`](../../SPEC.md)。
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Allow users to select which model with remaining quota is displayed in the menu bar, showing its remaining count and reset time in format `modelName remaining/resetTime`. Collapse exhausted models in dropdown menu.
