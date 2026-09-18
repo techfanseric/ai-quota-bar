@@ -116,7 +116,7 @@ struct ProvidersPane: View {
             selectedProvider = provider
         } label: {
             HStack(spacing: 8) {
-                Image(systemName: iconName(for: provider))
+                ProviderLogoIcon(provider: provider, pointSize: 14)
                     .frame(width: 16)
                     .foregroundStyle(isSelected ? Color.accentColor : .secondary)
                 Text(provider.displayName)
@@ -145,15 +145,6 @@ struct ProvidersPane: View {
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
-    }
-
-    private func iconName(for provider: UsageProvider) -> String {
-        switch provider {
-        case .miniMax: return "circle.hexagongrid"
-        case .codex: return "terminal"
-        case .glm: return "rectangle.grid.2x2"
-        case .kimi: return "moon.stars"
-        }
     }
 
     // MARK: - Actions

@@ -8,14 +8,6 @@ struct CodexLocalUsageMenuCard: View {
     private var chinese: Bool { language == .simplifiedChinese }
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
-            HStack {
-                Text(chinese ? "本机用量" : "Local usage")
-                    .font(.system(size: 10, weight: .medium)).foregroundStyle(.secondary).lineLimit(1)
-                    .help(chinese ? "当前 Codex 账号在这台 Mac 上的用量" : "Current Codex account usage on this Mac")
-                if model.scanning { ProgressView().controlSize(.mini) }
-                Spacer()
-                Text(chinese ? "近 30 天" : "30 days").font(.system(size: 9)).foregroundStyle(.tertiary)
-            }
             if model.currentAccountID != nil {
                 CodexUsageTrend(model: model, language: language, currentAccount: true)
             } else {
@@ -33,10 +25,16 @@ struct CodexUsageTrend: View {
     let language: AppLanguage
     var currentAccount = false
     var body: some View {
-        CodexUsageActivityView(
-            daily: model.history(days: 30, currentAccount: currentAccount),
-            hourly: model.history(days: 1, currentAccount: currentAccount),
-            total: model.rangeSummary(days: 30, currentAccount: currentAccount), language: language)
+        TimelineView(.periodic(from: .now, by: 60)) { context in
+            CodexUsageActivityView(
+                daily: model.activityHistory(month: true, currentAccount: currentAccount, now: context.date),
+                hourly: model.activityHistory(month: false, currentAccount: currentAccount, now: context.date),
+                total: model.monthSummary(currentAccount: currentAccount, now: context.date),
+                language: language, now: context.date, showsLocalLabel: currentAccount,
+                subscription: CodexSubscriptionStatus.shared.marker(
+                    accountID: currentAccount ? model.currentAccountID : model.selectedAccount,
+                    now: context.date))
+        }.frame(maxWidth: 420, alignment: .leading)
     }
 }
 
@@ -48,6 +46,20 @@ enum UsageActivityLayout {
         var values = Array<Int?>(repeating: nil, count: offset) + dates.indices.map { Optional($0) }
         while values.count % 7 != 0 { values.append(nil) }
         return values
+    }
+    static func summary(_ buckets: [UsageHistoryBucket]) -> UsageSummary {
+        buckets.reduce(into: UsageSummary()) { result, bucket in
+            let value = bucket.summary
+            result.records += value.records
+            result.estimatedRecords += value.estimatedRecords
+            result.tokens = result.tokens + value.tokens
+            result.pricedRecords += value.pricedRecords
+            result.cost += value.cost
+            for (model, tokens) in value.byModel { result.byModel[model, default: 0] += tokens }
+        }
+    }
+    static func hasUsableCost(_ buckets: [UsageHistoryBucket]) -> Bool {
+        buckets.contains { $0.summary.records > 0 && $0.summary.pricedRecords == $0.summary.records }
     }
     static func intensity(value: Double?, maximum: Double) -> Double? {
         guard let value else { return nil }
@@ -62,6 +74,9 @@ struct CodexUsageActivityView: View {
     let hourly: [UsageHistoryBucket]
     let total: UsageSummary
     let language: AppLanguage
+    var now: Date = Date()
+    var showsLocalLabel = false
+    var subscription: CodexSubscriptionMarker? = nil
     @State private var metric = Metric.tokens
     @State private var selectedDay: Int?
     @State private var selectedHour: Int?
@@ -84,51 +99,72 @@ struct CodexUsageActivityView: View {
     }
     private var selected: UsageHistoryBucket? {
         if let index = selectedHour, hourly.indices.contains(index) { return hourly[index] }
-        if let index = selectedDay, daily.indices.contains(index) { return daily[index] }
+        if let index = selectedDay, daily.indices.contains(index), daily[index].start <= now { return daily[index] }
         return nil
+    }
+    private var visibleMetrics: [Metric] {
+        UsageActivityLayout.hasUsableCost(daily + hourly) ? Metric.allCases : Metric.allCases.filter { $0 != .cost }
     }
     private var tint: Color { .green }
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
-            HStack(spacing: 10) {
-                ForEach(Metric.allCases, id: \.self) { item in
+            HStack(spacing: showsLocalLabel ? 7 : 10) {
+                if showsLocalLabel {
+                    Text(t("本机", "Local")).font(.system(size: 9)).foregroundStyle(.tertiary)
+                    Spacer(minLength: 0)
+                }
+                ForEach(visibleMetrics, id: \.self) { item in
                     Button { metric = item } label: {
                         Text(label(item)).font(.system(size: 10, weight: metric == item ? .semibold : .regular))
                             .foregroundStyle(metric == item ? Color.primary : .secondary).lineLimit(1)
                     }.buttonStyle(.plain).accessibilityAddTraits(metric == item ? .isSelected : [])
                 }
-                Spacer(minLength: 0)
+                if !showsLocalLabel { Spacer(minLength: 0) }
             }
-            HStack(alignment: .center, spacing: 16) {
-                matrix
-                VStack(alignment: .leading, spacing: 5) {
-                    Text(selected.map { dateLabel($0.start, hourly: selectedHour != nil) } ?? t("近 30 天合计", "30-day total"))
-                        .font(.system(size: 9)).foregroundStyle(.secondary).lineLimit(1)
-                    Text(formatted(selected?.summary ?? total))
-                        .font(.system(size: 15, weight: .semibold, design: .rounded)).monospacedDigit().lineLimit(1)
-                    Text(label(metric)).font(.system(size: 9)).foregroundStyle(.secondary)
-                    HStack(spacing: 3) {
-                        Text(t("少", "Less"))
-                        ForEach(0..<5) { level in RoundedRectangle(cornerRadius: 1).fill(level == 0 ? Color.primary.opacity(0.07) : tint.opacity(Double(level) / 4 * 0.8)).frame(width: 7, height: 7) }
-                        Text(t("多", "More"))
-                    }.font(.system(size: 8)).foregroundStyle(.tertiary)
+            HStack(alignment: .top, spacing: 5) {
+                VStack(alignment: .leading, spacing: 4) {
+                    Text(now.formatted(.dateTime.month(.abbreviated).locale(Locale(identifier: language == .simplifiedChinese ? "zh_CN" : "en_US"))))
+                        .font(.system(size: 9)).foregroundStyle(.secondary)
+                    matrix
                 }
-                Spacer(minLength: 0)
+                VStack(alignment: .leading, spacing: 4) {
+                    HStack {
+                        Text(t("近 \(hourly.count / 12)h", "Last \(hourly.count / 12)h"))
+                        Spacer(minLength: 2)
+                        Text(t("每格 5m", "5m / cell")).foregroundStyle(.tertiary)
+                    }.font(.system(size: 9)).foregroundStyle(.secondary)
+                    hourlyBars
+                }.frame(maxWidth: .infinity)
             }
-            HStack {
-                Text(t("今天", "Today"))
-                Spacer()
-                Text(t("按小时 · 悬停查看", "Hourly · Hover to inspect"))
-            }.font(.system(size: 9)).foregroundStyle(.secondary)
-            hourlyBars
+            HStack(alignment: .firstTextBaseline, spacing: 5) {
+                if let selected {
+                    summaryValue(dateLabel(selected.start, hourly: selectedHour != nil), selected.summary)
+                    Text(label(metric)).font(.system(size: 9)).foregroundStyle(.secondary)
+                    Spacer(minLength: 0)
+                } else {
+                    summaryValue(t("本月", "Month"), total)
+                    Spacer(minLength: 6)
+                    summaryValue(t("近 24h", "Last 24h"), UsageActivityLayout.summary(hourly))
+                }
+            }
             if metric == .cost && total.pricedRecords < total.records {
-                Text(t("斜线为未定价 · 覆盖 \(total.pricedRecords)/\(total.records) 条", "Hatched = unpriced · Coverage \(total.pricedRecords)/\(total.records)"))
+                Text(t("未定价 / 覆盖 \(total.pricedRecords)/\(total.records) 条", "Unpriced / coverage \(total.pricedRecords)/\(total.records)"))
                     .font(.system(size: 9)).foregroundStyle(.tertiary)
             } else if total.records == 0 {
                 Text(t("尚无用量记录；使用 Codex 后会自动出现。", "No records yet. Usage appears after you use Codex."))
                     .font(.system(size: 9)).foregroundStyle(.secondary)
             }
         }.onChange(of: daily.first?.start) { _, _ in selectedDay = nil; selectedHour = nil }
+         .onChange(of: visibleMetrics) { _, metrics in if !metrics.contains(metric) { metric = .tokens } }
+         .onChange(of: hourly.first?.start) { _, _ in selectedHour = nil }
+    }
+    private func summaryValue(_ title: String, _ summary: UsageSummary) -> some View {
+        HStack(alignment: .firstTextBaseline, spacing: 4) {
+            Text(title).font(.system(size: 9)).foregroundStyle(.secondary)
+            Text(formatted(summary))
+                .font(.system(size: 13, weight: .semibold, design: .rounded))
+                .monospacedDigit().lineLimit(1).minimumScaleFactor(0.8)
+        }
     }
     private var matrix: some View {
         let slots = UsageActivityLayout.slots(dates: daily.map(\.start))
@@ -143,10 +179,10 @@ struct CodexUsageActivityView: View {
                     }
                 }
             }
-        }.padding(.vertical, 4)
+        }
             .overlay(alignment: .topLeading) {
                 if let index = selectedDay, daily.indices.contains(index) {
-                    CycleCallout(text: dateLabel(daily[index].start) + " · " + formatted(daily[index].summary))
+                    CycleCallout(text: dayCallout(index))
                         .fixedSize().offset(y: -20).allowsHitTesting(false)
                 }
             }
@@ -154,13 +190,22 @@ struct CodexUsageActivityView: View {
     private func dayCell(index: Int, maximum: Double) -> some View {
         let bucket = daily[index]
         let text = dateLabel(bucket.start) + " · " + formatted(bucket.summary) + " " + label(metric)
+        let future = bucket.start > now
+        let marker = subscription.flatMap { Calendar.current.isDate($0.date, inSameDayAs: bucket.start) ? $0 : nil }
+        let billingLabel = marker.map { $0.renews ? t("自动续费", "Auto-renews") : t("订阅到期 · 不续费", "Expires · No renewal") }
         let border = selectedDay == index ? Color.primary.opacity(0.5) : Color.clear
         return Button { selectedDay = selectedDay == index ? nil : index; selectedHour = nil } label: {
             cell(amount: value(bucket.summary), maximum: maximum)
                 .overlay(RoundedRectangle(cornerRadius: 2).stroke(border, lineWidth: 1))
-        }.buttonStyle(.plain)
-            .onHover { over in selectedDay = over ? index : nil }
-            .accessibilityLabel(text)
+                .overlay {
+                    if let marker {
+                        RoundedRectangle(cornerRadius: 2).stroke(Color.primary.opacity(0.65), style: StrokeStyle(lineWidth: 1, dash: marker.renews ? [2, 1] : []))
+                    }
+                }
+                .help(billingLabel.map { dateLabel(bucket.start) + " · " + $0 } ?? text)
+        }.buttonStyle(.plain).disabled(future && marker == nil).opacity(future && marker == nil ? 0.25 : 1)
+            .onHover { over in selectedDay = over && (!future || marker != nil) ? index : nil; if over { selectedHour = nil } }
+            .accessibilityLabel(billingLabel.map { text + " · " + $0 } ?? text)
     }
     private func cell(amount: Double?, maximum: Double) -> some View {
         let intensity = UsageActivityLayout.intensity(value: amount, maximum: maximum)
@@ -172,40 +217,63 @@ struct CodexUsageActivityView: View {
     }
     private var hourlyBars: some View {
         let maximum = metric == .cache ? 100 : max(1, hourly.compactMap { value($0.summary) }.max() ?? 1)
-        let calendar = Calendar.current
-        let start = hourly.first?.start ?? calendar.startOfDay(for: Date())
-        let end = calendar.date(byAdding: .day, value: 1, to: calendar.startOfDay(for: start))!
-        let count = calendar.dateComponents([.hour], from: calendar.startOfDay(for: start), to: end).hour ?? 24
         return GeometryReader { geometry in
-            let width = min(10, max(3, (geometry.size.width - CGFloat(count - 1) * 2) / CGFloat(count)))
-            let startX = (geometry.size.width - CGFloat(count) * width - CGFloat(count - 1) * 2) / 2
-            ZStack(alignment: .topLeading) {
-                HStack(alignment: .bottom, spacing: 2) {
-                    ForEach(0..<count, id: \.self) { index in
-                        let bucket = hourly.indices.contains(index) ? hourly[index] : nil
-                        let amount = bucket.flatMap { value($0.summary) }
-                        ZStack(alignment: .bottom) {
-                            RoundedRectangle(cornerRadius: 1.5).fill(Color.primary.opacity(bucket == nil ? 0.025 : 0.07))
-                            if let amount, amount > 0 {
-                                RoundedRectangle(cornerRadius: 1.5).fill(tint.opacity(0.65)).frame(height: min(20, 20 * amount / maximum))
-                            } else if bucket != nil && amount == nil {
-                                Text("/").font(.system(size: 8)).foregroundStyle(.tertiary)
+            let columns = hourly.count / 12
+            let width = max(1, (geometry.size.width - CGFloat(max(0, columns - 1))) / CGFloat(max(1, columns)))
+            HStack(spacing: 1) {
+                ForEach(0..<columns, id: \.self) { row in
+                    VStack(spacing: 3) {
+                        VStack(spacing: 1) {
+                            ForEach(0..<12, id: \.self) { segment in
+                                let index = row * 12 + segment
+                                if hourly.indices.contains(index) {
+                                    let bucket = hourly[index]
+                                    let amount = value(bucket.summary)
+                                    let intensity = UsageActivityLayout.intensity(value: amount, maximum: maximum)
+                                    Button { selectedHour = selectedHour == index ? nil : index; selectedDay = nil } label: {
+                                        RoundedRectangle(cornerRadius: 0.7)
+                                            .fill(intensity == nil || intensity == 0 ? Color.primary.opacity(0.07) : tint.opacity((intensity ?? 0) * 0.8))
+                                            .overlay {
+                                                if intensity == nil { Rectangle().fill(Color.secondary.opacity(0.4)).frame(width: 1).rotationEffect(.degrees(35)) }
+                                            }
+                                            .overlay(RoundedRectangle(cornerRadius: 0.7).stroke(selectedHour == index ? Color.primary.opacity(0.5) : .clear, lineWidth: 0.7))
+                                            .frame(maxWidth: .infinity).frame(height: 6.333333)
+                                    }.buttonStyle(.plain)
+                                        .onHover { over in selectedHour = over ? index : nil; if over { selectedDay = nil } }
+                                        .accessibilityLabel(intervalLabel(bucket) + " · " + formatted(bucket.summary) + " " + label(metric))
+                                }
                             }
-                        }.frame(width: width, height: 20).contentShape(Rectangle())
-                            .onHover { over in selectedHour = over && bucket != nil ? index : nil }
-                            .help(bucket.map { dateLabel($0.start, hourly: true) + " · " + formatted($0.summary) } ?? t("尚未到来", "Upcoming"))
-                            .accessibilityLabel(bucket.map { dateLabel($0.start, hourly: true) + " · " + formatted($0.summary) } ?? t("尚未到来", "Upcoming"))
-                    }
-                }.padding(.top, 10).frame(maxWidth: .infinity)
-                if let index = selectedHour, hourly.indices.contains(index) {
-                    CycleCallout(text: dateLabel(hourly[index].start, hourly: true) + " · " + formatted(hourly[index].summary))
-                        .position(x: min(max(startX + (CGFloat(index) + 0.5) * (width + 2), 84), geometry.size.width - 84), y: 6)
+                        }
+                        Text(row.isMultiple(of: 2) ? String(format: "%02d", Calendar.current.component(.hour, from: hourly[row * 12].start)) : " ")
+                            .font(.system(size: 7)).monospacedDigit()
+                            .foregroundStyle(.secondary).lineLimit(1).minimumScaleFactor(0.75)
+                            .frame(width: width, height: 9)
+                            .accessibilityHidden(true)
+                    }.frame(width: width)
                 }
             }
-        }.frame(height: 30)
+        }.frame(height: 99)
+            .overlay(alignment: .topTrailing) {
+                if let index = selectedHour, hourly.indices.contains(index) {
+                    CycleCallout(text: intervalLabel(hourly[index]) + " · " + formatted(hourly[index].summary))
+                        .fixedSize().offset(y: -20).allowsHitTesting(false)
+                }
+            }
+    }
+    private func intervalLabel(_ bucket: UsageHistoryBucket) -> String {
+        dateLabel(bucket.start, hourly: true) + "–" + clockLabel(bucket.end)
+    }
+    private func clockLabel(_ date: Date) -> String {
+        date.formatted(.dateTime.hour(.twoDigits(amPM: .omitted)).minute().locale(Locale(identifier: "en_GB")))
+    }
+    private func dayCallout(_ index: Int) -> String {
+        let bucket = daily[index]
+        let marker = subscription.flatMap { Calendar.current.isDate($0.date, inSameDayAs: bucket.start) ? $0 : nil }
+        let billing = marker.map { $0.renews ? t("自动续费", "Auto-renews") : t("到期不续费", "Expires; no renewal") }
+        return ([dateLabel(bucket.start), bucket.start <= now ? formatted(bucket.summary) : nil, billing].compactMap { $0 }).joined(separator: " · ")
     }
     private func dateLabel(_ date: Date, hourly: Bool = false) -> String {
-        hourly ? date.formatted(.dateTime.hour(.defaultDigits(amPM: .omitted)).minute()) : date.formatted(.dateTime.month(.twoDigits).day(.twoDigits))
+        date.formatted(.dateTime.month(.twoDigits).day(.twoDigits)) + (hourly ? " " + clockLabel(date) : "")
     }
 }
 
@@ -230,7 +298,7 @@ struct LocalUsageSamplePreview: View {
             Divider()
             Text(language == .simplifiedChinese ? "示例数据 · 不保存、不上传" : "Sample data · Never saved or uploaded")
                 .font(.system(size: 9)).foregroundStyle(.secondary)
-            CodexUsageActivityView(daily: UsageHistory.buckets(events: events, prices: [], days: 30), hourly: UsageHistory.buckets(events: events, prices: [], days: 1), total: UsageSummary(events: events, prices: []), language: language)
+            CodexUsageActivityView(daily: UsageHistory.month(events: events, prices: []), hourly: UsageHistory.last24Hours(events: events, prices: []), total: UsageSummary(events: events, prices: [], from: Calendar.current.dateInterval(of: .month, for: Date())!.start, to: Date()), language: language, showsLocalLabel: true)
         }
     }
 }

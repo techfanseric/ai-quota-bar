@@ -13,3 +13,9 @@ dist-debug/
 .DS_Store
 
 cloudflare/dist-pages/
+
+# Optional local dependency checkout (preferred over sibling checkout)
+.dependencies/
+
+# ZCode session-local plans
+.zcode/

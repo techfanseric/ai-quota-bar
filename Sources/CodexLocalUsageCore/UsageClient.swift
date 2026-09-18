@@ -11,6 +11,10 @@ public struct UsageIdentityResponse: Codable, Sendable {
     public let identity: UsageIdentity
     public let prices: [UsagePrice]
 }
+public struct UsageJoinResponse: Codable, Sendable {
+    public let token: String
+    public let identity: UsageIdentity
+}
 public struct UsageReceipt: Codable, Sendable {
     public struct Rejection: Codable, Sendable { public let id: String; public let reason: String }
     public let accepted: [String]
@@ -46,9 +50,35 @@ public final class UsageClient: @unchecked Sendable {
               url.scheme == "https" || (url.scheme == "http" && ["localhost", "127.0.0.1", "::1"].contains(host)),
               !token.isEmpty, !token.contains("\n") else { throw UsageFailure.invalid("Use an HTTPS server origin and a device token") }
         self.endpoint = url; self.token = token
-        let config = URLSessionConfiguration.ephemeral
-        config.httpShouldSetCookies = false; config.urlCredentialStorage = nil; config.urlCache = nil
-        self.session = session ?? URLSession(configuration: config, delegate: RedirectBlocker(), delegateQueue: nil)
+        self.session = session ?? URLSession(configuration: UsageClient.sessionConfiguration(), delegate: RedirectBlocker(), delegateQueue: nil)
+    }
+    /// Self-service join: the invite code is the only credential, so this call
+    /// never sends an Authorization header. The returned device token feeds the
+    /// regular connect flow afterwards.
+    public static func join(endpoint: String, inviteCode: String, memberName: String, deviceID: String,
+                            memberPassphrase: String? = nil, session: URLSession? = nil) async throws -> UsageJoinResponse {
+        guard let url = URL(string: endpoint), let host = url.host, url.user == nil, url.password == nil,
+              url.query == nil, url.fragment == nil, url.path.isEmpty || url.path == "/",
+              url.scheme == "https" || (url.scheme == "http" && ["localhost", "127.0.0.1", "::1"].contains(host)) else {
+            throw UsageFailure.invalid("Use an HTTPS server origin")
+        }
+        struct Payload: Encodable { let inviteCode: String; let memberName: String; let deviceID: String; let memberPassphrase: String? }
+        let trimmed = { (value: String) in value.trimmingCharacters(in: .whitespacesAndNewlines) }
+        let passphrase = (memberPassphrase ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+        // Normalize like the server does, so pasted lowercase or spaced codes match.
+        let code = String(trimmed(inviteCode).uppercased().filter { $0.isLetter || $0.isNumber })
+        var request = URLRequest(url: UsageClient.requestURL(base: url, path: "/v1/usage/join"))
+        request.timeoutInterval = 30; request.httpMethod = "POST"
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.httpBody = try JSONEncoder().encode(Payload(inviteCode: code, memberName: trimmed(memberName), deviceID: trimmed(deviceID), memberPassphrase: passphrase.isEmpty ? nil : passphrase))
+        let value: UsageJoinResponse = try await perform(request, session: session ?? URLSession(configuration: UsageClient.sessionConfiguration(), delegate: RedirectBlocker(), delegateQueue: nil), join: true)
+        guard !value.token.isEmpty, value.identity.device_id == trimmed(deviceID) else { throw UsageFailure.invalid("Server joined a different device") }
+        return value
+    }
+    public func setMemberPassphrase(_ passphrase: String) async throws {
+        struct Payload: Encodable { let passphrase: String }
+        struct Ack: Decodable { let ok: Bool }
+        let _: Ack = try await request(path: "/v1/usage/member/passphrase", body: try JSONEncoder().encode(Payload(passphrase: passphrase)))
     }
     public func identity() async throws -> UsageIdentityResponse {
         let value: UsageIdentityResponse = try await request(path: "/v1/usage/identity")
@@ -71,15 +101,31 @@ public final class UsageClient: @unchecked Sendable {
         return value.groups
     }
     private func request<T: Decodable>(path: String, body: Data? = nil, query: [URLQueryItem] = []) async throws -> T {
-        var parts = URLComponents(url: endpoint, resolvingAgainstBaseURL: false)!
-        parts.path = path; parts.queryItems = query.isEmpty ? nil : query
-        var req = URLRequest(url: parts.url!)
+        var req = URLRequest(url: UsageClient.requestURL(base: endpoint, path: path, query: query))
         req.timeoutInterval = 30; req.httpMethod = body == nil ? "GET" : "POST"; req.httpBody = body
         req.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
         req.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        return try await UsageClient.perform(req, session: session)
+    }
+    private static func requestURL(base: URL, path: String, query: [URLQueryItem] = []) -> URL {
+        var parts = URLComponents(url: base, resolvingAgainstBaseURL: false)!
+        parts.path = path; parts.queryItems = query.isEmpty ? nil : query
+        return parts.url!
+    }
+    private static func sessionConfiguration() -> URLSessionConfiguration {
+        let config = URLSessionConfiguration.ephemeral
+        config.httpShouldSetCookies = false; config.urlCredentialStorage = nil; config.urlCache = nil
+        return config
+    }
+    private static func perform<T: Decodable>(_ req: URLRequest, session: URLSession, join: Bool = false) async throws -> T {
         let (data, response) = try await session.data(for: req)
         guard let http = response as? HTTPURLResponse else { throw UsageFailure.invalid("Invalid usage server response") }
         guard (200...299).contains(http.statusCode) else {
+            if join {
+                let reason = [401: "Invalid invite code or member passphrase", 409: "Name taken or device already bound",
+                              403: "Team is full", 429: "Too many attempts; retry later"][http.statusCode]
+                throw UsageFailure.invalid(reason.map { "\($0) (\(http.statusCode))" } ?? "Team join HTTP \(http.statusCode)")
+            }
             throw UsageFailure.invalid(http.statusCode == 401 ? "Device credential expired or revoked (401)" : "Usage sync HTTP \(http.statusCode)")
         }
         return try JSONDecoder().decode(T.self, from: data)

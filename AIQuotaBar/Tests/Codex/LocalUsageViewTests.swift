@@ -31,6 +31,48 @@ import CodexLocalUsageCore
         XCTAssertEqual(UsageActivityLayout.intensity(value: 100, maximum: 100), 1)
     }
 
+    func testMonthAnd24HourViewsKeepAccountScopeAndAdvanceWithoutNewEvents() throws {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let model = CodexLocalUsageModel(databaseURL: directory.appendingPathComponent("test.sqlite"))
+        let now = Date()
+        model.currentAccountID = "a"; model.selectedAccount = "b"
+        model.events = ["a", "b"].enumerated().map { i, account in
+            LocalUsageEvent(id: account, occurredAt: UsageTime.string(now.addingTimeInterval(-300)), model: "m", tokens: UsageTokens(input: Int64(i + 1)), accountID: account)
+        }
+        XCTAssertEqual(model.activityHistory(month: false, currentAccount: true, now: now).reduce(0) { $0 + $1.summary.tokens.input }, 1)
+        XCTAssertEqual(model.activityHistory(month: false, now: now).reduce(0) { $0 + $1.summary.tokens.input }, 2)
+        let later = now.addingTimeInterval(86500)
+        XCTAssertEqual(model.activityHistory(month: false, currentAccount: true, now: later).reduce(0) { $0 + $1.summary.records }, 0)
+        XCTAssertEqual(model.activityHistory(month: false, currentAccount: true, now: later).last?.end, later)
+    }
+
+    func testHourlySummaryUsesTotalsForWeightedCacheRate() {
+        let now = Date()
+        let events = [
+            LocalUsageEvent(id: "a", occurredAt: UsageTime.string(now.addingTimeInterval(-60)), model: "m", tokens: UsageTokens(input: 100, cached: 100)),
+            LocalUsageEvent(id: "b", occurredAt: UsageTime.string(now.addingTimeInterval(-600)), model: "m", tokens: UsageTokens(input: 900, cached: 0))
+        ]
+        let total = UsageActivityLayout.summary(UsageHistory.last24Hours(events: events, prices: [], now: now))
+        XCTAssertEqual(total.records, 2)
+        XCTAssertEqual(total.tokens.total, 1000)
+        XCTAssertEqual(total.cacheHitRate!, 0.1, accuracy: 0.0001)
+        XCTAssertEqual(total.pricedRecords, 0)
+    }
+
+    func testCostTabNeedsAnActuallyPricedNonEmptyBucket() {
+        let now = Date()
+        let event = LocalUsageEvent(id: "priced", occurredAt: UsageTime.string(now.addingTimeInterval(-60)), model: "m", tokens: UsageTokens(input: 100))
+        XCTAssertFalse(UsageActivityLayout.hasUsableCost(UsageHistory.last24Hours(events: [], prices: [], now: now)))
+        XCTAssertFalse(UsageActivityLayout.hasUsableCost(UsageHistory.last24Hours(events: [event], prices: [], now: now)))
+        // A valid zero price still carries real information and must remain visible.
+        let zeroPrice = UsagePrice(model: "m", version: "v1", source: "test", effectiveFrom: "2020-01-01T00:00:00Z", input: 0, cached: 0, output: 0)
+        let buckets = UsageHistory.last24Hours(events: [event], prices: [zeroPrice], now: now)
+        XCTAssertTrue(UsageActivityLayout.hasUsableCost(buckets))
+        XCTAssertEqual(buckets.count / 12, 24)
+        XCTAssertEqual(buckets.first!.start, now.addingTimeInterval(-24 * 3600))
+    }
+
     func testMenuAccountScopeIsIndependentOfSettingsAndTracksSwitches() throws {
         let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         defer { try? FileManager.default.removeItem(at: directory) }

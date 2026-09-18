@@ -41,6 +41,21 @@
 
 单位为 USD / 百万 token。cacheWrite 为 null 时，含缓存写入的记录保持未定价，避免猜测费率。按模型精确匹配。历史价格按事件时间选择；服务端查询时重新计价，补录价格后历史立即生效。客户端 Decimal 计算，服务端按价格区间聚合后四舍五入到微美元，展示时可能有微小舍入差异。
 
+## 自助团队（/team）
+
+面向不想自己部署的团队。队长在 `https://ai-quota-bar.pages.dev/team` 创建团队，页面一次性给出三项凭据：团队 ID、邀请码和管理密码（服务端只存 SHA-256 哈希，丢失只能重建）。流程：
+
+1. 队长创建团队，保存团队 ID 与管理密码，把邀请码发给每位成员。
+2. 成员在 App 的 设置 → 用量 → Codex 本机用量 → 成员归属与上报 填入邀请码和自己的名字，点“加入团队”；服务端据此创建成员并签发设备凭据，之后与管理员签发的设备完全等价。
+3. 队长用团队 ID 和管理密码登录 `/team` 查看成员/设备/账号用量面板；任何已绑定成员也可在 App 的“团队成员用量”里查看。
+4. 需要换人时在面板轮换邀请码，旧码立即失效，已加入成员不受影响；也可移除某台设备，已入账历史保留。
+
+同名规则：一名成员的多台 Mac 使用同一名字。第二台 Mac 加入已存在的名字必须提供该成员的成员口令——首次加入后可在设置里设置（4–64 字符，服务端存哈希），防止队友冒用他人名字归属用量。没有口令的同名加入返回 `name_taken`；口令错误返回 401。已绑定设备换绑到其他成员同样需要对方口令（等价于管理员 `--reassign`）。同一设备重复加入同名是普通凭据轮换。
+
+护栏：每 IP 每小时最多创建 3 个团队；加入按 IP（20 次/15 分钟）和邀请码（30 次/15 分钟）限速，成功后清零；登录按团队+IP 限速（10 次/15 分钟）；每队上限 20 名成员。会话 Cookie `__Host-aqb_team` 由该团队的登录哈希签名，8 小时有效。账本仍不自动清理（见上文不变量），废弃团队的数据会保留。
+
+私有部署默认关闭自助团队。按顺序执行：应用 `migrations/0005_team_selfservice.sql`，部署 Worker，再在 `[vars]` 加入 `USAGE_TEAMS_ENABLED = "true"` 并重新部署；未开启时 create/login/join 返回 503 `teams_not_configured`。
+
 ## 部署团队接口
 
 新接口与原有额度快照接口隔离，不会因原有云同步已启用而自动上传个人用量。先按照 cloudflare/README.md 配置目标 Worker 和 D1。随后在仓库的 cloudflare 目录执行：
@@ -72,11 +87,17 @@ node scripts/provision-usage-device.mjs \
 
 ## 协议
 
+- `POST /v1/team/create`：`{teamName}`，公开但限速；一次性返回 teamID、inviteCode、loginPassword。需要 `USAGE_TEAMS_ENABLED`。
+- `POST /v1/team/login` / `POST /v1/team/logout`：团队 ID + 管理密码换取签名 Cookie 会话（8 小时）。
+- `GET /v1/team/overview?days=7|30|90`：会话鉴权，返回成员/设备/账号结构与按成员、设备、账号的用量聚合（UTC 日期）。
+- `POST /v1/team/invite/rotate`、`POST /v1/team/devices/revoke`：会话鉴权。
+- `POST /v1/usage/join`：`{inviteCode, memberName, deviceID, memberPassphrase?}`，邀请码即凭证；返回一次性设备 token，响应形状与 `/v1/usage/devices` 相同。
+- `POST /v1/usage/member/passphrase`：设备鉴权，设置或更换本成员口令（4–64 字符）。
 - `POST /v1/usage/devices`：独立管理员鉴权，注册或轮换设备，返回一次性可见的设备 token。
 - `POST /v1/usage/devices/revoke`：独立管理员鉴权，撤销设备。
 - `GET /v1/usage/identity`：设备鉴权，返回绑定身份和价格表。
 - `POST /v1/usage/events/batch`：设备鉴权，最多 50 条，返回 accepted/rejected。客户端收到完整匹配回执后才确认本地发送状态。
-- `GET /v1/usage/summary?from=...&to=...&group_by=member|device|model`：设备鉴权，只查所属团队；可带 member_id。范围为包含起点、不含终点，最长 366 天；客户端按本地日历转成 UTC 边界，因此正确覆盖夏令时。
+- `GET /v1/usage/summary?from=...&to=...&group_by=member|device|model|account`：设备鉴权，只查所属团队；可带 member_id。范围为包含起点、不含终点，最长 366 天；客户端按本地日历转成 UTC 边界，因此正确覆盖夏令时。
 
 事件没有客户端可指定的可信成员身份；服务器以凭据绑定身份为准。幂等键为团队 + 不透明事件 ID，跨设备复制也不重复计入。事件 ID 由会话、时间、计数快照和同时间的有效事件序号摘要生成。不会上传原始会话 ID、路径、提示词或 OpenAI 凭据。
 
@@ -123,6 +144,8 @@ swift run -c release CodexUsageAudit "$HOME/.codex" /path/to/scratch/audit.sqlit
 新生产入口：`https://ai-quota-bar.pages.dev`。计算和数据库位于 **node.cyberic@gmail.com**（Account ID `d9b4ce8306afc5594afc55786c3a76e4`）：Pages Functions `ai-quota-bar`，D1 `ai-quota-bar` / `0d70b7e7-2397-4d89-a925-5c335257dd58`。
 
 部署：在 cloudflare 目录将 `wrangler.pages.toml` 复制为 `wrangler.toml`，使用对应账号的 `CLOUDFLARE_API_TOKEN` 与 `CLOUDFLARE_ACCOUNT_ID` 环境变量，再执行 `npm ci && npm run deploy:pages`。Pages 不支持任意命名的配置文件路径，也不支持配置里的 account_id 字段；账号通过环境变量指定。运行时需要 SYNC_TOKEN、USAGE_ADMIN_TOKEN、CF_API_TOKEN 三个服务端 secret；不得写入版本库。
+
+官网（产品首页、`/changelog`、`/feedback`、`/team`、`/admin`）与 API 同属这个 Pages 项目。部署凭证在本机 `~/cf-fb-setup`（node.cyberic@gmail.com 账号）：API Token 在 `secrets/cloudflare-api-tokens.md`，账号实况与历次部署记录在 `accounts/node-cyberic.md`；命令详见 `cloudflare/README.md` 的 Website 小节。发布新版本后的官网同步：`npm run sync:releases`（从 GitHub 拉取已发布 release 生成 `content/releases.json`）→ `npm run build:pages` → `npm run deploy:pages`；更新检查接口 `/v1/app-update` 随最新 GitHub Release 自动生效。运营后台管理员密码见 `docs/operations.md`。
 
 新版 App 的默认额度同步、设备列表、资源用量和更新检查切换到新入口。本机成员上报针对两个旧官方入口，会先在新服务验证同一团队/成员/设备身份，才迁移本地绑定与凭据；上报起点、已发送状态、待传队列保持不变。自定义第三方入口不自动改写。
 

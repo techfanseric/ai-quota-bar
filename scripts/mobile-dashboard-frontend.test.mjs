@@ -194,7 +194,7 @@ test("CSS scales the full dashboard in both orientations with equal status rows"
   );
   assert.match(
     css,
-    /@media \(orientation: landscape\)[\s\S]*:root\s*\{[^}]*font-size:\s*max\(12px, min\(1\.724138vw, 3\.733333dvh\)\)/,
+    /@media \(orientation: landscape\)[\s\S]*:root\s*\{[^}]*font-size:\s*clamp\(12px, min\(1\.724138vw, 3\.733333dvh\), 16px\)/,
   );
   assert.doesNotMatch(
     css,

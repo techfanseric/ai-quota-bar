@@ -1,5 +1,7 @@
 import { operations } from "./operations.js";
 import { localUsage } from "./local-usage.js";
+import { teamService } from "./team.js";
+import { feedbackService } from "./feedback.js";
 
 export default {
   async fetch(request, env) {
@@ -11,6 +13,37 @@ export default {
 
       if (url.pathname.startsWith("/v1/admin/") || url.pathname.startsWith("/v1/telemetry/")) {
         return await operations(request, env, url);
+      }
+      if (url.pathname.startsWith("/v1/team/")) {
+        return await teamService(request, env, url);
+      }
+      if (url.pathname.startsWith("/v1/feedback")) {
+        return await feedbackService(request, env, url);
+      }
+      if (["GET", "HEAD"].includes(request.method) && ["/team", "/team/", "/team.css", "/team.js"].includes(url.pathname)) {
+        const assetURL = new URL(request.url);
+        if (["/team", "/team/"].includes(url.pathname)) assetURL.pathname = "/team";
+        const asset = await env.ASSETS.fetch(new Request(assetURL, request));
+        const response = new Response(asset.body, asset);
+        response.headers.set("cache-control", "no-store");
+        response.headers.set("x-robots-tag", "noindex, nofollow");
+        response.headers.set("content-security-policy", "default-src 'self'; script-src 'self'; style-src 'self'; connect-src 'self'; base-uri 'none'; frame-ancestors 'none'; form-action 'self'");
+        response.headers.set("x-content-type-options", "nosniff");
+        response.headers.set("referrer-policy", "no-referrer");
+        return response;
+      }
+      // The public feedback wall. Unlike /team it is indexable content, so no
+      // x-robots-tag is set; it still needs connect-src 'self' for its API calls.
+      if (["GET", "HEAD"].includes(request.method) && ["/feedback", "/feedback/", "/feedback.css", "/feedback.js"].includes(url.pathname)) {
+        const assetURL = new URL(request.url);
+        if (["/feedback", "/feedback/"].includes(url.pathname)) assetURL.pathname = "/feedback";
+        const asset = await env.ASSETS.fetch(new Request(assetURL, request));
+        const response = new Response(asset.body, asset);
+        response.headers.set("cache-control", "no-store");
+        response.headers.set("content-security-policy", "default-src 'self'; script-src 'self'; style-src 'self'; connect-src 'self'; base-uri 'none'; frame-ancestors 'none'; form-action 'self'");
+        response.headers.set("x-content-type-options", "nosniff");
+        response.headers.set("referrer-policy", "no-referrer");
+        return response;
       }
       if (["GET", "HEAD"].includes(request.method) && ["/admin", "/admin/", "/admin.css", "/admin.js"].includes(url.pathname)) {
         const assetURL = new URL(request.url);

@@ -1,4 +1,5 @@
 .sync-token
+.deploy-token
 .wrangler/
 wrangler.toml
 node_modules/
