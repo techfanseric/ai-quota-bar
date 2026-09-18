@@ -1,0 +1,78 @@
+/* Website preview styles for the /team dashboard mock and the app
+   Settings → Team pane mock. Dedicated file: concurrent site.css edits
+   cannot drop these rules. Palette mirrors the real /team page
+   (#f5f6f1 / #28352e / #69746c / #d9dfd6 / #fafbf7 / #507a59). */
+.team-page-mock{border:1px solid #d4d4d8;border-radius:12px;overflow:hidden;box-shadow:0 14px 34px rgba(20,22,20,.1);background:#f5f6f1;color:#28352e;font-family:-apple-system,BlinkMacSystemFont,"PingFang SC",sans-serif;font-variant-numeric:tabular-nums;font-size:13px;line-height:1.5}
+.team-page-mock h2,.team-page-mock h3,.team-page-mock h4,.team-page-mock p{margin:0}
+.team-page-mock button{font:inherit;border:1px solid #d9dfd6;background:#fafbf7;color:#28352e;padding:9px 14px;border-radius:5px;cursor:pointer}
+.team-page-mock select{font:inherit;border:1px solid #d9dfd6;background:#fafbf7;color:#28352e;border-radius:5px}
+.team-page-mock input{font:inherit;border:1px solid #b9c6b3;background:#fcfdf9;color:#28352e;border-radius:5px}
+.team-page-mock .muted{font-size:11px;color:#69746c}
+/* /team 页头 */
+.team-page-mock .tpm-header{display:flex;align-items:center;gap:14px;padding:14px 22px;background:#fff;border-bottom:1px solid #d9dfd6}
+.team-page-mock .tpm-header strong{font-size:15px;font-weight:650}
+.team-page-mock .tpm-header>span{font-size:11px;color:#69746c;border-left:1px solid #d9dfd6;padding-left:14px}
+.team-page-mock .tpm-logout{margin-left:auto;font-size:11px;padding:6px 10px;border-radius:5px}
+.team-page-mock .tpm-body{padding:20px 22px 24px}
+.team-page-mock .tpm-heading{display:flex;justify-content:space-between;align-items:end;gap:16px;flex-wrap:wrap}
+.team-page-mock .tpm-eyebrow{font-size:10px;letter-spacing:1.5px;color:#69746c;margin:0}
+.team-page-mock .tpm-heading h3{font-size:24px;font-weight:550;letter-spacing:-.5px;margin:4px 0 2px}
+.team-page-mock .tpm-muted{font-size:11px;color:#69746c;margin:0}
+.team-page-mock .tpm-tools{display:flex;align-items:center;gap:10px;font-size:12px;padding-bottom:10px;color:#28352e}
+.team-page-mock .tpm-select{padding:6px 10px}
+.team-page-mock .tpm-btn{padding:6px 12px;font-size:12px;display:inline-block}
+/* TeamCharts 卡片 */
+.team-page-mock #team-charts{margin-top:20px;padding:24px;border:1px solid #d9dfd6;border-radius:8px;background:#fafbf7}
+.team-page-mock #team-charts h2{font-size:20px;font-weight:600;letter-spacing:-.3px;margin:0 0 4px}
+.team-page-mock .chart-tabs{display:flex;gap:10px;flex-wrap:wrap;margin:16px 0 20px}
+.team-page-mock .chart-tabs button{padding:10px 18px;border-radius:6px;font-size:13px}
+.team-page-mock .chart-tabs button[aria-pressed=true],.team-page-mock .member-bar[aria-pressed=true]{border-color:#507a59;background:#e5eee1}
+.team-page-mock .member-ranking{display:grid;gap:8px}
+.team-page-mock .member-bar{display:grid;grid-template-columns:minmax(90px,150px) minmax(40px,1fr) 100px 50px;gap:12px;align-items:center;text-align:left;font-size:12px;padding:10px 14px;border-radius:8px}
+.team-page-mock .member-bar-name{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.team-page-mock .member-bar-track{height:12px;border-radius:9px;background:#e5e9e1;overflow:hidden}
+.team-page-mock .member-bar-track>span{display:block;height:100%;background:#689b6f;border-radius:9px}
+.team-page-mock .member-bar strong,.team-page-mock .member-share{text-align:right;font-variant-numeric:tabular-nums}
+.team-page-mock .member-share{color:#69746c;font-size:11px}
+.team-page-mock .chart-filters{display:flex;flex-wrap:wrap;align-items:end;gap:10px;margin-top:22px}
+.team-page-mock .chart-filters label{display:grid;gap:6px;flex:1 1 0;min-width:0;font-size:12px}
+.team-page-mock .chart-filters select{width:100%;box-sizing:border-box;appearance:none;-webkit-appearance:none;padding:7px 24px 7px 10px;background:#fafbf7 url("data:image/svg+xml;charset=utf8,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 10 6'%3E%3Cpath d='M1 1l4 4 4-4' fill='none' stroke='%2369746c' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E") no-repeat right 9px center/10px 6px;font-size:12px}
+.team-page-mock .chart-filters input{width:100%;box-sizing:border-box;padding:7px 10px;font-size:12px}
+.team-page-mock .chart-filters button{padding:8px 12px;font-size:12px;white-space:nowrap}
+.team-page-mock .chart-status{font-size:11px;color:#69746c;margin:10px 0 0}
+.team-page-mock .activity-plots{display:grid;grid-template-columns:auto minmax(0,1fr);gap:28px;margin:20px 0}
+.team-page-mock .activity-plots h3{font-size:12px;font-weight:500;color:#69746c;margin:0 0 12px}
+.team-page-mock .activity-calendar{display:grid;grid-template-rows:repeat(7,22px);grid-auto-flow:column;grid-auto-columns:22px;gap:4px}
+.team-page-mock .activity-cell{padding:0;border:0;border-radius:3px;background:#e6e9e2;min-width:0;font-size:9px;color:#304e36;cursor:pointer}
+.team-page-mock .activity-cell[data-level="1"]{background:#d3e7cf}
+.team-page-mock .activity-cell[data-level="2"]{background:#acd4a7}
+.team-page-mock .activity-cell[data-level="3"]{background:#7cbd78}
+.team-page-mock .activity-cell[data-level="4"]{background:#4c9c54;color:#fff}
+.team-page-mock .activity-cell[data-level="unknown"]{background:repeating-linear-gradient(135deg,#e3e6df,#e3e6df 3px,#b8beb5 3px,#b8beb5 4px)}
+.team-page-mock .activity-cell:disabled{opacity:.25;cursor:default}
+.team-page-mock .activity-cell:hover:not(:disabled){outline:1px solid #28352e;outline-offset:1px}
+.team-page-mock .activity-hours-wrap{min-width:0}
+.team-page-mock .activity-hours{display:grid;grid-template-columns:repeat(24,minmax(0,1fr));gap:3px}
+.team-page-mock .activity-hour{display:grid;grid-template-columns:minmax(0,1fr);grid-template-rows:repeat(12,12px) 16px;gap:3px;min-width:0}
+.team-page-mock .hour-label{font-size:9px;text-align:center;min-width:0;overflow:hidden;color:#69746c}
+.team-page-mock .chart-totals{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:16px;border-top:1px solid #d9dfd6;padding-top:16px}
+.team-page-mock .chart-totals>div{display:grid;gap:6px}
+.team-page-mock .chart-totals span{font-size:10px;color:#69746c}
+.team-page-mock .chart-totals strong{font-size:23px;font-weight:600;font-variant-numeric:tabular-nums}
+.team-page-mock .chart-inspect{min-height:48px;font-size:11px;font-variant-numeric:tabular-nums;overflow-wrap:anywhere}
+/* App「设置 → 团队」面板复现 */
+.team-native{background:#fff;border:1px solid #d4d4d8;border-radius:12px;padding:18px 20px 20px;box-shadow:0 14px 34px rgba(20,22,20,.1);color:#28352e;font-family:-apple-system,BlinkMacSystemFont,"PingFang SC",sans-serif;font-size:13px;line-height:1.5}
+.team-native .native-section-label{font-size:11px;color:#6c6c71;letter-spacing:.3px;text-transform:uppercase;margin:0}
+.team-head{display:flex;align-items:center;gap:10px;margin-top:10px;flex-wrap:wrap}
+.team-icon{width:20px;height:20px;color:#007aff;flex:none}
+.team-name{display:flex;flex-direction:column;gap:1px;min-width:0}
+.team-name strong{font-size:15px;font-weight:600}
+.team-name small{font-size:11px;color:#a7a7ac}
+.team-actions{display:flex;gap:8px;margin-left:auto;flex-wrap:wrap}
+.team-btn{font-size:12px;padding:4px 12px;border-radius:6px;background:#ececee;border:1px solid rgba(0,0,0,.1);white-space:nowrap}
+.team-switch-row{display:flex;align-items:center;gap:9px;font-size:13px;margin-top:13px}
+.team-switch-row .demo-switch,.team-switch-row .demo-checkbox{margin-left:0}
+.team-caption{font-size:11px;color:#a7a7ac;line-height:1.6;margin:12px 0 2px}
+.team-disclosure{display:flex;align-items:center;gap:7px;font-size:13px;padding:9px 0}
+.team-disclosure .chev{color:#6c6c71}
+@media(max-width:520px){.team-actions{margin-left:0}}

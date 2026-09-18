@@ -203,8 +203,7 @@
 .connection-demo .connection-stats{padding:8px 10px}
 .real-phone-stage{padding:6px;border-radius:15px;margin-top:28px}.real-phone-stage iframe{height:740px;border-radius:10px;min-width:700px}
 .portrait-story{grid-template-columns:minmax(0,1fr);gap:25px;margin-block:35px}.portrait-frame{width:min(330px,100%);margin:auto}.portrait-story h3{font-size:27px}
-.cycle-section{grid-template-columns:minmax(0,1fr);gap:30px;padding-block:46px}.cycle-instrument{padding:14px}.cycle-states{grid-template-columns:1fr;gap:10px}.cycle-state{grid-template-columns:38px 1fr;gap:12px;padding:14px}.cycle-state>svg{width:38px;height:38px}.browser-device-note{font-size:11px}.cycle-copy h2{font-size:29px}
-}
+.cycle-section{grid-template-columns:minmax(0,1fr);gap:30px;padding-block:46px}.cycle-instrument{padding:14px}.cycle-states{grid-template-columns:1fr;gap:10px}.cycle-state{grid-template-columns:38px 1fr;gap:12px;padding:14px}.cycle-state>svg{width:38px;height:38px}.browser-device-note{font-size:11px}.cycle-copy h2{font-size:29px}}
 @media(max-width:1100px) and (min-width:761px){.real-phone-stage iframe{height:580px}}
 @media(prefers-reduced-motion:reduce){.demo-switch,.demo-switch:after{transition:none}}
 .native-quota{position:relative}
@@ -221,10 +220,10 @@
 .usage-metrics button[aria-pressed=true]{font-weight:600;color:var(--n-label)}
 .local-badge{font-size:9px;color:var(--n-tertiary);margin-right:auto}
 .usage-grids{display:flex;align-items:flex-start;gap:5px}.usage-month{flex:none}.usage-recent{flex:1;min-width:0}
-.usage-grid-heading{display:flex;justify-content:space-between;font-size:9px;line-height:11px;color:var(--n-secondary);margin-bottom:4px}.usage-grid-heading>span:last-child{color:var(--n-tertiary)}
+.usage-grid-heading{display:flex;justify-content:space-between;font-size:9px;line-height:11px;color:var(--n-secondary);margin-bottom:4px}.usage-grid-heading>span:last-child{color:var(--n-tertiary)}.usage-grid-heading a{text-decoration:underline;text-underline-offset:3px}
 .month-matrix{display:grid;grid-template-rows:repeat(7,10px);grid-auto-flow:column;grid-auto-columns:10px;gap:3px}
 .usage-cell{display:block;border:0;padding:0;min-width:0;width:100%;height:100%;border-radius:2px}
-.usage-cell:disabled.future{opacity:.25}.usage-cell.renewal{outline:1px dashed rgba(0,0,0,.65);outline-offset:-1px}.usage-cell.unpriced{background-image:linear-gradient(135deg,transparent 46%,#999 48%,#999 52%,transparent 54%)!important}
+.usage-cell:disabled.future{opacity:.25}.usage-cell.renewal{outline:1px dashed rgba(0,0,0,.65);outline-offset:-1px}.usage-cell.reset{outline:1px solid var(--green);outline-offset:-1px}.usage-cell.unpriced{background-image:linear-gradient(135deg,transparent 46%,#999 48%,#999 52%,transparent 54%)!important}
 .usage-cell:hover:not(:disabled),.usage-cell:focus-visible{outline:1px solid rgba(0,0,0,.5);outline-offset:0}
 .recent-matrix{display:grid;grid-template-columns:repeat(24,minmax(0,1fr));gap:1px;height:99px}
 .hour-column{display:grid;grid-template-columns:minmax(0,1fr);grid-template-rows:repeat(12,6.333333px) 9px;row-gap:1px;min-width:0}.hour-column .usage-cell{border-radius:.7px}.hour-tick{font-size:7px;line-height:9px;text-align:center;color:var(--n-secondary);margin-top:2px;overflow:visible;white-space:nowrap}
@@ -240,10 +239,9 @@
 .team-note a:hover{color:#111113}
 .provider-logo[src$="codex.svg"]{filter:brightness(0)}
 .live-cycle-icon .cycle-initial{display:none}.live-cycle-icon:hover .cycle-core{display:none}.live-cycle-icon:hover .cycle-initial{display:block}
-.team-native-capture{border:1px solid #d4d4d8;border-radius:10px;background:#fff;overflow:hidden;aspect-ratio:720/285;box-shadow:0 14px 34px #1416141a}.team-native-capture img{display:block;width:100%;height:auto}.team-native-capture+figcaption{margin-top:14px;font-size:11px;line-height:1.7;color:var(--muted)}
 .native-model.compact-model .name{margin-right:auto;text-align:left}
 .cycle-percent{display:none;position:absolute;font-size:6px;line-height:7px;color:var(--n-secondary);width:100%;text-align:center;pointer-events:none}.native-quota:hover .cycle-percent,.native-quota:focus-within .cycle-percent{display:block}
 .cycle-states{grid-template-columns:repeat(2,minmax(0,1fr))}.cycle-state{grid-template-columns:44px minmax(0,1fr)}.cycle-state-copy{min-width:0;overflow-wrap:break-word}
 @media(max-width:1100px) and (min-width:761px){.cycle-section{grid-template-columns:minmax(0,1fr);gap:32px}.cycle-instrument{max-width:700px;width:100%;justify-self:center}}
 @media(max-width:760px){.cycle-states{grid-template-columns:minmax(0,1fr)}}
-.account-picker select{appearance:auto;-webkit-appearance:auto;background-image:none;padding-inline:8px}
+.account-picker select{appearance:auto;-webkit-appearance:auto;background-image:none;padding-inline:8px}}
