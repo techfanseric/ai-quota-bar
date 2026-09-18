@@ -35,7 +35,7 @@ export default {
         response.headers.set("cache-control", "public, max-age=0, must-revalidate");
         return response;
       }
-      const publicPaths = new Set(["/", "/index.html", "/site.css", "/demo.js", "/favicon.svg", "/robots.txt", "/sitemap.xml", "/changelog", "/changelog/", "/changelog.html", "/changelog.css", "/changelog.js", "/app-icon.png"]);
+      const publicPaths = new Set(["/", "/index.html", "/site.css", "/demo.js", "/favicon.svg", "/robots.txt", "/sitemap.xml", "/changelog", "/changelog/", "/changelog.html", "/changelog.css", "/changelog.js", "/app-icon.png", "/cycle-demo.js"]);
       if (["GET", "HEAD"].includes(request.method) && publicPaths.has(url.pathname)) {
         const asset = await env.ASSETS.fetch(request);
         const response = new Response(asset.body, asset);

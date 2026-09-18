@@ -3,7 +3,7 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "check": "node --check src/worker.js && node --check src/local-usage.js && node --check public/demo.js && node --check src/operations.js && node --check public/admin.js && node --check public/changelog.js",
+    "check": "node --check src/worker.js && node --check src/local-usage.js && node --check public/demo.js && node --check src/operations.js && node --check public/admin.js && node --check public/changelog.js && node --check public/cycle-demo.js",
     "test": "node --experimental-sqlite --test tests/*.test.js",
     "deploy": "npm run deploy:pages",
     "db:migrate": "wrangler d1 execute ai-quota-bar --file=./schema.sql",
