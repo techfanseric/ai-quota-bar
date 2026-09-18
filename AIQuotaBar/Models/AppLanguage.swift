@@ -1584,6 +1584,8 @@ enum AppLanguage: String, CaseIterable, Codable, Identifiable {
 
     func menuBarStateText(_ state: MenuBarSnapshotState) -> String {
         switch (self, state) {
+        case (.english, .needsSetup): return "Get started"
+        case (.simplifiedChinese, .needsSetup): return "开始使用"
         case (.english, .loading): return "loading"
         case (.english, .ready): return "ready"
         case (.english, .unavailable): return "no data"

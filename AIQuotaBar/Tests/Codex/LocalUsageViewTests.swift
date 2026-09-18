@@ -5,6 +5,32 @@ import CodexLocalUsageCore
 @testable import AIQuotaBar
 
 @MainActor final class LocalUsageViewTests: XCTestCase {
+    func testEmptyInstallationDoesNotCreateProviderErrors() async {
+        let model = UsageViewModel(providerPresence: { _ in false })
+        XCTAssertTrue(model.registeredProviders.isEmpty)
+        await model.refresh(showIconSelfTest: false)
+        XCTAssertNil(model.error)
+        XCTAssertEqual(model.menuBarSnapshot.state, .needsSetup)
+        XCTAssertTrue(model.providerErrors.isEmpty)
+        XCTAssertFalse(model.isLoading)
+    }
+
+    func testMatrixHasExactlyThirtyRealDaysAndDistinguishesMissingValues() {
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = TimeZone(secondsFromGMT: 0)!
+        calendar.firstWeekday = 2
+        let now = Date(timeIntervalSince1970: 1_789_700_000)
+        let events = LocalUsageSamplePreview.events(now: now, calendar: calendar)
+        let daily = UsageHistory.buckets(events: events, prices: [], days: 30, now: now, calendar: calendar)
+        let slots = UsageActivityLayout.slots(dates: daily.map(\.start), calendar: calendar)
+        XCTAssertEqual(slots.compactMap { $0 }, Array(0..<30))
+        XCTAssertEqual(slots.count % 7, 0)
+        XCTAssertNil(UsageActivityLayout.intensity(value: nil, maximum: 100))
+        XCTAssertEqual(UsageActivityLayout.intensity(value: 0, maximum: 100), 0)
+        XCTAssertEqual(UsageActivityLayout.intensity(value: 1, maximum: 100), 0.25)
+        XCTAssertEqual(UsageActivityLayout.intensity(value: 100, maximum: 100), 1)
+    }
+
     func testMenuAccountScopeIsIndependentOfSettingsAndTracksSwitches() throws {
         let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         defer { try? FileManager.default.removeItem(at: directory) }
@@ -45,6 +71,7 @@ import CodexLocalUsageCore
             let view = NSHostingView(rootView: root)
             let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 720, height: 650), styleMask: [.titled, .closable], backing: .buffered, defer: false)
             window.isReleasedWhenClosed = false
+            window.animationBehavior = .none
             window.contentView = view; window.orderFront(nil)
             RunLoop.main.run(until: Date().addingTimeInterval(0.1))
             view.layoutSubtreeIfNeeded()
@@ -54,10 +81,11 @@ import CodexLocalUsageCore
                 try bitmap.representation(using: .png, properties: [:])?.write(to: URL(fileURLWithPath: output).appendingPathComponent("local-usage-\(language.rawValue).png"))
             }
             window.close()
-            let menu = NSHostingView(rootView: CodexLocalUsageMenuCard(model: model, language: language).padding(8).frame(width: 276).background(Color.white).environment(\.colorScheme, .light))
+            let menu = NSHostingView(rootView: LocalUsageSamplePreview(language: language).padding(8).frame(width: 276).background(Color.white).environment(\.colorScheme, .light))
             XCTAssertGreaterThan(menu.fittingSize.height, 50)
-            let menuWindow = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 276, height: 205), styleMask: [.titled], backing: .buffered, defer: false)
+            let menuWindow = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 276, height: 235), styleMask: [.titled], backing: .buffered, defer: false)
             menuWindow.isReleasedWhenClosed = false
+            menuWindow.animationBehavior = .none
             menuWindow.contentView = menu; menuWindow.orderFront(nil)
             RunLoop.main.run(until: Date().addingTimeInterval(0.1))
             menu.layoutSubtreeIfNeeded()

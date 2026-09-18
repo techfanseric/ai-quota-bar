@@ -121,6 +121,7 @@ enum MenuBarCompactLayoutPreferences {
 }
 
 enum MenuBarSnapshotState: Equatable {
+    case needsSetup
     case loading
     case ready
     case unavailable

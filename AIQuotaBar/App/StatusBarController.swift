@@ -1176,6 +1176,8 @@ final class StatusBarCompactRingView: NSView {
                         originFraction: 0.28,
                         alpha: liveRingAmount)
                 }
+            case .needsSetup:
+                break
             case .unavailable, .failed:
                 drawUnavailableSlash(
                     center: center,
@@ -1196,7 +1198,7 @@ final class StatusBarCompactRingView: NSView {
     }
 
     private var isOffline: Bool {
-        snapshot.provider == .codex && connectivity == .unreachable && !isSelfTesting
+        snapshot.provider == .codex && snapshot.state != .needsSetup && connectivity == .unreachable && !isSelfTesting
     }
 
     private var showsTaskEnergy: Bool {
@@ -1422,6 +1424,7 @@ final class StatusBarCompactRingView: NSView {
         switch state {
         case .ready: activeAlpha = 0.86
         case .loading: activeAlpha = 0.52
+        case .needsSetup: activeAlpha = 0.35
         case .unavailable: activeAlpha = 0.44
         case .failed: activeAlpha = 0.68
         }

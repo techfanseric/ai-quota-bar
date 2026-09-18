@@ -48,6 +48,16 @@ public actor UsageStore {
         var readErrors = 0
         for name in ["sessions", "archived_sessions"] {
             let dir = root.appendingPathComponent(name)
+            do {
+                let values = try dir.resourceValues(forKeys: [.isDirectoryKey])
+                guard values.isDirectory == true else { readErrors += 1; continue }
+            } catch {
+                let error = error as NSError
+                // A new Codex installation need not have either log directory yet.
+                if error.domain == NSCocoaErrorDomain && [NSFileNoSuchFileError, NSFileReadNoSuchFileError].contains(error.code) { continue }
+                readErrors += 1
+                continue
+            }
             if let enumerator = FileManager.default.enumerator(at: dir, includingPropertiesForKeys: [.fileSizeKey, .contentModificationDateKey, .isRegularFileKey], options: [.skipsHiddenFiles], errorHandler: { _, _ in readErrors += 1; return true }) {
                 for case let file as URL in enumerator where file.pathExtension == "jsonl" { files.append(file) }
             }

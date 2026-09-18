@@ -3,6 +3,7 @@ import CodexBarCore
 import SwiftUI
 
 struct MenuView: View {
+    @State private var showsUsagePreview = false
     @State private var updates = UpdateChecker.shared
     @Bindable var viewModel: UsageViewModel
     @Bindable var presentationSizing: MenuPresentationSizing
@@ -26,6 +27,7 @@ struct MenuView: View {
         .padding(10)
         .frame(width: MenuBarPanelLayout.width)
         .task { await updates.checkIfNeeded() }
+        .onChange(of: showsUsagePreview) { _, _ in onLayoutChange() }
     }
 
     private var language: AppLanguage {
@@ -35,7 +37,19 @@ struct MenuView: View {
     @ViewBuilder
     private var modelsList: some View {
         let sections = viewModel.leftClickMenuUsageSections
-        if !sections.isEmpty {
+        if sections.isEmpty && !viewModel.hasAnyCredential {
+            VStack(alignment: .leading, spacing: 10) {
+                Text(language == .simplifiedChinese ? "从一个供应商开始" : "Start with one provider")
+                    .font(.system(size: 12, weight: .semibold))
+                Text(language == .simplifiedChinese ? "连接后，在这里查看额度、趋势和本机用量。Codex 可沿用本机登录；其他供应商按需添加。" : "Connect to see quotas, trends and local usage here. Codex uses your local sign-in; other providers are optional.")
+                    .font(.system(size: 11)).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+                HStack {
+                    Button(language == .simplifiedChinese ? "连接供应商" : "Connect a provider", action: onOpenSettings)
+                    Button(language == .simplifiedChinese ? (showsUsagePreview ? "收起示例" : "先看示例") : (showsUsagePreview ? "Hide preview" : "Preview first")) { showsUsagePreview.toggle() }
+                }.controlSize(.small).tint(.primary)
+                if showsUsagePreview { LocalUsageSamplePreview(language: language) }
+            }.padding(8)
+        } else if !sections.isEmpty {
             VStack(spacing: 0) {
                 let providerCount = Set(sections.map(\.provider)).count
                 HStack(spacing: 8) {
@@ -129,8 +143,8 @@ struct MenuView: View {
         } else if shouldShowCodexEmptyState {
             MenuPlaceholderCard(
                 icon: "terminal.fill",
-                title: language.codexMenuNotConfiguredTitle(),
-                message: language.codexMenuNotConfiguredMessage(),
+                title: language == .simplifiedChinese ? "等待 Codex" : "Waiting for Codex",
+                message: language == .simplifiedChinese ? "打开 Codex 后会自动获取额度。本机历史仍可在设置 → 用量中查看。" : "Open Codex to refresh your quota. Local history remains available in Settings → Usage.",
                 primaryActionTitle: language.text(.settings),
                 primaryAction: onOpenSettings
             )

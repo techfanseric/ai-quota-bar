@@ -294,7 +294,7 @@ struct CurrentUtilizationCycle {
     let leftPercent: Double
 }
 
-private struct CycleCallout: View {
+struct CycleCallout: View {
     let text: String
 
     var body: some View {
