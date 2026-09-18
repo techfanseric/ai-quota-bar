@@ -51,7 +51,7 @@ test('embedded real dashboard preview is public but cannot connect to live APIs'
 });
 
 test('changelog is public read-only content with no API connections', async () => {
-  for (const path of ['/changelog', '/changelog/', '/changelog.html', '/changelog.css', '/changelog.js', '/app-icon.png']) {
+  for (const path of ['/changelog', '/changelog/', '/changelog.html', '/changelog.css', '/changelog.js', '/app-icon.png', '/cycle-demo.js']) {
     const result = await worker.fetch(new Request('https://example.com' + path), {ASSETS: assets});
     assert.equal(result.status, 200);
     assert.match(result.headers.get('content-security-policy'), /connect-src 'none'/);
