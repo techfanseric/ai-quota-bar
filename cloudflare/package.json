@@ -3,7 +3,7 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "check": "node --check src/legacy-quota.js && node --check src/team-quota.js && node --check src/worker.js && node --check src/local-usage.js && node --check src/team.js && node --check src/team-handoff.js && node --check src/usage-team-core.js && node --check src/feedback.js && node --check public/demo.js && node --check src/operations.js && node --check public/admin.js && node --check public/team.js && node --check public/feedback.js && node --check public/changelog.js && node --check public/cycle-demo.js && node --check public/usage-demo.js && node --check public/usage-fixture.js",
+    "check": "node --check src/legacy-quota.js && node --check src/team-quota.js && node --check src/worker.js && node --check src/local-usage.js && node --check src/team.js && node --check src/team-handoff.js && node --check src/usage-team-core.js && node --check src/feedback.js && node --check public/demo.js && node --check src/operations.js && node --check public/admin.js && node --check public/team.js && node --check public/team-charts.js && node --check public/team-locale-1.js && node --check public/team-locale-2.js && node --check public/admin-locale-1.js && node --check public/admin-locale-2.js && node --check public/feedback.js && node --check public/changelog.js && node --check public/cycle-demo.js && node --check public/usage-demo.js && node --check public/usage-fixture.js",
     "test": "node --experimental-sqlite --test tests/*.test.js",
     "deploy": "npm run deploy:pages",
     "db:migrate": "wrangler d1 execute ai-quota-bar --file=./schema.sql",

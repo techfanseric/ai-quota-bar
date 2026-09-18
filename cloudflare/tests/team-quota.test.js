@@ -130,3 +130,26 @@ test('browser session changes across tabs cannot target another team and forged 
  db.prepare('UPDATE usage_devices SET token_hash=? WHERE team_id=?').run('rotated',a.teamID);
  assert.equal((await call(env,'/v1/team/overview',{headers:{cookie}})).status,401);
 });
+
+test('5-minute timelines preserve exact boundaries, filters, prices and team scope',async()=>{
+ const {env}=setup(),a=await createTeam(env,'A'),b=await createTeam(env,'B');
+ env.USAGE_MODEL_PRICES=JSON.stringify([{model:'fixture-model',version:'fixture',source:'fixture-only',effectiveFrom:'2026-01-01T00:00:00Z',input:1,cached:0.5,cacheWrite:1,output:2}]);
+ const ta=await join(env,a.inviteCode,'Alice','a-device','alice-pass'),tb=await join(env,a.inviteCode,'Bob','b-device','bob-pass'),other=await join(env,b.inviteCode,'Elsewhere','a-device','other-pass');
+ const account='a'.repeat(64),from='2026-09-01T12:00:00.250Z',to='2026-09-02T12:00:00.250Z';
+ const events=[{...event(91),occurredAt:from,accountID:account,accountSource:'log'},{...event(92),occurredAt:'2026-09-01T12:05:00.249Z',accountID:account,accountSource:'log'},{...event(93),occurredAt:'2026-09-01T12:05:00.250Z'},{...event(94),occurredAt:to}];
+ for(const [token,items] of [[ta,events],[tb,[{...event(95),occurredAt:from}]],[other,events]])assert.equal((await post(env,'/v1/usage/events/batch',{events:items},auth(token))).status,200);
+ const query=new URLSearchParams({from,to,bucket_seconds:'300'}),get=(suffix='',token=ta)=>call(env,'/v1/usage/timeline?'+query+suffix,{headers:auth(token)});
+ const all=await get();assert.equal(all.status,200);assert.equal(all.body.groups.reduce((n,r)=>n+r.records,0),4);assert.equal(all.body.groups.find(r=>r.id==='0').records,3);assert.equal(all.body.groups.find(r=>r.id==='1').records,1);
+ assert.equal(all.body.groups.reduce((n,r)=>n+r.pricedRecords,0),4);assert.equal(all.body.groups.reduce((n,r)=>n+r.costUSD,0),0.0038);
+ const filtered=await get('&device_id=a-device&account_id='+account);assert.equal(filtered.body.groups.length,1);assert.equal(filtered.body.groups[0].records,2);
+ assert.equal((await get('&account_id=unknown')).body.groups.reduce((n,r)=>n+r.records,0),2);
+ const memberID=(await call(env,'/v1/usage/identity',{headers:auth(tb)})).body.identity.member_id;
+ assert.equal((await get('&member_id='+memberID)).body.groups.reduce((n,r)=>n+r.records,0),1);
+ assert.equal((await get('&member_id=from-another-team')).body.groups.length,0);
+ assert.equal((await get('&team_id='+b.teamID)).body.groups.reduce((n,r)=>n+r.records,0),4);
+ assert.equal((await get('',other)).body.groups.reduce((n,r)=>n+r.records,0),3);
+ const cookie=await loginSession(env,a),browser=await call(env,'/v1/team/timeline?'+query,{headers:{cookie}});assert.deepEqual(browser.body.groups,all.body.groups);
+ assert.equal((await call(env,'/v1/usage/timeline?'+new URLSearchParams({from,to:'2026-09-03T12:00:00Z',bucket_seconds:'300'}),{headers:auth(ta)})).status,400);
+ assert.equal((await get('&account_id=invalid')).status,400);
+ const daily=await call(env,'/v1/usage/timeline?'+new URLSearchParams({from:'2026-09-01T00:00:00Z',to:'2026-10-01T00:00:00Z',bucket_seconds:'86400'}),{headers:auth(ta)});assert.equal(daily.body.groups.find(r=>r.id==='0').records,4);assert.equal(daily.body.groups.find(r=>r.id==='1').records,1);
+});

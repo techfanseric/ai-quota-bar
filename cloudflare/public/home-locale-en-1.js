@@ -1,0 +1,1 @@
+(function(){try{var k='aqb-lang',here='en',saved=localStorage.getItem(k);if(saved&&saved!==here){location.replace(saved==='en'?'/en/':'/');return}if(!saved){var n=(navigator.languages&&navigator.languages[0])||navigator.language||'';var want=/^zh/i.test(n)?'zh':'en';if(want!==here){localStorage.setItem(k,want);location.replace(want==='en'?'/en/':'/')}}}catch(e){}})();

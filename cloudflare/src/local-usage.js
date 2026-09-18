@@ -61,7 +61,7 @@ function priceTable(env) {
 // Team-scoped aggregation shared by the device-facing summary endpoint and the
 // /team dashboard. Splits aggregates by price interval, not individual
 // requests, so the event ledger never loads into Worker memory.
-export async function usageGroups(env, teamID, from, to, group, member = null) {
+export async function usageGroups(env, teamID, from, to, group, member = null, options = {}) {
   const prices = priceTable(env);
   const clauses = []; const priceArgs = [];
   prices.forEach((p, index) => {
@@ -69,22 +69,24 @@ export async function usageGroups(env, teamID, from, to, group, member = null) {
     priceArgs.push(p.model, new Date(p.effectiveFrom).toISOString(), p.effectiveTo ? new Date(p.effectiveTo).toISOString() : '9999-12-31T00:00:00.000Z');
   });
   const priceCase = clauses.length ? `(CASE ${clauses.join(' ')} ELSE -1 END)` : '-1';
-  const dimension = { member: 'member_id', device: 'device_id', model: 'model', account: "COALESCE(account_id,'unknown')" }[group];
+  const startMS = Date.parse(from);
+  const bucketDimension = options.bucketSeconds ? `CAST((CAST(strftime('%s',occurred_at) AS INTEGER)*1000+CAST(substr(occurred_at,21,3) AS INTEGER)-${startMS})/${options.bucketSeconds*1000} AS INTEGER)` : null;
+  const dimension = { bucket: bucketDimension, member: 'member_id', device: 'device_id', model: 'model', account: "COALESCE(account_id,'unknown')" }[group];
   const sql = `SELECT ${dimension} AS id, member_id, ${priceCase} AS price_index, COUNT(*) AS records,
     SUM(input_tokens) AS input, SUM(cached_tokens) AS cached, SUM(cache_write_tokens) AS cacheWrite,
     SUM(output_tokens) AS output, SUM(reasoning_tokens) AS reasoning,
     SUM(CASE WHEN quality<>'exact' THEN 1 ELSE 0 END) AS estimatedRecords,
     SUM(CASE WHEN cache_write_tokens>0 THEN 1 ELSE 0 END) AS writeRecords
-    FROM usage_events WHERE team_id=? AND occurred_at>=? AND occurred_at<? ${member ? 'AND member_id=?' : ''}
+    FROM usage_events WHERE team_id=? AND occurred_at>=? AND occurred_at<? ${member ? 'AND member_id=?' : ''} ${options.device ? 'AND device_id=?' : ''} ${options.account ? "AND COALESCE(account_id,'unknown')=?" : ''}
     GROUP BY ${dimension},${group === 'device' ? 'member_id,' : ''}price_index,(cache_write_tokens>0)`;
-  const result = await env.DB.prepare(sql).bind(...priceArgs, teamID, new Date(from).toISOString(), new Date(to).toISOString(), ...(member ? [member] : [])).all();
+  const result = await env.DB.prepare(sql).bind(...priceArgs, teamID, new Date(from).toISOString(), new Date(to).toISOString(), ...(member ? [member] : []), ...(options.device ? [options.device] : []), ...(options.account ? [options.account] : [])).all();
   const names = await env.DB.prepare('SELECT member_id,member_name FROM usage_members WHERE team_id=?').bind(teamID).all();
   const memberNames = new Map(names.results.map(x => [x.member_id, x.member_name]));
   const groups = new Map();
   for (const row of result.results) {
     const key = group === 'device' ? `${row.member_id}:${row.id}` : row.id;
-    const item = groups.get(key) || { id: row.id, name: group === 'member' ? memberNames.get(row.id) || row.id : row.id,
-      memberID: ['model','account'].includes(group) ? null : row.member_id, records: 0, input: 0, cached: 0, cacheWrite: 0, output: 0, reasoning: 0, estimatedRecords: 0, pricedRecords: 0, costUSD: 0 };
+    const item = groups.get(key) || { id: String(row.id), name: group === 'member' ? memberNames.get(row.id) || row.id : String(row.id),
+      memberID: ['model','account','bucket'].includes(group) ? null : row.member_id, records: 0, input: 0, cached: 0, cacheWrite: 0, output: 0, reasoning: 0, estimatedRecords: 0, pricedRecords: 0, costUSD: 0 };
     for (const key of ['records','input','cached','cacheWrite','output','reasoning','estimatedRecords']) item[key] += row[key];
     const p = prices[row.price_index];
     if (p && (row.writeRecords === 0 || p.cacheWrite != null)) {
@@ -96,6 +98,18 @@ export async function usageGroups(env, teamID, from, to, group, member = null) {
     groups.set(key, item);
   }
   return [...groups.values()].sort((a,b) => (b.input+b.output)-(a.input+a.output));
+}
+
+// The same price-aware aggregation powers browser and native charts. No raw events leave the service.
+export async function usageSeries(env, teamID, url) {
+  const from=url.searchParams.get('from'),to=url.searchParams.get('to'),bucket=Number(url.searchParams.get('bucket_seconds'));
+  const member=url.searchParams.get('member_id'),device=url.searchParams.get('device_id'),account=url.searchParams.get('account_id');
+  if(!date(from)||!date(to)||![300,86400].includes(bucket)||Date.parse(to)<=Date.parse(from)
+    ||Date.parse(to)-Date.parse(from)>(bucket===300?86400_000:366*86400_000)
+    ||(member!==null&&!text(member))||(device!==null&&!text(device))
+    ||(account!==null&&account!=='unknown'&&!/^[a-f0-9]{64}$/.test(account)))return json({error:'invalid_range'},400);
+  const groups=await usageGroups(env,teamID,from,to,'bucket',member,{bucketSeconds:bucket,device,account});
+  return json({ok:true,from:new Date(from).toISOString(),to:new Date(to).toISOString(),bucketSeconds:bucket,groups});
 }
 
 export async function localUsage(request, env, url) {
@@ -226,6 +240,7 @@ export async function localUsage(request, env, url) {
       }
       return json({ ok: true, accepted, rejected });
     }
+    if (url.pathname === '/v1/usage/timeline' && request.method === 'GET') return await usageSeries(env,who.team_id,url);
     if (url.pathname === '/v1/usage/summary' && request.method === 'GET') {
       const from = url.searchParams.get('from'); const to = url.searchParams.get('to');
       const group = url.searchParams.get('group_by') || 'member';

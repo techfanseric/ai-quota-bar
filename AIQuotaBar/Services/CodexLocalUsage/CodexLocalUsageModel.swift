@@ -120,7 +120,8 @@ final class CodexLocalUsageModel {
         return UsageSummary(events: trendEvents(currentAccount: currentAccount), prices: prices, from: from, to: now)
     }
 
-    init(defaults: UserDefaults = .standard, databaseURL: URL? = nil) {
+    init(defaults: UserDefaults = .standard, databaseURL: URL? = nil, client: UsageClient? = nil) {
+        self.client = client
         self.defaults = defaults
         reportingEnabled = defaults.bool(forKey: "localUsage.reporting")
         if let data = defaults.data(forKey: "localUsage.connection") { connection = try? JSONDecoder().decode(LocalUsageConnection.self, from: data) }
@@ -334,6 +335,7 @@ final class CodexLocalUsageModel {
         return url
     }
     func loadTeam() async {
+        guard !Task.isCancelled else { return }
         guard let connection else { clearTeamSummary(); return }
         let requestID = UUID(); teamRequest = requestID
         let requestedDays = days, requestedFrom = from, requestedBinding = connection.binding
@@ -352,9 +354,23 @@ final class CodexLocalUsageModel {
             guard teamRequest == requestID, requestedDays == days, requestedBinding == self.connection?.binding else { return }
             teamRows = result.0; teamDevices = result.1; teamAccounts = result.2; teamUpdatedAt = Date()
         } catch {
-            guard teamRequest == requestID, requestedDays == days, requestedBinding == self.connection?.binding else { return }
+            guard !Task.isCancelled, teamRequest == requestID, requestedDays == days, requestedBinding == self.connection?.binding else { return }
+            if (error as? URLError)?.code == .cancelled { return }
             teamLoadError = error.localizedDescription
         }
+    }
+    func teamActivity(member: String?, device: String?, account: String?, date: Date?, now: Date) async throws -> (daily: [UsageHistoryBucket], hourly: [UsageHistoryBucket]) {
+        guard let binding = connection?.binding else { throw UsageFailure.invalid("Join a team first") }
+        let client = try await activeClient()
+        var calendar = Calendar(identifier: .gregorian); calendar.timeZone = TimeZone(secondsFromGMT: 0)!
+        let month = calendar.dateInterval(of: .month, for: date ?? now)!
+        let start = date.map { calendar.startOfDay(for: $0) } ?? now.addingTimeInterval(-86400)
+        let end = date == nil ? now : start.addingTimeInterval(86400)
+        async let daily = client.timeline(from: month.start, to: month.end, bucketSeconds: 86400, member: member, device: device, account: account)
+        async let hourly = client.timeline(from: start, to: end, bucketSeconds: 300, member: member, device: device, account: account)
+        let result = try await (daily, hourly)
+        guard connection?.binding == binding else { throw CancellationError() }
+        return (result.0.buckets, result.1.buckets)
     }
     private static func saveToken(_ token: String, account: String) async throws {
         guard await KeychainService.shared.saveDeviceCredential(token, binding: account) else {

@@ -43,6 +43,32 @@ public struct TeamUsageRow: Codable, Identifiable, Sendable {
     public let cacheHitRate: Double?
 }
 
+public struct TeamUsageSeries: Codable, Sendable {
+    public let from: String
+    public let to: String
+    public let bucketSeconds: Int
+    public let groups: [TeamUsageRow]
+    public var buckets: [UsageHistoryBucket] {
+        guard let start = UsageTime.parse(from), let end = UsageTime.parse(to), bucketSeconds > 0 else { return [] }
+        let count = min(366, Int(ceil(end.timeIntervalSince(start) / Double(bucketSeconds))))
+        guard count > 0 else { return [] }
+        let values = Dictionary(groups.compactMap { row in Int(row.id).map { ($0, row) } }, uniquingKeysWith: { first, _ in first })
+        return (0..<count).map { index in
+            let begin = start.addingTimeInterval(Double(index * bucketSeconds))
+            return UsageHistoryBucket(start: begin, end: min(end, begin.addingTimeInterval(Double(bucketSeconds))), summary: values[index]?.summary ?? UsageSummary())
+        }
+    }
+}
+public extension TeamUsageRow {
+    var summary: UsageSummary {
+        var result = UsageSummary()
+        result.records = records; result.estimatedRecords = estimatedRecords; result.pricedRecords = pricedRecords
+        result.tokens = UsageTokens(input: input, cached: cached, cacheWrite: cacheWrite, output: output, reasoning: reasoning)
+        result.cost = Decimal(costUSD)
+        return result
+    }
+}
+
 public final class UsageClient: @unchecked Sendable {
     private let session: URLSession
     private let endpoint: URL
@@ -131,6 +157,13 @@ public final class UsageClient: @unchecked Sendable {
         if let member { query.append(URLQueryItem(name: "member_id", value: member)) }
         let value: Response = try await request(path: "/v1/usage/summary", query: query)
         return value.groups
+    }
+    public func timeline(from: Date, to: Date, bucketSeconds: Int, member: String? = nil, device: String? = nil, account: String? = nil) async throws -> TeamUsageSeries {
+        var query = [URLQueryItem(name: "from", value: UsageTime.string(from)), URLQueryItem(name: "to", value: UsageTime.string(to)), URLQueryItem(name: "bucket_seconds", value: String(bucketSeconds))]
+        for (key, value) in [("member_id", member), ("device_id", device), ("account_id", account)] {
+            if let value { query.append(URLQueryItem(name: key, value: value)) }
+        }
+        return try await request(path: "/v1/usage/timeline", query: query)
     }
     private func request<T: Decodable>(path: String, body: Data? = nil, query: [URLQueryItem] = []) async throws -> T {
         var req = URLRequest(url: UsageClient.requestURL(base: endpoint, path: path, query: query))

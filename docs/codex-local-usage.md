@@ -159,3 +159,9 @@ swift run -c release CodexUsageAudit "$HOME/.codex" /path/to/scratch/audit.sqlit
 ## v1.20 部署补充
 
 先执行 `cloudflare/migrations/0008_team_handoff.sql`，再部署 Pages。新表仅保存票据哈希和绑定信息；过期票据在签发时清理。此迁移新增表和索引，不修改团队用量历史。原有管理密码登录继续可用。
+
+## 团队图表
+
+设置与网页均提供成员用量对比，以及月历、最近 24 小时 / 指定日期的 288 个五分钟桶。团队图表统一采用 UTC，可组合成员、设备、账号筛选；比较范围与月历范围分别明确标识。缓存命中按输入 token 加权，成本按记录对应的价格区间计算，未完整定价时明确标识，避免与零成本混淆。
+
+`GET /v1/usage/timeline` 使用设备凭据，`GET /v1/team/timeline` 使用成员或管理员会话。参数：`from`、`to`、`bucket_seconds=300|86400`，以及可选的 `member_id`、`device_id`、`account_id`（哈希或 `unknown`）。五分钟查询最多 24 小时，日桶最多 366 天；服务端从鉴权身份确定团队，忽略客户端伪造的团队范围。返回的是价格分段后合并的桶聚合，不是原始事件。
