@@ -1563,14 +1563,17 @@ final class UsageViewModel {
             } catch {
                 // 瞬时失败保留上次样本，避免面板曲线图闪空。
                 cloudUsageLoadError = error.localizedDescription
+                CloudDiagnosticLog.shared.record("download", error: error)
                 return
             }
             cloudUsageLoadError = nil
+            CloudDiagnosticLog.shared.record("download")
         } catch {
             // Cloud rows are supplemental. Keep local quota usable if remote history cannot load.
             cloudProviderUsageData = [:]
             // 保留上次 cloudModelQuotaSamples，避免瞬时失败导致曲线图闪空。
             cloudUsageLoadError = error.localizedDescription
+                CloudDiagnosticLog.shared.record("download", error: error)
         }
     }
 

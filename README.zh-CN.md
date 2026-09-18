@@ -25,6 +25,12 @@
   <img src="./docs/images/control-center.png" alt="AI Quota Bar 右键控制中心" width="342">
 </p>
 
+## v1.17.1 有什么变化
+
+Codex 用量改为 30 天矩阵，完善新手引导、钥匙串缓存与低打扰更新提醒。左键菜单移除快捷暂停和云错误，设置增加同步日志。官网补齐左右键面板，以及横屏亮色、竖屏暗色的真实看板演示。
+
+[官网](https://ai-quota-bar.pages.dev) · [更新日志](https://ai-quota-bar.pages.dev/changelog) · [完整 v1.17.1 发布说明](./docs/releases/v1.17.1.md)
+
 ## v1.17.0 有什么变化
 
 - **本机 Codex 消耗与历史账号。** Tokens、记录、缓存命中率、估算成本及小时/每日趋势，与共享账号额度分开统计。

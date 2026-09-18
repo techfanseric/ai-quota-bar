@@ -25,6 +25,12 @@ AI coding work is hard to manage when quota, network routes, and Mac sleep setti
   <img src="./docs/images/control-center.png" alt="AI Quota Bar control center" width="342">
 </p>
 
+## What’s new in v1.17.1
+
+30-day Codex usage matrix, clearer first-run guidance, cached Keychain credentials, discreet update reminders, and sync diagnostics in Settings. The website now shows both click panels and light/dark landscape/portrait dashboards.
+
+[Website](https://ai-quota-bar.pages.dev) · [Changelog](https://ai-quota-bar.pages.dev/changelog) · [Full v1.17.1 release notes](./docs/releases/v1.17.1.md)
+
 ## What's new in v1.17.0
 
 - **Local Codex usage and account history.** Tokens, records, cache hit rate, estimated cost and hourly/daily trends, separate from shared account quota.

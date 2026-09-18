@@ -239,11 +239,13 @@ final class CloudSyncService {
     private static let persistedStatusKey = "cloudSync.lastStatusSnapshot.v1"
 
     private func recordSuccess(at date: Date) {
+        CloudDiagnosticLog.shared.record("upload", at: date)
         lastSyncStatus = .success(at: date)
         Self.persistStatus(lastSyncStatus)
     }
 
     private func recordFailure(reason: CloudSyncFailureReason, error: Error? = nil) {
+        CloudDiagnosticLog.shared.record("upload", error: error ?? CloudSyncError.serverError(-1, ""))
         lastSyncStatus = .failure(at: Date(), reason: reason, error: error)
         Self.persistStatus(lastSyncStatus)
 #if DEBUG

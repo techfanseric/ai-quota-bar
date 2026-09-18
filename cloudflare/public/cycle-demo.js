@@ -45,18 +45,18 @@ function draw(svg, elapsed, remaining, delta, tasks, initial) {
 if(typeof document !== 'undefined') {
  const panel=document.querySelector('#cycle-demo');
  if(panel) {
-  const descriptions={selftest:['自检 · 3 秒循环','外环在 8%–92% 间扫动；中心依次演示透支、正常和盈余。'],idle:['空闲 · 额度与节奏','没有活跃任务时，图标保持静止。外环显示 Weekly 剩余，中心向左为透支，向右为盈余。'],single:['1 个任务 · 1 条光带','一条光带每 1.8 秒逆时针绕行。经过已消耗的区域时，光带会变细、变淡。'],multiple:['多个任务 · 各自可见','示例中 Codex 有 3 个任务，Kimi 有 2 个，各自显示对应数量的光带；每个图标最多显示 5 条。']};
+  const descriptions={selftest:['自检 · 3 秒','外环在 8%–92% 间扫动；中心依次演示透支、正常和盈余。'],idle:['空闲 · 额度与节奏','没有活跃任务时，图标保持静止。外环显示 Weekly 剩余，中心向左为透支，向右为盈余。'],single:['1 个任务 · 1 条光带','一条光带每 1.8 秒逆时针绕行。经过已消耗的区域时，光带会变细、变淡。'],multiple:['多个任务 · 各自可见','示例中 Codex 有 3 个任务，Kimi 有 2 个，各自显示对应数量的光带；每个图标最多显示 5 条。']};
   const svgs=[...document.querySelectorAll('[data-cycle-icon]')];svgs.forEach((s,i)=>s.dataset.clip=`cycle-clip-${i}`);
-  const reduced=matchMedia('(prefers-reduced-motion: reduce)');let paused=reduced.matches,mode='selftest',elapsed=0,last=0,visible=false,raf=0;
+  const reduced=matchMedia('(prefers-reduced-motion: reduce)');let paused=reduced.matches,mode='selftest',elapsed=0,last=0,visible=false,raf=0,automatic=true,modeTime=0;
   const pause=panel.querySelector('[data-cycle-pause]');
   function render() {
    const f=mode==='selftest'?selfTestFrame(elapsed):{remaining:.64,delta:7};
    svgs.forEach(s=>{const kimi=s.dataset.cycleIcon==='kimi';s.closest('[data-kimi]')?.toggleAttribute('hidden',mode!=='multiple');draw(s,elapsed,kimi?.42:f.remaining,kimi?-8:f.delta,mode==='single'?1:mode==='multiple'?(kimi?2:3):0,kimi?'K':'C');});
   }
-  function tick(now) {raf=0;if(paused||!visible||document.hidden)return;if(now-last>=1000/15){elapsed+=(now-last)/1000;last=now;render();}raf=requestAnimationFrame(tick);}
-  function run() {cancelAnimationFrame(raf);last=performance.now();if(!paused&&visible&&!document.hidden&&mode!=='idle')raf=requestAnimationFrame(tick);}
-  function select(value) {mode=value;elapsed=0;panel.querySelectorAll('[data-cycle-mode]').forEach(b=>b.setAttribute('aria-pressed',String(b.dataset.cycleMode===mode)));panel.querySelector('[data-cycle-title]').textContent=descriptions[mode][0];panel.querySelector('[data-cycle-description]').textContent=descriptions[mode][1];render();run();}
-  panel.querySelectorAll('[data-cycle-mode]').forEach(b=>b.addEventListener('click',()=>select(b.dataset.cycleMode)));
+  function tick(now) {raf=0;if(paused||!visible||document.hidden)return;if(now-last>=1000/15){const dt=(now-last)/1000;elapsed+=dt;modeTime+=dt;last=now;if(automatic&&modeTime>=(mode==='selftest'?3:6)){const modes=Object.keys(descriptions);select(modes[(modes.indexOf(mode)+1)%modes.length]);return;}render();}raf=requestAnimationFrame(tick);}
+  function run() {cancelAnimationFrame(raf);last=performance.now();if(!paused&&visible&&!document.hidden)raf=requestAnimationFrame(tick);}
+  function select(value) {mode=value;elapsed=0;modeTime=0;panel.querySelectorAll('[data-cycle-mode]').forEach(b=>b.setAttribute('aria-pressed',String(b.dataset.cycleMode===mode)));panel.querySelector('[data-cycle-title]').textContent=descriptions[mode][0];panel.querySelector('[data-cycle-description]').textContent=descriptions[mode][1];render();run();}
+  panel.querySelectorAll('[data-cycle-mode]').forEach(b=>b.addEventListener('click',()=>{automatic=false;select(b.dataset.cycleMode);}));
   function setPause(value){paused=value;pause.textContent=paused?'播放演示':'暂停动画';pause.setAttribute('aria-pressed',String(paused));run();}
   pause.addEventListener('click',()=>setPause(!paused));reduced.addEventListener('change',e=>setPause(e.matches));document.addEventListener('visibilitychange',run);
   // Run while either the detailed demo or the menu bar in the hero is visible.
