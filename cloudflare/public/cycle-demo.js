@@ -16,43 +16,6 @@ function arc(start,end,r=8) {
  const p = t => [11 + r * Math.sin(t * Math.PI * 2),11 - r * Math.cos(t * Math.PI * 2)];
  const a=p(start),b=p(end);return `M${a}A${r},${r} 0 ${end-start>.5?1:0} 1 ${b}`;
 }
-function drawQuotaRing(svg, remaining, initial) {
-	 // 菜单栏紧凑 quota ring 的展示态：轨道 + 进度弧 + 端点圆点 + 居中首字母。
-	 const children=[
-	  node('circle',{cx:11,cy:11,r:8,fill:'none',stroke:'currentColor','stroke-opacity':.12,'stroke-width':1.4}),
-	  node('path',{d:arc(0,Math.min(.99999,remaining)),fill:'none',stroke:'currentColor','stroke-width':2.4,'stroke-linecap':'round'}),
-	 ];
-	 if(remaining>.01&&remaining<.99){
-	  const a=Math.PI/2-Math.PI*2*remaining;
-	  children.push(node('circle',{cx:11+Math.cos(a)*8,cy:11-Math.sin(a)*8,r:1.35,fill:'currentColor'}));
-	 }
-	 children.push(node('text',{x:11,y:13.8,'text-anchor':'middle','font-size':8,'font-weight':600,fill:'currentColor','fill-opacity':.72},initial));
-	 svg.replaceChildren(...children);
-	}
-function drawLiveRing(svg,elapsed,remaining,initial,tasks){
-	 // 菜单栏 ring 的任务进行中形态：额度弧 + 流动光带 + 居中首字母。
-	 const count=waveCount(tasks),children=[
-	  node('circle',{cx:11,cy:11,r:8,fill:'none',stroke:'currentColor','stroke-opacity':.12,'stroke-width':1.4}),
-	  node('path',{d:arc(0,Math.min(.99999,remaining)),fill:'none',stroke:'currentColor','stroke-opacity':count?.6:1,'stroke-width':2.4,'stroke-linecap':'round'}),
-	 ];
-	 for(let i=0;i<count;i++){
-	  const head=waveHead(elapsed,i,count),span=Math.min(.16,1/(count*1.45));
-	  for(let segment=0;segment<6;segment++){
-	   const start=head+segment*span/6,end=start+span/6*1.08;
-	   const cuts=[start,end];for(let turn=0;turn<3;turn++)for(const point of [turn,turn+remaining])if(point>start&&point<end)cuts.push(point);
-	   cuts.sort((a,b)=>a-b);
-	   for(let j=0;j<cuts.length-1;j++){const mid=(cuts[j]+cuts[j+1])/2,active=(mid%1)<remaining;
-	    children.push(node('path',{d:arc(cuts[j],cuts[j+1]),fill:'none',stroke:'currentColor','stroke-width':active?2.6:1.6,'stroke-opacity':.78*Math.pow(1-(segment+.54)/6,.65)*(active?1:.45),'stroke-linecap':'round'}));
-	   }
-	  }
-	 }
-	 if(!count&&remaining>.01&&remaining<.99){
-	  const a=Math.PI/2-Math.PI*2*remaining;
-	  children.push(node('circle',{cx:11+Math.cos(a)*8,cy:11-Math.sin(a)*8,r:1.35,fill:'currentColor'}));
-	 }
-	 children.push(node('text',{x:11,y:13.8,'text-anchor':'middle','font-size':8,'font-weight':600,fill:'currentColor','fill-opacity':.72},initial));
-	 svg.replaceChildren(...children);
-	}
 function draw(svg, elapsed, remaining, delta, tasks, initial) {
 	const count=waveCount(tasks), children=[];
 	children.push(node('circle',{cx:11,cy:11,r:8,fill:'none',stroke:'currentColor','stroke-opacity':.12,'stroke-width':1.4}));
@@ -112,8 +75,7 @@ if(typeof document !== 'undefined') {
 	  }
 	  liveIcons.forEach(s=>{
 	   const spec=liveSpecs[s.dataset.cycleIcon]||{remaining:.6,tasks:0},initial=s.dataset.cycleIcon[0].toUpperCase();
-	   if(spec.tasks>0)drawLiveRing(s,.55,spec.remaining,initial,spec.tasks);
-	   else drawQuotaRing(s,spec.remaining,initial);});
+	   draw(s,.55,spec.remaining,spec.delta??0,spec.tasks,initial);});
 	 }
 	 function render() {
 	  for(const {svg,spec} of stateIcons) {
@@ -135,12 +97,11 @@ if(typeof document !== 'undefined') {
 	  for(const e of entries)e.isIntersecting?targets.add(e.target):targets.delete(e.target);
 	  visible=targets.size>0;run();});
 	 for(const el of document.querySelectorAll('.cycle-states, .desktop-strip'))observer.observe(el);
-	 // hero 菜单栏的 quota ring 是静态展示，一次性绘制；四状态卡才参与动画。
-	 const liveSpecs={codex:{remaining:.64,tasks:1},kimi:{remaining:.42,tasks:3},minimax:{remaining:.75,tasks:0},glm:{remaining:.58,tasks:0}};
+	 // Both hero rings and state cards share the native pace core and task renderer.
+	 const liveSpecs={codex:{remaining:.64,delta:7,tasks:1},kimi:{remaining:.42,delta:-8,tasks:3},minimax:{remaining:.75,tasks:0},glm:{remaining:.58,tasks:0}};
 	 function renderLiveRings(){liveIcons.forEach(s=>{
 	  const spec=liveSpecs[s.dataset.cycleIcon]||{remaining:.6,tasks:0},initial=s.dataset.cycleIcon[0].toUpperCase();
-	  if(spec.tasks>0)drawLiveRing(s,elapsed,spec.remaining,initial,spec.tasks);
-	  else drawQuotaRing(s,spec.remaining,initial);});}
+	  draw(s,elapsed,spec.remaining,spec.delta??0,spec.tasks,initial);});}
 	 renderLiveRings();
 	 if(reduced.matches)renderStaticFrame();else{render();run();}
 	}
