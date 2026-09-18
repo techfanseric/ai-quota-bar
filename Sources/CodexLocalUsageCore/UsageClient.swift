@@ -1,6 +1,7 @@
 import Foundation
 
 public struct UsageIdentity: Codable, Equatable, Sendable {
+    public let team_name: String?
     public let team_id: String
     public let member_id: String
     public let member_name: String
@@ -14,6 +15,12 @@ public struct UsageIdentityResponse: Codable, Sendable {
 public struct UsageJoinResponse: Codable, Sendable {
     public let token: String
     public let identity: UsageIdentity
+}
+public struct UsageTeamCreated: Codable, Sendable {
+    public let teamID: String
+    public let teamName: String
+    public let inviteCode: String
+    public let loginPassword: String
 }
 public struct UsageReceipt: Codable, Sendable {
     public struct Rejection: Codable, Sendable { public let id: String; public let reason: String }
@@ -74,6 +81,18 @@ public final class UsageClient: @unchecked Sendable {
         let value: UsageJoinResponse = try await perform(request, session: session ?? URLSession(configuration: UsageClient.sessionConfiguration(), delegate: RedirectBlocker(), delegateQueue: nil), join: true)
         guard !value.token.isEmpty, value.identity.device_id == trimmed(deviceID) else { throw UsageFailure.invalid("Server joined a different device") }
         return value
+    }
+    public static func createTeam(endpoint: String, name: String, session: URLSession? = nil) async throws -> UsageTeamCreated {
+        let client = try UsageClient(endpoint: endpoint, token: "create", session: session)
+        var request = URLRequest(url: requestURL(base: client.endpoint, path: "/v1/team/create"))
+        request.httpMethod = "POST"; request.timeoutInterval = 30
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.httpBody = try JSONSerialization.data(withJSONObject: ["teamName": name.trimmingCharacters(in: .whitespacesAndNewlines)])
+        return try await perform(request, session: client.session, join: true)
+    }
+    public func leave() async throws {
+        struct Ack: Decodable { let ok: Bool }
+        let _: Ack = try await request(path: "/v1/usage/leave", body: Data("{}".utf8))
     }
     public func setMemberPassphrase(_ passphrase: String) async throws {
         struct Payload: Encodable { let passphrase: String }

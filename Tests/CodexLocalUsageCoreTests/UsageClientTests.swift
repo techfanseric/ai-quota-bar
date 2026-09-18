@@ -132,5 +132,17 @@ final class UsageClientTests: XCTestCase {
         _ = try await client.send([event])
         let rows = try await client.summary(from: UsageTime.parse("2026-01-01T00:00:00Z")!, to: UsageTime.parse("2026-02-01T00:00:00Z")!, group: "member")
         XCTAssertTrue(rows.contains { $0.memberID == joined.identity.member_id && $0.input == 100 })
+        let created = try await UsageClient.createTeam(endpoint: endpoint, name: "Native Created Team")
+        XCTAssertEqual(created.teamName, "Native Created Team")
+        XCTAssertFalse(created.loginPassword.isEmpty)
+        let owner = try await UsageClient.join(endpoint: endpoint, inviteCode: created.inviteCode, memberName: "Owner", deviceID: "created-team-device", memberPassphrase: "owner-passphrase")
+        XCTAssertEqual(owner.identity.team_id, created.teamID)
+        let ownerClient = try UsageClient(endpoint: endpoint, token: owner.token)
+        let ownerIdentity = try await ownerClient.identity()
+        XCTAssertEqual(ownerIdentity.identity.team_name, "Native Created Team")
+        try await ownerClient.leave()
+        do { _ = try await ownerClient.identity(); XCTFail("Leaving must revoke this credential") }
+        catch { XCTAssertTrue(error.localizedDescription.contains("401")) }
+
     }
 }

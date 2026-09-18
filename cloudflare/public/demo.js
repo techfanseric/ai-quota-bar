@@ -4,12 +4,26 @@
 const NS='http://www.w3.org/2000/svg';
 const GREEN='#34c759',SECONDARY='#6c6c71';
 const svgNode=(tag,attrs={},text)=>{const n=document.createElementNS(NS,tag);Object.entries(attrs).forEach(([k,v])=>n.setAttribute(k,v));if(text!==undefined)n.textContent=text;return n;};
+const EN=document.documentElement.lang==='en';
+const STR={
+ records:EN?'Records':'用量记录',cache:EN?'Cache hit':'缓存命中',cost:EN?'Est. cost':'估算成本',
+ total:EN?'30-day total':'近 30 天合计',
+ unpriced:EN?'Unpriced / coverage 0/84 records':'斜线为未定价 · 覆盖 0/84 条',
+ upcoming:EN?'Upcoming':'尚未到来',
+ menuCount:(v,t)=>EN?`Menu · Showing ${v} / ${t}`:`菜单 · 显示 ${v} / ${t}`,
+ mobileCount:n=>EN?`Mobile · ${n}/2 selected`:`手机 · 已选择 ${n}/2`,
+ help:EN?'Account switches preserve individual model choices. Select 1–2 models for mobile; Automatic uses the default chart rules. Hiding items does not affect collection, history, alerts or sync.':'账号行的菜单开关会保留各模型的选择。手机看板保留 1–2 项；图表选“自动”沿用默认规则。隐藏不影响采集、历史、告警或同步。',
+ atLeastOne:EN?'At least one model must remain selected.':'至少需要保留一个已选模型。',
+ deselectFirst:EN?'Deselect another model before selecting this one.':'请先取消选择另一个模型。',
+ controlsMobile:EN?'Controls whether this model appears on the read-only mobile dashboard.':'控制该模型是否显示在只读手机看板上。',
+ cycleAria:(name,left)=>EN?`${name} past cycle, ${left}% left`:`${name} 历史周期，余 ${left}%`,
+};
 function pressed(root,selector,key,value){root.querySelectorAll(selector).forEach(b=>b.setAttribute('aria-pressed',String(b.dataset[key]===value)));}
 const ageColor=age=>{const t=Math.min(Math.max(age/3600,0),1),a=[.2,.78,.35],b=[1,.49,.05];return `rgb(${a.map((c,i)=>Math.round((c+(b[i]-c)*t)*255)).join(',')})`;};
 
 /* ---- 本机用量：CodexUsageActivityView ---- */
 const base=[132000,62000,187000,108000,221000,98000,136000];
-const labels={tokens:'Tokens',records:'用量记录',cache:'缓存命中',cost:'估算成本'};
+const labels={tokens:'Tokens',records:STR.records,cache:STR.cache,cost:STR.cost};
 const compact=n=>new Intl.NumberFormat('en',{notation:'compact',maximumFractionDigits:1}).format(n);
 document.querySelectorAll('[data-usage]').forEach(root=>{
  let metric='tokens',factor=1;
@@ -38,10 +52,10 @@ document.querySelectorAll('[data-usage]').forEach(root=>{
    const b=dayCell(amount,hourMax,label);
    if(amount!==null&&amount>0){const fill=document.createElement('i');fill.style.height=Math.max(10,amount/hourMax*100)+'%';b.append(fill);}
    hours.append(b);});
-  for(let i=12;i<24;i++){const future=document.createElement('button');future.disabled=true;future.setAttribute('aria-label',String(i).padStart(2,'0')+':00 · 尚未到来');hours.append(future);}
-  show(total(),'近 30 天合计');
+  for(let i=12;i<24;i++){const future=document.createElement('button');future.disabled=true;future.setAttribute('aria-label',String(i).padStart(2,'0')+':00 · '+STR.upcoming);hours.append(future);}
+  show(total(),STR.total);
   const hint=root.querySelector('[data-hint]');
-  if(hint)hint.textContent=metric==='cost'?'斜线为未定价 · 覆盖 0/84 条':'';
+  if(hint)hint.textContent=metric==='cost'?STR.unpriced:'';
   if(root.dataset.usage==='settings'){
    document.querySelector('[data-local-total]').textContent=Math.round(daily.reduce((s,d)=>s+d.tokens*factor,0)).toLocaleString('en');
    document.querySelector('[data-local-records]').textContent=String(Math.round(daily.reduce((s,d)=>s+d.records*factor,0)));
@@ -107,7 +121,7 @@ document.querySelectorAll('[data-quota]').forEach((root,index)=>{
  function draw(cycleIndex=null){drawQuotaChart(chart,spec,cycleIndex===null?null:cycleWindow(cycleIndex));}
  let callout=null;
  spec.levels.forEach((n,i)=>{
-  const b=document.createElement('button');b.type='button';b.setAttribute('aria-label',`${root.dataset.quota} 历史周期，余 ${100-n}%`);
+  const b=document.createElement('button');b.type='button';b.setAttribute('aria-label',STR.cycleAria(root.dataset.quota,100-n));
   const bar=document.createElement('i');bar.style.setProperty('--cycle-level',n+'%');b.append(bar);barsRoot.append(b);
   const enter=()=>{draw(i);
    if(!callout){callout=document.createElement('span');callout.className='cycle-callout';root.appendChild(callout);}
@@ -157,7 +171,7 @@ document.querySelectorAll('.connection-row').forEach((row,i)=>{
 
 /* ---- 设置 → 显示：ModelDisplaySettings ---- */
 const modelRows=[...document.querySelectorAll('[data-model]')],account=document.querySelector('#demo-account');
-function renderSettings(){if(!modelRows.length)return;const selected=modelRows.filter(r=>r.querySelector('[data-mobile]').checked).length;let visible=0;modelRows.forEach(row=>{const menu=row.querySelector('[data-menu]'),mobile=row.querySelector('[data-mobile]');menu.disabled=!account.checked;mobile.disabled=mobile.checked?selected<=1:selected>=2;mobile.title=mobile.disabled?(mobile.checked?'至少需要保留一个已选模型。':'请先取消选择另一个模型。'):'控制该模型是否显示在只读手机看板上。';if(account.checked&&menu.checked)visible++;});document.querySelector('#menu-count').textContent=`菜单 · 显示 ${visible} / ${modelRows.length}`;document.querySelector('#mobile-count').textContent=`手机 · 已选择 ${selected}/2`;document.querySelector('#show-all').disabled=account.checked&&modelRows.every(r=>r.querySelector('[data-menu]').checked);document.querySelector('#selection-help').textContent='账号行的菜单开关会保留各模型的选择。手机看板保留 1–2 项；图表选“自动”沿用默认规则。隐藏不影响采集、历史、告警或同步。';}
+function renderSettings(){if(!modelRows.length)return;const selected=modelRows.filter(r=>r.querySelector('[data-mobile]').checked).length;let visible=0;modelRows.forEach(row=>{const menu=row.querySelector('[data-menu]'),mobile=row.querySelector('[data-mobile]');menu.disabled=!account.checked;mobile.disabled=mobile.checked?selected<=1:selected>=2;mobile.title=mobile.disabled?(mobile.checked?STR.atLeastOne:STR.deselectFirst):STR.controlsMobile;if(account.checked&&menu.checked)visible++;});document.querySelector('#menu-count').textContent=STR.menuCount(visible,modelRows.length);document.querySelector('#mobile-count').textContent=STR.mobileCount(selected);document.querySelector('#show-all').disabled=account.checked&&modelRows.every(r=>r.querySelector('[data-menu]').checked);document.querySelector('#selection-help').textContent=STR.help;}
 document.querySelectorAll('.settings-table input,.settings-table select').forEach(c=>c.addEventListener('change',renderSettings));
 if(document.querySelector('#show-all'))document.querySelector('#show-all').addEventListener('click',()=>{account.checked=true;modelRows.forEach(r=>r.querySelector('[data-menu]').checked=true);renderSettings();});
 renderSettings();

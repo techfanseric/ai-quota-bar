@@ -32,13 +32,6 @@ struct PreferencesView: View {
                 }
                 .tag(PreferencesTab.usage)
 
-            SyncPane(viewModel: viewModel)
-                .tabItem {
-                    Label(viewModel.appLanguage.text(.tabSync),
-                          systemImage: PreferencesTab.sync.systemImage)
-                }
-                .tag(PreferencesTab.sync)
-
             MobileDashboardPane(
                 viewModel: viewModel,
                 service: mobileDashboardService,

@@ -3,6 +3,8 @@ import { readFileSync } from 'node:fs';
 import { DatabaseSync } from 'node:sqlite';
 import test from 'node:test';
 import worker from '../src/worker.js';
+import { storeQuotaSamples, listQuotaSamples, deleteDeviceData } from '../src/legacy-quota.js';
+import { createHmac, randomUUID } from 'node:crypto';
 
 const schema = readFileSync(new URL('../schema.sql', import.meta.url), 'utf8');
 const migration = readFileSync(new URL('../migrations/0001_latest_heads.sql', import.meta.url), 'utf8');
@@ -37,10 +39,11 @@ function environment(db, enabled = false) {
   };
 }
 async function request(env, path, payload, method = payload ? 'POST' : 'GET') {
-  const response = await worker.fetch(new Request(`https://test.invalid${path}`, {
-    method, headers: { authorization: 'Bearer test-only', 'content-type': 'application/json' },
-    body: payload ? JSON.stringify(payload) : undefined,
-  }), env);
+  // Legacy storage/migration behavior remains tested directly. Public routes no longer expose it.
+  const url = new URL(`https://test.invalid${path}`);
+  const req = new Request(url, {method,headers:{'content-type':'application/json'},body:payload?JSON.stringify(payload):undefined});
+  const response = method === 'POST' ? await storeQuotaSamples(req,env)
+    : method === 'DELETE' ? await deleteDeviceData(url,env) : await listQuotaSamples(url,env);
   const body = await response.json();
   assert.equal(response.status, 200, JSON.stringify(body));
   return body;
@@ -172,8 +175,13 @@ function failingEnvironment(message) {
   };
 }
 async function rawRequest(env, path) {
+  const secret='test-ops-secret-with-at-least-forty-characters';
+  const value=String(Math.floor(Date.now()/1000)+3600)+'.'+randomUUID();
+  const cookie='__Host-aqb_ops='+value+'.'+createHmac('sha256',secret).update(value).digest('hex');
+  if(path==='/v1/d1-usage')path='/v1/admin/d1-usage';
+  env.OPS_ADMIN_SECRET=secret;
   const response = await worker.fetch(new Request(`https://test.invalid${path}`, {
-    method: 'GET', headers: { authorization: 'Bearer test-only' },
+    method: 'GET', headers: { authorization: 'Bearer test-only', cookie },
   }), env);
   return { status: response.status, body: await response.json() };
 }

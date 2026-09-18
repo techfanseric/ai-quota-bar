@@ -25,11 +25,13 @@ AI coding work is hard to manage when quota, network routes, and Mac sleep setti
   <img src="./docs/images/control-center.png" alt="AI Quota Bar control center" width="342">
 </p>
 
-## What’s new in v1.18.0
+## What’s new in v1.19.0
 
-Self-service teams: the owner creates a team on the website's /team page and members join with an invite code and their name — optional member passphrase supported. Settings gains an in-app feedback form that publishes straight to the website wall. The menu pins the current Codex account with its name, usage trends switch to "this month + last 24 hours", subscription renewal days get calendar markers, and menus/settings now use real provider logos.
+Usage and Sync are now **Usage & Team**. Create or join a team directly in the app, then view member, device and account usage alongside sync status. Team data, credentials, caches and upload queues are isolated. Owners manage their own team in `/team`; cross-team data, legacy records, D1 and deletion audit belong in `/admin`.
 
-[Website](https://ai-quota-bar.pages.dev) · [Changelog](https://ai-quota-bar.pages.dev/changelog) · [Full v1.18.0 release notes](./docs/releases/v1.18.0.md)
+**Upgrade:** legacy shared sync credentials no longer work. Upgrade and create or join a team to resume sharing. Local usage remains available; historical cloud data stays read-only and is never assigned to a team by account name. Team quota history is retained for 90 days.
+
+[Website](https://ai-quota-bar.pages.dev) · [Changelog](https://ai-quota-bar.pages.dev/changelog) · [Full v1.19.0 release notes](./docs/releases/v1.19.0.md)
 
 ## What’s new in v1.17.1
 
@@ -67,13 +69,11 @@ The menu bar ring shows Weekly quota at a glance. Its center tells you whether y
   <img src="./docs/images/menu-bar-self-test-preview.png" alt="Compact Codex quota ring states" width="792">
 </p>
 
-### Cloud sync and retention
+### Usage & Team
 
-Choose how long recent quota history is kept, inspect the stored data, or delete one account without disturbing the others.
+Create or join a team, inspect member and device summaries, and control local usage reporting and account quota sharing independently.
 
-<p align="center">
-  <img src="./docs/images/cloud-sync-settings.png" alt="Cloud sync settings" width="720">
-</p>
+<p align="center"><img src="./docs/images/team-settings-en.png" alt="Usage and Team settings" width="720"></p>
 
 ## Requirements
 
@@ -213,18 +213,15 @@ The helper restores your previous sleep setting when:
 
 This is a safety net, not a replacement for ventilation. A closed MacBook can cool less effectively, so use the option only when the machine has suitable airflow and power.
 
-## Keep recent quota history available
+## Manage a team’s usage
 
-If you use more than one Mac, or want recent charts to survive a reinstall, you can enable cloud sync. It backs up compact quota snapshots after successful refreshes and restores useful recent history on another device.
+Open **Settings → Usage & Team** to create a team and save its one-time invitation and management credentials. Members join with an invite code, member name and member passphrase. Creating or joining enables member reporting and quota sharing; each can be paused independently. Use the same member passphrase on another Mac. Leaving revokes the current device credential.
 
-You stay in control:
-
-- Keep data for 30 to 180 days.
-- Hide stale cloud-only charts automatically.
-- Inspect what is stored in a local report.
-- Delete one account or clear all local/remote history.
-
-Cloud sync is off by default. It uploads quota metadata and account labels, but never uploads Kimi, GLM, MiniMax, or Codex credentials. The exact data boundary is documented below.
+- Local statistics work without a team.
+- Team members can view their team’s usage and quotas; other teams cannot read, change or delete them.
+- Quota history is retained for 90 days. Owners clean up team accounts or revoke member devices in `/team`.
+- Platform operators use independently authenticated `/admin` for cross-team data, legacy records, database usage and deletion audit.
+- Shared data includes usage statistics, quota metadata and account labels (which may contain email addresses), never provider credentials or conversations.
 
 ## Privacy and security boundaries
 
@@ -242,7 +239,7 @@ Cloud sync is off by default. It uploads quota metadata and account labels, but 
 
 ## Codex local usage and member reporting
 
-The menu and Usage settings show local tokens, usage records, weighted cache hit rates and estimated costs with configurable prices. Optional reporting groups usage by team member and device, independently of account quota. Member reporting is off by default. See the [setup, deployment and verification guide](docs/codex-local-usage.md).
+The menu and Usage settings show local tokens, usage records, weighted cache hit rates and estimated costs with configurable prices. Optional reporting groups usage by team member and device, independently of account quota. Reporting starts when you create or join a team and can be paused independently. See the [setup, deployment and verification guide](docs/codex-local-usage.md).
 
 ## Build from source
 

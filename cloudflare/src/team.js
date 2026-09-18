@@ -1,3 +1,4 @@
+import { quotaAccounts, deleteTeamQuota, auditStatement } from './team-quota.js';
 // Self-service team console: /v1/team/create, login/logout and the cookie
 // session that powers the /team dashboard. Sessions are signed with the
 // team's stored login hash, so no global secret is shared between teams.
@@ -91,6 +92,21 @@ export async function teamService(request, env, url) {
     }
     const session = await sessionTeam(request, env);
     if (!session) return json({ error: 'unauthorized' }, 401);
+    if (url.pathname === '/v1/team/accounts' && request.method === 'GET') return json({ok:true,accounts:await quotaAccounts(env,session.teamID)});
+    if (url.pathname === '/v1/team/accounts' && request.method === 'DELETE') {
+      if (!sameOrigin(request,url)) return json({error:'invalid_origin'},403);
+      return await deleteTeamQuota(env,session.teamID,'team-manager',url.searchParams.get('provider'),url.searchParams.get('account_name'));
+    }
+    if (url.pathname === '/v1/team/members/revoke' && request.method === 'POST') {
+      if (!sameOrigin(request,url)) return json({error:'invalid_origin'},403);
+      const p=await readBody(request);
+      if (!text(p.memberID,120)) return json({error:'invalid_identity'},400);
+      await env.DB.batch([
+        env.DB.prepare('UPDATE usage_devices SET revoked=1 WHERE team_id=? AND member_id=?').bind(session.teamID,p.memberID),
+        auditStatement(env,session.teamID,'team-manager','revoke_member',p.memberID),
+      ]);
+      return json({ok:true});
+    }
     if (request.method === 'GET' && url.pathname === '/v1/team/overview') return await overview(env, session.teamID, url);
     if (request.method === 'POST' && url.pathname === '/v1/team/invite/rotate') {
       if (!sameOrigin(request, url)) return json({ error: 'invalid_origin' }, 403);

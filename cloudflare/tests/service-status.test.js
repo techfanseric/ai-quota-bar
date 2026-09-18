@@ -34,7 +34,7 @@ test('migration freeze rejects writes for durable client retry while keeping hea
     assert.match(result.headers.get('content-security-policy'), /connect-src 'none'/);
   }
   const result=await worker.fetch(new Request('https://example.com/private.sql'), {ASSETS:assets});
-  assert.equal(result.status,401);
+  assert.equal(result.status,404);
 });
 
 test('embedded real dashboard preview is public but cannot connect to live APIs', async () => {
@@ -56,6 +56,6 @@ test('changelog is public read-only content with no API connections', async () =
     assert.equal(result.status, 200);
     assert.match(result.headers.get('content-security-policy'), /connect-src 'none'/);
     const post = await worker.fetch(new Request('https://example.com' + path, {method:'POST'}), {ASSETS:assets});
-    assert.equal(post.status, 401);
+    assert.equal(post.status, 404);
   }
 });

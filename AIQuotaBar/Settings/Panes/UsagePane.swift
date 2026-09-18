@@ -10,6 +10,8 @@ struct UsagePane: View {
     var body: some View {
         ScrollView(.vertical, showsIndicators: true) {
             VStack(alignment: .leading, spacing: 16) {
+                TeamSettingsSection(viewModel: viewModel, model: .shared)
+                Divider()
                 CodexLocalUsageSection(model: .shared, language: language)
                 Divider()
                 quotaWarningSection

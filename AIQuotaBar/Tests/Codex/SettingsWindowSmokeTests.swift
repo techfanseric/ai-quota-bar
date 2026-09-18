@@ -22,6 +22,7 @@ final class SettingsWindowSmokeTests: XCTestCase {
         let controller = SettingsWindowController(
             viewModel: UsageViewModel(),
             mobileDashboardService: service)
+        controller.window?.animationBehavior = .none
         controller.showWindow(nil)
         RunLoop.main.run(until: Date().addingTimeInterval(0.2))
 
@@ -75,6 +76,8 @@ final class SettingsWindowSmokeTests: XCTestCase {
             styleMask: [.titled, .closable],
             backing: .buffered,
             defer: false)
+        window.isReleasedWhenClosed = false
+        window.animationBehavior = .none
         window.contentView = hostingView
         window.orderFront(nil)
         RunLoop.main.run(
