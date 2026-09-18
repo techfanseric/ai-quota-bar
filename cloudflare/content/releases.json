@@ -1,5 +1,16 @@
 [
   {
+    "tag_name": "v1.21.0",
+    "name": "v1.21.0 — 月历标注额度重置，悬停即见具体时间",
+    "published_at": "2026-09-18T16:46:50Z",
+    "html_url": "https://github.com/techfanseric/ai-quota-bar/releases/tag/v1.21.0",
+    "body": "# v1.21.0 — 用量月历标注额度重置\n\n本次包含 v1.20.0 以来的全部发布改动，macOS 构建号 47。\n\n## 额度重置，一眼可见\n\n- 用量月历用深绿框标出 Codex 额度重置的日期，悬停即见「09/12 16:09 已重置」这样的具体日期与时间（本地时区，取当天最近一次）。\n- 重置记录来自 codex-resets.com 的公开数据，App 在后台自动获取，成功后 6 小时内不重复请求；离线或获取失败时完全不影响用量矩阵。数据仅用于显示，不会上传任何本机信息。\n\n## 悬停气泡贴着格子\n\n- 用量月历和最近 24 小时矩阵的悬停气泡改为跟随所在格子：默认在格子正上方，顶部放不下时自动移到下方，不再遮挡「近 24h」「每格 5m」等标题文字。\n- 官网首页的用量演示同步了以上全部改进。\n\n## 官网：团队界面真实复现\n\n- 首页「共享账号」板块改为复现 App「设置 → 团队」的真实界面，不再使用截图。\n- 「谁用了多少」板块直接嵌入 /team 面板同款的前端图表组件与示例数据，展示成员对比、月历与 5 分钟矩阵。\n",
+    "name_zh": "v1.21.0 — 月历标注额度重置，悬停即见具体时间",
+    "name_en": "v1.21.0 — Reset days on the usage calendar, exact time on hover",
+    "body_zh": "# v1.21.0 — 用量月历标注额度重置\n\n本次包含 v1.20.0 以来的全部发布改动，macOS 构建号 47。\n\n## 额度重置，一眼可见\n\n- 用量月历用深绿框标出 Codex 额度重置的日期，悬停即见「09/12 16:09 已重置」这样的具体日期与时间（本地时区，取当天最近一次）。\n- 重置记录来自 codex-resets.com 的公开数据，App 在后台自动获取，成功后 6 小时内不重复请求；离线或获取失败时完全不影响用量矩阵。数据仅用于显示，不会上传任何本机信息。\n\n## 悬停气泡贴着格子\n\n- 用量月历和最近 24 小时矩阵的悬停气泡改为跟随所在格子：默认在格子正上方，顶部放不下时自动移到下方，不再遮挡「近 24h」「每格 5m」等标题文字。\n- 官网首页的用量演示同步了以上全部改进。\n\n## 官网：团队界面真实复现\n\n- 首页「共享账号」板块改为复现 App「设置 → 团队」的真实界面，不再使用截图。\n- 「谁用了多少」板块直接嵌入 /team 面板同款的前端图表组件与示例数据，展示成员对比、月历与 5 分钟矩阵。\n",
+    "body_en": "# v1.21.0 — Quota resets on the usage calendar\n\nAll changes since v1.20.0. macOS build 47.\n\n## Quota resets at a glance\n\n- The usage month calendar marks Codex quota reset days with a dark green frame. Hovering shows the exact date and time, e.g. \"09/12 16:09 reset\" (local time zone, latest reset of that day).\n- Reset history comes from the public codex-resets.com feed, fetched quietly in the background and re-checked every 6 hours; when offline or unavailable the usage matrix is unaffected. The data is only displayed, nothing from your Mac is uploaded.\n\n## Hover callouts hug their cell\n\n- Hover callouts in the month calendar and the last-24-hours matrix now follow the hovered cell: above it by default, moved below when the top rows are full, and never covering the \"Last 24h\" or \"5m / cell\" captions. The website demo ships the same behavior.\n\n## Website: faithful team previews\n\n- The shared-account section now recreates the app's Settings → Team pane instead of using a screenshot.\n- The \"who used how much\" section embeds the same frontend chart component the /team dashboard ships, with sample data for member comparison, the calendar and 5-minute matrices."
+  },
+  {
     "tag_name": "v1.20.0",
     "name": "v1.20.0 — 成员用量图表与团队一键直达",
     "published_at": "2026-09-18T10:20:34Z",
