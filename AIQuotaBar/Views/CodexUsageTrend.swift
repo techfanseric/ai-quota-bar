@@ -33,8 +33,11 @@ struct CodexUsageTrend: View {
                 language: language, now: context.date, showsLocalLabel: currentAccount,
                 subscription: CodexSubscriptionStatus.shared.marker(
                     accountID: currentAccount ? model.currentAccountID : model.selectedAccount,
-                    now: context.date))
-        }.frame(maxWidth: 420, alignment: .leading)
+                    now: context.date),
+                resets: CodexResetHistory.shared.markers)
+        }
+        .frame(maxWidth: 420, alignment: .leading)
+        .onAppear { CodexResetHistory.shared.refreshIfNeeded() }
     }
 }
 
@@ -66,6 +69,24 @@ enum UsageActivityLayout {
         guard value > 0 else { return 0 }
         return max(0.25, min(1, ceil(value / max(1, maximum) * 4) / 4))
     }
+    /// Tooltip origin (top-leading, in container space) hugging the hovered
+    /// cell: above it by default, flipping below inside the top rows, x
+    /// centered on the cell and clamped to the container. A container narrower
+    /// than the bubble hugs its leading edge (the month grid sits at the
+    /// panel's leading edge) or trailing edge (the 24-column grid at the
+    /// trailing edge), mirroring ModelUtilizationBarsView.calloutPosition.
+    static func calloutOrigin(cell: CGRect, container: CGSize, callout: CGSize, hugsLeading: Bool) -> CGPoint {
+        let spacing: CGFloat = 4
+        let x: CGFloat
+        if container.width >= callout.width {
+            x = min(max(cell.midX - callout.width / 2, 0), container.width - callout.width)
+        } else {
+            x = hugsLeading ? 0 : container.width - callout.width
+        }
+        let above = cell.minY - callout.height - spacing
+        let y = above >= 0 ? above : min(cell.maxY + spacing, max(0, container.height - callout.height))
+        return CGPoint(x: x, y: y)
+    }
 }
 
 @MainActor
@@ -77,6 +98,7 @@ struct CodexUsageActivityView: View {
     var now: Date = Date()
     var showsLocalLabel = false
     var subscription: CodexSubscriptionMarker? = nil
+    var resets: [CodexResetMarker] = []
     var calendar: Calendar = .current
     var hourlyCaption: String? = nil
     var onSelectDay: ((Date) -> Void)? = nil
@@ -84,6 +106,9 @@ struct CodexUsageActivityView: View {
     @State private var selectedDay: Int?
     @State private var selectedHour: Int?
     enum Metric: String, CaseIterable { case tokens, records, cache, cost }
+    /// Dark green keeps reset frames apart from the black renewal dash and
+    /// selection ring; same accent as the website.
+    private static let resetGreen = Color(red: 70 / 255, green: 116 / 255, blue: 87 / 255)
     private func t(_ zh: String, _ en: String) -> String { language == .simplifiedChinese ? zh : en }
     private func label(_ item: Metric) -> String {
         switch item { case .tokens: return "Tokens"; case .records: return t("用量记录", "Records"); case .cache: return t("缓存命中", "Cache hit"); case .cost: return t("估算成本", "Est. cost") }
@@ -161,6 +186,9 @@ struct CodexUsageActivityView: View {
          .onChange(of: visibleMetrics) { _, metrics in if !metrics.contains(metric) { metric = .tokens } }
          .onChange(of: hourly.first?.start) { _, _ in selectedHour = nil }
     }
+    /// Matches the clamping convention in ModelUtilizationBarsView: estimate
+    /// the bubble size instead of measuring; overshooting only clamps early.
+    private static let calloutSize = CGSize(width: 232, height: 18)
     private func summaryValue(_ title: String, _ summary: UsageSummary) -> some View {
         HStack(alignment: .firstTextBaseline, spacing: 4) {
             Text(title).font(.system(size: 9)).foregroundStyle(.secondary)
@@ -184,9 +212,13 @@ struct CodexUsageActivityView: View {
             }
         }
             .overlay(alignment: .topLeading) {
-                if let index = selectedDay, daily.indices.contains(index) {
+                if let index = selectedDay, daily.indices.contains(index), let slot = slots.firstIndex(of: index) {
+                    let origin = UsageActivityLayout.calloutOrigin(
+                        cell: CGRect(x: CGFloat(slot / 7) * 13, y: CGFloat(slot % 7) * 13, width: 10, height: 10),
+                        container: CGSize(width: CGFloat(slots.count / 7) * 13 - 3, height: 88),
+                        callout: Self.calloutSize, hugsLeading: true)
                     CycleCallout(text: dayCallout(index))
-                        .fixedSize().offset(y: -20).allowsHitTesting(false)
+                        .fixedSize().offset(x: origin.x, y: origin.y).allowsHitTesting(false)
                 }
             }
     }
@@ -196,7 +228,16 @@ struct CodexUsageActivityView: View {
         let future = bucket.start > now
         let marker = subscription.flatMap { calendar.isDate($0.date, inSameDayAs: bucket.start) ? $0 : nil }
         let billingLabel = marker.map { $0.renews ? t("自动续费", "Auto-renews") : t("订阅到期 · 不续费", "Expires · No renewal") }
+        let reset = resets.first { calendar.isDate($0.date, inSameDayAs: bucket.start) }
+        let resetNote = reset.map { dateLabel($0.announcedAt, hourly: true) + " " + t("已重置", "reset") }
+        let notes = [billingLabel, resetNote].compactMap { $0 }
         let border = selectedDay == index ? Color.primary.opacity(0.5) : Color.clear
+        let helpText: String
+        if let resetNote {
+            helpText = ([resetNote, billingLabel].compactMap { $0 }).joined(separator: " · ")
+        } else {
+            helpText = billingLabel.map { dateLabel(bucket.start) + " · " + $0 } ?? text
+        }
         return Button { selectedDay = selectedDay == index ? nil : index; selectedHour = nil; onSelectDay?(bucket.start) } label: {
             cell(amount: value(bucket.summary), maximum: maximum)
                 .overlay(RoundedRectangle(cornerRadius: 2).stroke(border, lineWidth: 1))
@@ -205,10 +246,15 @@ struct CodexUsageActivityView: View {
                         RoundedRectangle(cornerRadius: 2).stroke(Color.primary.opacity(0.65), style: StrokeStyle(lineWidth: 1, dash: marker.renews ? [2, 1] : []))
                     }
                 }
-                .help(billingLabel.map { dateLabel(bucket.start) + " · " + $0 } ?? text)
+                .overlay {
+                    if reset != nil {
+                        RoundedRectangle(cornerRadius: 2).stroke(Self.resetGreen, lineWidth: 1)
+                    }
+                }
+                .help(helpText)
         }.buttonStyle(.plain).disabled(future && marker == nil).opacity(future && marker == nil ? 0.25 : 1)
             .onHover { over in selectedDay = over && (!future || marker != nil) ? index : nil; if over { selectedHour = nil } }
-            .accessibilityLabel(billingLabel.map { text + " · " + $0 } ?? text)
+            .accessibilityLabel(notes.isEmpty ? text : text + " · " + notes.joined(separator: " · "))
     }
     private func cell(amount: Double?, maximum: Double) -> some View {
         let intensity = UsageActivityLayout.intensity(value: amount, maximum: maximum)
@@ -255,13 +301,17 @@ struct CodexUsageActivityView: View {
                     }.frame(width: width)
                 }
             }
-        }.frame(height: 99)
-            .overlay(alignment: .topTrailing) {
+            .overlay(alignment: .topLeading) {
                 if let index = selectedHour, hourly.indices.contains(index) {
+                    let origin = UsageActivityLayout.calloutOrigin(
+                        cell: CGRect(x: CGFloat(index / 12) * (width + 1), y: CGFloat(index % 12) * 7.333, width: width, height: 6.333),
+                        container: CGSize(width: geometry.size.width, height: 88),
+                        callout: Self.calloutSize, hugsLeading: false)
                     CycleCallout(text: intervalLabel(hourly[index]) + " · " + formatted(hourly[index].summary))
-                        .fixedSize().offset(y: -20).allowsHitTesting(false)
+                        .fixedSize().offset(x: origin.x, y: origin.y).allowsHitTesting(false)
                 }
             }
+        }.frame(height: 99)
     }
     private func intervalLabel(_ bucket: UsageHistoryBucket) -> String {
         dateLabel(bucket.start, hourly: true) + "–" + clockLabel(bucket.end)
@@ -273,6 +323,9 @@ struct CodexUsageActivityView: View {
         let bucket = daily[index]
         let marker = subscription.flatMap { calendar.isDate($0.date, inSameDayAs: bucket.start) ? $0 : nil }
         let billing = marker.map { $0.renews ? t("自动续费", "Auto-renews") : t("到期不续费", "Expires; no renewal") }
+        if let reset = resets.first(where: { calendar.isDate($0.date, inSameDayAs: bucket.start) }) {
+            return ([dateLabel(reset.announcedAt, hourly: true) + " " + t("已重置", "reset"), billing].compactMap { $0 }).joined(separator: " · ")
+        }
         return ([dateLabel(bucket.start), bucket.start <= now ? formatted(bucket.summary) : nil, billing].compactMap { $0 }).joined(separator: " · ")
     }
     private func calendarLabel(_ date: Date, format: String) -> String {

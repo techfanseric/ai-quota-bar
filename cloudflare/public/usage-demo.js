@@ -1,17 +1,23 @@
-import {usageFixture,intensity} from './usage-fixture.js';
+import {usageFixture,intensity,DEMO_NOW} from './usage-fixture.js';
 const en=document.documentElement.lang==='en';const t=(zh,enText)=>en?enText:zh;
 const labels={tokens:'Tokens',records:t('用量记录','Records'),cache:t('缓存命中','Cache hit'),cost:t('估算成本','Est. cost')};
 const compact=n=>new Intl.NumberFormat(en?'en':'zh-CN',{notation:'compact',maximumFractionDigits:1}).format(n);
 const clock=d=>`${String(d.getHours()).padStart(2,'0')}:${String(d.getMinutes()).padStart(2,'0')}`;
 const date=d=>`${String(d.getMonth()+1).padStart(2,'0')}/${String(d.getDate()).padStart(2,'0')}`;
+// Reset history from codex-resets.com (public API, no key). Frames mark announced reset days in the demo month.
+const monthResets=new Map();const resetTypes=day=>monthResets.get(day.getDate())||[];
+const resetsReady=fetch('https://codex-resets.com/api/v1/resets?limit=100').then(r=>r.ok?r.json():{data:[]}).then(({data})=>{
+ for(const item of data||[]){const day=new Date(item.announced_at);if(day.getFullYear()===DEMO_NOW.getFullYear()&&day.getMonth()===DEMO_NOW.getMonth()){const list=monthResets.get(day.getDate())||[];if(!list.some(x=>x.reset_type===item.reset_type))list.push(item);monthResets.set(day.getDate(),list);}}
+}).catch(()=>{});
 for(const root of document.querySelectorAll('[data-usage]')) {
  const menu=root.dataset.usage==='menu';let metric='tokens',account=menu?'current':'all',data=usageFixture(account);
  function format(value){return value==null?t('未定价','Unpriced'):metric==='cache'?value.toFixed(1)+'%':metric==='cost'?'$'+value.toFixed(4):compact(value);}
  function render(){
   data=usageFixture(account);
+  const resetsBadge=monthResets.size?`<a class="usage-resets" href="https://codex-resets.com" title="${t('重置记录来自 Codex Resets','Reset history from Codex Resets')}">${en?monthResets.size+' resets':'重置 ×'+monthResets.size}</a>`:'';
   const available=Object.keys(labels).filter(k=>k!=='cost'||[...data.daily,...data.hourly].some(b=>b.records>0&&b.cost!==null));
   if(!available.includes(metric))metric='tokens';
-  root.innerHTML=`<div class="usage-metrics">${menu?`<span class="local-badge">${t('本机','Local')}</span>`:''}${available.map(k=>`<button type="button" data-metric="${k}" aria-pressed="${metric===k}">${labels[k]}</button>`).join('')}</div><div class="usage-grids"><div class="usage-month"><div class="usage-grid-heading">${new Intl.DateTimeFormat(en?'en-US':'zh-CN',{month:'short'}).format(data.now)}</div><div class="month-matrix" aria-label="${t('本月每日用量','Daily usage this month')}"></div></div><div class="usage-recent"><div class="usage-grid-heading"><span>${t('近 24h','Last 24h')}</span><span>${t('每格 5m','5m / cell')}</span></div><div class="recent-matrix" aria-label="${t('最近24小时，每格5分钟','Last 24 hours, 5 minutes per cell')}"></div></div></div><div class="usage-summary" aria-live="polite"></div><div class="usage-callout" hidden></div>`;
+  root.innerHTML=`<div class="usage-metrics">${menu?`<span class="local-badge">${t('本机','Local')}</span>`:''}${available.map(k=>`<button type="button" data-metric="${k}" aria-pressed="${metric===k}">${labels[k]}</button>`).join('')}</div><div class="usage-grids"><div class="usage-month"><div class="usage-grid-heading"><span>${new Intl.DateTimeFormat(en?'en-US':'zh-CN',{month:'short'}).format(data.now)}</span>${resetsBadge}</div><div class="month-matrix" aria-label="${t('本月每日用量','Daily usage this month')}"></div></div><div class="usage-recent"><div class="usage-grid-heading"><span>${t('近 24h','Last 24h')}</span><span>${t('每格 5m','5m / cell')}</span></div><div class="recent-matrix" aria-label="${t('最近24小时，每格5分钟','Last 24 hours, 5 minutes per cell')}"></div></div></div><div class="usage-summary" aria-live="polite"></div><div class="usage-callout" hidden></div>`;
   const summary=root.querySelector('.usage-summary'),callout=root.querySelector('.usage-callout');
   const pair=(label,value)=>`<span>${label} <strong>${format(value)}</strong></span>`;
   const reset=()=>{summary.innerHTML=pair(t('本月','Month'),data.total[metric])+pair(t('近 24h','Last 24h'),data.recent[metric]);callout.hidden=true;};
@@ -22,9 +28,15 @@ for(const root of document.querySelectorAll('[data-usage]')) {
    const renewal=!recent&&bucket.start.getDate()===data.renewalDay;
    const future=!recent&&bucket.start>data.now;b.disabled=future&&!renewal;if(future&&!renewal)b.classList.add('future');
    if(renewal)b.classList.add('renewal');
+   const resets=!recent?resetTypes(bucket.start):[];
+   if(resets.length)b.classList.add('reset');
    const when=date(bucket.start)+(recent?' '+clock(bucket.start)+'–'+clock(bucket.end):'');
-   const detail=when+(future?'':' · '+format(value)+' '+labels[metric])+(renewal?' · '+t('自动续费','Auto-renews'):'');b.setAttribute('aria-label',detail);
-   const select=()=>{if(!future)summary.innerHTML=pair(when,value)+`<span>${labels[metric]}</span>`;callout.textContent=detail;callout.hidden=false;callout.classList.toggle('recent',recent);};
+   const resetAt=resets[0]?clock(new Date(resets[0].announced_at))+t(' 已重置',' reset'):''; // 列表最新在前，取当天最近一次
+   const detail=when+(future?'':' · '+format(value)+' '+labels[metric])+(renewal?' · '+t('自动续费','Auto-renews'):'')+(resetAt?' · '+resetAt:'');b.setAttribute('aria-label',detail);
+   const select=()=>{if(!future)summary.innerHTML=pair(when,value)+`<span>${labels[metric]}</span>`;callout.textContent=detail;callout.hidden=false;callout.classList.toggle('recent',recent);
+    const host=root.getBoundingClientRect(),r=b.getBoundingClientRect(),half=Math.min(90,host.width/2),gridTop=b.closest('.month-matrix,.recent-matrix').offsetTop,below=r.top-host.top-19<gridTop;
+    callout.style.left=Math.min(Math.max(r.left-host.left+r.width/2,half),host.width-half)+'px';callout.style.right='auto';
+    callout.style.top=(below?r.bottom-host.top+4:r.top-host.top-4)+'px';callout.style.transform=below?'translateX(-50%)':'translate(-50%,-100%)';};
    b.addEventListener('mouseenter',select);b.addEventListener('mouseleave',reset);b.addEventListener('focus',select);b.addEventListener('blur',reset);b.addEventListener('click',select);return b;
   }
   const matrix=root.querySelector('.month-matrix'),offset=data.daily[0].start.getDay();
@@ -45,4 +57,5 @@ for(const root of document.querySelectorAll('[data-usage]')) {
  }
  if(!menu){const picker=document.querySelector('#history-account');picker.options[0].value='all';picker.options[1].value='current';picker.addEventListener('change',()=>{account=picker.value;render();});}
  render();
+ resetsReady.then(()=>{if(monthResets.size)render();});
 }

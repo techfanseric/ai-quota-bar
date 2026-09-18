@@ -31,6 +31,30 @@ import CodexLocalUsageCore
         XCTAssertEqual(UsageActivityLayout.intensity(value: 100, maximum: 100), 1)
     }
 
+    func testCalloutOriginHugsTheHoveredCellAndStaysInsideTheContainer() {
+        let container = CGSize(width: 240, height: 88), callout = CGSize(width: 200, height: 18)
+        // 默认贴着格子正上方、水平居中并钳制在容器内。
+        XCTAssertEqual(
+            UsageActivityLayout.calloutOrigin(cell: CGRect(x: 140, y: 40, width: 10, height: 10),
+                                              container: container, callout: callout, hugsLeading: true),
+            CGPoint(x: 40, y: 18))
+        // 顶部一两行放不下时翻到格子下方。
+        XCTAssertEqual(
+            UsageActivityLayout.calloutOrigin(cell: CGRect(x: 140, y: 0, width: 10, height: 10),
+                                              container: container, callout: callout, hugsLeading: true),
+            CGPoint(x: 40, y: 14))
+        // 月份网格比气泡窄且贴容器左缘：保持 x=0，纵向仍跟随所在行。
+        XCTAssertEqual(
+            UsageActivityLayout.calloutOrigin(cell: CGRect(x: 52, y: 52, width: 10, height: 10),
+                                              container: CGSize(width: 78, height: 88), callout: callout, hugsLeading: true),
+            CGPoint(x: 0, y: 30))
+        // 24 列网格比气泡窄且贴容器右缘：向左溢出，右上不越界。
+        XCTAssertEqual(
+            UsageActivityLayout.calloutOrigin(cell: CGRect(x: 100, y: 80, width: 6, height: 6.333),
+                                              container: CGSize(width: 170, height: 88), callout: callout, hugsLeading: false),
+            CGPoint(x: -30, y: 58))
+    }
+
     func testMonthAnd24HourViewsKeepAccountScopeAndAdvanceWithoutNewEvents() throws {
         let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         defer { try? FileManager.default.removeItem(at: directory) }
