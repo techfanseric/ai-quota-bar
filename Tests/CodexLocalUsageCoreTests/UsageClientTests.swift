@@ -108,6 +108,31 @@ final class UsageClientTests: XCTestCase {
         }
         try await client().setMemberPassphrase("correct horse")
     }
+    func testTeamBrowserURLUsesOneTimeTicketAndNeverCredentialsInURL() async throws {
+        let ticket = String(repeating: "a", count: 64)
+        for password in [nil, "manager-secret"] as [String?] {
+            UsageProtocol.handler = { request in
+                XCTAssertEqual(request.url?.path, "/v1/team/handoff")
+                XCTAssertEqual(request.httpMethod, "POST")
+                XCTAssertEqual(request.value(forHTTPHeaderField: "Authorization"), "Bearer test-device")
+                let body = try JSONSerialization.jsonObject(with: requestBody(request)) as? [String: String]
+                XCTAssertEqual(body?["managementPassword"], password)
+                return (200, try JSONSerialization.data(withJSONObject: ["ticket": ticket, "role": password == nil ? "member" : "manager"]))
+            }
+            let url = try await client().teamBrowserURL(managementPassword: password)
+            XCTAssertEqual(url.absoluteString, "https://test.invalid/team#handoff=" + ticket)
+            XCTAssertNil(url.query)
+            XCTAssertFalse(url.absoluteString.contains("secret"))
+            XCTAssertFalse(url.absoluteString.contains("test-device"))
+        }
+    }
+    func testTeamBrowserRejectsInvalidTicketOrUnexpectedRole() async throws {
+        for response in ["{\"ticket\":\"https://evil.invalid\",\"role\":\"member\"}",
+                         "{\"ticket\":\"\(String(repeating: "a", count: 64))\",\"role\":\"manager\"}"] {
+            UsageProtocol.handler = { _ in (200, Data(response.utf8)) }
+            do { _ = try await client().teamBrowserURL(); XCTFail("Must reject unsafe handoff") } catch {}
+        }
+    }
     func testRealLocalWorkerWhenConfigured() async throws {
         let env = ProcessInfo.processInfo.environment
         guard let endpoint = env["USAGE_TEST_ENDPOINT"], let token = env["USAGE_TEST_TOKEN"] else { throw XCTSkip("Local HTTP integration server not requested") }
@@ -140,6 +165,28 @@ final class UsageClientTests: XCTestCase {
         let ownerClient = try UsageClient(endpoint: endpoint, token: owner.token)
         let ownerIdentity = try await ownerClient.identity()
         XCTAssertEqual(ownerIdentity.identity.team_name, "Native Created Team")
+        for password in [nil, created.loginPassword] as [String?] {
+            let url = try await ownerClient.teamBrowserURL(managementPassword: password)
+            let ticket = String(try XCTUnwrap(url.fragment).dropFirst("handoff=".count))
+            var redeem = URLRequest(url: URL(string: endpoint + "/v1/team/redeem")!)
+            redeem.httpMethod = "POST"; redeem.setValue(endpoint, forHTTPHeaderField: "Origin")
+            redeem.setValue("application/json", forHTTPHeaderField: "Content-Type")
+            redeem.httpBody = try JSONSerialization.data(withJSONObject: ["ticket": ticket])
+            let config = URLSessionConfiguration.ephemeral; config.httpShouldSetCookies = false
+            let session = URLSession(configuration: config)
+            let (_, response) = try await session.data(for: redeem)
+            let http = try XCTUnwrap(response as? HTTPURLResponse)
+            XCTAssertEqual(http.statusCode, 200)
+            let cookie = try XCTUnwrap(http.value(forHTTPHeaderField: "Set-Cookie")).components(separatedBy: ";")[0]
+            var overview = URLRequest(url: URL(string: endpoint + "/v1/team/overview")!)
+            overview.setValue(cookie, forHTTPHeaderField: "Cookie")
+            let (data, status) = try await session.data(for: overview)
+            XCTAssertEqual((status as? HTTPURLResponse)?.statusCode, 200)
+            let result = try JSONSerialization.jsonObject(with: data) as? [String: Any]
+            XCTAssertEqual((result?["access"] as? [String: Any])?["canManage"] as? Bool, password != nil)
+            let (_, replay) = try await session.data(for: redeem)
+            XCTAssertEqual((replay as? HTTPURLResponse)?.statusCode, 401)
+        }
         try await ownerClient.leave()
         do { _ = try await ownerClient.identity(); XCTFail("Leaving must revoke this credential") }
         catch { XCTAssertTrue(error.localizedDescription.contains("401")) }

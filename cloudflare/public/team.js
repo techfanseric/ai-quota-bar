@@ -1,8 +1,9 @@
 const $=id=>document.getElementById(id);
-let pendingPassword=null,loading=false,sessionGeneration=0;
-function invalidateSession(){sessionGeneration++;loading=false;}
+let pendingPassword=null,loading=false,sessionGeneration=0,canManage=false,activeTeam=null;
+function invalidateSession(){sessionGeneration++;loading=false;activeTeam=null;}
 async function api(path,options={}) {
-	const response=await fetch('/v1/team/'+path,{credentials:'same-origin',...options});
+	const headers=new Headers(options.headers);if(activeTeam)headers.set('X-AQB-Team',activeTeam);
+	const response=await fetch('/v1/team/'+path,{credentials:'same-origin',...options,headers});
 	const data=await response.json().catch(()=>({}));
 	if(!response.ok){const error=new Error(data.error||'request_failed');error.status=response.status;throw error;}
 	return data;
@@ -28,12 +29,18 @@ async function load(){
         await loadQuota();
 	}catch(error){
         if(generation!==sessionGeneration)return;
-		if(error.status===401)entryView();
+		if(error.status===401||error.status===409){entryView();$('login-error').textContent=error.status===409?'团队登录已在其他页面切换，请从 App 重新打开当前团队。':'';}
 		else if(!$('dashboard').hidden){$('error').hidden=false;$('error').textContent='数据加载失败，当前显示为上一次结果。请稍后刷新。';}
 		else{entryView();$('login-error').textContent='服务暂不可用，请稍后重试。';}
 	}finally{if(generation===sessionGeneration){loading=false;$('refresh').disabled=false;}}
 }
 function renderOverview(data){
+ activeTeam=data.team.teamID;
+ canManage=data.access?.canManage===true;
+ $("team-access").textContent=canManage?"管理员 · 可管理当前团队":"团队成员 · 可查看本团队成员、设备和账号用量";
+ $("invite-panel").hidden=!canManage;
+ $("quota-management-note").hidden=!canManage;
+ $("quota-action-heading").textContent=canManage?"操作":"权限";
 	$('team-title').textContent=data.team.teamName;
 	$('updated').textContent='更新于 '+data.generatedAt.replace('T',' ').slice(0,19)+' UTC · '+data.team.teamID;
 	$('invite-info').textContent='邀请码只在创建或轮换时显示一次，上次轮换 '+day(data.team.inviteRotatedAt)+'。轮换后旧码立即失效，已加入的成员不受影响。团队上限 '+data.team.memberLimit+' 名成员。';
@@ -68,7 +75,7 @@ function devicesCell(member,data){
 		const label=document.createElement('span');
 		label.textContent=device.deviceID.slice(0,8)+'…'+(device.revoked?' · 已移除':' · 最近上报 '+day(device.lastEventAt));
 		line.append(label);
-		if(!device.revoked){const button=document.createElement('button');button.type='button';button.textContent='移除';button.addEventListener('click',()=>revokeDevice(device.deviceID));line.append(button);}
+		if(canManage&&!device.revoked){const button=document.createElement('button');button.type='button';button.textContent='移除';button.addEventListener('click',()=>revokeDevice(device.deviceID));line.append(button);}
 		list.append(line);
 	}
 	if(!member.devices.length)list.textContent='暂无设备';
@@ -76,7 +83,7 @@ function devicesCell(member,data){
  const remove=document.createElement('button');remove.textContent='停用成员全部设备';remove.type='button';
  remove.addEventListener('click',async()=>{if(!confirm('停用 '+member.memberName+' 的全部设备？历史记录保留。'))return;
  try{await api('members/revoke',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({memberID:member.memberID})});await load();}catch{$('error').hidden=false;$('error').textContent='停用失败，请重试。';}});
- details.append(remove);cell.append(details);return cell;
+ if(canManage)details.append(remove);cell.append(details);return cell;
 }
 async function revokeDevice(deviceID){
 	if(!confirm('移除这台设备？它将立即停止上报；已入账的历史用量保留。'))return;
@@ -111,7 +118,20 @@ $('rotate').addEventListener('click',async()=>{
 	try{const data=await api('invite/rotate',{method:'POST'});$('rotated-invite').textContent=data.inviteCode;$('rotate-result').hidden=false;await load();}
 	catch(error){$('error').hidden=false;$('error').textContent=error.status===401?'登录已过期，请重新登录。':'轮换失败，请稍后重试。';}
 });
-$('days').addEventListener('change',load);$('refresh').addEventListener('click',load);load();
+$('days').addEventListener('change',load);$('refresh').addEventListener('click',load);
+async function bootstrap(){
+ const ticket=typeof location==='undefined'?null:new URLSearchParams(location.hash.slice(1)).get('handoff');
+ if(ticket){
+  history.replaceState(null,'',location.pathname+location.search);
+  invalidateSession();const generation=sessionGeneration;
+  $('dashboard').hidden=true;$('entry').hidden=true;$('loading').hidden=false;$('logout').hidden=true;
+  try{const result=await api('redeem',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({ticket})});if(generation!==sessionGeneration)return;activeTeam=result.teamID||null;}
+  catch{if(generation!==sessionGeneration)return;entryView();$('login-error').textContent='直达链接已过期或已使用。请返回 App 再次点击「查看团队」或「管理团队」。';return;}
+ }
+ await load();
+}
+bootstrap();
+if(typeof window!=='undefined')window.addEventListener('hashchange',()=>{if(new URLSearchParams(location.hash.slice(1)).has('handoff'))bootstrap();});
 
 async function loadQuota(){
  const generation=sessionGeneration;
@@ -120,7 +140,7 @@ async function loadQuota(){
    const td=document.createElement('td'),button=document.createElement('button');button.textContent='删除额度历史';button.type='button';button.addEventListener('click',async()=>{
     if(!confirm(`删除本团队 ${item.provider} / ${item.account_name||'未命名'} 的额度历史？成员用量和其他团队不受影响。`))return;
     button.disabled=true;try{await api('accounts?'+new URLSearchParams({provider:item.provider,account_name:item.account_name}),{method:'DELETE'});await loadQuota();}catch{$('quota-error').textContent='删除失败，请刷新或重新登录。';button.disabled=false;}
-   });td.append(button);row.append(td);rows.append(row);
+   });if(canManage)td.append(button);else td.textContent='只读';row.append(td);rows.append(row);
   }
  }catch{if(generation===sessionGeneration)$('quota-error').textContent='额度数据暂不可用，请稍后刷新。';}
 }

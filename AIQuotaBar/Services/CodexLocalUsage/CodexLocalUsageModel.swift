@@ -33,6 +33,11 @@ final class CodexLocalUsageModel {
     var connection: LocalUsageConnection?
     var createdTeam: UsageTeamCreated?
     var connectingTeam = false
+    var teamLoading = false
+    var teamLoadError: String?
+    var teamUpdatedAt: Date?
+    var canManageTeam = false
+    private var teamRequest = UUID()
     var days = 30
     var selectedAccount = "all" { didSet { historyCache.removeAll(); summaryCache.removeAll() } }
     var currentAccountID: String? { didSet { historyCache.removeAll(); summaryCache.removeAll() } }
@@ -150,8 +155,8 @@ final class CodexLocalUsageModel {
         guard reportingEnabled, !syncing, Date() >= nextAttempt else { return }
         syncTask = Task { await sync() }
     }
-    func connect(endpoint: String, token: String, includeHistory: Bool) async {
-        guard !syncing else { return }
+    @discardableResult func connect(endpoint: String, token: String, includeHistory: Bool) async -> Bool {
+        guard !syncing else { return false }
         do {
             let endpoint = endpoint.trimmingCharacters(in: .whitespacesAndNewlines).trimmingCharacters(in: CharacterSet(charactersIn: "/"))
             let client = try UsageClient(endpoint: endpoint, token: token.trimmingCharacters(in: .whitespacesAndNewlines))
@@ -162,37 +167,45 @@ final class CodexLocalUsageModel {
             let value = LocalUsageConnection(endpoint: endpoint, identity: result.identity, since: since)
             try await Self.saveToken(token.trimmingCharacters(in: .whitespacesAndNewlines), account: value.binding)
             defaults.set(try JSONEncoder().encode(value), forKey: "localUsage.connection")
-            if !same { reportingEnabled = false; teamRows = []; teamDevices = []; teamAccounts = []; syncStatus = "" }
+            if !same { reportingEnabled = false; clearTeamSummary(); canManageTeam = false; syncStatus = "" }
             connection = value; self.client = client; try savePrices(result.prices)
             NotificationCenter.default.post(name: .teamConnectionChanged, object: nil)
             failures = 0; nextAttempt = .distantPast; error = nil
-        } catch { self.error = error.localizedDescription }
+            return true
+        } catch { self.error = error.localizedDescription; return false }
     }
     /// Self-service join: exchange an invite code and a display name for a
     /// device credential, then bind exactly like an admin-provisioned device.
-    func joinTeam(inviteCode: String, memberName: String, passphrase: String, endpoint: String?, includeHistory: Bool) async {
-        guard !syncing else { return }
+    func joinTeam(inviteCode: String, memberName: String, passphrase: String, endpoint: String?, includeHistory: Bool) async -> Bool {
+        guard !syncing, !connectingTeam else { return false }
+        connectingTeam = true
+        defer { connectingTeam = false }
+        return await performJoin(inviteCode: inviteCode, memberName: memberName, passphrase: passphrase, endpoint: endpoint, includeHistory: includeHistory)
+    }
+    private func performJoin(inviteCode: String, memberName: String, passphrase: String, endpoint: String?, includeHistory: Bool) async -> Bool {
         let trimmed = endpoint?.trimmingCharacters(in: .whitespacesAndNewlines).trimmingCharacters(in: CharacterSet(charactersIn: "/")) ?? ""
         let origin = trimmed.isEmpty ? CloudSyncSettings.defaultEndpointURLString : trimmed
         do {
             let response = try await UsageClient.join(endpoint: origin, inviteCode: inviteCode, memberName: memberName, deviceID: deviceID, memberPassphrase: passphrase)
-            await connect(endpoint: origin, token: response.token, includeHistory: includeHistory)
-            if error == nil { reportingEnabled = true }
-        } catch { self.error = error.localizedDescription }
+            guard await connect(endpoint: origin, token: response.token, includeHistory: includeHistory) else { return false }
+            reportingEnabled = true
+            return true
+        } catch { self.error = error.localizedDescription; return false }
     }
-    func createTeam(name: String, memberName: String, passphrase: String, includeHistory: Bool) async {
-        guard !connectingTeam else { return }
+    func createTeam(name: String, memberName: String, passphrase: String, includeHistory: Bool) async -> Bool {
+        guard !connectingTeam, !syncing else { return false }
         connectingTeam = true
         defer { connectingTeam = false }
         do {
             // Keep one-time credentials visible even if joining fails; retry must not create a second team.
             if createdTeam == nil { createdTeam = try await UsageClient.createTeam(endpoint: CloudSyncSettings.defaultEndpointURLString, name: name) }
-            guard let team = createdTeam else { return }
-            await joinTeam(inviteCode: team.inviteCode, memberName: memberName, passphrase: passphrase, endpoint: nil, includeHistory: includeHistory)
-        } catch { self.error = error.localizedDescription }
+            guard let team = createdTeam else { return false }
+            try await Self.saveToken(team.loginPassword, account: managerBinding(endpoint: CloudSyncSettings.defaultEndpointURLString, teamID: team.teamID))
+            return await performJoin(inviteCode: team.inviteCode, memberName: memberName, passphrase: passphrase, endpoint: nil, includeHistory: includeHistory)
+        } catch { self.error = error.localizedDescription; return false }
     }
     func leaveTeam() async {
-        guard !connectingTeam else { return }
+        guard !connectingTeam, !syncing else { return }
         connectingTeam = true
         defer { connectingTeam = false }
         do {
@@ -201,7 +214,7 @@ final class CodexLocalUsageModel {
             reportingEnabled = false; syncTask?.cancel()
             connection = nil; self.client = nil; createdTeam = nil
             defaults.removeObject(forKey: "localUsage.connection")
-            teamRows = []; teamDevices = []; teamAccounts = []; delivery = [:]; rejectionReasons = [:]; syncStatus = ""; error = nil
+            clearTeamSummary(); canManageTeam = false; delivery = [:]; rejectionReasons = [:]; syncStatus = ""; error = nil
             NotificationCenter.default.post(name: .teamConnectionChanged, object: nil)
         } catch { self.error = error.localizedDescription }
     }
@@ -230,10 +243,11 @@ final class CodexLocalUsageModel {
         guard let connection else { throw UsageFailure.invalid("Connect a registered device first") }
         if let client { return client }
         let value = try UsageClient(endpoint: connection.endpoint, token: await Self.loadToken(account: connection.binding))
+        guard self.connection?.binding == connection.binding else { throw CancellationError() }
         client = value; return value
     }
     private func sync() async {
-        guard reportingEnabled, !syncing, let connection, let store else { return }
+        guard reportingEnabled, !syncing, !connectingTeam, let connection, let store else { return }
         syncing = true
         defer { syncing = false }
         do {
@@ -282,22 +296,64 @@ final class CodexLocalUsageModel {
         return updated
     }
 
+    func clearTeamSummary() {
+        teamRequest = UUID(); teamLoading = false; teamLoadError = nil; teamUpdatedAt = nil
+        teamRows = []; teamDevices = []; teamAccounts = []
+    }
+    private func managerBinding(endpoint: String, teamID: String) -> String {
+        "team-manager:" + usageDigest(endpoint + "|" + teamID)
+    }
+    func refreshManagementAccess() async {
+        guard let connection else { canManageTeam = false; return }
+        let saved = await KeychainService.shared.deviceCredential(binding: managerBinding(endpoint: connection.endpoint, teamID: connection.identity.team_id))
+        guard self.connection?.binding == connection.binding else { return }
+        canManageTeam = saved?.isEmpty == false
+    }
+    func teamBrowserURL(manage: Bool, password: String? = nil) async throws -> URL {
+        guard let connection, !connectingTeam else { throw UsageFailure.invalid("Join a team first") }
+        let key = managerBinding(endpoint: connection.endpoint, teamID: connection.identity.team_id)
+        var credential: String?
+        if manage {
+            if let password { credential = password }
+            else { credential = await KeychainService.shared.deviceCredential(binding: key) }
+            guard let credential, !credential.isEmpty else { throw UsageFailure.invalid("Enter the team's management password once") }
+        }
+        let client = try await activeClient()
+        let url: URL
+        do { url = try await client.teamBrowserURL(managementPassword: credential) }
+        catch {
+            if manage, self.connection?.binding == connection.binding, error.localizedDescription.contains("401") { canManageTeam = false }
+            throw error
+        }
+        guard self.connection?.binding == connection.binding else { throw CancellationError() }
+        if let password, manage {
+            try await Self.saveToken(password, account: key)
+            guard self.connection?.binding == connection.binding else { throw CancellationError() }
+            canManageTeam = true
+        }
+        return url
+    }
     func loadTeam() async {
-        let requestedDays = days, requestedFrom = from, requestedBinding = connection?.binding
+        guard let connection else { clearTeamSummary(); return }
+        let requestID = UUID(); teamRequest = requestID
+        let requestedDays = days, requestedFrom = from, requestedBinding = connection.binding
+        teamLoading = true; teamLoadError = nil
+        defer { if teamRequest == requestID { teamLoading = false } }
         do {
             let client = try await activeClient()
             let identity = try await client.identity()
+            guard teamRequest == requestID, requestedBinding == self.connection?.binding else { return }
             try savePrices(identity.prices)
-            async let members = client.summary(from: requestedFrom, to: Date(), group: "member")
-            async let devices = client.summary(from: requestedFrom, to: Date(), group: "device")
-            async let accounts = client.summary(from: requestedFrom, to: Date(), group: "account")
+            let to = Date()
+            async let members = client.summary(from: requestedFrom, to: to, group: "member")
+            async let devices = client.summary(from: requestedFrom, to: to, group: "device")
+            async let accounts = client.summary(from: requestedFrom, to: to, group: "account")
             let result = try await (members, devices, accounts)
-            guard requestedDays == days, requestedBinding == connection?.binding else { return }
-            teamRows = result.0; teamDevices = result.1; teamAccounts = result.2; error = nil
+            guard teamRequest == requestID, requestedDays == days, requestedBinding == self.connection?.binding else { return }
+            teamRows = result.0; teamDevices = result.1; teamAccounts = result.2; teamUpdatedAt = Date()
         } catch {
-            guard requestedBinding == connection?.binding else { return }
-            teamRows = []; teamDevices = []; teamAccounts = []
-            self.error = error.localizedDescription
+            guard teamRequest == requestID, requestedDays == days, requestedBinding == self.connection?.binding else { return }
+            teamLoadError = error.localizedDescription
         }
     }
     private static func saveToken(_ token: String, account: String) async throws {

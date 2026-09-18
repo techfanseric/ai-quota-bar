@@ -6,7 +6,7 @@ import worker from '../src/worker.js';
 
 function setup(enabled = true) {
   const db = new DatabaseSync(':memory:'); db.exec(readFileSync(new URL('../schema.sql', import.meta.url), 'utf8')); db.exec('PRAGMA foreign_keys=ON');
-  for (const file of ['0002_local_usage.sql', '0003_usage_accounts.sql', '0005_team_selfservice.sql', '0004_operations.sql', '0007_team_quota.sql']) db.exec(readFileSync(new URL('../migrations/' + file, import.meta.url), 'utf8'));
+  for (const file of ['0002_local_usage.sql', '0003_usage_accounts.sql', '0005_team_selfservice.sql', '0004_operations.sql', '0007_team_quota.sql', '0008_team_handoff.sql']) db.exec(readFileSync(new URL('../migrations/' + file, import.meta.url), 'utf8'));
   const env = { USAGE_ADMIN_TOKEN: 'test-administrator-token-at-least-32-characters', SYNC_TOKEN: 'legacy-token', OPS_ADMIN_SECRET: 'operator-secret-for-tests-at-least-forty-characters',
     ...(enabled ? { USAGE_TEAMS_ENABLED: 'true' } : {}), DB: {
       prepare(sql) { const statement = db.prepare(sql); let args = [];
@@ -83,4 +83,50 @@ test('retention is server-clock based and team scoped; retries deduplicate and p
  const sampledAt=new Date().toISOString();await upload(env,token,[model()],{sampledAt});await upload(env,token,[model()],{sampledAt});
  assert.equal(db.prepare('SELECT COUNT(*) n FROM team_quota_samples WHERE team_id=?').get(a.teamID).n,1);assert.equal(db.prepare('SELECT COUNT(*) n FROM team_quota_samples WHERE team_id=?').get(b.teamID).n,1);
  assert.equal((await upload(env,token,[model()],{sampledAt:'2999-01-01T00:00:00Z'})).status,400);assert.equal((await upload(env,token,Array(101).fill(model()))).status,400);assert.equal((await upload(env,token,[model()],{padding:'x'.repeat(270000)})).status,413);
+});
+
+test('native handoffs are one-use and members can inspect only their team, never manage it',async()=>{
+ const {db,env}=setup(),a=await createTeam(env,'A'),b=await createTeam(env,'B');
+ const ta=await join(env,a.inviteCode,'Alice','same-device','secret-a'),tb=await join(env,b.inviteCode,'Bob','same-device','secret-b');
+ await upload(env,ta);await upload(env,tb);
+ const start=await post(env,'/v1/team/handoff',{},auth(ta));assert.equal(start.status,200);assert.equal(start.body.role,'member');
+ assert(!JSON.stringify(db.prepare('SELECT * FROM team_browser_handoffs').all()).includes(start.body.ticket));
+ const redeem=await post(env,'/v1/team/redeem',{ticket:start.body.ticket},{origin:'https://test.invalid'});assert.equal(redeem.status,200);
+ assert.equal((await post(env,'/v1/team/redeem',{ticket:start.body.ticket},{origin:'https://test.invalid'})).status,401);
+ const headers={cookie:redeem.response.headers.get('set-cookie').split(';')[0]};
+ const overview=await call(env,'/v1/team/overview?team_id='+b.teamID,{headers});assert.equal(overview.status,200);assert.equal(overview.body.team.teamID,a.teamID);assert.equal(overview.body.access.canManage,false);
+ assert.equal((await call(env,'/v1/team/accounts',{headers})).body.accounts.length,1);
+ for(const path of ['/v1/team/invite/rotate','/v1/team/devices/revoke','/v1/team/members/revoke'])assert.equal((await post(env,path,{},headers)).status,403);
+ assert.equal((await call(env,'/v1/team/accounts?provider=codex&account_name=same@example.test',{method:'DELETE',headers})).status,403);
+ db.prepare('UPDATE usage_devices SET revoked=1 WHERE team_id=?').run(a.teamID);
+ assert.equal((await call(env,'/v1/team/overview',{headers})).status,401);
+});
+test('manager handoff verifies current team password and ticket lifetime, origin and revocation',async()=>{
+ const {db,env}=setup(),a=await createTeam(env,'A'),b=await createTeam(env,'B');const ta=await join(env,a.inviteCode,'Alice','same-device','secret-a');
+ assert.equal((await post(env,'/v1/team/handoff',{managementPassword:b.loginPassword},auth(ta))).status,401);
+ const make=async()=>{const r=await post(env,'/v1/team/handoff',{managementPassword:a.loginPassword},auth(ta));assert.equal(r.status,200);return r.body.ticket;};
+ let ticket=await make();assert.equal((await post(env,'/v1/team/redeem',{ticket},{origin:'https://evil.test'})).status,403);
+ const r=await post(env,'/v1/team/redeem',{ticket},{origin:'https://test.invalid'});assert.equal(r.status,200);
+ const cookie=r.response.headers.get('set-cookie').split(';')[0];assert.equal((await call(env,'/v1/team/overview',{headers:{cookie}})).body.access.canManage,true);
+ assert.equal((await post(env,'/v1/team/invite/rotate',{}, {cookie})).status,200);
+ ticket=await make();db.prepare('UPDATE team_browser_handoffs SET expires_at=0').run();assert.equal((await post(env,'/v1/team/redeem',{ticket},{origin:'https://test.invalid'})).status,401);
+ ticket=await make();db.prepare('UPDATE usage_devices SET revoked=1 WHERE team_id=?').run(a.teamID);assert.equal((await post(env,'/v1/team/redeem',{ticket},{origin:'https://test.invalid'})).status,401);
+});
+
+test('browser session changes across tabs cannot target another team and forged member cookies fail',async()=>{
+ const {db,env}=setup(),a=await createTeam(env,'A'),b=await createTeam(env,'B');
+ const ta=await join(env,a.inviteCode,'Alice','same-device','secret-a');
+ const bCookie=await loginSession(env,b);
+ const before=db.prepare('SELECT invite_hash FROM usage_teams WHERE team_id=?').get(b.teamID).invite_hash;
+ assert.equal((await post(env,'/v1/team/invite/rotate',{}, {cookie:bCookie,'x-aqb-team':a.teamID})).status,409);
+ assert.equal(db.prepare('SELECT invite_hash FROM usage_teams WHERE team_id=?').get(b.teamID).invite_hash,before);
+ const handoff=await post(env,'/v1/team/handoff',{},auth(ta));
+ const redeem=await post(env,'/v1/team/redeem',{ticket:handoff.body.ticket},{origin:'https://test.invalid'});
+ const cookie=redeem.response.headers.get('set-cookie').split(';')[0],parts=cookie.split('.');
+ const payload=JSON.parse(Buffer.from(parts[1],'base64url'));payload.teamID=b.teamID;
+ parts[1]=Buffer.from(JSON.stringify(payload)).toString('base64url');
+ assert.equal((await call(env,'/v1/team/overview',{headers:{cookie:parts.join('.')}})).status,401);
+ assert.equal((await call(env,'/v1/admin/data/teams',{headers:{cookie}})).status,401);
+ db.prepare('UPDATE usage_devices SET token_hash=? WHERE team_id=?').run('rotated',a.teamID);
+ assert.equal((await call(env,'/v1/team/overview',{headers:{cookie}})).status,401);
 });
