@@ -59,3 +59,20 @@ test('changelog is public read-only content with no API connections', async () =
     assert.equal(post.status, 404);
   }
 });
+
+ test('app update normalizes the release version and survives GitHub failure', async (t) => {
+  const mocked=t.mock.method(globalThis,'fetch',async()=>new Response(JSON.stringify({tag_name:' v1.19.0 ',html_url:'https://github.com/release',assets:[{name:'AIQuotaBar.dmg',browser_download_url:'https://github.com/download'}]})));
+  const request=new Request('https://example.com/v1/app-update');
+  const response=await worker.fetch(request,{});
+  assert.equal(response.status,200);
+  const data=await response.json();
+  assert.equal(data.version,'1.19.0');
+  assert.equal(data.source,'github-proxy');
+  assert.equal(data.download_url,'https://github.com/download');
+  mocked.mock.mockImplementation(async()=>{throw new Error('unavailable')});
+  const fallback=await worker.fetch(request,{});
+  assert.equal(fallback.status,200);
+  const cached=await fallback.json();
+  assert.equal(cached.version,'1.19.0');
+  assert.equal(cached.source,'worker-fallback');
+ });
