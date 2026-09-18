@@ -5,10 +5,7 @@ import SwiftUI
 @MainActor
 struct AboutPane: View {
     @Bindable var viewModel: UsageViewModel
-    @State private var isCheckingForUpdate: Bool = false
-    @State private var updateFeedback: InlineFeedback? = nil
-    @State private var latestVersion: String? = nil
-    @State private var releaseURL: URL? = nil
+    @State private var updates = UpdateChecker.shared
 
     private var language: AppLanguage { viewModel.appLanguage }
     private var currentVersion: String {
@@ -28,6 +25,7 @@ struct AboutPane: View {
             .padding(.horizontal, 20)
             .padding(.vertical, 12)
         }
+        .task { await updates.checkIfNeeded() }
     }
 
     // MARK: - APP
@@ -58,35 +56,36 @@ struct AboutPane: View {
                 .fixedSize(horizontal: false, vertical: true)
 
             HStack(spacing: 10) {
-                Button {
-                    Task { await checkForUpdates() }
-                } label: {
+                Button { Task { _ = try? await updates.checkForUpdates() } } label: {
                     Label(language.text(.checkForUpdates), systemImage: "arrow.triangle.2.circlepath")
                 }
                 .buttonStyle(.bordered)
                 .controlSize(.small)
-                .disabled(isCheckingForUpdate)
-
-                if isCheckingForUpdate {
-                    ProgressView()
-                        .controlSize(.small)
-                }
-
-                Spacer()
-
-                if let updateFeedback {
-                    InlineFeedbackView(feedback: updateFeedback)
-                }
+                .disabled(updates.isChecking)
+                if updates.isChecking { ProgressView().controlSize(.small) }
             }
-
-            if let releaseURL {
-                Button {
-                    NSWorkspace.shared.open(releaseURL)
-                } label: {
-                    Label(language.text(.openReleasePage), systemImage: "arrow.up.right.square")
+            if let release = updates.availableRelease {
+                Text(language.updateAvailableText(current: currentVersion, latest: release.version))
+                    .font(.footnote)
+                HStack(spacing: 16) {
+                    Link(language == .simplifiedChinese ? "下载新版" : "Download update", destination: release.downloadURL)
+                    Link(language == .simplifiedChinese ? "查看更新日志" : "Release notes", destination: release.changelogURL)
                 }
-                .buttonStyle(.link)
-                .controlSize(.small)
+                .font(.footnote)
+                Text(language == .simplifiedChinese ? "下载后打开 DMG，将 App 拖入应用程序完成替换。" : "Open the downloaded DMG and drag the app into Applications to replace the installed version.")
+                    .font(.caption).foregroundStyle(.secondary)
+            } else if updates.lastCheckedAt != nil && updates.lastError == nil {
+                Text(language.upToDateText(current: currentVersion))
+                    .font(.footnote).foregroundStyle(.secondary)
+            }
+            if let error = updates.lastError {
+                Text(language.updateCheckFailedText(error))
+                    .font(.caption).foregroundStyle(.secondary)
+                    .textSelection(.enabled)
+            }
+            if let checked = updates.lastCheckedAt {
+                Text("\(language == .simplifiedChinese ? "上次成功检查" : "Last checked"): \(checked.formatted(date: .abbreviated, time: .shortened))")
+                    .font(.caption).foregroundStyle(.tertiary)
             }
         }
     }
@@ -104,36 +103,4 @@ struct AboutPane: View {
         }
     }
 
-    // MARK: - Actions
-
-    private func checkForUpdates() async {
-        isCheckingForUpdate = true
-        updateFeedback = nil
-        latestVersion = nil
-        releaseURL = nil
-        defer { isCheckingForUpdate = false }
-
-        do {
-            let result = try await UpdateChecker.shared.checkForUpdates()
-            switch result {
-            case .upToDate(let version):
-                updateFeedback = InlineFeedback(
-                    kind: .success,
-                    message: language.upToDateText(current: version)
-                )
-            case .updateAvailable(let current, let latest, let url):
-                latestVersion = latest
-                releaseURL = url
-                updateFeedback = InlineFeedback(
-                    kind: .success,
-                    message: language.updateAvailableText(current: current, latest: latest)
-                )
-            }
-        } catch {
-            updateFeedback = InlineFeedback(
-                kind: .error,
-                message: language.updateCheckFailedText(error.localizedDescription)
-            )
-        }
-    }
 }

@@ -11,7 +11,7 @@ final class UpdateNotificationService {
         currentVersion: String,
         latestVersion: String,
         releaseURL: URL
-    ) async {
+    ) async -> Bool {
         let center = UNUserNotificationCenter.current()
 
         let settings = await notificationSettings(center: center)
@@ -27,7 +27,7 @@ final class UpdateNotificationService {
             authorized = false
         }
 
-        guard authorized else { return }
+        guard authorized else { return false }
 
         let content = UNMutableNotificationContent()
         content.title = language.updateNotificationTitle()
@@ -41,7 +41,7 @@ final class UpdateNotificationService {
             trigger: nil
         )
 
-        await add(center: center, request: request)
+        return await add(center: center, request: request)
     }
 
     private func notificationSettings(center: UNUserNotificationCenter) async -> UNNotificationSettings {
@@ -52,10 +52,10 @@ final class UpdateNotificationService {
         }
     }
 
-    private func add(center: UNUserNotificationCenter, request: UNNotificationRequest) async {
+    private func add(center: UNUserNotificationCenter, request: UNNotificationRequest) async -> Bool {
         await withCheckedContinuation { continuation in
-            center.add(request) { _ in
-                continuation.resume(returning: ())
+            center.add(request) { error in
+                continuation.resume(returning: error == nil)
             }
         }
     }

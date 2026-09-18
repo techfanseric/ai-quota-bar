@@ -78,32 +78,32 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
     private func scheduleDailyUpdateChecks() {
         dailyUpdateTimer?.invalidate()
-        dailyUpdateTimer = Timer.scheduledTimer(withTimeInterval: 24 * 60 * 60, repeats: true) { [weak self] _ in
+        dailyUpdateTimer = Timer.scheduledTimer(withTimeInterval: 15 * 60, repeats: true) { [weak self] _ in
             Task {
                 await self?.runAutomaticUpdateCheckIfNeeded()
             }
         }
     }
 
+    @MainActor
     private func runAutomaticUpdateCheckIfNeeded() async {
         let checker = UpdateChecker.shared
         guard checker.shouldRunAutomaticDailyCheck() else { return }
-        checker.markAutomaticCheck()
 
         do {
             let result = try await checker.checkForUpdates()
             guard case let .updateAvailable(currentVersion, latestVersion, releaseURL) = result else { return }
             guard checker.shouldNotifyUpdate(latestVersion: latestVersion) else { return }
 
-            checker.markNotifiedUpdate(latestVersion: latestVersion)
 
             let language = await MainActor.run { statusBarController?.viewModel.appLanguage ?? AppLanguage.current }
-            await UpdateNotificationService.shared.notifyUpdateAvailable(
+            let delivered = await UpdateNotificationService.shared.notifyUpdateAvailable(
                 language: language,
                 currentVersion: currentVersion,
                 latestVersion: latestVersion,
                 releaseURL: releaseURL
             )
+            if delivered { checker.markNotifiedUpdate(latestVersion: latestVersion) }
         } catch {
             // Keep silent for background checks.
         }

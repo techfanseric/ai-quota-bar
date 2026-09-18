@@ -3,6 +3,7 @@ import CodexBarCore
 import SwiftUI
 
 struct MenuView: View {
+    @State private var updates = UpdateChecker.shared
     @Bindable var viewModel: UsageViewModel
     @Bindable var presentationSizing: MenuPresentationSizing
     var onOpenSettings: () -> Void
@@ -24,6 +25,7 @@ struct MenuView: View {
         }
         .padding(10)
         .frame(width: MenuBarPanelLayout.width)
+        .task { await updates.checkIfNeeded() }
     }
 
     private var language: AppLanguage {
@@ -189,7 +191,21 @@ struct MenuView: View {
             }
             .buttonStyle(.plain)
 
-            Spacer()
+            Spacer(minLength: 4)
+
+            if let release = updates.availableRelease {
+                Button { NSWorkspace.shared.open(release.changelogURL) } label: {
+                    Text(language == .simplifiedChinese ? "新版 \(release.version) ↗" : "Update \(release.version) ↗")
+                        .font(.system(size: 10))
+                        .foregroundStyle(.secondary)
+                        .lineLimit(1)
+                        .truncationMode(.middle)
+                }
+                .buttonStyle(.plain)
+                .help(language == .simplifiedChinese ? "查看更新日志与下载新版" : "View release notes and download")
+            }
+
+            Spacer(minLength: 4)
 
             Button(role: .destructive) {
                 NSApplication.shared.terminate(nil)
