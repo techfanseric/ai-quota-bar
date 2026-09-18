@@ -68,6 +68,7 @@ struct CredentialVaultV1: Codable, Equatable, Sendable {
 
     var version: Int
     var providers: [String: String]
+    var deviceCredentials: [String: String]?
     var cloudSyncToken: String?
     var mobileDashboardAccessToken: String?
     var mobileDashboardTokenMigration:
@@ -75,6 +76,7 @@ struct CredentialVaultV1: Codable, Equatable, Sendable {
 
     init(
         providers: [String: String] = [:],
+        deviceCredentials: [String: String]? = nil,
         cloudSyncToken: String? = nil,
         mobileDashboardAccessToken: String? = nil,
         mobileDashboardTokenMigration:
@@ -82,6 +84,7 @@ struct CredentialVaultV1: Codable, Equatable, Sendable {
     ) {
         version = Self.currentVersion
         self.providers = providers
+        self.deviceCredentials = deviceCredentials
         self.cloudSyncToken = cloudSyncToken
         self.mobileDashboardAccessToken = mobileDashboardAccessToken
         self.mobileDashboardTokenMigration =
@@ -255,6 +258,38 @@ actor CredentialVaultStore {
     private let legacyServices: [String]
     private let mobileTokenGenerator: @Sendable () -> String?
     private var cachedState: CachedState?
+    private var cachedFailure: OSStatus?
+    private var legacyCache: [String: LegacyStringResult] = [:]
+
+    // Permission failures stay quiet until an explicit user retry.
+    func retryFailedAccess() {
+        cachedFailure = nil
+        legacyCache = legacyCache.filter { _, result in
+            if case .failure = result { return false }; return true
+        }
+    }
+
+    func deviceCredential(binding: String) async -> String? {
+        let result = await loadVault()
+        if case let .found(vault) = result, let value = vault.deviceCredentials?[binding] { return value }
+        guard case .failure = result else {
+            let legacy = readLegacyString(account: binding, services: [service + ".local-usage"])
+            guard case let .found(value) = legacy, var vault = writableVault(from: result) else { return nil }
+            var credentials = vault.deviceCredentials ?? [:]
+            credentials[binding] = value; vault.deviceCredentials = credentials
+            if writeVault(vault) { cachedState = .found(vault) }
+            return value
+        }
+        return nil
+    }
+
+    func saveDeviceCredential(_ value: String, binding: String) async -> Bool {
+        await mutateVault { vault in
+            var credentials = vault.deviceCredentials ?? [:]
+            credentials[binding] = value; vault.deviceCredentials = credentials
+        }
+    }
+
     private var vaultLoad: VaultLoadInFlight?
 
     init(
@@ -286,6 +321,7 @@ actor CredentialVaultStore {
            let value = vault.providers[provider.rawValue] {
             return value
         }
+        if case .failure = loadResult { return nil }
         let legacyResult = readLegacyString(
             account: provider.keychainAccount,
             services: [service] + legacyServices)
@@ -327,6 +363,7 @@ actor CredentialVaultStore {
            let token = vault.cloudSyncToken {
             return token
         }
+        if case .failure = loadResult { return nil }
         let legacyResult = readLegacyString(
             account: "cloudSyncToken",
             services: [service])
@@ -417,6 +454,7 @@ actor CredentialVaultStore {
     }
 
     private func loadVault() async -> LoadResult {
+        if let cachedFailure { return .failure(cachedFailure) }
         if let cachedState {
             switch cachedState {
             case let .found(vault): return .found(vault)
@@ -464,6 +502,7 @@ actor CredentialVaultStore {
                 }
                 return .found(vault)
             } catch {
+                cachedFailure = errSecDecode
                 KeychainService.reportCredentialDecodeFailure(error)
                 return .failure(errSecDecode)
             }
@@ -473,6 +512,7 @@ actor CredentialVaultStore {
             }
             return .notFound
         case let .failure(status):
+            if ownsLoad { cachedFailure = status }
             return .failure(status)
         }
     }
@@ -534,24 +574,22 @@ actor CredentialVaultStore {
             .replacingOccurrences(of: "=", with: "")
     }
 
-    private func readLegacyString(
-        account: String,
-        services: [String]
-    ) -> LegacyStringResult {
+    private func readLegacyString(account: String, services: [String]) -> LegacyStringResult {
+        let key = services.joined(separator: "|") + "|" + account
+        if let cached = legacyCache[key] { return cached }
         for service in services {
             switch backend.read(account: account, service: service) {
             case let .found(data):
-                guard let value = String(data: data, encoding: .utf8),
-                      !value.isEmpty else {
-                    return .failure(errSecDecode)
+                guard let value = String(data: data, encoding: .utf8), !value.isEmpty else {
+                    legacyCache[key] = .failure(errSecDecode); return .failure(errSecDecode)
                 }
-                return .found(value)
-            case .notFound:
-                continue
+                legacyCache[key] = .found(value); return .found(value)
+            case .notFound: continue
             case let .failure(status):
-                return .failure(status)
+                legacyCache[key] = .failure(status); return .failure(status)
             }
         }
+        legacyCache[key] = .notFound
         return .notFound
     }
 
@@ -559,7 +597,8 @@ actor CredentialVaultStore {
         account: String,
         services: [String]
     ) -> Bool {
-        services.allSatisfy { service in
+        legacyCache[services.joined(separator: "|") + "|" + account] = .notFound
+        return services.allSatisfy { service in
             let status = backend.delete(
                 account: account,
                 service: service)
@@ -587,6 +626,30 @@ final class KeychainService: @unchecked Sendable {
     ) {
         self.vault = vault
         self.defaults = defaults
+    }
+
+    func retryFailedAccess() {
+        blocking { [vault] in await vault.retryFailedAccess() }
+    }
+
+    func deviceCredential(binding: String) async -> String? {
+        await vault.deviceCredential(binding: binding)
+    }
+
+    func saveDeviceCredential(_ value: String, binding: String) async -> Bool {
+        await vault.saveDeviceCredential(value, binding: binding)
+    }
+
+    func providerCredentials() -> [UsageProvider: String] {
+        let values: [UsageProvider: String] = blocking { [vault] in
+            var result: [UsageProvider: String] = [:]
+            for provider in UsageProvider.allCases where provider != .codex {
+                if let value = await vault.credential(for: provider) { result[provider] = value }
+            }
+            return result
+        }
+        for provider in values.keys { cacheConfiguredProvider(provider, isConfigured: true) }
+        return values
     }
 
     func preloadCredentialVault() {

@@ -4,6 +4,37 @@ import XCTest
 @testable import AIQuotaBar
 
 final class CredentialVaultTests: XCTestCase {
+    func testAbsentLegacyCredentialsAreReadOnlyOncePerSession() async {
+        let backend = FakeCredentialVaultBackend()
+        let store = CredentialVaultStore(backend: backend)
+        _ = await store.credential(for: .miniMax)
+        _ = await store.cloudSyncToken()
+        let reads = backend.totalReadCount
+        for _ in 0..<5 {
+            _ = await store.credential(for: .miniMax)
+            _ = await store.cloudSyncToken()
+        }
+        XCTAssertEqual(backend.totalReadCount, reads)
+    }
+
+    func testDeviceCredentialMigratesIntoSharedDictionaryAndSurvivesReload() async throws {
+        let backend = FakeCredentialVaultBackend()
+        backend.items[.init(service: backend.service + ".local-usage", account: "binding")] = .found(Data("device-secret".utf8))
+        let store = CredentialVaultStore(backend: backend)
+        let first = await store.deviceCredential(binding: "binding")
+        XCTAssertEqual(first, "device-secret")
+        let saved = try CredentialVaultV1.decodeCompatible(from: XCTUnwrap(backend.lastVaultWrite))
+        XCTAssertEqual(saved.deviceCredentials?["binding"], "device-secret")
+        let reads = backend.totalReadCount
+        let second = await store.deviceCredential(binding: "binding")
+        XCTAssertEqual(second, first)
+        XCTAssertEqual(backend.totalReadCount, reads)
+        let reloaded = CredentialVaultStore(backend: backend)
+        let recovered = await reloaded.deviceCredential(binding: "binding")
+        XCTAssertEqual(recovered, first)
+        XCTAssertEqual(backend.totalReadCount, reads + 1)
+    }
+
     func testV1CodecReadsLegacyDictionaryWithoutLosingFields() throws {
         let legacy = [
             UsageProvider.miniMax.rawValue: "provider-secret",
@@ -146,7 +177,7 @@ final class CredentialVaultTests: XCTestCase {
         let secondToken = await store.mobileDashboardAccessToken()
         XCTAssertEqual(firstToken, .failure(errSecDecode))
         XCTAssertEqual(secondToken, .failure(errSecDecode))
-        XCTAssertEqual(backend.vaultReadCount, 2)
+        XCTAssertEqual(backend.vaultReadCount, 1)
         XCTAssertEqual(backend.legacyMobileReadCount, 0)
         XCTAssertEqual(generator.callCount, 0)
         XCTAssertEqual(backend.writeCallCount, 0)
@@ -266,6 +297,8 @@ final class CredentialVaultTests: XCTestCase {
         try await waitUntil { backend.vaultReadCount == 1 }
         firstGate.signal()
         _ = await oldProvider
+        _ = await oldMobile
+        await store.retryFailedAccess()
 
         async let newProvider = store.credential(for: .miniMax)
         async let newMobile = store.mobileDashboardAccessToken()

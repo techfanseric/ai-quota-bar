@@ -17,11 +17,8 @@ struct CodexLocalUsageSection: View {
         SettingsSection(title: t("Codex 本机用量", "Codex local usage"),
                         caption: t("来自本机日志，与共享账号额度分开统计。", "Measured from local logs, separately from shared account quota."), contentSpacing: 12) {
             HStack {
-                Picker(t("时间范围", "Range"), selection: $model.days) {
-                    Text(t("今天", "Today")).tag(1)
-                    Text(t("7 天", "7 days")).tag(7)
-                    Text(t("30 天", "30 days")).tag(30)
-                }.pickerStyle(.segmented)
+                Text(t("近 30 天 · 下方为今日小时用量", "Last 30 days · Today’s hours below")).font(.caption).foregroundStyle(.secondary)
+                Spacer()
                 Button { Task { await model.refresh() } } label: { Image(systemName: "arrow.clockwise") }
                     .disabled(model.scanning)
                     .help(t("重新扫描本机日志", "Scan local logs"))
@@ -29,7 +26,7 @@ struct CodexLocalUsageSection: View {
             CodexUsageAccountPicker(model: model, language: language)
             Text(t("账号未知的历史不会归给当前登录账号。登录观测仅在相邻采样账号一致且登录文件未变化时归属；切换、休眠和未监测时段保持未知。它不能证明请求实际使用的账号。", "Unknown history is never assigned to the current login. Login observations attribute only intervals with unchanged consecutive auth samples; switches, sleep and unobserved gaps remain unknown. This does not prove the account used by a request."))
                 .font(.caption).foregroundStyle(.secondary)
-            CodexUsageTrend(model: model, language: language, days: model.days)
+            CodexUsageTrend(model: model, language: language)
             let summary = model.summary
             HStack(alignment: .top, spacing: 18) {
                 metric("Tokens", summary.tokens.total.formatted())
@@ -90,7 +87,7 @@ struct CodexLocalUsageSection: View {
             if model.connection != nil {
                 DisclosureGroup(t("团队成员用量", "Team member usage")) {
                     VStack(alignment: .leading, spacing: 8) {
-                        Button(t("加载所选时间范围", "Load selected date range")) { Task { await model.loadTeam() } }
+                        Button(t("加载近 30 天", "Load last 30 days")) { Task { await model.loadTeam() } }
                         ForEach(model.teamRows) { row in
                             DisclosureGroup {
                                 ForEach(model.teamDevices.filter { $0.memberID == row.id }) { device in
@@ -115,7 +112,7 @@ struct CodexLocalUsageSection: View {
             }
             if let error = model.error { Text(error).font(.caption).foregroundStyle(.red).textSelection(.enabled) }
         }
-        .onAppear { endpoint = model.connection?.endpoint ?? "" }
+        .onAppear { endpoint = model.connection?.endpoint ?? ""; model.days = 30 }
         .onChange(of: model.days) { _, _ in model.teamRows = []; model.teamDevices = []; model.teamAccounts = [] }
     }
     private func metric(_ label: String, _ value: String) -> some View {

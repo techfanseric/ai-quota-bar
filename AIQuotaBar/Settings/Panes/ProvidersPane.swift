@@ -93,6 +93,19 @@ struct ProvidersPane: View {
             }
 
             Spacer()
+            if !viewModel.hasAnyCredential {
+                Text(language == .simplifiedChinese ? "先连接一个供应商即可。Codex 可沿用本机登录，其他服务按需添加。" : "Start with one provider. Codex uses your local sign-in; add other services only when needed.")
+                    .font(.caption).foregroundStyle(.secondary).padding(16)
+            }
+            DisclosureGroup(language == .simplifiedChinese ? "连接帮助" : "Connection help") {
+                Text(language == .simplifiedChinese ? "若曾拒绝系统凭据授权，可在这里重试。" : "If you declined credential access, retry here.")
+                    .foregroundStyle(.secondary).padding(.vertical, 6)
+                Button(language == .simplifiedChinese ? "重试钥匙串访问" : "Retry Keychain access") {
+                    KeychainService.shared.retryFailedAccess()
+                    KeychainService.shared.preloadCredentialVault()
+                    loadFromViewModel()
+                }.buttonStyle(.plain)
+            }.font(.caption).padding(16)
         }
         .background(Color(nsColor: .controlBackgroundColor).opacity(0.5))
     }
@@ -146,11 +159,12 @@ struct ProvidersPane: View {
     // MARK: - Actions
 
     private func loadFromViewModel() {
-        miniMaxCredential = KeychainService.shared.getCredential(for: .miniMax) ?? ""
+        let credentials = KeychainService.shared.providerCredentials()
+        miniMaxCredential = credentials[.miniMax] ?? ""
         miniMaxInputID = UUID()
-        kimiCredential = KeychainService.shared.getCredential(for: .kimi) ?? ""
+        kimiCredential = credentials[.kimi] ?? ""
         kimiInputID = UUID()
-        let storedGLM = KeychainService.shared.getCredential(for: .glm) ?? ""
+        let storedGLM = credentials[.glm] ?? ""
         glmCredential = (try? GLMCredential.parse(storedGLM).editableString) ?? storedGLM
         savedCredentials = [.miniMax: miniMaxCredential, .kimi: kimiCredential, .glm: glmCredential]
         glmInputID = UUID()

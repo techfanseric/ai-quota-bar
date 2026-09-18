@@ -1,7 +1,5 @@
 import AppKit
 import Foundation
-import Security
-import LocalAuthentication
 import CodexLocalUsageCore
 
 struct LocalUsageConnection: Codable {
@@ -33,7 +31,7 @@ final class CodexLocalUsageModel {
     var teamDevices: [TeamUsageRow] = []
     var teamAccounts: [TeamUsageRow] = []
     var connection: LocalUsageConnection?
-    var days = 7
+    var days = 30
     var selectedAccount = "all" { didSet { historyCache.removeAll(); summaryCache.removeAll() } }
     var currentAccountID: String? { didSet { historyCache.removeAll(); summaryCache.removeAll() } }
     func refreshCurrentAccount() {
@@ -140,7 +138,7 @@ final class CodexLocalUsageModel {
             let same = connection?.endpoint == endpoint && connection?.identity.bindingID == result.identity.bindingID
             let since = includeHistory ? Date(timeIntervalSince1970: 0) : (same ? connection!.since : Date())
             let value = LocalUsageConnection(endpoint: endpoint, identity: result.identity, since: since)
-            try Self.saveToken(token.trimmingCharacters(in: .whitespacesAndNewlines), account: value.binding)
+            try await Self.saveToken(token.trimmingCharacters(in: .whitespacesAndNewlines), account: value.binding)
             defaults.set(try JSONEncoder().encode(value), forKey: "localUsage.connection")
             if !same { reportingEnabled = false; teamRows = []; teamDevices = []; syncStatus = "" }
             connection = value; self.client = client; try savePrices(result.prices)
@@ -155,10 +153,10 @@ final class CodexLocalUsageModel {
         try UsagePrice.validate(value)
         defaults.set(try JSONEncoder().encode(value), forKey: "localUsage.prices"); prices = value
     }
-    private func activeClient() throws -> UsageClient {
+    private func activeClient() async throws -> UsageClient {
         guard let connection else { throw UsageFailure.invalid("Connect a registered device first") }
         if let client { return client }
-        let value = try UsageClient(endpoint: connection.endpoint, token: Self.loadToken(account: connection.binding))
+        let value = try UsageClient(endpoint: connection.endpoint, token: await Self.loadToken(account: connection.binding))
         client = value; return value
     }
     private func sync() async {
@@ -167,7 +165,7 @@ final class CodexLocalUsageModel {
         defer { syncing = false }
         do {
             let connection = try await migrateHostedConnection(connection, store: store)
-            let client = try activeClient()
+            let client = try await activeClient()
             let identity = try await client.identity()
             guard identity.identity.bindingID == connection.identity.bindingID else { throw UsageFailure.invalid("Server identity changed; reconnect this device") }
             try savePrices(identity.prices)
@@ -195,13 +193,13 @@ final class CodexLocalUsageModel {
     }
     private func migrateHostedConnection(_ old: LocalUsageConnection, store: UsageStore) async throws -> LocalUsageConnection {
         guard ["https://ai-quota-bar-sync.techfanseric.workers.dev", "https://quota.talktrace.app"].contains(old.endpoint) else { return old }
-        let token = try Self.loadToken(account: old.binding)
+        let token = try await Self.loadToken(account: old.binding)
         let target = CloudSyncSettings.defaultEndpointURLString
         let client = try UsageClient(endpoint: target, token: token)
         let identity = try await client.identity()
         guard identity.identity.bindingID == old.identity.bindingID else { throw UsageFailure.invalid("Migration identity mismatch") }
         let updated = LocalUsageConnection(endpoint: target, identity: old.identity, since: old.since)
-        try Self.saveToken(token, account: updated.binding)
+        try await Self.saveToken(token, account: updated.binding)
         try await store.migrateBinding(from: old.binding, to: updated.binding)
         defaults.set(try JSONEncoder().encode(updated), forKey: "localUsage.connection")
         self.connection = updated; self.client = client
@@ -211,7 +209,7 @@ final class CodexLocalUsageModel {
     func loadTeam() async {
         let requestedDays = days, requestedFrom = from, requestedBinding = connection?.binding
         do {
-            let client = try activeClient()
+            let client = try await activeClient()
             let identity = try await client.identity()
             try savePrices(identity.prices)
             async let members = client.summary(from: requestedFrom, to: Date(), group: "member")
@@ -222,20 +220,15 @@ final class CodexLocalUsageModel {
             teamRows = result.0; teamDevices = result.1; teamAccounts = result.2; error = nil
         } catch { self.error = error.localizedDescription }
     }
-    private static func saveToken(_ token: String, account: String) throws {
-        let query: [String: Any] = [kSecClass as String: kSecClassGenericPassword, kSecAttrService as String: "com.techfanseric.aiquotabar.local-usage", kSecAttrAccount as String: account]
-        let data = Data(token.utf8)
-        let status = SecItemUpdate(query as CFDictionary, [kSecValueData as String: data] as CFDictionary)
-        if status == errSecItemNotFound {
-            var added = query; added[kSecValueData as String] = data; added[kSecAttrAccessible as String] = kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly
-            guard SecItemAdd(added as CFDictionary, nil) == errSecSuccess else { throw UsageFailure.invalid("Could not save device credential to Keychain") }
-        } else if status != errSecSuccess { throw UsageFailure.invalid("Could not update device credential in Keychain") }
+    private static func saveToken(_ token: String, account: String) async throws {
+        guard await KeychainService.shared.saveDeviceCredential(token, binding: account) else {
+            throw UsageFailure.invalid("Could not save device credential to Keychain")
+        }
     }
-    private static func loadToken(account: String) throws -> String {
-        let context = LAContext(); context.interactionNotAllowed = true
-        let query: [String: Any] = [kSecClass as String: kSecClassGenericPassword, kSecAttrService as String: "com.techfanseric.aiquotabar.local-usage", kSecAttrAccount as String: account, kSecReturnData as String: true, kSecMatchLimit as String: kSecMatchLimitOne, kSecUseAuthenticationContext as String: context]
-        var result: CFTypeRef?
-        guard SecItemCopyMatching(query as CFDictionary, &result) == errSecSuccess, let data = result as? Data, let token = String(data: data, encoding: .utf8) else { throw UsageFailure.invalid("Device credential unavailable; reconnect in Local usage settings") }
+    private static func loadToken(account: String) async throws -> String {
+        guard let token = await KeychainService.shared.deviceCredential(binding: account) else {
+            throw UsageFailure.invalid("Device credential unavailable; reconnect in Local usage settings")
+        }
         return token
     }
 }

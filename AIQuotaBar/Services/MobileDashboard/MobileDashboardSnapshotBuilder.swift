@@ -550,7 +550,7 @@ enum MobileDashboardSnapshotBuilder {
         switch snapshot.state {
         case .loading: state = "loading"
         case .ready: state = "ready"
-        case .unavailable: state = "unavailable"
+        case .needsSetup, .unavailable: state = "unavailable"
         case .failed: state = "failed"
         }
 

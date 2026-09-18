@@ -302,7 +302,7 @@ final class UsageViewModel {
         guard let primary = selectedMenuBarModel(from: candidates) else {
             let provider = fallbackMenuBarProvider()
             let failed = providerErrors[provider] != nil || (error != nil && usageData == nil)
-            let state: MenuBarSnapshotState = failed ? .failed : (isLoading || usageData == nil ? .loading : .unavailable)
+            let state: MenuBarSnapshotState = !hasAnyCredential ? .needsSetup : failed ? .failed : (isLoading || usageData == nil ? .loading : .unavailable)
             let snapshot = makeMenuBarStateSnapshot(
                 provider: provider,
                 state: state)
@@ -310,7 +310,7 @@ final class UsageViewModel {
             menuBarSnapshots = compactMenuBarStateSnapshots(
                 fallback: snapshot,
                 defaultState: state)
-            statusBarText = "\(provider.displayName)\n\(statusBarStateText(state))"
+            statusBarText = "\(state == .needsSetup ? "AI Quota Bar" : provider.displayName)\n\(statusBarStateText(state))"
             return
         }
 
@@ -594,7 +594,10 @@ final class UsageViewModel {
     }
 
     private func menuBarStateTooltip(provider: UsageProvider, state: MenuBarSnapshotState) -> String {
-        appLanguage.menuBarStateTooltip(provider: provider, state: state)
+        if state == .needsSetup {
+            return appLanguage == .simplifiedChinese ? "AI Quota Bar · 点击连接供应商或预览示例" : "AI Quota Bar · Click to connect a provider or preview samples"
+        }
+        return appLanguage.menuBarStateTooltip(provider: provider, state: state)
     }
 
     private func menuBarReadyTooltip(
@@ -692,12 +695,16 @@ final class UsageViewModel {
     /// 判断 provider 是否应该被纳入刷新与下拉菜单。
     /// MiniMax 走 Keychain；Codex 由 codexbar 的 managed account store 自管，
     /// 凭证在 `~/.codex`（CLI）或 `~/.codexbar`（managed store）。
-    /// 这里始终让 Codex 算 configured：fetch 时 codexbar 自己会返回 unauthorized 之类的错误，
-    /// dropdown 不会展示该 section，Settings 仍能进 Codex 段做添加/移除操作。
+    /// 未登录的新设备保持未配置；供应商设置入口始终可用。
+    @ObservationIgnored private var providerPresenceOverride: ((UsageProvider) -> Bool)?
+
     private func isConfigured(_ provider: UsageProvider) -> Bool {
+        if let providerPresenceOverride { return providerPresenceOverride(provider) }
         switch provider {
         case .codex:
-            return true
+            let home = ProcessInfo.processInfo.environment["CODEX_HOME"] ?? NSHomeDirectory() + "/.codex"
+            return FileManager.default.fileExists(atPath: home + "/auth.json")
+                || CodexAccountCoordinator.shared.hasManagedAccount
         case .kimi:
             return KeychainService.shared.hasCredential(for: .kimi)
                 || KimiService.shared.hasCLICredential
@@ -775,7 +782,8 @@ final class UsageViewModel {
 
     // MARK: - Initialization
 
-    init() {
+    init(providerPresence: ((UsageProvider) -> Bool)? = nil) {
+        self.providerPresenceOverride = providerPresence
         self.refreshInterval = UserDefaults.standard.object(forKey: "refreshInterval") as? Int ?? 600
         self.warningThreshold = UserDefaults.standard.double(forKey: "warningThreshold") > 0
             ? UserDefaults.standard.double(forKey: "warningThreshold")
@@ -819,7 +827,7 @@ final class UsageViewModel {
                     as? Double
                     ?? MenuBarCompactLayoutPreferences.defaultRingSpacing)
         let cloudSyncSettings = CloudSyncSettings.current
-        self.cloudSyncEnabled = cloudSyncSettings.isEnabled
+        self.cloudSyncEnabled = providerPresence == nil && cloudSyncSettings.isEnabled
         self.utilizationHistoryMode = UserDefaults.standard.string(forKey: Self.utilizationHistoryModeKey)
             .flatMap(UtilizationHistoryMode.init(rawValue:))
             ?? .includeCurrent
@@ -910,6 +918,7 @@ final class UsageViewModel {
             return
         }
 
+        let showIconSelfTest = showIconSelfTest && !configuredProviders.isEmpty
         let selfTestStartedAt = showIconSelfTest
             ? ProcessInfo.processInfo.systemUptime
             : nil
@@ -939,7 +948,7 @@ final class UsageViewModel {
         guard providers.isEmpty == false else {
             providerErrors = [:]
             usageData = combinedUsageData(from: providerUsageData.values, timestamp: lastRefreshTime ?? Date())
-            error = providerUsageData.isEmpty ? .notConfigured : nil
+            error = nil
             await refreshCloudUsageData()
             updateStatusBarText()
             await waitForMenuBarSelfTestCycle(startedAt: selfTestStartedAt)
