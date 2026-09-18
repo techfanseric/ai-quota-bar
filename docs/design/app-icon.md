@@ -1,0 +1,7 @@
+# Menu bar app icon
+
+Generated with the built-in imagegen tool on 2026-09-18, using `docs/images/menu-bar-self-test-preview.png` as geometric reference. Master: `app-icon-master.png`. PNG asset-catalog variants are resized with macOS `sips`; `make app` packages them with `iconutil`.
+
+## Final prompt
+
+Design one production macOS application icon for AI Quota Bar. Use the attached menu bar symbol sheet ONLY as geometric reference: a thick incomplete outer quota ring on a very light gray full circular track, with a smaller central circular pace indicator split vertically, one half solid charcoal and the other half pale gray. Choose the fourth ring example's approximately 75% remaining arc. A single large centered crisp graphite symbol, generously spaced within a softly rounded square porcelain-white macOS tile, subtle tactile bevel and restrained soft shadow. Entire palette neutral white, silver gray and near-black, absolutely no green, blue or colored light. Flat front-on orthographic view, precise circular geometry, confident simple silhouette legible at 16px. No text, no letters, no bar charts, no sparkle, no other objects, no mockup presentation, no multiple options. Square 1024x1024 export-ready icon with transparent outside the rounded-square tile. Tile fills roughly 90% of canvas; symbol fills 62%. Preserve the distinctive ring plus split central circle rather than generic power-button geometry.

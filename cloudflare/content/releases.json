@@ -1,0 +1,233 @@
+[
+  {
+    "tag_name": "v1.17.0",
+    "name": "AI Quota Bar v1.17.0",
+    "published_at": "2026-09-18T01:53:12Z",
+    "html_url": "https://github.com/techfanseric/ai-quota-bar/releases/tag/v1.17.0",
+    "body": "# AI Quota Bar v1.17.0\n\n本次发布汇总 **v1.16.0 发布以来的全部改动**：从只看共享账号额度，扩展到本机 Codex 消耗与历史账号统计，并整合菜单、设置、云服务、运营后台和产品官网。\n\n## Codex 本机用量与历史\n\n- 从本机 Codex 的 sessions / archived_sessions 日志增量统计 Tokens、有效用量记录、缓存命中率与 API 等价值估算成本；支持今天按小时、7 天 / 30 天按天查看趋势。\n- 展示输入、输出、缓存读写、模型分布、解析异常和价格覆盖情况。SQLite 持久化解析缓存与待上传队列，重启后继续处理，避免每次重扫全部历史。\n- 对重复快照、归档副本、续页、分叉继承及累计值回退进行去重或异常处理；缺失父会话时暂缓统计，不猜测缺失用量。\n- 优先使用日志中的账号信息，缺失时参考连续的本机登录观测；无法确认归属的历史单独保留为“账号未知”，不会全部归到当前登录账号。\n- 支持导入带生效日期的模型单价。未知价格保留“未定价”，不伪装成零成本；估算并非供应商账单，记录数也不等于全部 HTTP 请求数。\n\n## 菜单与设置\n\n- Codex 供应商置顶，本机统计与额度信息集中在同一组；左键菜单聚焦当前 Codex 账号，去掉历史账号选择器，历史账号在设置中查看。\n- 保留历史趋势，支持切换 Tokens / 用量记录 / 缓存命中率 / 成本并悬停查看时段数据；交互控件使用统一的中性色。\n- 新增统一“显示”设置，将菜单显隐、手机模型选择和图表样式整合为账号 / 模型矩阵，减少重复设置。\n- 账号总开关保留各模型的选择；手机维持 1–2 项限制；隐藏不影响采集、历史、告警或同步，暂不可用模型的已有选择仍保留。\n\n## 成员与设备用量上报\n\n- 新增独立的成员 / 设备绑定和用量上报开关，设备凭据保存在钥匙串；后台支持设备凭据签发、轮换和撤销。\n- 支持按成员、设备、账号及时间范围查看统计；同一事件重复上传不重复计数，跨成员归属冲突隔离处理。\n- 持久化补传、网络失败退避和绑定切换保护；历史用量是否归属、补传由用户明确选择。\n- **当前仍需要管理员配置设备绑定。自助创建团队、一次性加入码和邀请加入流程尚未发布。**\n\n## 云服务与运营后台\n\n- 默认云端入口迁移到 `https://ai-quota-bar.pages.dev`，现有额度历史和用量数据保留；云端独立于旧部署资源运行。\n- 新增 `/admin` 运营后台，支持独立管理员登录、匿名安装设备数、日 / 周 / 月活、7 / 30 / 90 天趋势及 App / macOS 版本分布。\n- 匿名运营统计默认关闭，可在“设置 → 通用 → 隐私”开启或停止并删除本机统计；不采集 Codex 邮箱、对话内容或用量成本。\n- 启动或打开菜单 / 设置计为活跃，后台心跳不计入日活。匿名安装数不等于真实用户数，也不包含旧版本和未开启统计的设备。\n\n## 官网与手机看板修复\n\n- 官网新增产品介绍和可交互的菜单、用量、显示设置及连接监控局部复现，全部用前端绘制，不使用截图。\n- 手机演示直接复用 App 的前端组件，以示例数据展示任务、配额、线路、连接及保护状态；演示不会读取访问者的 App 数据。\n- 重新梳理跨周期趋势、共享账号下的本机消耗、任务保护和连接诊断等核心功能，完善桌面和窄屏布局。\n- 修复手机看板状态条条目数量变化时的渲染异常，避免额度 / 保护信息更新导致后续线路和连接区域空白。\n\n## 下载与升级\n\n下载 `AIQuotaBar.dmg`，将 App 拖入“应用程序”替换旧版。系统要求 macOS 14+，发布制品为 Apple Silicon（arm64），版本 1.17.0（build 35）。原有设置和本地历史保留；首次读取大量 Codex 历史可能需要数分钟。\n\n公开 DMG 延续 ad-hoc 签名，未经过 Apple 公证。如首次打开被 macOS 拦截，可在“系统设置 → 隐私与安全性”按系统提示允许。升级后读取原钥匙串凭据可能需要再次授权。\n\n更新检查仍采用现有的定期检查 / 系统通知与设置中的手动检查，下载跳转到 GitHub Release；本次没有引入自动安装器或左键菜单更新横幅。\n\n## 发布验证\n\n- App 测试：319 项，3 项依赖外部环境的测试跳过，0 失败。\n- 本机用量核心测试：28 项，未启动本地 HTTP 测试服务时跳过 1 项，0 失败。\n- Cloudflare 服务端：36 项通过；手机看板前端：35 项通过。\n- 构建使用 CodexBar revision `b6e65a83dc471817b7ff7678e68e0204c9dd604f`，源码构建说明已固定该版本。\n- 另行启动本地 Worker 后，Swift 客户端真实 HTTP 集成测试通过（身份绑定、重复上传去重和汇总）。\n- DMG 挂载后版本、build、二进制一致性、深度签名和镜像完整性均验证通过。\n- `AIQuotaBar.dmg` SHA-256：`a5707c7c4affb4407cb84f7f82800eda3c55f6397e03cd28e9e0d0a45eeadafc`。\n"
+  },
+  {
+    "tag_name": "v1.16.0",
+    "name": "AI Quota Bar v1.16.0",
+    "published_at": "2026-09-11T03:30:08Z",
+    "html_url": "https://github.com/techfanseric/ai-quota-bar/releases/tag/v1.16.0",
+    "body": "# AI Quota Bar v1.16.0\n\n本版本支持自由组合菜单栏 Ring 服务商，并补齐 MiniMax 与 GLM 的额度环显示。\n\n## Ring 自由组合\n\n- 将显示方式与服务商选择分开：常驻显示或工作感知，搭配 Codex、Kimi、MiniMax、GLM 多选。\n- 支持仅显示 MiniMax + GLM、单独 GLM 等组合，并提供全选操作。\n- 原“全部”和“工作感知”迁移为全部服务商；原单家选择保留为对应组合。\n- 关闭的供应商从 Ring 选项及全选中排除，重新启用后恢复为可选项。\n- 至少保留一家已启用的选择，关闭的供应商不再错误计入这一检查。\n\n## 额度与活动显示\n\n- MiniMax 和 GLM 无需任务检测即可显示最新剩余额度，随现有额度刷新机制更新。\n- GLM 优先显示 5 小时额度，避免误取周窗口；耗尽至 0% 时仍保留空环。\n- 工作感知下，选中的 MiniMax、GLM 常驻；Codex/Kimi 显示活跃服务商，空闲时保留选中范围内剩余额度最少的一家。\n- 没有可展示额度时保留状态入口，不将缺失数据误报为正常额度。\n- 中英文设置文案与项目说明同步更新，并补充 GLM Ring 能力调研记录。\n\n## 安装说明\n\n要求 macOS 14 或更高版本，预编译 DMG 面向 Apple Silicon。\n\n公开 DMG 使用 ad-hoc 签名，未经过 Apple 公证。首次打开如被 Gatekeeper 拦截，请按住 Control 点击应用并选择“打开”，或前往“系统设置 → 隐私与安全性”允许打开。不要全局关闭 Gatekeeper。\n\n## 发布校验\n\n- Swift 完整测试：311 项执行，3 项跳过，0 失败。\n- Mobile Dashboard 前端测试：34 项通过。\n- Cloudflare Worker 测试：10 项通过。\n- 制品版本：1.16.0（build 33）。\n- 架构：Apple Silicon（arm64）。\n- 应用深度签名与 DMG 完整性校验通过。\n- `AIQuotaBar.dmg` SHA-256：`765f7fbc56f0a4d85b8709b50e4e10bbadd8d1b89e2a49cc08d270bec08f2582`。\n"
+  },
+  {
+    "tag_name": "v1.15.0",
+    "name": "AI Quota Bar v1.15.0",
+    "published_at": "2026-09-11T02:45:31Z",
+    "html_url": "https://github.com/techfanseric/ai-quota-bar/releases/tag/v1.15.0",
+    "body": "# AI Quota Bar v1.15.0\n\n本版本新增 GLM Coding Plan 配额监控，并重新整理服务商凭据输入体验。\n\n## GLM Coding Plan\n\n- 在服务商设置中新增 GLM，可与 Codex、Kimi 和 MiniMax 一起刷新和展示。\n- 个人套餐可直接填写 Coding Plan API Key；也兼容从用量页面复制的 `quota/limit` cURL 请求。\n- 支持新版 5 小时与周积分额度，正确区分周期、剩余积分、套餐等级和重置时间。\n- 兼容旧版 Tokens 与 MCP/Search 额度响应；空数据和无效响应不会被误报为连接成功。\n- 凭据继续保存在 macOS 钥匙串，历史网页凭据可无损编辑和重新保存。\n\n## 服务商凭据设置\n\n- API Key 输入统一为原生密码框，尺寸、间距和按钮层级更符合 macOS 设置界面。\n- 新增显示或隐藏凭据、从剪贴板粘贴和撤销修改操作。\n- 仅在内容发生变化时启用保存按钮；保存后自动恢复隐藏状态。\n- 测试进度与成功或错误反馈采用稳定的独立布局，不再挤压操作按钮。\n\n## 安装说明\n\n要求 macOS 14 或更高版本，预编译 DMG 面向 Apple Silicon。\n\n公开 DMG 使用 ad-hoc 签名，未经过 Apple 公证。首次打开如被 Gatekeeper 拦截，请按住 Control 点击应用并选择“打开”，或前往“系统设置 → 隐私与安全性”允许打开。不要全局关闭 Gatekeeper。\n\n## 发布校验\n\n- Swift 完整测试：309 项执行，3 项跳过，0 失败。\n- Mobile Dashboard 前端测试：34 项通过。\n- Cloudflare Worker 测试：10 项通过。\n- 制品版本：1.15.0（build 32）。\n- 架构：Apple Silicon（arm64）。\n- 应用深度签名与 DMG 完整性校验通过。\n- `AIQuotaBar.dmg` SHA-256：`82739d36b2b727587a52a3f694c643fba8203d8918d8957eed3b70b1774cd787`。\n"
+  },
+  {
+    "tag_name": "v1.14.0",
+    "name": "AI Quota Bar v1.14.0",
+    "published_at": "2026-09-07T03:51:20Z",
+    "html_url": "https://github.com/techfanseric/ai-quota-bar/releases/tag/v1.14.0",
+    "body": "# AI Quota Bar v1.14.0\n\n本版本新增服务商暂停能力，并统一手机仪表盘的状态信息展示。暂停服务商不会删除凭据，可随时恢复使用。\n\n## 暂停单个服务商\n\n- 在服务商设置中可关闭「使用此服务商」，暂停该服务商的配额刷新、菜单显示、阈值提醒和任务合盖保护，同时保留已有凭据。\n- 菜单中的服务商标题旁新增快捷暂停按钮；设置列表会用暂停图标标记已停用项。\n- 暂停状态会持久保存；重新启用后立即刷新数据。\n- 固定菜单栏服务商被暂停时自动回退到其他启用中的服务商；所有已配置服务商均暂停时显示明确的恢复指引。\n- 正在刷新时发生的重复刷新请求会在当前请求完成后补跑一次；请求途中被暂停的服务商结果不会重新写回界面。\n\n## 手机仪表盘状态整合\n\n- 「Protection / 保护」区块更名为「Status / 状态」，更准确地覆盖任务保护和配额状态。\n- 配额错误改为红色状态项并入滚动状态栏，不再占用配额卡片上方的独立空间。\n- 无标签的状态项自动隐藏空标签，保持紧凑排版。\n\n## 安装说明\n\n要求 macOS 14 或更高版本，预编译 DMG 面向 Apple Silicon。\n\n公开 DMG 使用 ad-hoc 签名，未经过 Apple 公证。首次打开如被 Gatekeeper 拦截，请按住 Control 点击应用并选择“打开”，或前往“系统设置 → 隐私与安全性”允许打开。不要全局关闭 Gatekeeper。\n\n## 发布校验\n\n- Swift 完整测试：301 项执行，3 项跳过，0 失败。\n- Mobile Dashboard 前端测试：34 项通过。\n- Cloudflare Worker 测试：10 项通过。\n- 制品版本：1.14.0（build 31）。\n- 架构：Apple Silicon（arm64）。\n- 应用深度签名与 DMG 完整性校验通过。\n- `AIQuotaBar.dmg` SHA-256：`1a77199eb5fc672d68f54f17f2a1483a82b4727f1bc455112c35149a26496d3a`。\n"
+  },
+  {
+    "tag_name": "v1.13.0",
+    "name": "AI Quota Bar v1.13.0",
+    "published_at": "2026-09-04T13:05:49Z",
+    "html_url": "https://github.com/techfanseric/ai-quota-bar/releases/tag/v1.13.0",
+    "body": "# AI Quota Bar v1.13.0\n\n本版本汇总 v1.12.2 之后的周期结束对齐刷新、菜单面板图表修复、手机仪表盘按任务来源适配、云同步读取重试与合盖模式可观测性增强。\n\n## 周期结束自动对齐刷新\n\n- 5 小时窗 / 周窗的结束时间很少恰好落在 10 分钟轮询点上：现在任一周期结束后 15 秒会自动刷新一次，随后常规轮询从该时刻重新起算，新周期数据第一时间到位。\n- 仅对当前可实际拉取的本地 provider 生效（如 Codex 未运行时其模型不参与排程），云端同步来的模型数据不触发该机制。\n\n## 菜单面板图表修复\n\n- 云端数据瞬时拉取失败时保留上次样本，曲线图不再突然消失。\n- 曲线图无数据时不再保留固定高度的空白容器，面板高度随内容自适应收缩。\n- 悬停历史周期的曲线预览按该周期自身用量着色；当前周期余量不足触发的橙色警示不再串到历史周期预览上。\n\n## 手机仪表盘按任务来源适配\n\n- 只有 Kimi 任务在跑时：Kimi 配额卡片自动前置，隐藏仅统计 OpenAI 域名的连接区块和代理路由区块，标题改为「Kimi 活动」。\n- 仅 Codex 任务或混合任务时保持原有完整展示；无任务运行时全部区块照常展示。\n- 快照 schema 升级至 v4，新增 `activeProviders` 字段，旧版快照兼容解析。\n\n## 云同步读取自动重试\n\n- 读取路径对超时、DNS 失败、TLS 中断、连接丢失等瞬态网络错误按指数退避自动重试，与写入路径行为对齐；4xx/5xx 服务端错误不可自愈，立即报错。\n- 网络错误提示统一为明确的中文文案（如\"请求超时：到同步服务器的链路不通，请检查代理是否覆盖该域名\"）。\n\n## 合盖模式可观测性\n\n- App 与特权 helper 增加 OSLog 日志：租约获取 / 释放 / 过期、SleepDisabled 被外部工具清除后重新断言等关键事件均可在控制台检索（subsystem `com.techfanseric.aiquotabar` / `.sleep-helper`）。\n- helper 租约清扫周期由 15 秒缩短为 5 秒，外部电源管理工具改写 `disablesleep` 造成的冲突窗口更短。\n\n## 安装说明\n\n要求 macOS 14 或更高版本，预编译 DMG 面向 Apple Silicon。\n\n公开 DMG 使用 ad-hoc 签名，未经过 Apple 公证。首次打开如被 Gatekeeper 拦截，请按住 Control 点击应用并选择“打开”，或前往“系统设置 → 隐私与安全性”允许打开。不要全局关闭 Gatekeeper。\n\n## 发布校验\n\n- Swift 完整测试：301 项执行，3 项跳过，0 失败。\n- Mobile Dashboard 前端测试：33 项通过。\n- Cloudflare Worker 测试：10 项通过。\n- 制品版本：1.13.0（build 30）。\n- 架构：Apple Silicon（arm64）。\n- 应用深度签名与 DMG 完整性校验通过。\n- `AIQuotaBar.dmg` SHA-256：`5ac5811523f756de59e774968f6d86b3941f5a9dd7ddc95c5e48dd19408f3c67`。\n"
+  },
+  {
+    "tag_name": "v1.12.2",
+    "name": "AI Quota Bar v1.12.2",
+    "published_at": "2026-09-03T09:20:05Z",
+    "html_url": "https://github.com/techfanseric/ai-quota-bar/releases/tag/v1.12.2",
+    "body": "# AI Quota Bar v1.12.2\n\n本版本汇总 v1.11.0 之后的图表时间轴规范统一、本地样本缓存、历史周期预览、云端状态诊断与睡眠保护加固。\n\n## 图表时间轴按自然边界对齐\n\n- 多日窗口的分隔线按本地 0:00 对齐（原为周期起点 + 24 小时），一眼看出是哪一天。\n- 单日窗口（如 5 小时）的分隔线按本地自然整点对齐（原为起点 + N 小时）。\n- 悬停时只给完整落在窗口内的时段标注：多日窗口在当天正午居中显示 `MM/dd`，单日窗口在该小时半点居中显示 `3PM` 式标签；窗口两端不完整的时段不标注。\n- 跨天进度条（周窗口）悬停时同样只标注完整自然日，居中于当天正午。\n\n## 本地样本缓存\n\n- 消耗样本改为合并式写入并保留 90 天，重装新版或重启后历史曲线不再丢失。\n- 每个模型的样本量设上限并自动裁剪最旧数据，缓存体积可控。\n\n## 历史周期悬停预览\n\n- 悬停跨周期 utilization 柱图中的任意历史周期，曲线图即时切换为该周期的消耗曲线预览；移开即恢复当前周期。\n\n## 云端同步状态诊断\n\n- 云同步错误分类提示：网络超时、DNS/连接失败与 D1 配额耗尽分别给出明确文案，不再笼统显示\"请求超时\"。\n- 同步设置页新增 D1 当日用量状态行（读取行数 / 每日限额），按 50% / 80% 阈值显示绿 / 黄 / 红。\n- 配套 Worker 新增 `/v1/d1-usage` 只读用量接口（Cloudflare GraphQL 分析数据源，5 分钟边缘缓存），默认云端已部署；自托管用户需要按 [cloudflare/README.md](https://github.com/techfanseric/ai-quota-bar/blob/v1.12.2/cloudflare/README.md) 配置 `CF_API_TOKEN` 等开关，单独更新 Mac App 不会升级自托管后端。\n\n## 睡眠保护加固\n\n- 任务结束后保留电源断言和合盖租约 5 分钟宽限期，回合间隙和活动检测抖动不再导致任务中途睡眠。\n- XPC 瞬时断连不再立即释放合盖租约，改为依赖租约自然过期。\n- 发现内核 SleepDisabled 标志被外部清除（如其他工具或电源切换）时自动重新断言。\n- 心跳租约按协商超时延长，屏保用户活动每 45 秒刷新。\n\n## 安装说明\n\n要求 macOS 14 或更高版本，预编译 DMG 面向 Apple Silicon。\n\n公开 DMG 使用 ad-hoc 签名，未经过 Apple 公证。首次打开如被 Gatekeeper 拦截，请按住 Control 点击应用并选择“打开”，或前往“系统设置 → 隐私与安全性”允许打开。不要全局关闭 Gatekeeper。\n\n## 发布校验\n\n- Swift 完整测试：293 项执行，3 项跳过，0 失败。\n- Mobile Dashboard 前端测试：32 项通过。\n- Cloudflare Worker 测试：10 项通过。\n- 制品版本：1.12.2（build 29）。\n- 架构：Apple Silicon（arm64）。\n- 应用深度签名与 DMG 完整性校验通过。\n- `AIQuotaBar.dmg` SHA-256：`bf1bea33cbaf4d14099f528d4e893714e68d42fec47fd54773caf77235691723`。\n"
+  },
+  {
+    "tag_name": "v1.11.0",
+    "name": "AI Quota Bar v1.11.0",
+    "published_at": "2026-09-02T05:48:56Z",
+    "html_url": "https://github.com/techfanseric/ai-quota-bar/releases/tag/v1.11.0",
+    "body": "# AI Quota Bar v1.11.0\n\n本版本汇总 v1.10.0 之后的图表样式设置、云同步重试修复与 D1 读写优化。\n\n## 按模型选择图表样式\n\n- 在用量设置中，为每个模型选择自动、面积图或进度条。\n- 设置保存在本机，重启后保留；切回自动会清除该模型的手动覆盖。\n- Mac 菜单与 Mobile Dashboard 使用同一套偏好，并提供中英文文案。\n\n## 云同步客户端\n\n- 修复客户端错误被通用异常处理重新捕获、导致无效重试的问题。\n- 遇到明确的 D1 每日读写配额错误时，停止同一轮重试；临时网络故障和普通服务端错误保留原有退避重试。\n- 账号摘要仅在接口返回 404 时回退读取最新快照；空结果、格式错误或普通服务端错误不再触发额外读取。\n- 正常刷新频率、上传内容与历史保留策略不变。\n\n## 配套后端降读写\n\n- 通过触发器维护小型最新快照指针表，避免最新数据查询扫描全部历史。\n- 全局历史查询先按设备限量，再合并选取最新结果；过期清理使用已有设备/时间索引。\n- 完全相同的快照上传不再重复写入样本或设备心跳。\n- 默认云端已完成迁移与发布。自托管用户需要按 [cloudflare/README.md](https://github.com/techfanseric/ai-quota-bar/blob/v1.11.0/cloudflare/README.md) 执行迁移并配置开关；单独更新 Mac App 不会升级自托管后端。\n\n生产环境验证中，最新数据 SQL 读取 176 行、写入 0 行，API 返回 24 个样本。本地 20 万行基准的全扫描步数从 399,998 降到 838，约减少 99.79%；这是本地查询基准，不代表生产账单同比降幅。\n\n已有的账号级 D1 当日用量不会因升级清零；配额耗尽时，历史查询仍可能受限，需要等待重置或另行调整配额。本版本不变更套餐。\n\n## 安装说明\n\n要求 macOS 14 或更高版本，预编译 DMG 面向 Apple Silicon。\n\n公开 DMG 使用 ad-hoc 签名，未经过 Apple 公证。首次打开如被 Gatekeeper 拦截，请按住 Control 点击应用并选择“打开”，或前往“系统设置 → 隐私与安全性”允许打开。不要全局关闭 Gatekeeper。\n\n## 发布校验\n\n- Swift 完整测试：280 项执行，3 项跳过，0 失败。\n- Mobile Dashboard 前端测试：32 项通过。\n- Cloudflare Worker 测试：6 项通过。\n- 制品版本：1.11.0（build 26）。\n- 架构：Apple Silicon（arm64）。\n- 应用深度签名与 DMG 完整性校验通过。\n- `AIQuotaBar.dmg` SHA-256：`dcaa6f3210746aea1c86e8d269282a41e9e54a5c227f5f72ba534e002859c026`。\n"
+  },
+  {
+    "tag_name": "v1.10.0",
+    "name": "AI Quota Bar v1.10.0",
+    "published_at": "2026-08-28T07:55:06Z",
+    "html_url": "https://github.com/techfanseric/ai-quota-bar/releases/tag/v1.10.0",
+    "body": "# AI Quota Bar v1.10.0\n\nv1.10.0 重点解决紧凑菜单栏在任务动画期间的持续高 CPU，同时完善多 Provider、配额预测和 Clash 线路筛选体验。\n\n## 紧凑菜单栏性能与视觉\n\n- 活跃任务动画保持 15 FPS。\n- 使用预渲染的完整多 Provider 帧和 `NSStatusBarButton.image` 专用路径，避免每帧重绘、快照整个自定义视图。\n- 发布机器实测活跃动画 CPU 从约 54–62% 降至多数 8–10%。\n- Retina 离屏绘制使用正确的 2× 坐标变换，圆环恢复原始点尺寸、间距与对齐。\n- 悬停继续显示 Provider 首字母；悬停期间使用静态预渲染帧，不产生额外持续绘制。\n- 对角 pace 分隔线与竖向小时/天状态使用一致的颜色。\n\n## 多 Provider 与配额判断\n\n- 工作感知选择可同时展示 Codex 与 Kimi 的独立圆环。\n- Kimi 活跃任务纳入菜单栏工作状态与睡眠保护。\n- 新增配额消耗预测，并完善 reserve / deficit 周期表达。\n\n## Clash 线路筛选\n\n- 已保存的线路筛选默认以只读摘要展示，避免打开面板后误编辑。\n- 主动点击后进入编辑模式，可切换正则表达式并明确完成编辑。\n- 中英文文案、关闭面板后的编辑状态复位及对应测试均已补齐。\n\n## 安装说明\n\n本版本要求 macOS 14 或更高版本，预编译 DMG 面向 Apple Silicon。\n\n公开 DMG 使用 ad-hoc 签名，未经过 Apple 公证。首次打开时如被 Gatekeeper 拦截，请按住 Control 点击应用并选择“打开”，或前往“系统设置 → 隐私与安全性”允许打开。不要全局关闭 Gatekeeper。\n\n## 发布校验\n\n- 完整测试：266 项执行，3 项跳过，0 失败。\n- 制品版本：1.10.0（build 25）。\n- 架构：Apple Silicon（arm64）。\n- DMG 与应用深度签名校验通过。\n- `AIQuotaBar.dmg` SHA-256：`d2006caae4684b7ab4f4a688ffff692140038da7a128ea076cd1d9c58238c726`。\n"
+  },
+  {
+    "tag_name": "v1.9.0",
+    "name": "AI Quota Bar v1.9.0",
+    "published_at": "2026-08-18T09:23:27Z",
+    "html_url": "https://github.com/techfanseric/ai-quota-bar/releases/tag/v1.9.0",
+    "body": "## 本次更新\n\nv1.9.0 加入 Kimi Code 配额支持、左键菜单展示自定义，并修复超大 Codex 日志可能导致活跃任务少计的问题；同时优化了 Mobile Dashboard 的紧凑布局与 OLED 空闲屏。\n\n### Kimi Code 配额\n\n- 新增 Kimi Code 供应商，展示 5 小时与 Weekly 配额、重置倒计时和配额曲线。\n- 未配置 API Key 时，在本地 PTY 中启动真实 Kimi Code CLI 并发送 `/status`；不使用 `kimi -p`，不会创建模型对话或消耗上下文 Token。\n- 短期 OAuth 凭证的刷新继续交给官方 CLI，避免应用直接操作轮换中的 access/refresh token。\n- 首次运行时只信任应用专用的空状态查询目录，不要求信任用户项目目录。\n- 仍支持可选的 Kimi Code API Key，并安全保存在 macOS 钥匙串。\n- Kimi 可固定在菜单栏，也可由自动模式按需展示。\n\n### 配额菜单与曲线\n\n- 可按账户、按具体配额周期控制左键菜单显示内容。\n- 隐藏仅影响左键菜单，不会关闭后台刷新、历史记录、提醒、云同步或菜单栏固定展示。\n- 可一键恢复显示全部项目。\n- 改进配额曲线回退逻辑：供应商周期元数据不完整时，明确存在的 5 小时额度仍会保留并优先展示。\n\n### Codex 活跃任务可靠性\n\n- 修复 rollout 日志很大时偶发少计一个活跃任务的问题。\n- 检测器现在会先以有界内存恢复日志生命周期状态，再读取最近 16 MB 的详细尾部数据；即使任务开始事件落在尾部窗口之外，也能正确识别。\n- 超长单行会跳过而不会造成内存失控，并新增超大日志回归测试。\n\n### Mobile Dashboard\n\n- 重新收紧移动端布局，尤其改善小尺寸横屏下的空间利用率。\n- Activity、Route 与 Connections 状态区在横屏下更均衡地使用可用高度。\n- 确认空闲后切换到独立的纯黑 OLED 屏保，以单个超大 `IDLE` 字样缓慢变换位置，减少静态烧屏风险。\n- 空闲屏、遥测轨道、事件流和动画继续采用有界生命周期，并兼容“减少动态效果”。\n\n### 文档与质量\n\n- 更新中英文 README、Kimi 配置方式、隐私边界与 v1.9.0 说明。\n- 新增 Kimi `/status` 解析、现场凭证、左键菜单偏好、Codex 超大日志和 5 小时曲线回退测试。\n- 版本升级至 **v1.9.0 (build 24)**。\n\n## 验证\n\n- Swift：241 项测试，3 项按环境跳过，0 失败。\n- Mobile Dashboard：32/32 前端测试通过。\n- Kimi 现场测试：真实 CLI `/status` 成功，0 失败。\n- DMG 校验、挂载、版本、arm64 架构及深度签名验证均通过。\n\n## 安装要求\n\n- macOS 14 Sonoma 或更高版本。\n- 本次预编译 DMG 面向 Apple Silicon。\n- 公开构建采用 ad-hoc 签名，未经过 Apple 公证；首次启动可能需要按住 Control 点击应用并选择“打开”，或在“系统设置 → 隐私与安全性”中允许。\n\n**SHA-256**\n\n`9e6b025634b6a120adc9e2e59b028e1dc157ac0ca12d0a98d7c1ce6e5a8e3ef1`\n"
+  },
+  {
+    "tag_name": "v1.8.1",
+    "name": "AI Quota Bar v1.8.1",
+    "published_at": "2026-08-03T15:38:11Z",
+    "html_url": "https://github.com/techfanseric/ai-quota-bar/releases/tag/v1.8.1",
+    "body": "# AI Quota Bar v1.8.1\n\nv1.8.1 修复 Mobile Dashboard 的全屏 IDLE 弹幕布局，让字幕轨道真正覆盖整个视口。\n\n## 修复内容\n\n- 将 7 条 IDLE 字幕轨道改为稳定的全屏网格布局，从顶部到底部均匀铺开。\n- 修复部分 Chrome 版本不支持 `calc()` 除法、导致所有轨道回落并堆叠在顶部的问题。\n- 保留不同字号、速度、透明度、错峰动画与“减少动态效果”支持。\n- 增加回归测试，防止再次使用不兼容的轨道定位方式。\n\n## 安装说明\n\n本版本要求 macOS 14 或更高版本，预编译 DMG 面向 Apple Silicon。\n\n公开 DMG 使用 ad-hoc 签名，未经过 Apple 公证。首次打开时如被 Gatekeeper 拦截，请按住 Control 点击应用并选择“打开”，或前往“系统设置 → 隐私与安全性”允许打开。\n\n## 发布验证\n\n- Swift 测试执行 228 项，其中 2 项按环境条件跳过、零失败。\n- Mobile Dashboard 前端测试 32/32 通过。\n- Release 构建、Hook、特权辅助程序和 DMG 制作成功。\n- DMG 完整性及应用深度签名验证通过。\n- 镜像内版本：`1.8.1 (23)`；架构：`arm64`。\n- DMG SHA-256：`89b169adae848581d6ee4d807e706ea51eb73eede0f6999776ef03bf9a4830ba`。\n"
+  },
+  {
+    "tag_name": "v1.8.0",
+    "name": "AI Quota Bar v1.8.0",
+    "published_at": "2026-08-03T12:55:30Z",
+    "html_url": "https://github.com/techfanseric/ai-quota-bar/releases/tag/v1.8.0",
+    "body": "# AI Quota Bar v1.8.0\n\nv1.8.0 新增了安全、可安装的 Mobile Dashboard，让手机或同一局域网内的另一块屏幕可以持续观察配额、Codex 任务、线路、连接与睡眠保护状态。\n\n## 从手机查看完整运行状态\n\n- 在“Settings → Mobile Dashboard”启用本地仪表盘，通过二维码打开并安装 PWA。\n- 最多选择两个配额模型，复用 Mac 端的配额曲线、重置周期和节奏判断。\n- Codex Activity、Route 与 Connections 在横屏和竖屏下接近三等分，并随分辨率整体缩放。\n- 页面通过实时事件流更新，同时显示当前保护状态、活跃连接、最近线路和最长连接时长。\n- 支持自动、浅色和深色外观、OLED 位移保护，以及需要用户主动开启的实验性屏幕唤醒媒体。\n\n## 更真实、更可读的 Task telemetry barrage\n\n- 1 至 5 个活跃 Task 精确对应 1 至 5 行弹幕，每一行只显示同一个任务的信息。\n- 可逐项选择标题、状态、阶段、项目、Git 分支、来源、模型、模型提供商、推理强度、沙箱、审批模式、Token、子任务、时间、CLI 版本、工具、最近事件和进展等字段。\n- 每个任务的字段顺序独立随机，但实时数据更新时保持稳定，不会引起字幕跳动。\n- 五档速度为 `48 / 40 / 34 / 29 / 25 px/s`：新任务更快，运行时间更久的任务更慢，差异清楚但仍便于阅读。\n- 新字幕接入当前轨道队列，不会重置滚动位置；单任务时字号会接近 Codex Activity 区块高度。\n- 确认进入 IDLE 后，可切换为纯黑白、多行、大小和速度各异的全屏字幕屏保。\n\n## 本地访问与隐私安全\n\n- 提供稳定本地主机名和明确的 IP 备用地址，并支持当前网络地址变化后的重新连接。\n- 可选启用五分钟过期的手动配对码；配对后换取可撤销、绑定 Origin 的安装凭证，凭证不会留在保存的 URL 中。\n- 默认隐藏账户名称；Task 进展文字只有在要求手动配对并再次明确开启共享后才会离开 Mac。\n- 本地服务器采用严格 Host/Origin/CORS/CSP 校验、请求大小限制、配对速率限制和有上限的查看器数量。\n- 供应商凭证、云同步 Token 与 Mobile Dashboard Token 统一迁移到带版本、可恢复的 Keychain 凭证保险库。\n\n## 长时间运行与兼容性\n\n- Codex 生命周期读取扩展为逐任务遥测，并覆盖 38 个 CLI 版本族的代表性记录格式。\n- 弹幕字段更新保留动画相位；任务数量变化时显式释放旧 Animation 和 DOM 节点。\n- 轨道队列、IDLE 特效、SSE 连接、定时器、连接轮询与重连状态均采用有界生命周期。\n- 浏览器压力测试连续 30 轮 `5 → 1 → 5` 后，DOM 节点保持 `772 → 772`、事件监听保持 `32 → 32`，并维持精确的 5 条轨道动画。\n- 遵循系统“减少动态效果”设置。\n\n## 安装说明\n\n本版本要求 macOS 14 或更高版本，预编译 DMG 面向 Apple Silicon。\n\n公开 DMG 使用 ad-hoc 签名，未经过 Apple 公证。首次打开时如被 Gatekeeper 拦截，请按住 Control 点击应用并选择“打开”，或前往“系统设置 → 隐私与安全性”允许打开。不要全局关闭 Gatekeeper。\n\n## 发布验证\n\n- Swift 测试执行 228 项，其中 2 项按环境条件跳过、零失败。\n- Mobile Dashboard 前端测试 32/32 通过。\n- Release 构建、Hook、特权辅助程序和 DMG 制作成功。\n- DMG 完整性及应用深度签名验证通过。\n- 镜像内版本：`1.8.0 (22)`；架构：`arm64`。\n- DMG SHA-256：`5c839ede27ee124c15c2a5cbc5614e89a7a782c8683200600bf2828a95c81932`\n"
+  },
+  {
+    "tag_name": "v1.7.0",
+    "name": "AI Quota Bar v1.7.0",
+    "published_at": "2026-07-30T09:36:04Z",
+    "html_url": "https://github.com/techfanseric/ai-quota-bar/releases/tag/v1.7.0",
+    "body": "# AI Quota Bar v1.7.0\n\nv1.7.0 的重点，是让菜单栏用更少的信息、更清楚地告诉你两件事：Codex 任务是否仍在工作，以及 OpenAI 当前应该换线路还是继续等待。\n\n## 不打开菜单，也知道 Codex 还在工作\n\n- 没有活跃任务时，剩余配额环保持 100% 实色，方便判断配额。\n- 有任务运行时，基础环降为 60%，更容易看到沿剩余配额部分逆时针流动的能量波。\n- 每个活跃任务对应一道波，最多显示五道；五个以上任务仍保持五道，避免 22pt 菜单栏图标变得拥挤。\n- 波头最实，顺时针方向的长尾逐渐透明，既能看出运动方向，也不会变成突兀的圆点。\n- 能量波绝不会进入已经消耗的配额段。\n- 开启 macOS“减少动态效果”时，应用会保留静态任务提示。\n\n## 左键配额面板恢复真正的 macOS 原生体验\n\n- 左键面板重新使用系统 `NSMenu`，恢复原生半透明材质、阴影、圆角和菜单行为。\n- 面板会根据当前菜单栏图标所在的显示器计算可用高度，减少外接屏、上下排列屏幕或不同菜单栏尺寸造成的错位。\n- 左键与右键入口会在打开另一侧前主动收起，避免两个面板重叠。\n\n## 右键控制中心更紧凑、更容易扫读\n\n- 右键面板采用统一宽度、圆角和无三角箭头的边界，不再依赖不同系统环境下位置不稳定的 Popover 箭头。\n- 自动恢复开关固定靠右，说明文字保持靠左。\n- 线路改为单行布局，并用 `H2`、`VL`、`TLS`、`SS` 等标识快速区分协议。\n- 线路和活跃连接列表保留最小浏览高度，数据较少时不会缩成几乎看不见的一行。\n- 最近三次换线记录把“从哪里切到哪里”放在左侧；一小时内使用 `59m ago` 这类相对时间，较早记录显示具体时间。\n- 没有换线记录时，历史区域自动收起，不浪费空间。\n\n## 更快判断 OpenAI 连接是否健康\n\n- 下载、上传和连接总数保持在图表上方，打开面板即可确认是否真的有数据流动。\n- 连接年龄图例直接放进图表标题行，以 `New → Old` 表示从新连接到长连接的颜色变化。\n- 活跃连接详情从 TCP 等协议字段开始，不再显示没有判断价值的未知进程占位文本。\n- 监控仍然只读取 `openai.com` 与 `chatgpt.com` 的活跃连接，不会关闭连接或修改 Clash 配置。\n\n## 界面预览\n\n![AI Quota Bar v1.7.0 控制中心](https://raw.githubusercontent.com/techfanseric/ai-quota-bar/v1.7.0/docs/images/control-center.png)\n\n## 安装说明\n\n本版本要求 macOS 14 或更高版本，预编译 DMG 面向 Apple Silicon。\n\n公开 DMG 使用 ad-hoc 签名，未经过 Apple 公证。首次打开时如被 Gatekeeper 拦截，请按住 Control 点击应用并选择“打开”，或前往“系统设置 → 隐私与安全性”允许打开。不要全局关闭 Gatekeeper。\n\n## 发布验证\n\n- 默认测试套件执行 119 项，其中 117 项通过、2 项按环境跳过、零失败。\n- 2 项默认关闭的本机 Clash 实时流与界面测试已额外启用并通过。\n- Release 构建、Hook、特权辅助程序和 DMG 制作成功。\n- DMG 完整性及应用深度签名验证通过。\n- 镜像内版本：`1.7.0 (21)`；架构：`arm64`。\n- DMG SHA-256：`ec8e8b9b4a4e6e8a1b05ddbd0c86d60576201a83502eba9d3f43128e7a5abac4`\n"
+  },
+  {
+    "tag_name": "v1.6.0",
+    "name": "AI Quota Bar v1.6.0",
+    "published_at": "2026-07-29T11:12:07Z",
+    "html_url": "https://github.com/techfanseric/ai-quota-bar/releases/tag/v1.6.0",
+    "body": "# AI Quota Bar v1.6.0\n\nv1.6.0 的重点，是让长时间使用 Codex 和 ChatGPT 变得更省心：任务运行时不再担心 Mac 意外睡眠，连接变慢或中断时也不用来回切换 Clash 查原因。\n\n## 让 Codex 长任务安心跑完\n\n- AI Quota Bar 会显示当前正在工作的 Codex 任务数量。\n- 只在任务运行期间保持显示器、阻止屏保和系统空闲睡眠；任务全部完成后自动恢复正常。\n- 多个任务同时运行时会分别计数，不会因为其中一个先结束就提前停止保护。\n- 如果偶尔需要合上 MacBook 仍让任务继续，可以单独开启合盖模式。第一次使用需要管理员授权，但不要求 Apple Developer 身份。\n- 合盖模式会在任务完成、应用失去联系、电量过低、机器过热、用户关闭或达到 12 小时上限时恢复原来的睡眠设置。\n\n## 更快判断 OpenAI 为什么慢\n\n- 右键面板只展示 `openai.com` 与 `chatgpt.com` 的活跃连接，其他流量不会干扰判断。\n- 可以直接看到总下载速度、总上传速度和当前连接数。\n- 最近 60 分钟图表让连接高峰、空白时段和持续较久的连接更容易被发现。\n- 每个连接对应一个色块：新连接为绿色，持续越久越接近橙色。\n- 连接列表会在数据可用时展示域名、应用、线路、持续时间和速度。\n- 所有连接监控都是只读的，不会关闭连接或改动 Clash 配置。\n\n## OpenAI 断线时少做几步\n\n- 线路和活跃连接现在直接上下排列，不需要切换标签页。\n- 右键面板更窄，但线路与连接列表仍保留足够的浏览空间。\n- 最近三次换线记录会简短显示；没有记录时不会浪费高度。\n- 继续支持 `🇯🇵`、`日本`、`JP` 等国家筛选，也可以用正则精确匹配线路名。\n- 可以手动选择线路，也可以在真正断线时，让应用从筛选结果中选择延迟最低的线路。\n\n自动恢复仍然很克制：打开面板、点击测速或打开开关都不会换线。只有 `openai.com` 与 `chatgpt.com` 连续两轮同时不可达时才会开始恢复；连接成功后立即停止并发送系统通知。\n\n## 日常使用更稳定\n\n- 减少启动时等待系统钥匙串的情况，让菜单更快出现。\n- 升级应用时会先停止旧版本，再完整替换应用包并重新启动，降低覆盖运行中应用造成异常的概率。\n- 补充了任务检测、睡眠保护、连接历史、线路历史和界面布局等自动化测试。\n- README 现已提供完整中英文说明，并清楚解释安装方式、隐私边界和合盖使用注意事项。\n\n## 安装说明\n\n本版本要求 macOS 14 或更高版本，预编译 DMG 面向 Apple Silicon。\n\n公开 DMG 使用 ad-hoc 签名，未经过 Apple 公证。首次打开时如被 Gatekeeper 拦截，请按住 Control 点击应用并选择“打开”，或前往“系统设置 → 隐私与安全性”允许打开。不要全局关闭 Gatekeeper。\n\n## 界面预览\n\n![AI Quota Bar v1.6.0 控制中心](https://raw.githubusercontent.com/techfanseric/ai-quota-bar/v1.6.0/docs/images/control-center.png)\n\n## 发布验证\n\n- 101 项自动化测试通过，零失败。\n- 2 项默认关闭的本机 Clash 实时流与界面测试已额外启用并通过。\n- Release 构建、Hook、特权辅助程序和 DMG 制作成功。\n- DMG 完整性及应用深度签名验证通过。\n- 镜像内版本：`1.6.0 (20)`；架构：`arm64`。\n- DMG SHA-256：`b518eebfcb4c5bb9fb6ed2c052e96d6f3d647594f77c825ba0b87628a4116632`\n"
+  },
+  {
+    "tag_name": "v1.5.0",
+    "name": "AI Quota Bar v1.5.0",
+    "published_at": "2026-07-29T07:24:23Z",
+    "html_url": "https://github.com/techfanseric/ai-quota-bar/releases/tag/v1.5.0",
+    "body": "## 重磅更新：OpenAI 路由自动恢复\n\n右键菜单栏图标即可直接管理 OpenAI 路由，无需切回 Clash：\n\n- 自动发现 Clash Verge Rev、Mihomo 或 Clash 的本地控制器。\n- 自动定位承载 `openai.com` / `chatgpt.com` 规则的可切换策略组。\n- 打开面板后自动测速，按延迟从低到高排列线路。\n- 支持国家别名筛选，例如 `🇯🇵`、`日本`、`JP`；也可启用正则表达式进行锚点、开头结尾和或关系匹配。\n- 可在列表中手动切换任意线路。\n\n![OpenAI 路由面板](https://raw.githubusercontent.com/techfanseric/ai-quota-bar/v1.5.0/docs/images/openai-route-recovery.png)\n\n## 保守的自动恢复逻辑\n\n自动切换只会在 `openai.com` 与 `chatgpt.com` 连续两轮同时不可达时触发。触发后会测速筛选结果，从最低延迟候选开始切换，并在每次切换后重新检查连通性；恢复成功后发送 macOS 系统通知。\n\n打开面板、点击“重新测速”或勾选自动恢复开关都不会主动切换线路，从而避免频繁换线。自动恢复必须设置非空且有效的筛选条件。\n\n## 兼容与安全\n\n- 支持 Clash Verge Rev、Mihomo 与 Clash 的标准 external controller API。\n- 只接受绑定到 `127.0.0.1`、`localhost` 或 `::1` 的控制器；远程控制器地址会被拒绝。\n- 要求 macOS 14 或更高版本。\n\n## 验证\n\n- 从标签对应的干净提交构建。\n- 57 项自动化测试全部通过。\n- DMG 完整性、应用代码签名及镜像内外二进制一致性均已验证。\n- DMG SHA-256：`251a0e3ccac9751e74e9d9e2aacbacaf6b8226f4ff8d1e56e65c5ba0d8970977`"
+  },
+  {
+    "tag_name": "v1.4.10",
+    "name": "v1.4.10",
+    "published_at": "2026-07-25T10:10:09Z",
+    "html_url": "https://github.com/techfanseric/ai-quota-bar/releases/tag/v1.4.10",
+    "body": "## 更新内容\n\n- 重做 Codex 紧凑环：外环显示 Weekly 剩余，内圆区分 deficit、on pace 与 reserve。\n- 偏差按两天量程呈现；一天填充半侧，两天填满，超过两天才显示活动侧边框。\n- OpenAI 双域名不可达时显示持续脉冲的禁止图标，并将外环显示为已耗尽状态。\n- 启动和手动刷新时运行完整状态自检；可在设置中选择连续百分比或节奏分级。\n- Codex 缺少可用短周期时，自动将 Weekly 提升为带日刻度的曲线图。\n- 更新 README 与菜单栏状态预览，并补充渲染、曲线回退和时间刻度测试。\n\n验证：45 项测试全部通过。"
+  },
+  {
+    "tag_name": "v1.4.9",
+    "name": "v1.4.9",
+    "published_at": "2026-07-18T03:41:08Z",
+    "html_url": "https://github.com/techfanseric/ai-quota-bar/releases/tag/v1.4.9",
+    "body": "## Changes\n\n- Add the compact Codex quota ring: Weekly consumption on the outer ring and deficit/on-pace/reserve in the split center.\n- Add menu bar provider, appearance, and pace-detail preferences, including continuous percentage and staged levels.\n- Run a full icon self-test on launch and user-triggered refreshes while keeping background refreshes visually quiet.\n- Check chatgpt.com and openai.com reachability with jittered probes and morph the center into a no-entry state when both are unreachable.\n- Prevent inactive Codex Weekly 0% placeholders from replacing a still-active, higher trusted sample before its real reset.\n- Bump the app to version 1.4.9 (build 17).\n\n## Validation\n\n- 42 tests pass.\n- Release app signature and DMG checksum verified.\n- Installed and launched from /Applications/AIQuotaBar.app."
+  },
+  {
+    "tag_name": "v1.4.8",
+    "name": "v1.4.8",
+    "published_at": "2026-06-11T03:55:44Z",
+    "html_url": "https://github.com/techfanseric/ai-quota-bar/releases/tag/v1.4.8",
+    "body": "## Changes\n- Prioritize account identity in Codex multi-account headers while keeping Mix/Cloud on the same row.\n- Keep On pace labels neutral; only visible deficit labels are red.\n- Bump app version to 1.4.8 (16)."
+  },
+  {
+    "tag_name": "v1.4.7",
+    "name": "v1.4.7",
+    "published_at": "2026-06-11T02:35:03Z",
+    "html_url": "https://github.com/techfanseric/ai-quota-bar/releases/tag/v1.4.7",
+    "body": "## Changes\n- Show weekly pace status instead of leaving the metadata row blank.\n- Show small on-track weekly deltas as reserve/deficit when they round to a visible percentage.\n- Color deficit pace labels red, including small on-track deficits.\n- Bump app version to 1.4.7 (15)."
+  },
+  {
+    "tag_name": "v1.4.6",
+    "name": "AI Quota Bar 1.4.6",
+    "published_at": "2026-06-11T01:31:23Z",
+    "html_url": "https://github.com/techfanseric/ai-quota-bar/releases/tag/v1.4.6",
+    "body": "## Changes\n\n- Tightened quota history rows by removing duplicate `left` text under charts and moving cycle labels into the metadata row.\n- Fixed Codex weekly cycle hover text to show date ranges and current remaining quota correctly.\n- Normalized Codex utilization cycle hover ranges so 5h cycles use the actual 5h window instead of adjacent reset guesses.\n- Ignored idle Codex utilization samples so rolling unused 5h windows no longer appear as many fake `100% left` cycles.\n\n## Verification\n\n- `swift build`\n- `swift test --filter ModelUtilizationCycleMergerTests`\n\nSHA-256: `9d020a31d855f51b70a0211af8868974e3d06977ce871bc5006e0f0980acb086`\n"
+  },
+  {
+    "tag_name": "v1.4.5",
+    "name": "AI Quota Bar 1.4.5",
+    "published_at": "2026-06-10T04:39:09Z",
+    "html_url": "https://github.com/techfanseric/ai-quota-bar/releases/tag/v1.4.5",
+    "body": "## Fixes\n- Preserve MiniMax short-window chart points in Cloud sync by uploading percent-based quota samples as `total=100`, `remaining=<percent>`, and `valueSuffix=%`.\n- Keep restored Cloud chart data in percent mode when percent fields are available.\n- Change the default refresh interval to 600 seconds for new installs.\n\n## Release\n- App version: 1.4.5 (build 13)\n- DMG SHA-256: `0e8c90e4f57d0d9fc899cfa63497da581288f5e389c71536eb19cdd9c661a6c4`\n\n## Verification\n- `swift build`\n- `swift test --filter CloudSyncPayloadTests`\n- `swift test --filter ModelQuotaSampleStoreTests`\n- `node --check cloudflare/src/worker.js`\n- `git diff --check`\n- `make package`\n\nNote: Cloudflare API deploy attempts timed out from this machine, but this MiniMax fix is client-compatible with the already deployed Worker because it uses the existing `quota_samples` fields.\n"
+  },
+  {
+    "tag_name": "v1.4.4",
+    "name": "AI Quota Bar 1.4.4",
+    "published_at": "2026-06-10T03:59:25Z",
+    "html_url": "https://github.com/techfanseric/ai-quota-bar/releases/tag/v1.4.4",
+    "body": "## Fixes\n- Persist short-window chart samples locally so curve points survive app restarts.\n- Restore chart curves from Cloud sync history when cloud data is enabled.\n- Add a Cloud history query mode for quota samples (`history=1`) while keeping the existing latest-per-model API behavior.\n- Update the data report to inspect Cloud refresh-history samples.\n\n## Release\n- App version: 1.4.4 (build 12)\n- DMG SHA-256: `9521b14b422e143015a113a6e91e0d830434f6fe1281a6bc34f8c76579c7cd90`\n- Cloudflare Worker deployed: `76cfe627-4c71-4945-9718-c86cf557a232`\n\n## Verification\n- `swift build`\n- `swift test --filter ModelQuotaSampleStoreTests`\n- `node --check cloudflare/src/worker.js`\n- `git diff --check`\n- `make package`\n\nNote: full `swift test` still has the existing `MenuBarBrandIconTests` failure because `MenuBarBrandIcon.image(for:)` is currently a stub returning `nil`; this release did not change that behavior.\n"
+  },
+  {
+    "tag_name": "v1.4.3",
+    "name": "AI Quota Bar 1.4.3",
+    "published_at": "2026-06-10T03:25:08Z",
+    "html_url": "https://github.com/techfanseric/ai-quota-bar/releases/tag/v1.4.3",
+    "body": "## Fixes\n- Restored the MiniMax provider setup flow for fresh installs.\n- Removed GLM from the active provider list so the app currently supports MiniMax and Codex only.\n- Added a Save Changes action for provider credentials.\n- Improved the menu bar text when only one provider is displayed by using the first line for the provider name.\n\n## Verification\n- swift build\n- make package"
+  },
+  {
+    "tag_name": "v1.4.2",
+    "name": "AI Quota Bar 1.4.2",
+    "published_at": "2026-06-10T02:25:02Z",
+    "html_url": "https://github.com/techfanseric/ai-quota-bar/releases/tag/v1.4.2",
+    "body": "## Highlights\n- Added remote account management features and update checking improvements.\n- Added cloud data visibility limits and cloud data retention management.\n- Expanded language support across the new usage, sync, and cloud data settings.\n- Introduced new usage and sync settings tabs.\n\n## Verification\n- npm --prefix cloudflare run check\n- make package\n- swift test (fails in MenuBarBrandIconTests because test runtime cannot load provider SVG resources; other 19 tests passed)"
+  },
+  {
+    "tag_name": "v1.4.1",
+    "name": "AI Quota Bar 1.4.1",
+    "published_at": "2026-06-08T09:36:59Z",
+    "html_url": "https://github.com/techfanseric/ai-quota-bar/releases/tag/v1.4.1",
+    "body": "## Highlights\n- Reworked Codex menu grouping to use provider -> account -> quota hierarchy.\n- Added built-in Cloud/Mix account presentation, cloud-only history fallback, and data management improvements.\n- Kept Codex Spark quotas independent from regular Codex 5h/Weekly history and cycles.\n- Skips Codex OAuth/CLI/Web refreshes unless the Codex app is running.\n- Hides empty Spark rows, collapses unused full-quota models by default, and shows Codex account health counts in the provider header.\n- Updates the Cloudflare Worker quota sample query to return the latest sample per model instead of only the most recent rows.\n\n## Verification\n- swift test --filter CodexUsageDataMapperTests\n- npm run check (cloudflare)\n- make package"
+  },
+  {
+    "tag_name": "v1.4.0",
+    "name": "AI Quota Bar 1.4.0",
+    "published_at": "2026-05-14T06:21:58Z",
+    "html_url": "https://github.com/techfanseric/ai-quota-bar/releases/tag/v1.4.0",
+    "body": "## Highlights\n\n- Added optional Cloudflare Worker + D1 cloud backup for quota snapshots.\n- Added a Settings shortcut to view remote stored quota data as a local HTML report.\n- Kept provider credentials local in Keychain while storing only compact quota history remotely.\n- Added launch-at-login preferences and improved model grouping for exhausted/full quota rows.\n\n## Verification\n\n- swift build\n- node --check cloudflare/src/worker.js\n- make package"
+  },
+  {
+    "tag_name": "v1.3.2",
+    "name": "v1.3.2",
+    "published_at": "2026-05-04T15:45:11Z",
+    "html_url": "https://github.com/techfanseric/ai-quota-bar/releases/tag/v1.3.2",
+    "body": "## Highlights\n\n- Added right-click menu bar cycling for used short-interval quota windows.\n- Improved automatic menu bar fallback so expired or exhausted selections rotate to the soonest reset among active, already-used models.\n- Skipped full, unused quota windows during active-model cycling.\n- Documented multi-account ChatGPT setup and the v1.3.1 ChatGPT short-window chart fix.\n\n## Verification\n\n- Built and packaged dist/AIQuotaBar.dmg with app version 1.3.2 build 7."
+  },
+  {
+    "tag_name": "v1.3.1",
+    "name": "AI Quota Bar v1.3.1",
+    "published_at": "2026-05-04T07:51:22Z",
+    "html_url": "https://github.com/techfanseric/ai-quota-bar/releases/tag/v1.3.1",
+    "body": "## What's fixed\n- Treat ChatGPT/Codex 5h quota as a short reset window so it uses the same quota chart as other sub-day limits.\n- Keep Weekly ChatGPT/Codex quota on the standard progress bar because its reset window is longer than one day.\n- Update the dropdown screenshot for the new ChatGPT/Codex quota display."
+  },
+  {
+    "tag_name": "v1.3.0",
+    "name": "AI Quota Bar v1.3.0",
+    "published_at": "2026-05-04T07:47:11Z",
+    "html_url": "https://github.com/techfanseric/ai-quota-bar/releases/tag/v1.3.0",
+    "body": "## What's new\n- Add ChatGPT/Codex GPT coding quota monitoring via the ChatGPT Codex usage endpoint.\n- Display Codex primary and secondary quota windows as 5h and Weekly, with percentage remaining and reset time/date.\n- Store provider credentials in one Keychain JSON item to reduce repeated permission prompts after migration.\n- Preserve percent suffixes in the menu bar for percentage-based providers such as ChatGPT and GLM.\n- Update the dropdown screenshot and README setup guidance."
+  },
+  {
+    "tag_name": "v1.2.1",
+    "name": "AI Quota Bar v1.2.1",
+    "published_at": "2026-04-21T07:13:36Z",
+    "html_url": "https://github.com/techfanseric/ai-quota-bar/releases/tag/v1.2.1",
+    "body": "## Fixes\n- Expand the menu bar dropdown height to use up to 90% of the visible screen height.\n- Keep the menu layout capped at the AppKit host view level so long provider/model lists remain scrollable without being artificially short.\n\n## Build\n- Version 1.2.1, build 4."
+  },
+  {
+    "tag_name": "v1.2.0",
+    "name": "AI Quota Bar v1.2.0",
+    "published_at": "2026-04-21T01:49:48Z",
+    "html_url": "https://github.com/techfanseric/ai-quota-bar/releases/tag/v1.2.0",
+    "body": "## What's Changed\n\n- Renamed the app and repository from MiniMax Usage Monitor to AI Quota Bar.\n- Repositioned the app around monitoring AI model coding plan quota across providers.\n- Updated the Swift package, app bundle metadata, update checker, docs, and build packaging for the new name.\n- Added migration for legacy preferences and Keychain credentials from the previous bundle/service identifiers.\n- Updated README usage docs, including the GLM/Z.ai flow for signing in, opening the quota page, using browser developer tools, and copying the quota/limit request as curl.\n- Removed old checked-in debug app and DMG artifacts from the repository.\n\n## Verification\n\n- Built the release product with make build.\n- Packaged and ad-hoc signed AIQuotaBar.app with make package.\n- Verified the app signature and Info.plist metadata.\n\n## Download\n\nDownload the attached DMG and drag AIQuotaBar.app into Applications."
+  },
+  {
+    "tag_name": "v1.1.1",
+    "name": "MiniMax Usage Monitor v1.1.1",
+    "published_at": "2026-04-09T05:13:10Z",
+    "html_url": "https://github.com/techfanseric/ai-quota-bar/releases/tag/v1.1.1",
+    "body": "## Bug Fixes\n\n- **Area Chart Fill Path Fix**: Fixed incorrect area fill rendering where the left vertical edge was not properly drawn from the first data point to the x-axis (y=0). The previous implementation relied on `closeSubpath()` which doesn't draw a line segment, resulting in missing area fill at the left edge of the chart.\n\n## Documentation\n\n- Added run experience guide for debugging and testing"
+  },
+  {
+    "tag_name": "v1.1.0",
+    "name": "v1.1.0",
+    "published_at": "2026-04-08T17:12:42Z",
+    "html_url": "https://github.com/techfanseric/ai-quota-bar/releases/tag/v1.1.0",
+    "body": "## Highlights\n- Added automatic update checks (once every 24 hours).\n- Added update notifications when a newer release is available.\n- Fixed packaging issues that could cause the app to be reported as damaged.\n- Fixed app icon display in the bundled `.app`.\n- Added the `Applications` shortcut in the `.dmg` installer window.\n\n## Update Behavior\n- The app performs a background update check at most once per day.\n- If a new version is found, a macOS notification is shown.\n- Clicking the notification opens the release page.\n- Manual update checks in Settings are still supported.\n\n## Install\n- Download `MiniMaxUsageMonitor.dmg` from this release.\n- Drag `MiniMaxUsageMonitor.app` into `Applications`.\n"
+  },
+  {
+    "tag_name": "v1.0.0",
+    "name": "v1.0.0",
+    "published_at": "2026-04-08T16:57:27Z",
+    "html_url": "https://github.com/techfanseric/ai-quota-bar/releases/tag/v1.0.0",
+    "body": "## v1.0.0 - First Release\n\nMiniMax Usage Monitor is a macOS menu bar app for monitoring MiniMax API usage and quota.\n\n### Features\n\n- Menu bar widget displaying remaining quota\n- Detailed usage view with per-model breakdown\n- Quota trend charts for short-interval models\n- Configurable refresh interval\n- Warning notifications when quota runs low\n- Secure API key storage via Keychain\n\n### System Requirements\n\n- macOS 14+\n- MiniMax API Key\n\n### Installation\n\n1. Download `MiniMaxUsageMonitor.dmg`\n2. Open the DMG file\n3. Drag the app into Applications folder\n4. Launch the app from Applications\n5. Click the menu bar icon and select Settings to configure your API Key"
+  }
+]

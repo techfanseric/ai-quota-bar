@@ -1,0 +1,14 @@
+import { readFile, writeFile } from 'node:fs/promises';
+import { Marked } from 'marked';
+export const escape = s => String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const markdown = new Marked({ renderer: {
+  html({text}) { return escape(text); },
+  link({href,tokens}) { const label = this.parser.parseInline(tokens); return /^https?:\/\//i.test(href) ? `<a href="${escape(href)}" rel="noopener noreferrer">${label}</a>` : label; },
+  image({text}) { return escape(text); },
+}});
+export async function buildChangelog() {
+ const releases = JSON.parse(await readFile('content/releases.json','utf8'));
+ const items = releases.map((r,i) => `<article class="release" id="${escape(r.tag_name)}" data-version="${escape(r.tag_name)}"><header><div><a class="version" href="#${escape(r.tag_name)}">${escape(r.tag_name)}</a>${i===0?'<span class="latest">最新版本</span>':''}</div><time datetime="${escape(r.published_at)}">${r.published_at.slice(0,10)}</time></header><h2>${escape(r.name || r.tag_name)}</h2><div class="release-body">${markdown.parse(r.body)}</div><a class="source-link" href="${escape(r.html_url)}">在 GitHub 查看版本与下载附件 ↗</a></article>`).join('\n');
+ const nav = releases.map(r=>`<a href="#${escape(r.tag_name)}">${escape(r.tag_name)}</a>`).join('');
+ await writeFile('dist-pages/changelog.html', `<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>更新日志 — AI Quota Bar</title><meta name="description" content="AI Quota Bar 完整版本更新记录，从 v1.0.0 至今的功能、改进与修复。"><link rel="canonical" href="https://ai-quota-bar.pages.dev/changelog"><link rel="icon" href="/favicon.svg"><link rel="stylesheet" href="/site.css"><link rel="stylesheet" href="/changelog.css"><script src="/changelog.js" defer></script></head><body><a class="skip" href="#main">跳到更新日志</a><header class="site-header wrap"><a class="brand" href="/"><img src="/app-icon.png" alt="" width="34" height="34">AI Quota Bar</a><nav aria-label="主导航"><a href="/">返回首页</a><a class="nav-download changelog-link" href="https://github.com/techfanseric/ai-quota-bar/releases/latest">下载最新版 ↗</a></nav></header><main id="main" class="wrap"><section class="changelog-heading"><p class="eyebrow">RELEASE NOTES</p><h1>每一次，让它更好用。</h1><p>从菜单栏里的一个数字，到看得见的使用趋势。这里记录每个正式版本的变化。</p><label for="release-search">查找版本或功能</label><input id="release-search" type="search" placeholder="例如：Codex、手机、v1.16.0" autocomplete="off"><p id="release-count" role="status">共 ${releases.length} 个正式版本 · 完整保留原始发布说明</p></section><div class="changelog-layout"><aside aria-label="版本索引"><p>所有版本</p><nav>${nav}</nav></aside><section class="releases" aria-label="版本记录">${items}<p id="empty" hidden>没有匹配的版本，请尝试其他关键词。</p></section></div></main><footer class="site-footer wrap"><a href="/">← 回到产品首页</a><span>历史说明保留当时的产品名称与功能状态。</span></footer></body></html>`);
+}
