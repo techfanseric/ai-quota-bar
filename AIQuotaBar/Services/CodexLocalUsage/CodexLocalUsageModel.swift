@@ -31,6 +31,8 @@ final class CodexLocalUsageModel {
     var teamDevices: [TeamUsageRow] = []
     var teamAccounts: [TeamUsageRow] = []
     var connection: LocalUsageConnection?
+    var createdTeam: UsageTeamCreated?
+    var connectingTeam = false
     var days = 30
     var selectedAccount = "all" { didSet { historyCache.removeAll(); summaryCache.removeAll() } }
     var currentAccountID: String? { didSet { historyCache.removeAll(); summaryCache.removeAll() } }
@@ -160,8 +162,9 @@ final class CodexLocalUsageModel {
             let value = LocalUsageConnection(endpoint: endpoint, identity: result.identity, since: since)
             try await Self.saveToken(token.trimmingCharacters(in: .whitespacesAndNewlines), account: value.binding)
             defaults.set(try JSONEncoder().encode(value), forKey: "localUsage.connection")
-            if !same { reportingEnabled = false; teamRows = []; teamDevices = []; syncStatus = "" }
+            if !same { reportingEnabled = false; teamRows = []; teamDevices = []; teamAccounts = []; syncStatus = "" }
             connection = value; self.client = client; try savePrices(result.prices)
+            NotificationCenter.default.post(name: .teamConnectionChanged, object: nil)
             failures = 0; nextAttempt = .distantPast; error = nil
         } catch { self.error = error.localizedDescription }
     }
@@ -173,8 +176,40 @@ final class CodexLocalUsageModel {
         let origin = trimmed.isEmpty ? CloudSyncSettings.defaultEndpointURLString : trimmed
         do {
             let response = try await UsageClient.join(endpoint: origin, inviteCode: inviteCode, memberName: memberName, deviceID: deviceID, memberPassphrase: passphrase)
-            try await connect(endpoint: origin, token: response.token, includeHistory: includeHistory)
+            await connect(endpoint: origin, token: response.token, includeHistory: includeHistory)
+            if error == nil { reportingEnabled = true }
         } catch { self.error = error.localizedDescription }
+    }
+    func createTeam(name: String, memberName: String, passphrase: String, includeHistory: Bool) async {
+        guard !connectingTeam else { return }
+        connectingTeam = true
+        defer { connectingTeam = false }
+        do {
+            // Keep one-time credentials visible even if joining fails; retry must not create a second team.
+            if createdTeam == nil { createdTeam = try await UsageClient.createTeam(endpoint: CloudSyncSettings.defaultEndpointURLString, name: name) }
+            guard let team = createdTeam else { return }
+            await joinTeam(inviteCode: team.inviteCode, memberName: memberName, passphrase: passphrase, endpoint: nil, includeHistory: includeHistory)
+        } catch { self.error = error.localizedDescription }
+    }
+    func leaveTeam() async {
+        guard !connectingTeam else { return }
+        connectingTeam = true
+        defer { connectingTeam = false }
+        do {
+            let client = try await activeClient()
+            try await client.leave()
+            reportingEnabled = false; syncTask?.cancel()
+            connection = nil; self.client = nil; createdTeam = nil
+            defaults.removeObject(forKey: "localUsage.connection")
+            teamRows = []; teamDevices = []; teamAccounts = []; delivery = [:]; rejectionReasons = [:]; syncStatus = ""; error = nil
+            NotificationCenter.default.post(name: .teamConnectionChanged, object: nil)
+        } catch { self.error = error.localizedDescription }
+    }
+    func quotaContext() async throws -> TeamQuotaContext {
+        guard let connection else { throw CloudSyncError.missingToken }
+        let token = try await Self.loadToken(account: connection.binding)
+        guard self.connection?.binding == connection.binding else { throw CancellationError() }
+        return TeamQuotaContext(binding: connection.binding, endpoint: connection.endpoint, token: token)
     }
     func setMemberPassphrase(_ passphrase: String) async {
         do {
@@ -206,23 +241,26 @@ final class CodexLocalUsageModel {
             let client = try await activeClient()
             let identity = try await client.identity()
             guard identity.identity.bindingID == connection.identity.bindingID else { throw UsageFailure.invalid("Server identity changed; reconnect this device") }
+            guard self.connection?.binding == connection.binding else { return }
             try savePrices(identity.prices)
             // Drain a bounded amount per pass; the durable outbox resumes next pass.
             for _ in 0..<20 {
                 try Task.checkCancellation()
-                guard reportingEnabled else { return }
+                guard reportingEnabled, self.connection?.binding == connection.binding else { return }
                 let batch = try await store.pending(binding: connection.binding)
                 if batch.isEmpty { break }
                 let receipt = try await client.send(batch)
                 try await store.acknowledge(binding: connection.binding, ids: receipt.accepted, rejected: receipt.rejected.map(\.id), reasons: Dictionary(uniqueKeysWithValues: receipt.rejected.map { ($0.id, $0.reason) }))
                 if !receipt.rejected.isEmpty { syncStatus = receipt.rejected.map(\.reason).joined(separator: ", ") }
             }
+            guard self.connection?.binding == connection.binding else { return }
             delivery = try await store.deliveryCounts(binding: connection.binding)
             rejectionReasons = try await store.rejectionReasons(binding: connection.binding)
             syncStatus = "\(delivery["sent", default: 0]) sent · \(delivery["pending", default: 0]) pending · \(delivery["rejected", default: 0]) rejected"
             failures = 0; nextAttempt = .distantPast
         } catch is CancellationError { return }
         catch {
+            guard self.connection?.binding == connection.binding else { return }
             failures += 1
             nextAttempt = Date().addingTimeInterval(min(3600, 60 * pow(2, Double(min(failures - 1, 6)))))
             syncStatus = error.localizedDescription
@@ -256,7 +294,11 @@ final class CodexLocalUsageModel {
             let result = try await (members, devices, accounts)
             guard requestedDays == days, requestedBinding == connection?.binding else { return }
             teamRows = result.0; teamDevices = result.1; teamAccounts = result.2; error = nil
-        } catch { self.error = error.localizedDescription }
+        } catch {
+            guard requestedBinding == connection?.binding else { return }
+            teamRows = []; teamDevices = []; teamAccounts = []
+            self.error = error.localizedDescription
+        }
     }
     private static func saveToken(_ token: String, account: String) async throws {
         guard await KeychainService.shared.saveDeviceCredential(token, binding: account) else {
@@ -269,4 +311,8 @@ final class CodexLocalUsageModel {
         }
         return token
     }
+}
+
+extension Notification.Name {
+    static let teamConnectionChanged = Notification.Name("AIQuotaBar.teamConnectionChanged")
 }

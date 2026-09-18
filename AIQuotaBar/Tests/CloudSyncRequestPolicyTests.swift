@@ -9,7 +9,7 @@ final class CloudSyncRequestPolicyTests: XCTestCase {
         let configuration = URLSessionConfiguration.ephemeral
         configuration.protocolClasses = [CloudSyncStubProtocol.self]
         let session = URLSession(configuration: configuration)
-        return (CloudSyncService(session: session, retryBackoffs: [0, 0, 0]), session)
+        return (CloudSyncService(session: session, retryBackoffs: [0, 0, 0], contextProvider: { TeamQuotaContext(binding: "fixture", endpoint: "https://cloud-sync-test.invalid", token: "device-test-token") }, bindingProvider: { "fixture" }), session)
     }
 
     private func send(_ service: CloudSyncService) async throws {
@@ -190,6 +190,21 @@ final class CloudSyncRequestPolicyTests: XCTestCase {
         XCTAssertEqual(d1Usage(pct: 80).severity, .critical)
     }
 
+    func testQuotaReadUsesDeviceTokenAndDropsReplyAfterTeamSwitch() async {
+        let (_, session) = fixture([.http(200, "{\"ok\":true,\"samples\":[]}")])
+        defer { session.invalidateAndCancel() }
+        var checks = 0
+        let service = CloudSyncService(session: session, retryBackoffs: [], contextProvider: {
+            TeamQuotaContext(binding: "team-a", endpoint: "https://cloud-sync-test.invalid", token: "scoped-device-token")
+        }, bindingProvider: {
+            checks += 1
+            return checks < 3 ? "team-a" : "team-b"
+        })
+        do { _ = try await service.fetchRemoteUsageData(); XCTFail("Late response must not enter the new team's cache") }
+        catch { XCTAssertTrue(error is CancellationError) }
+        XCTAssertEqual(CloudSyncStubProtocol.authorizationHeaders, ["Bearer scoped-device-token"])
+    }
+
     private func d1Usage(pct: Double) -> CloudD1Usage {
         let json = """
         {"ok":true,"rowsRead":0,"rowsWritten":0,"databaseRowsRead":0,
@@ -209,6 +224,8 @@ private final class CloudSyncStubProtocol: URLProtocol {
     private static let lock = NSLock()
     private static var replies: [Reply] = []
     private static var paths: [String] = []
+    private static var authHeaders: [String] = []
+    static var authorizationHeaders: [String] { lock.lock(); defer { lock.unlock() }; return authHeaders }
 
     static var requestPaths: [String] {
         lock.lock()
@@ -220,7 +237,7 @@ private final class CloudSyncStubProtocol: URLProtocol {
         lock.lock()
         defer { lock.unlock() }
         replies = newReplies
-        paths = []
+        paths = []; authHeaders = []
     }
 
     override class func canInit(with request: URLRequest) -> Bool { true }
@@ -229,6 +246,7 @@ private final class CloudSyncStubProtocol: URLProtocol {
     override func startLoading() {
         Self.lock.lock()
         Self.paths.append(request.url!.path)
+        Self.authHeaders.append(request.value(forHTTPHeaderField: "Authorization") ?? "")
         let reply = Self.replies.isEmpty ? Reply.http(599, "unexpected retry") : Self.replies.removeFirst()
         Self.lock.unlock()
         switch reply {

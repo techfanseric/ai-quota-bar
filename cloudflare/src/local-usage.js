@@ -20,11 +20,11 @@ async function body(request) {
     return JSON.parse(new TextDecoder().decode(all));
   } catch (error) { throw new Error(error.message === 'body_too_large' ? error.message : 'invalid_body'); }
 }
-async function identity(request, env) {
+export async function identity(request, env) {
   const auth = request.headers.get('authorization') || '';
   if (!auth.startsWith('Bearer ') || auth.length > 512) return null;
   const hash = await digest(auth.slice(7));
-  const rows = await env.DB.prepare('SELECT team_id,member_id,member_name,device_id FROM usage_devices WHERE token_hash=? AND revoked=0').bind(hash).all();
+  const rows = await env.DB.prepare('SELECT d.team_id,d.member_id,d.member_name,d.device_id,t.team_name FROM usage_devices d LEFT JOIN usage_teams t ON t.team_id=d.team_id WHERE d.token_hash=? AND d.revoked=0').bind(hash).all();
   return rows.results[0] || null;
 }
 function validEvent(e) {
@@ -149,14 +149,14 @@ export async function localUsage(request, env, url) {
       let memberID; let secretStatement = null;
       if (existingMember) {
         memberID = existingMember.member_id;
-        // Re-joining a device already bound to this member is a plain token
-        // rotation. Extending the name to a new device (or switching a device
-        // between members) requires the passphrase, so a teammate cannot
-        // attribute usage to someone else by typing their name.
-        if (!device || device.member_id !== memberID) {
+        // Device IDs are public identifiers. Rotation always requires the
+        // current device credential or the member passphrase.
+        {
           const secret = (await env.DB.prepare('SELECT pass_hash FROM usage_member_secrets WHERE team_id=? AND member_id=?').bind(teamID, memberID).all()).results[0];
-          if (!secret) return json({ error: 'name_taken' }, 409);
-          if (!passphrase || !constantTimeEqual(await memberPassHash(teamID, memberID, passphrase), secret.pass_hash))
+          const current = await identity(request, env);
+          const ownsDevice = current && current.team_id === teamID && current.device_id === deviceID && current.member_id === memberID;
+          if (!secret && !ownsDevice) return json({ error: 'name_taken' }, 409);
+          if (!ownsDevice && (!passphrase || !secret || !constantTimeEqual(await memberPassHash(teamID, memberID, passphrase), secret.pass_hash)))
             return json({ error: 'invalid_passphrase' }, 401);
         }
       } else {
@@ -181,6 +181,11 @@ export async function localUsage(request, env, url) {
     }
     const who = await identity(request, env);
     if (!who) return json({ error: 'unauthorized' }, 401);
+    if (url.pathname === '/v1/usage/leave' && request.method === 'POST') {
+      await env.DB.prepare('UPDATE usage_devices SET revoked=1 WHERE team_id=? AND device_id=?').bind(who.team_id,who.device_id).run();
+      return json({ok:true});
+    }
+
     if (url.pathname === '/v1/usage/identity' && request.method === 'GET') return json({ ok: true, identity: who, prices: priceTable(env) });
     if (url.pathname === '/v1/usage/member/passphrase' && request.method === 'POST') {
       const p = await body(request);

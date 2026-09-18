@@ -7,6 +7,7 @@ const migration = readFileSync(new URL('../migrations/0002_local_usage.sql', imp
 const admin = 'test-administrator-token-at-least-32-characters';
 function setup() {
   const db = new DatabaseSync(':memory:'); db.exec('PRAGMA foreign_keys=ON'); db.exec(migration); db.exec(migration); db.exec(readFileSync(new URL('../migrations/0003_usage_accounts.sql', import.meta.url), 'utf8'));
+  db.exec(readFileSync(new URL('../migrations/0005_team_selfservice.sql', import.meta.url), 'utf8'));
   const env = { USAGE_ADMIN_TOKEN: admin, SYNC_TOKEN: 'legacy-token', DB: {
     prepare(sql) { const statement = db.prepare(sql); let args = [];
       return { bind(...values) { args=values; return this; }, async all() { return {results:statement.all(...args)}; }, async run() { return {meta:{changes:Number(statement.run(...args).changes)}}; } }; },

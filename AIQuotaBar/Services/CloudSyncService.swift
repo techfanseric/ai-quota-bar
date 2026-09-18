@@ -106,6 +106,17 @@ struct CloudSyncSettings {
     }
 }
 
+private final class CloudSyncRedirectBlocker: NSObject, URLSessionTaskDelegate, @unchecked Sendable {
+    func urlSession(_ session: URLSession, task: URLSessionTask, willPerformHTTPRedirection response: HTTPURLResponse,
+                    newRequest request: URLRequest, completionHandler: @escaping (URLRequest?) -> Void) { completionHandler(nil) }
+}
+
+struct TeamQuotaContext {
+    let binding: String
+    let endpoint: String
+    let token: String
+}
+
 /// 同步状态机：`@Observable` 让 view（如 `GeneralPane`）能 watch 变化。
 /// 所有写入都在 `@MainActor` 上下文（调用方均为 `UsageViewModel` 的 main-actor 方法），
 /// 避免跨 actor 访问 `lastSyncStatus`。
@@ -118,19 +129,25 @@ final class CloudSyncService {
     private let encoder: JSONEncoder
     private let queue: CloudSyncQueue
     private let retryBackoffs: [UInt64]
+    private let contextProvider: @MainActor () async throws -> TeamQuotaContext
+    private let bindingProvider: @MainActor () -> String?
 
     /// view 可读：`Last sync: 2m ago` 或 `Failed: 5m ago`
     private(set) var lastSyncStatus: CloudSyncStatus = .idle
 
-    init(session: URLSession = .shared, retryBackoffs: [UInt64] = [1, 4, 16]) {
-        self.session = session
+    init(session: URLSession? = nil, retryBackoffs: [UInt64] = [1, 4, 16],
+         contextProvider: @escaping @MainActor () async throws -> TeamQuotaContext = { try await CodexLocalUsageModel.shared.quotaContext() },
+         bindingProvider: @escaping @MainActor () -> String? = { CodexLocalUsageModel.shared.connection?.binding }) {
+        self.contextProvider = contextProvider
+        self.bindingProvider = bindingProvider
+        self.session = session ?? URLSession(configuration: .ephemeral, delegate: CloudSyncRedirectBlocker(), delegateQueue: nil)
         self.retryBackoffs = retryBackoffs
         let encoder = JSONEncoder()
         encoder.dateEncodingStrategy = .iso8601
         self.encoder = encoder
         self.queue = CloudSyncQueue()
         // 启动时恢复上次状态：跨重启保留"上次同步 Xm ago"上下文
-        self.lastSyncStatus = Self.loadPersistedStatus()
+        self.lastSyncStatus = .idle // Never display an old team's saved status.
     }
 
     /// 同步当前 quota 快照 + 跨周期 utilization 历史到云端。
@@ -146,12 +163,13 @@ final class CloudSyncService {
         let settings = CloudSyncSettings.current
         guard settings.isEnabled else { return }
 
-        let token = CloudSyncSettings.defaultServiceToken
+        guard let context = try? await contextProvider(), bindingProvider() == context.binding else { return }
+        let token = context.token
 
         let request: URLRequest
         do {
             request = try makeRequest(
-                endpointURLString: settings.effectiveEndpointURLString,
+                endpointURLString: context.endpoint,
                 path: "/v1/quota-samples",
                 token: token,
                 method: "POST"
@@ -174,7 +192,7 @@ final class CloudSyncService {
             historiesPayload = byProvider
         }
 
-        let payload = CloudUsageSnapshotPayload(
+        var payload = CloudUsageSnapshotPayload(
             deviceID: settings.deviceID,
             sampledAt: sampledAt,
             retentionDays: CloudDataRetentionLimit.current.rawValue,
@@ -182,6 +200,7 @@ final class CloudSyncService {
             utilizationHistories: historiesPayload
         )
 
+        payload.teamBinding = context.binding
         let body: Data
         do {
             body = try encoder.encode(payload)
@@ -191,7 +210,8 @@ final class CloudSyncService {
         }
 
         do {
-            try await sendWithRetry(request: request, body: body)
+            try await sendWithRetry(request: request, body: body, binding: context.binding)
+            guard bindingProvider() == context.binding else { return }
             recordSuccess(at: Date())
         } catch is CancellationError {
             // 用户禁用云同步 / 切换 endpoint 等场景:不记录失败、不 enqueue payload,
@@ -200,6 +220,7 @@ final class CloudSyncService {
         } catch {
             // 重试用尽，落盘到队列等下次刷新再推
             queue.enqueue(payload: payload)
+            guard bindingProvider() == context.binding else { return }
             recordFailure(reason: .network, error: error)
         }
     }
@@ -208,12 +229,13 @@ final class CloudSyncService {
     func flushPendingQueue() async {
         let settings = CloudSyncSettings.current
         guard settings.isEnabled else { return }
-        let token = CloudSyncSettings.defaultServiceToken
+        guard let context = try? await contextProvider(), bindingProvider() == context.binding else { return }
+        let token = context.token
 
         let request: URLRequest
         do {
             request = try makeRequest(
-                endpointURLString: settings.effectiveEndpointURLString,
+                endpointURLString: context.endpoint,
                 path: "/v1/quota-samples",
                 token: token,
                 method: "POST"
@@ -222,7 +244,8 @@ final class CloudSyncService {
             return
         }
 
-        await queue.flush { [encoder, session] payload in
+        await queue.flush(binding: context.binding) { [self] payload in
+            guard bindingProvider() == context.binding, CloudSyncSettings.current.isEnabled else { throw CancellationError() }
             let body = try encoder.encode(payload)
             var req = request
             req.httpBody = body
@@ -236,6 +259,8 @@ final class CloudSyncService {
     }
 
     /// 同步状态：UI 可读 `lastSyncStatus` 显示 "Last sync: 2m ago" 或 "Failed: 5m ago"
+    func resetTeamStatus() { lastSyncStatus = .idle }
+
     private static let persistedStatusKey = "cloudSync.lastStatusSnapshot.v1"
 
     private func recordSuccess(at date: Date) {
@@ -303,12 +328,13 @@ final class CloudSyncService {
     /// 重试 3 次：1s, 4s, 16s 指数退避
     /// 任务被 cancel 时 sleep 会抛 `CancellationError`，立即退出不再重试，
     /// 避免用户切 endpoint / disable cloud sync 后还在后台跑 21s。
-    func sendWithRetry(request: URLRequest, body: Data) async throws {
+    func sendWithRetry(request: URLRequest, body: Data, binding: String? = nil) async throws {
         var lastError: Error?
 
         for attempt in 0...retryBackoffs.count {
             try Task.checkCancellation()
 
+            if let binding, bindingProvider() != binding || !CloudSyncSettings.current.isEnabled { throw CancellationError() }
             var req = request
             req.httpBody = body
             do {
@@ -489,7 +515,7 @@ final class CloudSyncService {
         let request = try makeRequest(
             endpointURLString: CloudSyncSettings.defaultEndpointURLString,
             path: "/v1/quota-samples?limit=\(limit)",
-            token: CloudSyncSettings.defaultServiceToken,
+            token: "team-context",
             method: "GET"
         )
         let responseData = try await data(for: request)
@@ -502,7 +528,7 @@ final class CloudSyncService {
         let request = try makeRequest(
             endpointURLString: CloudSyncSettings.defaultEndpointURLString,
             path: "/v1/quota-samples?history=1&limit=\(limit)",
-            token: CloudSyncSettings.defaultServiceToken,
+            token: "team-context",
             method: "GET"
         )
         let responseData = try await data(for: request)
@@ -520,7 +546,7 @@ final class CloudSyncService {
             request = try makeRequest(
                 endpointURLString: CloudSyncSettings.defaultEndpointURLString,
                 path: "/v1/d1-usage",
-                token: CloudSyncSettings.defaultServiceToken,
+                token: "team-context",
                 method: "GET"
             )
         } catch {
@@ -781,10 +807,20 @@ final class CloudSyncService {
     /// `serverError`（4xx/5xx）与 `invalidResponse` 不可自愈，立即抛出。
     /// 任务被 cancel 时 checkCancellation/sleep 会抛 `CancellationError`，立即退出重试。
     private func data(for request: URLRequest) async throws -> Data {
+        let context = try await contextProvider()
+        guard bindingProvider() == context.binding, let source = request.url,
+              var target = URLComponents(string: context.endpoint) else { throw CancellationError() }
+        target.path = source.path; target.percentEncodedQuery = URLComponents(url: source, resolvingAgainstBaseURL: false)?.percentEncodedQuery
+        guard let url = target.url else { throw CloudSyncError.invalidEndpoint }
+        var request = request; request.url = url
+        request.setValue("Bearer \(context.token)", forHTTPHeaderField: "Authorization")
         for attempt in 0...retryBackoffs.count {
             try Task.checkCancellation()
             do {
-                return try await performRequest(request)
+                guard bindingProvider() == context.binding else { throw CancellationError() }
+                let result = try await performRequest(request)
+                guard bindingProvider() == context.binding else { throw CancellationError() }
+                return result
             } catch is CancellationError {
                 throw CancellationError()
             } catch {
@@ -1567,6 +1603,7 @@ private struct CloudRemoteQuotaSample: Decodable {
 }
 
 struct CloudUsageSnapshotPayload: Codable {
+    var teamBinding: String? = nil
     let deviceID: String
     let sampledAt: Date
     let retentionDays: Int?

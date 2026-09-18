@@ -1,10 +1,12 @@
 import Foundation
 import AppKit
+import Combine
 
 /// Main view model managing usage state and refresh logic
 @MainActor
 @Observable
 final class UsageViewModel {
+    @ObservationIgnored private var teamObserver: AnyCancellable?
     // MARK: - Published State
 
     var usageData: UsageData? {
@@ -851,6 +853,17 @@ final class UsageViewModel {
             (UserDefaults.standard.stringArray(forKey: Self.pausedProvidersKey) ?? [])
                 .compactMap(UsageProvider.init(rawValue:)))
 
+        if providerPresence == nil {
+            teamObserver = NotificationCenter.default.publisher(for: .teamConnectionChanged).sink { [weak self] _ in
+                MainActor.assumeIsolated {
+                    guard let self else { return }
+                    self.clearCloudUsageData()
+                    CloudSyncService.shared.resetTeamStatus()
+                    CloudDiagnosticLog.shared.clear()
+                    self.cloudSyncEnabled = CodexLocalUsageModel.shared.connection != nil
+                }
+            }
+        }
         loadUtilizationHistories()
         modelQuotaSamples = quotaSampleStore.loadAll()
         updateStatusBarText()
@@ -959,6 +972,7 @@ final class UsageViewModel {
         var fetchedProviderData: [UsageProvider: UsageData] = [:]
         var nextProviderErrors: [UsageProvider: UsageError] = [:]
         let sampleTimestamp = Date()
+        let sampledTeamBinding = CodexLocalUsageModel.shared.connection?.binding
         for provider in skippedProviders {
             if let previous = providerUsageData[provider] {
                 nextProviderData[provider] = previous
@@ -1012,7 +1026,8 @@ final class UsageViewModel {
         if let usageData {
             lastRefreshTime = sampleTimestamp
             recordSamples(from: usageData, timestamp: sampleTimestamp)
-            if let freshlyFetchedUsageData = combinedUsageData(from: fetchedProviderData.values, timestamp: sampleTimestamp) {
+            if sampledTeamBinding == CodexLocalUsageModel.shared.connection?.binding,
+               let freshlyFetchedUsageData = combinedUsageData(from: fetchedProviderData.values, timestamp: sampleTimestamp) {
                 syncUsageDataToCloud(freshlyFetchedUsageData, sampledAt: sampleTimestamp)
             }
         }
@@ -1142,6 +1157,8 @@ final class UsageViewModel {
 
     func clearCloudUsageData() {
         cloudProviderUsageData = [:]
+        cloudModelQuotaSamples = [:]
+        cloudUsageLoadError = nil
     }
 
     func clearCloudUsageData(for accountName: String) {
@@ -1551,29 +1568,23 @@ final class UsageViewModel {
     }
 
     private func refreshCloudUsageData() async {
-        guard cloudSyncEnabled else {
-            cloudProviderUsageData = [:]
+        guard cloudSyncEnabled, let binding = CodexLocalUsageModel.shared.connection?.binding else {
+            clearCloudUsageData()
             return
         }
-
         do {
-            cloudProviderUsageData = try await CloudSyncService.shared.fetchRemoteUsageData()
-            do {
-                cloudModelQuotaSamples = try await CloudSyncService.shared.fetchRemoteModelQuotaSamples()
-            } catch {
-                // 瞬时失败保留上次样本，避免面板曲线图闪空。
-                cloudUsageLoadError = error.localizedDescription
-                CloudDiagnosticLog.shared.record("download", error: error)
-                return
-            }
+            let usage = try await CloudSyncService.shared.fetchRemoteUsageData()
+            guard cloudSyncEnabled, CodexLocalUsageModel.shared.connection?.binding == binding else { return }
+            let samples = try await CloudSyncService.shared.fetchRemoteModelQuotaSamples()
+            guard cloudSyncEnabled, CodexLocalUsageModel.shared.connection?.binding == binding else { return }
+            cloudProviderUsageData = usage; cloudModelQuotaSamples = samples
             cloudUsageLoadError = nil
             CloudDiagnosticLog.shared.record("download")
         } catch {
-            // Cloud rows are supplemental. Keep local quota usable if remote history cannot load.
-            cloudProviderUsageData = [:]
-            // 保留上次 cloudModelQuotaSamples，避免瞬时失败导致曲线图闪空。
+            guard cloudSyncEnabled, CodexLocalUsageModel.shared.connection?.binding == binding else { return }
+            clearCloudUsageData()
             cloudUsageLoadError = error.localizedDescription
-                CloudDiagnosticLog.shared.record("download", error: error)
+            CloudDiagnosticLog.shared.record("download", error: error)
         }
     }
 
@@ -1581,8 +1592,10 @@ final class UsageViewModel {
         guard cloudSyncEnabled else { return }
 
         let historiesSnapshot = utilizationHistories
+        let binding = CodexLocalUsageModel.shared.connection?.binding
 
         Task { @MainActor in
+            guard let binding, CodexLocalUsageModel.shared.connection?.binding == binding else { return }
             await CloudSyncService.shared.syncUsageData(
                 usageData,
                 sampledAt: sampledAt,

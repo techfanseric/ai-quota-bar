@@ -1,4 +1,5 @@
 import Foundation
+import CodexLocalUsageCore
 
 /// 云端同步失败时的本地重试队列。
 /// 失败的 payload 落盘到 `~/Library/Application Support/com.techfanseric.aiquotabar/sync-queue/`
@@ -16,11 +17,11 @@ final class CloudSyncQueue {
     private let encoder: JSONEncoder
     private let decoder: JSONDecoder
 
-    init(fileManager: FileManager = .default) {
+    init(fileManager: FileManager = .default, directoryURL: URL? = nil) {
         self.fileManager = fileManager
         let appSupport = fileManager.urls(for: .applicationSupportDirectory, in: .userDomainMask).first
             ?? URL(fileURLWithPath: NSHomeDirectory()).appendingPathComponent("Library/Application Support")
-        self.directoryURL = appSupport
+        self.directoryURL = directoryURL ?? appSupport
             .appendingPathComponent("com.techfanseric.aiquotabar", isDirectory: true)
             .appendingPathComponent("sync-queue", isDirectory: true)
 
@@ -36,9 +37,11 @@ final class CloudSyncQueue {
     /// 把 payload 写到队列目录。每个文件用 UUID 命名避免重名。
     /// 入队前先 trim 超限文件（按修改时间丢最旧的）。
     func enqueue(payload: CloudUsageSnapshotPayload) {
+        guard let binding = payload.teamBinding else { return }
+        let directoryURL = scopedDirectory(binding)
         do {
             try fileManager.createDirectory(at: directoryURL, withIntermediateDirectories: true)
-            trimIfNeeded()
+            trimIfNeeded(in: directoryURL)
             let data = try encoder.encode(payload)
             let url = directoryURL.appendingPathComponent("\(UUID().uuidString).json")
             let options: Data.WritingOptions = [.atomic]
@@ -63,7 +66,7 @@ final class CloudSyncQueue {
     }
 
     /// 按修改时间排序，删到 `maxQueueSize` 以下。
-    private func trimIfNeeded() {
+    private func trimIfNeeded(in directoryURL: URL) {
         guard let files = try? fileManager.contentsOfDirectory(
             at: directoryURL,
             includingPropertiesForKeys: [.contentModificationDateKey],
@@ -88,7 +91,10 @@ final class CloudSyncQueue {
 
     /// 遍历队列，按写入顺序逐条发送。
     /// 任何一条发送失败就保留文件，成功的删掉。`send` 闭包 throw 表示失败。
-    func flush(_ send: (CloudUsageSnapshotPayload) async throws -> Void) async {
+    private func scopedDirectory(_ binding: String) -> URL { directoryURL.appendingPathComponent(usageDigest(binding), isDirectory: true) }
+
+    func flush(binding: String, _ send: (CloudUsageSnapshotPayload) async throws -> Void) async {
+        let directoryURL = scopedDirectory(binding)
         let files: [URL]
         do {
             files = try fileManager.contentsOfDirectory(
@@ -108,6 +114,8 @@ final class CloudSyncQueue {
                 continue
             }
 
+            // Unscoped legacy payloads are quarantined, never adopted by a new team.
+            guard payload.teamBinding == binding else { continue }
             do {
                 try await send(payload)
                 try? fileManager.removeItem(at: file)

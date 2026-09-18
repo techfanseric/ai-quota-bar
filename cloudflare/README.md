@@ -29,91 +29,57 @@ npm run deploy:pages
   (`/mobile-preview` and `/changelog` need the path rewrites that only the
   deployed `_worker.js` provides; `python3 -m http.server` cannot serve them).
 
-## Deploy
+## Deploy / upgrade for public teams
 
-
-1. Install and sign in to Wrangler.
-
-```bash
-npm install -g wrangler
-wrangler login
-```
-
-2. Create a free D1 database.
+Apply `schema.sql` and migrations `0001` through `0007` in order for a new database.
+For an existing installation already on `0006`, apply the additive migration **before** deploying this Worker:
 
 ```bash
-wrangler d1 create ai-quota-bar
+npx wrangler d1 execute ai-quota-bar --remote --file=migrations/0007_team_quota.sql
+npm run check
+npm test
+npm run build:pages
+npm run deploy:pages
 ```
 
-3. Copy `wrangler.toml.example` to `wrangler.toml`, then fill the D1 binding's
-   `database_id`. For the optional D1 usage meter, also fill `CF_ACCOUNT_ID` and
-   `D1_DATABASE_ID` under `[vars]` and create a read-only Account Analytics token:
+Set `USAGE_TEAMS_ENABLED=true`. Keep independent `OPS_ADMIN_SECRET` (platform console)
+and `USAGE_ADMIN_TOKEN` (device provisioning) secrets. `SYNC_TOKEN` is only a public-app
+ingestion gate for telemetry/feedback, never authority to read or delete team data.
+D1 analytics requires `CF_API_TOKEN` with Account Analytics: Read and is exposed only in `/admin`.
 
-```bash
-wrangler secret put CF_API_TOKEN
-```
+This release intentionally closes the legacy shared quota APIs to old app-wide tokens.
+Old clients must upgrade and create/join a team. Do not restore the old Worker as a rollback:
+that would reopen shared read/delete access. Keep the additive tables and roll forward.
+Legacy quota/device/settings tables are preserved and visible read-only in `/admin`;
+there is no automatic account-name-based assignment of historic data to teams.
+See [team rollout notes](../docs/team-isolation.md) for the release checklist.
 
-4. Apply the schema.
+## API and authorization
 
-```bash
-wrangler d1 execute ai-quota-bar --file=./schema.sql
-```
+- `/v1/quota-samples`, `/v1/account-summaries`, `/v1/devices`, `/v1/health`: per-device bearer credential.
+  Team/member/device scope comes from the credential; caller-supplied team IDs are ignored.
+- `POST /v1/quota-samples`: uploads current-device quota metadata. History is retained for 90 days using server time.
+- `GET /v1/quota-samples?history=1&limit=500`: this team's retained history; without `history=1`, one latest snapshot per provider/account/model.
+- `DELETE /v1/data`: not permitted to device credentials. Team account cleanup requires the team manager session.
+- `POST /v1/team/create`: rate-limited public creation; returns the team ID, invite and management password once.
+- `POST /v1/usage/join`: exchanges invitation + member name (+ member passphrase for an existing member) for a device credential.
+  Knowing a device ID is never sufficient to rotate its credential.
+- `POST /v1/usage/leave`: revokes the authenticated device. Local data and team history remain.
+- `/v1/usage/identity`, `/v1/usage/events/batch`, `/v1/usage/summary`, `/v1/usage/member/passphrase`: device-authenticated usage operations.
+- `/v1/team/login`, `/logout`, `/overview`, `/invite/rotate`, `/devices/revoke`, `/members/revoke`:
+  management of a single team using the separate team management cookie.
+- `GET /v1/team/accounts`, `DELETE /v1/team/accounts?provider=...&account_name=...`: team-manager quota inspection/cleanup.
+  Deletion always includes team + provider + account and records an audit entry. Consumption events remain separate.
+- `/v1/admin/data/teams`, `/accounts?team_id=...`, `/audit`, `/legacy/accounts`, `/legacy/samples`, `/legacy/devices`:
+  platform-admin session only. Team account deletion uses `DELETE /v1/admin/data/accounts` with explicit team/provider/account.
+- `/v1/admin/d1-usage`: platform-admin D1 analytics. The old `/v1/d1-usage` is closed.
+- `/v1/admin/feedback`: existing platform feedback moderation.
+- `/v1/app-update`, `GET /v1/feedback`: public read-only content. Feedback and telemetry ingestion do not grant data access.
 
-5. Create a long random token and store it as a Worker secret.
+## Legacy D1 read-cost safeguards
 
-```bash
-openssl rand -hex 32
-wrangler secret put SYNC_TOKEN
-```
-
-6. Deploy.
-
-```bash
-wrangler deploy
-```
-
-7. For a development build, update `CloudSyncSettings` with the deployed Worker
-   URL and token, then rebuild AI Quota Bar.
-
-Do not commit production tokens or a populated `wrangler.toml`.
-
-## API
-
-- `GET /v1/health`: checks authentication and Worker availability.
-- `GET /v1/app-update`: public update manifest backed by the latest GitHub release.
-- `GET /v1/d1-usage`: returns account and database D1 usage when the optional Cloudflare analytics credentials are configured.
-- `POST /v1/quota-samples`: stores one refresh snapshot.
-- `GET /v1/quota-samples?device_id=...&limit=100`: returns the latest sample per model for inspection.
-- `GET /v1/quota-samples?history=1&limit=500`: returns refresh-history samples for chart reconstruction.
-- `GET /v1/account-summaries?limit=500`: summarizes retained data by provider and account for the settings data manager.
-- `GET /v1/devices`: lists synchronized devices.
-- `DELETE /v1/data?device_id=...`: deletes one device's synchronized data.
-- `DELETE /v1/data?provider=...&account_name=...`: deletes one provider/account group across devices.
-- `POST /v1/team/create`: self-service team creation (rate-limited); returns the team ID, invite code and login password exactly once.
-- `POST /v1/team/login` / `POST /v1/team/logout` / `GET /v1/team/overview` / `POST /v1/team/invite/rotate` / `POST /v1/team/devices/revoke`: team dashboard session and management.
-- `POST /v1/usage/join`: joins a team with an invite code, member name and device ID; returns a one-time device token.
-- `POST /v1/usage/member/passphrase`: device-authenticated member passphrase for multi-Mac name reuse.
-- `POST /v1/feedback`: submits feedback for the public wall. Same-origin browser requests (the `/feedback` page) and native app requests with `Authorization: Bearer <SYNC_TOKEN>` (the About tab) are accepted; 5 submissions per IP per hour.
-- `GET /v1/feedback?limit=20&offset=0`: public quick-fetch API returning published feedback only. Contact info is stored for the operator but never returned here:
-
-  ```bash
-  curl -s https://ai-quota-bar.pages.dev/v1/feedback?limit=20
-  ```
-
-- `GET /v1/admin/feedback` / `POST /v1/admin/feedback/status` / `DELETE /v1/admin/feedback?id=...`: operator-console moderation (list with contact, hide/restore, delete), behind the existing admin session.
-
-`/v1/app-update` is public. Every sync, inspection, usage, and deletion endpoint
-requires `Authorization: Bearer <SYNC_TOKEN>` (usage endpoints use per-device
-credentials instead). Self-service team endpoints additionally require the
-`USAGE_TEAMS_ENABLED = "true"` var and the `0005_team_selfservice.sql`
-migration; see `docs/codex-local-usage.md` for the full flow. Feedback needs the
-`0006_feedback.sql` migration:
-
-```bash
-npx wrangler d1 execute ai-quota-bar --remote --file=migrations/0006_feedback.sql
-```
-
-## D1 read-cost safeguards
+The following describes the quarantined historical tables and their original migration.
+Current team quota reads use the mandatory `team_quota_heads` table and team-prefixed indexes.
 
 The Worker preserves all retained history and the existing cross-device results.
 It does not reduce chart sampling frequency or shorten the user's retention:
