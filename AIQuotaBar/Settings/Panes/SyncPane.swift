@@ -6,6 +6,8 @@ import SwiftUI
 struct SyncPane: View {
     @Bindable var viewModel: UsageViewModel
 
+    @State private var showsDiagnostics = false
+    @State private var diagnostics = CloudDiagnosticLog.shared
     @State private var syncFeedback: InlineFeedback?
     @State private var accountFeedback: InlineFeedback?
     @State private var cleanupFeedback: InlineFeedback?
@@ -39,6 +41,7 @@ struct SyncPane: View {
             .padding(.horizontal, 20)
             .padding(.vertical, 12)
         }
+        .sheet(isPresented: $showsDiagnostics) { diagnosticSheet }
         .confirmationDialog(
             language.deleteLocalDataText(),
             isPresented: $isConfirmingLocalDelete,
@@ -144,10 +147,50 @@ struct SyncPane: View {
                 }
             }
 
+            HStack {
+                if let entry = diagnostics.entries.first {
+                    Text("\(entry.operation == "upload" ? (language == .simplifiedChinese ? "上传" : "Upload") : (language == .simplifiedChinese ? "读取" : "Download")) · \(entry.message)")
+                        .font(.caption).foregroundStyle(.secondary)
+                }
+                Spacer()
+                Button(language == .simplifiedChinese ? "同步日志…" : "Sync log…") { showsDiagnostics = true }
+                    .controlSize(.small)
+            }
+            if let error = viewModel.cloudUsageLoadError, viewModel.cloudSyncEnabled {
+                Text(error).font(.caption).foregroundStyle(.secondary).textSelection(.enabled)
+            }
             if viewModel.cloudSyncEnabled {
                 D1UsageStatusLine(state: d1UsageState, language: language)
             }
         }
+    }
+
+    private var diagnosticSheet: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            HStack {
+                Text(language == .simplifiedChinese ? "云同步日志" : "Cloud sync log").font(.headline)
+                Spacer()
+                Button(language == .simplifiedChinese ? "完成" : "Done") { showsDiagnostics = false }
+            }
+            Text(language == .simplifiedChinese ? "仅保存在本机，最多 200 条。连续相同结果合并计数，不记录凭据或服务器响应正文。" : "Stored locally, up to 200 entries. Repeated results are grouped; credentials and server response bodies are excluded.")
+                .font(.caption).foregroundStyle(.secondary)
+            List(diagnostics.entries) { entry in
+                VStack(alignment: .leading, spacing: 4) {
+                    HStack {
+                        Image(systemName: entry.failed ? "exclamationmark.circle" : "checkmark.circle")
+                        Text(entry.operation == "upload" ? (language == .simplifiedChinese ? "上传" : "Upload") : (language == .simplifiedChinese ? "读取" : "Download"))
+                        Spacer()
+                        Text(entry.date, format: .dateTime.month().day().hour().minute().second())
+                    }
+                    Text("\(entry.message) · ×\(entry.occurrences)").font(.caption).foregroundStyle(.secondary)
+                }.textSelection(.enabled)
+            }
+            HStack {
+                if diagnostics.entries.isEmpty { Text(language == .simplifiedChinese ? "暂无同步记录" : "No sync entries yet").foregroundStyle(.secondary) }
+                Spacer()
+                Button(language == .simplifiedChinese ? "清空日志" : "Clear log") { diagnostics.clear() }.disabled(diagnostics.entries.isEmpty)
+            }
+        }.padding(20).frame(width: 560, height: 440)
     }
 
     private var cloudVisibilitySection: some View {

@@ -1755,9 +1755,9 @@ body.is-dimmed.is-state-boosted .task-hero {
 
 @media (orientation: landscape) {
   :root {
-    /* One rem equals 14 reference pixels at 812 × 375, then scales as a
-       complete phone dashboard instead of leaving type fixed on larger views. */
-    font-size: max(12px, min(1.724138vw, 3.733333dvh));
+    /* Preserve readable phone sizing; larger landscape screens gain space
+       for information instead of indefinitely enlarging every label. */
+    font-size: clamp(12px, min(1.724138vw, 3.733333dvh), 16px);
   }
 
   .page {

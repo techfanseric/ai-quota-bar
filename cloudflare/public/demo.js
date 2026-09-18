@@ -6,30 +6,22 @@ const base=[132000,62000,187000,108000,221000,98000,136000];
 const labels={tokens:'Tokens',records:'用量记录',cache:'缓存命中率',cost:'估算成本'};
 const compact=n=>new Intl.NumberFormat('en',{notation:'compact',maximumFractionDigits:1}).format(n);
 document.querySelectorAll('[data-usage]').forEach(root=>{
- let range=7,metric='tokens',factor=1,selected=null;
- const chart=root.querySelector('svg');
- function data(){return Array.from({length:range===1?24:range},(_,i)=>({tokens:Math.round((range===7?base[i]:base[i%7]*(range===1?.055:.8+(i%4)*.1))*factor),records:Math.round((range===1?2+i%5:8+i%9)*factor),input:Math.round((range===7?base[i]:base[i%7])*.9*factor),cache:.22+(i%5)*.06,cost:null}));}
- function value(d){return metric==='cache'?d.cache*100:d[metric];}
- function format(v){return v===null?'价格不完整':metric==='cache'?v.toFixed(1)+'%':compact(v);}
- function date(i){return range===1?String(i).padStart(2,'0')+':00':new Date(Date.UTC(2026,8,19-range+i)).toISOString().slice(5,10).replace('-','/');}
- function render(){const rows=data(),tokens=rows.reduce((s,d)=>s+d.tokens,0),records=rows.reduce((s,d)=>s+d.records,0),cache=rows.reduce((s,d)=>s+d.cache*d.input,0)/rows.reduce((s,d)=>s+d.input,0)*100;
- const total=metric==='tokens'?tokens:metric==='records'?records:metric==='cache'?cache:null;
- root.querySelector('[data-value]').textContent=format(selected===null?total:value(rows[selected]));root.querySelector('[data-unit]').textContent=labels[metric];root.querySelector('[data-period]').textContent=selected===null?(range===1?'今天 · 按小时':`近 ${range} 天 · 按天`):date(selected);
- root.querySelector('[data-hint]').textContent=metric==='cost'?`未定价时段留空 · 价格覆盖 0/${records} 条`:'悬停查看历史 · 当前时段尚未结束';
- chart.replaceChildren();const max=metric==='cache'?100:Math.max(1,...rows.map(value).filter(v=>v!==null)),W=309,H=73;
- [0,.5,1].forEach(t=>{chart.append(svgNode('line',{x1:0,x2:W,y1:H-H*t+2,y2:H-H*t+2,class:'chart-grid'}),svgNode('text',{x:315,y:H-H*t+5},compact(max*t)));});
- rows.forEach((d,i)=>{const amount=value(d);if(amount===null)return;const x=(i+.5)*W/rows.length,y=H-amount/max*H+2;chart.append(svgNode(metric==='cache'?'circle':'rect',metric==='cache'?{cx:x,cy:y,r:2,class:'cache-dot'}:{x:x-W/rows.length*.4,y,width:W/rows.length*.8,height:H+2-y,rx:1,class:'usage-bar'}));});
- [0,Math.floor((rows.length-1)/2),rows.length-1].forEach((i,j)=>chart.append(svgNode('text',{x:j===0?0:j===1?W/2:W,y:91,'text-anchor':j===0?'start':j===1?'middle':'end'},date(i))));
- if(selected!==null){const x=(selected+.5)*W/rows.length;chart.append(svgNode('line',{x1:x,x2:x,y1:0,y2:H+2,class:'selection-guide'}));}
- chart.setAttribute('aria-label',`${range===1?'今天':`近 ${range} 天`} ${labels[metric]} · ${format(total)}，左右方向键查看单个时段`);
- if(root.dataset.usage==='settings'){document.querySelector('[data-local-total]').textContent=tokens.toLocaleString('en');document.querySelector('[data-local-records]').textContent=records;document.querySelector('[data-local-cache]').textContent=cache.toFixed(1)+'%';}
- }
- root.querySelectorAll('[data-range]').forEach(b=>b.addEventListener('click',()=>{range=Number(b.dataset.range);selected=null;pressed(root,'[data-range]','range',String(range));render();}));
- root.querySelectorAll('[data-metric]').forEach(b=>b.addEventListener('click',()=>{metric=b.dataset.metric;selected=null;pressed(root,'[data-metric]','metric',metric);render();}));
- chart.addEventListener('pointermove',e=>{const r=chart.getBoundingClientRect(),x=(e.clientX-r.left)/r.width*340;selected=x<=309?Math.min(data().length-1,Math.max(0,Math.floor(x/309*data().length))):null;render();});chart.addEventListener('pointerleave',()=>{selected=null;render();});
- chart.addEventListener('keydown',e=>{if(!['ArrowLeft','ArrowRight','Escape'].includes(e.key))return;e.preventDefault();selected=e.key==='Escape'?null:Math.min(data().length-1,Math.max(0,(selected??0)+(e.key==='ArrowRight'?1:-1)));render();});chart.addEventListener('blur',()=>{selected=null;render();});
- if(root.dataset.usage==='settings')document.querySelector('#history-account').addEventListener('change',e=>{factor={current:1,previous:.48,unknown:.16}[e.target.value];selected=null;render();});render();
+ let metric='tokens',factor=1;
+ const matrix=root.querySelector('.activity-matrix'),hours=root.querySelector('.activity-hours');
+ const daily=Array.from({length:30},(_,i)=>({tokens:base[i%7]*(.8+i%4*.1),records:8+i%9,cache:22+i%5*6,cost:null}));
+ function format(v){return v===null?'未定价':metric==='cache'?v.toFixed(1)+'%':compact(v);}
+ function show(v,label){root.querySelector('[data-value]').textContent=format(v);root.querySelector('[data-unit]').textContent=labels[metric];root.querySelector('[data-period]').textContent=label;}
+ function total(){return metric==='cost'?null:metric==='cache'?daily.reduce((s,d)=>s+d.cache*d.tokens,0)/daily.reduce((s,d)=>s+d.tokens,0):daily.reduce((s,d)=>s+d[metric]*factor,0);}
+ function bar(parent,amount,max,label,isHour=false){const b=document.createElement('button');b.type='button';b.setAttribute('aria-label',label+' · '+format(amount));b.title=label+' · '+format(amount);if(isHour){const i=document.createElement('i');i.style.height=amount===null?'0':Math.max(2,amount/max*100)+'%';b.append(i);}else{b.style.background=amount===null?'repeating-linear-gradient(135deg,#ddd 0 1px,#eee 1px 4px)':['#edf0ed','#c5e5cc','#9dd5aa','#6fc181','#39a953'][Math.min(4,Math.ceil(amount/max*4))];}
+ const enter=()=>show(amount,label),leave=()=>show(total(),'近 30 天');b.addEventListener('mouseenter',enter);b.addEventListener('focus',enter);b.addEventListener('mouseleave',leave);b.addEventListener('blur',leave);parent.append(b);}
+ function render(){matrix.replaceChildren();hours.replaceChildren();const max=metric==='cache'?100:Math.max(1,...daily.map(d=>(d[metric]||0)*factor));for(let i=0;i<4;i++){const empty=document.createElement('span');empty.className='empty';matrix.append(empty);}daily.forEach((d,i)=>bar(matrix,d[metric]===null?null:d[metric]*(metric==='cache'?1:factor),max,new Date(Date.UTC(2026,7,20+i)).toISOString().slice(5,10).replace('-','/')));
+ for(let i=0;i<11;i++)bar(hours,metric==='cost'?null:metric==='cache'?22+i%5*6:daily[i%30][metric]*factor/10,max/(metric==='cache'?1:8),String(i).padStart(2,'0')+':00',true);for(let i=11;i<24;i++){const future=document.createElement('button');future.disabled=true;future.setAttribute('aria-label',String(i).padStart(2,'0')+':00 · 尚未开始');hours.append(future);}
+ show(total(),'近 30 天');root.querySelector('[data-hint]').textContent=metric==='cost'?'未配置单价的时段保留为未定价':'悬停查看每日或每小时用量';
+ if(root.dataset.usage==='settings'){document.querySelector('[data-local-total]').textContent=Math.round(daily.reduce((s,d)=>s+d.tokens*factor,0)).toLocaleString('en');document.querySelector('[data-local-records]').textContent=Math.round(daily.reduce((s,d)=>s+d.records*factor,0));document.querySelector('[data-local-cache]').textContent='34.2%';}}
+ root.querySelectorAll('[data-metric]').forEach(b=>b.addEventListener('click',()=>{metric=b.dataset.metric;pressed(root,'[data-metric]','metric',metric);render();}));
+ if(root.dataset.usage==='settings')document.querySelector('#history-account').addEventListener('change',e=>{factor={current:1,previous:.48,unknown:.16}[e.target.value];render();});render();
 });
+document.querySelectorAll('.mini-connection-map').forEach(root=>{for(let i=0;i<48;i++){const bar=document.createElement('i');bar.style.height=(20+(i*17)%45)+'px';root.append(bar);}});
 document.querySelectorAll('[data-quota]').forEach((root,index)=>{
  const weekly=root.dataset.quota==='Weekly',count=weekly?12:24,levels=Array.from({length:count},(_,i)=>[14,35,8,62,21,48,73,35,57,26,46,36][i%12]);
  const chart=root.querySelector('svg'),meta=root.querySelector('[data-quota-meta]'),heading=root.querySelector('.native-model strong');
@@ -47,4 +39,4 @@ const modelRows=[...document.querySelectorAll('[data-model]')],account=document.
 function renderSettings(){const selected=modelRows.filter(r=>r.querySelector('[data-mobile]').checked).length;let visible=0;modelRows.forEach(row=>{const menu=row.querySelector('[data-menu]'),mobile=row.querySelector('[data-mobile]');menu.disabled=!account.checked;mobile.disabled=mobile.checked?selected<=1:selected>=2;mobile.title=mobile.disabled?(mobile.checked?'至少保留一项':'请先取消另一项'):'在手机看板显示';if(account.checked&&menu.checked)visible++;});document.querySelector('#menu-count').textContent=`菜单 · 显示 ${visible} / 3`;document.querySelector('#mobile-count').textContent=`手机 · 已选择 ${selected}/2`;document.querySelector('#show-all').disabled=account.checked&&modelRows.every(r=>r.querySelector('[data-menu]').checked);document.querySelector('#selection-help').textContent='账号开关保留各模型选择。手机保留 1–2 项；隐藏不影响采集、历史、告警或同步。';}
 document.querySelectorAll('.settings-table input,.settings-table select').forEach(c=>c.addEventListener('change',renderSettings));document.querySelector('#show-all').addEventListener('click',()=>{account.checked=true;modelRows.forEach(r=>r.querySelector('[data-menu]').checked=true);renderSettings();});renderSettings();
 const map=document.querySelector('#connection-map');[0,7,14].forEach(n=>map.append(svgNode('text',{x:4,y:108-n*6.5,fill:'#8c9285','font-size':9},n)));for(let i=0;i<60;i++){const count=4+Math.round(3*(1+Math.sin(i*.22)))+(i%7===0?2:0);for(let j=0;j<count;j++){map.append(svgNode('rect',{x:26+i*6.4,y:100-j*6.5,width:4.6,height:4.6,rx:1.3,fill:j<2&&i>35?'#d69b31':'#42bf60'}));}}[['−60m',26],['−30m',205],['now',386]].forEach(([label,x])=>map.append(svgNode('text',{x,y:127,fill:'#8c9285','font-size':9},label)));
-window.addEventListener('message',event=>{const frame=document.getElementById('mobile-preview');if(event.source===frame.contentWindow&&event.data?.type==='aqb-preview-ready')frame.dataset.ready='true';});
+window.addEventListener('message',event=>{document.querySelectorAll('iframe').forEach(frame=>{if(event.source===frame.contentWindow&&event.data?.type==='aqb-preview-ready')frame.dataset.ready='true';});});

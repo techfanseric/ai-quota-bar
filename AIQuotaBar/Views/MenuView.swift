@@ -53,7 +53,7 @@ struct MenuView: View {
             MenuPlaceholderCard(
                 icon: "icloud",
                 title: language == .simplifiedChinese ? "等待云端记录" : "Waiting for cloud history",
-                message: viewModel.cloudUsageLoadError ?? (language == .simplifiedChinese ? "云同步已配置，无需添加本机供应商。正在读取历史记录。" : "Cloud sync is configured; no local provider is required. Loading history."),
+                message: (language == .simplifiedChinese ? "云同步已配置，无需添加本机供应商。正在读取历史记录。" : "Cloud sync is configured; no local provider is required. Loading history."),
                 primaryActionTitle: language.text(.refresh),
                 primaryAction: { Task { await viewModel.refresh(showIconSelfTest: false) } },
                 secondaryActionTitle: language.text(.settings),
@@ -89,20 +89,6 @@ struct MenuView: View {
                 }
                 .padding(.horizontal, 4)
                 .padding(.bottom, 8)
-
-                if let cloudError = viewModel.cloudUsageLoadError {
-                    HStack(spacing: 6) {
-                        Image(systemName: "icloud.slash")
-                            .font(.system(size: 10, weight: .medium))
-                        Text("Cloud data unavailable: \(cloudError)")
-                            .font(.system(size: 10))
-                            .lineLimit(2)
-                        Spacer()
-                    }
-                    .foregroundStyle(.tertiary)
-                    .padding(.horizontal, 8)
-                    .padding(.bottom, 6)
-                }
 
                 ForEach(Array(sections.enumerated()), id: \.offset) { _, data in
                     ProviderModelsSection(
@@ -588,16 +574,7 @@ private struct ProviderModelsSection: View {
                 .foregroundStyle(.secondary)
                 .lineLimit(1)
 
-            Button {
-                viewModel.setProviderEnabled(false, provider: data.provider)
-                notifyLayoutChange()
-            } label: {
-                Image(systemName: "pause.circle")
-                    .font(.system(size: 10, weight: .medium))
-                    .foregroundStyle(.secondary)
-            }
-            .buttonStyle(.plain)
-            .help(language.pauseProviderAction(provider: data.provider))
+
         }
         .padding(.horizontal, 8)
         .padding(.top, 6)
