@@ -2,6 +2,17 @@
 // All rendering uses createElement/textContent; contact info is never part of
 // the public API response.
 const $=id=>document.getElementById(id);
+const EN=document.documentElement.lang==='en';
+const T={
+ anonymous:EN?'Anonymous':'匿名用户', web:EN?'Web':'网页',
+ locale:EN?'en-US':'zh-CN',
+ more:(o,t)=>EN?`Load more (${o}/${t})`:`加载更多（${o}/${t}）`,
+ rateLimited:EN?'Too many submissions — try again in an hour.':'提交过于频繁，请 1 小时后再试。',
+ tooLong:EN?'The message is too long — please shorten it.':'留言内容太长了，请精简后重试。',
+ invalid:EN?'The message content was rejected — please review and retry.':'留言内容不符合要求，请检查后重试。',
+ unavailable:EN?'The feedback service is temporarily unavailable — try again later.':'反馈服务暂不可用，请稍后重试。',
+ failed:EN?'Submission failed — try again later.':'提交失败，请稍后重试。',
+};
 const PAGE=20;
 let loading=false,offset=0;
 async function api(path,options={}) {
@@ -13,10 +24,10 @@ async function api(path,options={}) {
 function card(item) {
 	const li=document.createElement('li');li.className='feedback-item';
 	const head=document.createElement('div');head.className='item-head';
-	const name=document.createElement('strong');name.textContent=item.nickname||'匿名用户';
+	const name=document.createElement('strong');name.textContent=item.nickname||T.anonymous;
 	const meta=document.createElement('span');meta.className='meta';
-	const date=new Date(item.createdAt);const time=isNaN(date.getTime())?item.createdAt:date.toLocaleString('zh-CN',{year:'numeric',month:'2-digit',day:'2-digit',hour:'2-digit',minute:'2-digit'});
-	meta.textContent=(item.source==='app'?'App':'网页')+(item.appVersion?' · v'+item.appVersion:'')+' · '+time;
+	const date=new Date(item.createdAt);const time=isNaN(date.getTime())?item.createdAt:date.toLocaleString(T.locale,{year:'numeric',month:'2-digit',day:'2-digit',hour:'2-digit',minute:'2-digit'});
+	meta.textContent=(item.source==='app'?'App':T.web)+(item.appVersion?' · v'+item.appVersion:'')+' · '+time;
 	head.append(name,meta);
 	const message=document.createElement('p');message.textContent=item.message;
 	li.append(head,message);
@@ -33,7 +44,7 @@ async function loadWall(reset=true) {
 		$('wall-empty').hidden=data.total>0;
 		$('wall-error').hidden=true;
 		$('more').hidden=offset>=data.total;
-		$('more').textContent='加载更多（'+offset+'/'+data.total+'）';
+		$('more').textContent=T.more(offset,data.total);
 	}catch{$('wall-error').hidden=false;}
 	finally{loading=false;$('refresh').disabled=false;$('more').disabled=false;}
 }
@@ -45,11 +56,11 @@ $('feedback-form').addEventListener('submit',async event=>{
 		$('feedback-form').reset();$('submit-success').hidden=false;
 		await loadWall(true);
 	}catch(error){
-		$('submit-error').textContent=error.status===429?'提交过于频繁，请 1 小时后再试。'
-			:error.status===413?'留言内容太长了，请精简后重试。'
-			:error.status===400?'留言内容不符合要求，请检查后重试。'
-			:error.status===503?'反馈服务暂不可用，请稍后重试。'
-			:'提交失败，请稍后重试。';
+		$('submit-error').textContent=error.status===429?T.rateLimited
+			:error.status===413?T.tooLong
+			:error.status===400?T.invalid
+			:error.status===503?T.unavailable
+			:T.failed;
 	}finally{button.disabled=false;}
 });
 $('refresh').addEventListener('click',()=>loadWall(true));

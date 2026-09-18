@@ -77,6 +77,9 @@ struct CodexUsageActivityView: View {
     var now: Date = Date()
     var showsLocalLabel = false
     var subscription: CodexSubscriptionMarker? = nil
+    var calendar: Calendar = .current
+    var hourlyCaption: String? = nil
+    var onSelectDay: ((Date) -> Void)? = nil
     @State private var metric = Metric.tokens
     @State private var selectedDay: Int?
     @State private var selectedHour: Int?
@@ -123,13 +126,13 @@ struct CodexUsageActivityView: View {
             }
             HStack(alignment: .top, spacing: 5) {
                 VStack(alignment: .leading, spacing: 4) {
-                    Text(now.formatted(.dateTime.month(.abbreviated).locale(Locale(identifier: language == .simplifiedChinese ? "zh_CN" : "en_US"))))
+                    Text(calendarLabel(daily.first?.start ?? now, format: "MMM"))
                         .font(.system(size: 9)).foregroundStyle(.secondary)
                     matrix
                 }
                 VStack(alignment: .leading, spacing: 4) {
                     HStack {
-                        Text(t("近 \(hourly.count / 12)h", "Last \(hourly.count / 12)h"))
+                        Text(hourlyCaption ?? t("近 \(hourly.count / 12)h", "Last \(hourly.count / 12)h"))
                         Spacer(minLength: 2)
                         Text(t("每格 5m", "5m / cell")).foregroundStyle(.tertiary)
                     }.font(.system(size: 9)).foregroundStyle(.secondary)
@@ -144,7 +147,7 @@ struct CodexUsageActivityView: View {
                 } else {
                     summaryValue(t("本月", "Month"), total)
                     Spacer(minLength: 6)
-                    summaryValue(t("近 24h", "Last 24h"), UsageActivityLayout.summary(hourly))
+                    summaryValue(hourlyCaption ?? t("近 24h", "Last 24h"), UsageActivityLayout.summary(hourly))
                 }
             }
             if metric == .cost && total.pricedRecords < total.records {
@@ -167,7 +170,7 @@ struct CodexUsageActivityView: View {
         }
     }
     private var matrix: some View {
-        let slots = UsageActivityLayout.slots(dates: daily.map(\.start))
+        let slots = UsageActivityLayout.slots(dates: daily.map(\.start), calendar: calendar)
         let maximum = metric == .cache ? 100 : daily.compactMap { value($0.summary) }.max() ?? 1
         return HStack(alignment: .top, spacing: 3) {
             ForEach(0..<(slots.count / 7), id: \.self) { column in
@@ -191,10 +194,10 @@ struct CodexUsageActivityView: View {
         let bucket = daily[index]
         let text = dateLabel(bucket.start) + " · " + formatted(bucket.summary) + " " + label(metric)
         let future = bucket.start > now
-        let marker = subscription.flatMap { Calendar.current.isDate($0.date, inSameDayAs: bucket.start) ? $0 : nil }
+        let marker = subscription.flatMap { calendar.isDate($0.date, inSameDayAs: bucket.start) ? $0 : nil }
         let billingLabel = marker.map { $0.renews ? t("自动续费", "Auto-renews") : t("订阅到期 · 不续费", "Expires · No renewal") }
         let border = selectedDay == index ? Color.primary.opacity(0.5) : Color.clear
-        return Button { selectedDay = selectedDay == index ? nil : index; selectedHour = nil } label: {
+        return Button { selectedDay = selectedDay == index ? nil : index; selectedHour = nil; onSelectDay?(bucket.start) } label: {
             cell(amount: value(bucket.summary), maximum: maximum)
                 .overlay(RoundedRectangle(cornerRadius: 2).stroke(border, lineWidth: 1))
                 .overlay {
@@ -244,7 +247,7 @@ struct CodexUsageActivityView: View {
                                 }
                             }
                         }
-                        Text(row.isMultiple(of: 2) ? String(format: "%02d", Calendar.current.component(.hour, from: hourly[row * 12].start)) : " ")
+                        Text(row.isMultiple(of: 2) ? String(format: "%02d", calendar.component(.hour, from: hourly[row * 12].start)) : " ")
                             .font(.system(size: 7)).monospacedDigit()
                             .foregroundStyle(.secondary).lineLimit(1).minimumScaleFactor(0.75)
                             .frame(width: width, height: 9)
@@ -264,16 +267,23 @@ struct CodexUsageActivityView: View {
         dateLabel(bucket.start, hourly: true) + "–" + clockLabel(bucket.end)
     }
     private func clockLabel(_ date: Date) -> String {
-        date.formatted(.dateTime.hour(.twoDigits(amPM: .omitted)).minute().locale(Locale(identifier: "en_GB")))
+        calendarLabel(date, format: "HH:mm")
     }
     private func dayCallout(_ index: Int) -> String {
         let bucket = daily[index]
-        let marker = subscription.flatMap { Calendar.current.isDate($0.date, inSameDayAs: bucket.start) ? $0 : nil }
+        let marker = subscription.flatMap { calendar.isDate($0.date, inSameDayAs: bucket.start) ? $0 : nil }
         let billing = marker.map { $0.renews ? t("自动续费", "Auto-renews") : t("到期不续费", "Expires; no renewal") }
         return ([dateLabel(bucket.start), bucket.start <= now ? formatted(bucket.summary) : nil, billing].compactMap { $0 }).joined(separator: " · ")
     }
+    private func calendarLabel(_ date: Date, format: String) -> String {
+        if format == "HH:mm" { return String(format: "%02d:%02d", calendar.component(.hour, from: date), calendar.component(.minute, from: date)) }
+        if format == "MM/dd" { return String(format: "%02d/%02d", calendar.component(.month, from: date), calendar.component(.day, from: date)) }
+        let formatter = DateFormatter(); formatter.calendar = calendar; formatter.timeZone = calendar.timeZone
+        formatter.locale = Locale(identifier: language == .simplifiedChinese ? "zh_CN" : "en_US"); formatter.dateFormat = format
+        return formatter.string(from: date)
+    }
     private func dateLabel(_ date: Date, hourly: Bool = false) -> String {
-        date.formatted(.dateTime.month(.twoDigits).day(.twoDigits)) + (hourly ? " " + clockLabel(date) : "")
+        calendarLabel(date, format: "MM/dd") + (hourly ? " " + clockLabel(date) : "")
     }
 }
 

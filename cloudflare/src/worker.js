@@ -54,7 +54,7 @@ export default {
       if (url.pathname.startsWith("/v1/feedback")) {
         return await feedbackService(request, env, url);
       }
-      if (["GET", "HEAD"].includes(request.method) && ["/team", "/team/", "/team.css", "/team.js"].includes(url.pathname)) {
+      if (["GET", "HEAD"].includes(request.method) && ["/team", "/team/", "/team-locale-1.js","/team-locale-2.js", "/team.css", "/team.js", "/team-charts.js"].includes(url.pathname)) {
         const assetURL = new URL(request.url);
         if (["/team", "/team/"].includes(url.pathname)) assetURL.pathname = "/team";
         const asset = await env.ASSETS.fetch(new Request(assetURL, request));
@@ -68,9 +68,10 @@ export default {
       }
       // The public feedback wall. Unlike /team it is indexable content, so no
       // x-robots-tag is set; it still needs connect-src 'self' for its API calls.
-      if (["GET", "HEAD"].includes(request.method) && ["/feedback", "/feedback/", "/feedback.css", "/feedback.js"].includes(url.pathname)) {
+      if (["GET", "HEAD"].includes(request.method) && ["/feedback", "/feedback/", "/en/feedback", "/en/feedback/", "/feedback-locale-zh-1.js", "/feedback-locale-en-1.js", "/feedback.css", "/feedback.js"].includes(url.pathname)) {
         const assetURL = new URL(request.url);
         if (["/feedback", "/feedback/"].includes(url.pathname)) assetURL.pathname = "/feedback";
+        if (["/en/feedback", "/en/feedback/"].includes(url.pathname)) assetURL.pathname = "/en/feedback";
         const asset = await env.ASSETS.fetch(new Request(assetURL, request));
         const response = new Response(asset.body, asset);
         response.headers.set("cache-control", "no-store");
@@ -79,7 +80,7 @@ export default {
         response.headers.set("referrer-policy", "no-referrer");
         return response;
       }
-      if (["GET", "HEAD"].includes(request.method) && ["/admin", "/admin/", "/admin.css", "/admin.js"].includes(url.pathname)) {
+      if (["GET", "HEAD"].includes(request.method) && ["/admin", "/admin/", "/admin-locale-1.js","/admin-locale-2.js", "/admin.css", "/admin.js"].includes(url.pathname)) {
         const assetURL = new URL(request.url);
         if (["/admin", "/admin/"].includes(url.pathname)) assetURL.pathname = "/admin";
         const asset = await env.ASSETS.fetch(new Request(assetURL, request));
@@ -102,7 +103,7 @@ export default {
         response.headers.set("cache-control", "public, max-age=0, must-revalidate");
         return response;
       }
-      const publicPaths = new Set(["/", "/index.html", "/site.css", "/demo.js", "/favicon.svg", "/robots.txt", "/sitemap.xml", "/changelog", "/changelog/", "/changelog.html", "/changelog.css", "/changelog.js", "/app-icon.png", "/cycle-demo.js", "/en", "/en/", "/en/index.html", "/usage-demo.js", "/usage-fixture.js", "/provider-logos/codex.svg", "/provider-logos/kimi.svg", "/team-settings-en.png", "/team-settings-zh-Hans.png"]);
+      const publicPaths = new Set(["/language-links.js", "/home-locale-zh-1.js", "/home-locale-en-1.js", "/changelog-locale-zh.js", "/changelog-locale-en.js", "/", "/index.html", "/site.css", "/demo.js", "/favicon.svg", "/robots.txt", "/sitemap.xml", "/changelog", "/changelog/", "/changelog.html", "/changelog.css", "/changelog.js", "/app-icon.png", "/cycle-demo.js", "/en", "/en/", "/en/index.html", "/en/changelog", "/en/changelog/", "/en/feedback", "/en/feedback/", "/usage-demo.js", "/usage-fixture.js", "/provider-logos/codex.svg", "/provider-logos/kimi.svg", "/team-settings-en.png", "/team-settings-zh-Hans.png"]);
       if (["GET", "HEAD"].includes(request.method) && publicPaths.has(url.pathname)) {
         const asset = await env.ASSETS.fetch(request);
         const response = new Response(asset.body, asset);

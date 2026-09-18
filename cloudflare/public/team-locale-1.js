@@ -1,0 +1,1 @@
+(function(){try{var s=localStorage.getItem('aqb-lang')}catch(e){}var n=(navigator.languages&&navigator.languages[0]||navigator.language||'').toLowerCase();var en=s?s==='en':n.indexOf('zh')!==0;document.documentElement.lang=en?'en':'zh-CN';window.AQB_EN=en})();

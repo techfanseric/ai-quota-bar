@@ -29,6 +29,8 @@ AI coding work is hard to manage when quota, network routes, and Mac sleep setti
 
 **Create teams in Settings and open your team without signing in again.** Usage & Team now defaults to creation, offers an explicit create/join-and-switch flow, and loads team usage automatically. Every member can open a read-only team dashboard; managers enter directly with credentials saved in macOS Keychain. Existing managers enter their password once to enable this.
 
+**See who used how much:** member comparison bars, monthly calendars and 288 five-minute cells for the last 24 hours. Select a day to inspect its details, filter by member/device/account, and switch tokens, records, cache hit or cost. Available in Settings and the team dashboard.
+
 Browser handoff links last two minutes and can be used once. Members can inspect their team's members, devices, usage and quota accounts, but cannot delete data, revoke devices or rotate invitations. Cross-team controls remain in `/admin`. This release also corrects website previews against the native app, including overlapping hero heatmap cells.
 
 [Website](https://ai-quota-bar.pages.dev) · [Changelog](https://ai-quota-bar.pages.dev/changelog) · [Full v1.20.0 release notes](./docs/releases/v1.20.0.md)

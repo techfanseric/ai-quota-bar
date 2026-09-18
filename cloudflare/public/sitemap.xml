@@ -1,2 +1,4 @@
 <?xml version="1.0" encoding="UTF-8"?><urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9"><url><loc>https://ai-quota-bar.pages.dev/</loc></url><url><loc>https://ai-quota-bar.pages.dev/changelog</loc></url><url><loc>https://ai-quota-bar.pages.dev/feedback</loc></url>  <url><loc>https://ai-quota-bar.pages.dev/en/</loc><changefreq>weekly</changefreq><priority>0.9</priority></url>
+  <url><loc>https://ai-quota-bar.pages.dev/en/changelog</loc><changefreq>weekly</changefreq></url>
+  <url><loc>https://ai-quota-bar.pages.dev/en/feedback</loc><changefreq>weekly</changefreq></url>
 </urlset>

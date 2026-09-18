@@ -165,6 +165,13 @@ final class UsageClientTests: XCTestCase {
         let ownerClient = try UsageClient(endpoint: endpoint, token: owner.token)
         let ownerIdentity = try await ownerClient.identity()
         XCTAssertEqual(ownerIdentity.identity.team_name, "Native Created Team")
+        _ = try await ownerClient.send([event])
+        let chart = try await ownerClient.timeline(from: UsageTime.parse("2026-01-02T00:00:00Z")!, to: UsageTime.parse("2026-01-03T00:00:00Z")!, bucketSeconds: 300, member: owner.identity.member_id, device: "created-team-device")
+        XCTAssertEqual(chart.buckets.count, 288)
+        XCTAssertEqual(chart.buckets[144].summary.records, 1)
+        XCTAssertEqual(chart.buckets[144].summary.tokens.total, 110)
+        XCTAssertEqual(chart.buckets[0].summary.records, 0)
+        XCTAssertEqual(chart.buckets.reduce(0) { $0 + $1.summary.records }, 1)
         for password in [nil, created.loginPassword] as [String?] {
             let url = try await ownerClient.teamBrowserURL(managementPassword: password)
             let ticket = String(try XCTUnwrap(url.fragment).dropFirst("handoff=".count))

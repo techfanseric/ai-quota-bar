@@ -83,6 +83,7 @@ struct TeamSettingsSection: View {
         }
         .task(id: model.connection?.binding) {
             await model.refreshManagementAccess()
+            guard !Task.isCancelled else { return }
             if model.connection != nil { await model.loadTeam() }
         }
         .sheet(isPresented: $switchingTeam) {
@@ -197,6 +198,8 @@ struct TeamSettingsSection: View {
                     Button(t("刷新", "Refresh")) { Task { await model.loadTeam() } }.disabled(model.teamLoading)
                     if model.teamLoading { ProgressView().controlSize(.small) }
                 }
+                TeamUsageCharts(model: model, language: viewModel.appLanguage)
+                DisclosureGroup(t("成员与设备明细", "Member & device details")) {
                 ForEach(model.teamRows) { row in
                     DisclosureGroup {
                         ForEach(model.teamDevices.filter { $0.memberID == row.id }) { device in
@@ -208,6 +211,7 @@ struct TeamSettingsSection: View {
                             Text(rowDetails(row)).font(.caption).foregroundStyle(.secondary)
                         }
                     }
+                }
                 }
                 if let error = model.teamLoadError { Text(error).font(.caption).foregroundStyle(.red) }
                 if let updated = model.teamUpdatedAt { Text(t("更新于 ", "Updated ") + updated.formatted(date: .omitted, time: .shortened)).font(.caption).foregroundStyle(.secondary) }

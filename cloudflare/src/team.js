@@ -4,7 +4,7 @@ import { quotaAccounts, deleteTeamQuota, auditStatement } from './team-quota.js'
 // session that powers the /team dashboard. Sessions are signed with the
 // team's stored login hash, so no global secret is shared between teams.
 import { digest, teamsEnabled, hitLimit, clearLimit, constantTimeEqual, newTeamID, newInviteCode, newLoginPassword, inviteHash, loginHash } from './usage-team-core.js';
-import { usageGroups } from './local-usage.js';
+import { usageGroups, usageSeries } from './local-usage.js';
 
 const enc = new TextEncoder();
 const COOKIE = '__Host-aqb_team';
@@ -98,6 +98,7 @@ export async function teamService(request, env, url) {
     const expectedTeam = request.headers.get('x-aqb-team');
     if (expectedTeam && expectedTeam !== session.teamID) return json({error:'team_session_changed'},409);
     if (session.role === 'member' && request.method !== 'GET') return json({error:'team_manager_required'},403);
+    if (url.pathname === '/v1/team/timeline' && request.method === 'GET') return await usageSeries(env,session.teamID,url);
     if (url.pathname === '/v1/team/accounts' && request.method === 'GET') return json({ok:true,accounts:await quotaAccounts(env,session.teamID)});
     if (url.pathname === '/v1/team/accounts' && request.method === 'DELETE') {
       if (!sameOrigin(request,url)) return json({error:'invalid_origin'},403);
