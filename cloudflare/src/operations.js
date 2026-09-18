@@ -51,6 +51,23 @@ export async function operations(request,env,url) {
   }
   if(!await authorized(request,env))return json({error:'unauthorized'},401);
   if(request.method==='GET'&&url.pathname==='/v1/admin/overview')return await overview(env,url);
+  if(request.method==='GET'&&url.pathname==='/v1/admin/feedback')return await feedbackList(env,url);
+  if(request.method==='POST'&&url.pathname==='/v1/admin/feedback/status') {
+   if(request.headers.get('origin')!==null&&request.headers.get('origin')!==url.origin)return json({error:'invalid_origin'},403);
+   const p=await readBody(request);
+   if(!p||typeof p!=='object'||Object.keys(p).some(k=>!['id','status'].includes(k))
+     ||typeof p.id!=='string'||!/^f[a-f0-9]{16}$/.test(p.id)
+     ||!['published','hidden'].includes(p.status))return json({error:'invalid_payload'},400);
+   await env.DB.prepare('UPDATE feedback_messages SET status=? WHERE id=?').bind(p.status,p.id).run();
+   return json({ok:true});
+  }
+  if(request.method==='DELETE'&&url.pathname==='/v1/admin/feedback') {
+   if(request.headers.get('origin')!==null&&request.headers.get('origin')!==url.origin)return json({error:'invalid_origin'},403);
+   const id=url.searchParams.get('id');
+   if(typeof id!=='string'||!/^f[a-f0-9]{16}$/.test(id))return json({error:'invalid_payload'},400);
+   await env.DB.prepare('DELETE FROM feedback_messages WHERE id=?').bind(id).run();
+   return json({ok:true});
+  }
   return json({error:'not_found'},404);
  }catch(e){if(['invalid_body','body_too_large'].includes(e.message))return json({error:e.message},e.message==='body_too_large'?413:400);return json({error:'operations_unavailable'},503);}
 }
@@ -81,6 +98,17 @@ async function telemetry(request,env,url) {
   env.DB.prepare('DELETE FROM telemetry_days WHERE day<?').bind(cutoff),
  ]);
  return json({ok:true});
+}
+async function feedbackList(env,url) {
+ const limitRaw=url.searchParams.get('limit')||'50';
+ if(!/^\d{1,3}$/.test(limitRaw)||Number(limitRaw)<1||Number(limitRaw)>200)return json({error:'invalid_limit'},400);
+ const results=await env.DB.batch([
+  env.DB.prepare('SELECT status,COUNT(*) count FROM feedback_messages GROUP BY status'),
+  env.DB.prepare('SELECT id,nickname,message,contact,source,app_version,os_version,status,created_at FROM feedback_messages ORDER BY created_at DESC, id DESC LIMIT ?').bind(Number(limitRaw)),
+ ]);
+ const counts={published:0,hidden:0};
+ for(const row of results[0].results)counts[row.status]=row.count;
+ return json({ok:true,counts,items:results[1].results.map(row=>({id:row.id,nickname:row.nickname,message:row.message,contact:row.contact,source:row.source,appVersion:row.app_version,osVersion:row.os_version,status:row.status,createdAt:row.created_at}))});
 }
 async function overview(env,url) {
  const raw=url.searchParams.get('days')||'30';if(!['7','30','90'].includes(raw))return json({error:'invalid_range'},400);

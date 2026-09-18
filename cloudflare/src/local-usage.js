@@ -1,7 +1,8 @@
+import { digest, teamsEnabled, hitLimit, clearLimit, constantTimeEqual, normalizeInvite, inviteHash, memberPassHash, newMemberID } from './usage-team-core.js';
+
 const MAX_BODY = 512 * 1024;
-const json = (body, status = 200) => new Response(JSON.stringify(body), { status,
-  headers: { 'content-type': 'application/json; charset=utf-8', 'cache-control': 'no-store' } });
-const digest = async value => [...new Uint8Array(await crypto.subtle.digest('SHA-256', new TextEncoder().encode(value)))].map(x => x.toString(16).padStart(2, '0')).join('');
+const json = (body, status = 200, headers = {}) => new Response(JSON.stringify(body), { status,
+  headers: { 'content-type': 'application/json; charset=utf-8', 'cache-control': 'no-store', ...headers } });
 const text = (value, max = 120) => typeof value === 'string' && value.trim().length > 0 && value.length <= max && !/[\u0000-\u001f]/.test(value);
 const date = value => typeof value === 'string' && /^\d{4}-\d{2}-\d{2}T/.test(value) && Number.isFinite(Date.parse(value));
 async function body(request) {
@@ -57,6 +58,46 @@ function priceTable(env) {
   return prices;
 }
 
+// Team-scoped aggregation shared by the device-facing summary endpoint and the
+// /team dashboard. Splits aggregates by price interval, not individual
+// requests, so the event ledger never loads into Worker memory.
+export async function usageGroups(env, teamID, from, to, group, member = null) {
+  const prices = priceTable(env);
+  const clauses = []; const priceArgs = [];
+  prices.forEach((p, index) => {
+    clauses.push(`WHEN model=? AND occurred_at>=? AND occurred_at<? THEN ${index}`);
+    priceArgs.push(p.model, new Date(p.effectiveFrom).toISOString(), p.effectiveTo ? new Date(p.effectiveTo).toISOString() : '9999-12-31T00:00:00.000Z');
+  });
+  const priceCase = clauses.length ? `(CASE ${clauses.join(' ')} ELSE -1 END)` : '-1';
+  const dimension = { member: 'member_id', device: 'device_id', model: 'model', account: "COALESCE(account_id,'unknown')" }[group];
+  const sql = `SELECT ${dimension} AS id, member_id, ${priceCase} AS price_index, COUNT(*) AS records,
+    SUM(input_tokens) AS input, SUM(cached_tokens) AS cached, SUM(cache_write_tokens) AS cacheWrite,
+    SUM(output_tokens) AS output, SUM(reasoning_tokens) AS reasoning,
+    SUM(CASE WHEN quality<>'exact' THEN 1 ELSE 0 END) AS estimatedRecords,
+    SUM(CASE WHEN cache_write_tokens>0 THEN 1 ELSE 0 END) AS writeRecords
+    FROM usage_events WHERE team_id=? AND occurred_at>=? AND occurred_at<? ${member ? 'AND member_id=?' : ''}
+    GROUP BY ${dimension},${group === 'device' ? 'member_id,' : ''}price_index,(cache_write_tokens>0)`;
+  const result = await env.DB.prepare(sql).bind(...priceArgs, teamID, new Date(from).toISOString(), new Date(to).toISOString(), ...(member ? [member] : [])).all();
+  const names = await env.DB.prepare('SELECT member_id,member_name FROM usage_members WHERE team_id=?').bind(teamID).all();
+  const memberNames = new Map(names.results.map(x => [x.member_id, x.member_name]));
+  const groups = new Map();
+  for (const row of result.results) {
+    const key = group === 'device' ? `${row.member_id}:${row.id}` : row.id;
+    const item = groups.get(key) || { id: row.id, name: group === 'member' ? memberNames.get(row.id) || row.id : row.id,
+      memberID: ['model','account'].includes(group) ? null : row.member_id, records: 0, input: 0, cached: 0, cacheWrite: 0, output: 0, reasoning: 0, estimatedRecords: 0, pricedRecords: 0, costUSD: 0 };
+    for (const key of ['records','input','cached','cacheWrite','output','reasoning','estimatedRecords']) item[key] += row[key];
+    const p = prices[row.price_index];
+    if (p && (row.writeRecords === 0 || p.cacheWrite != null)) {
+      const micro = Math.round((row.input-row.cached-row.cacheWrite)*Number(p.input) + row.cached*Number(p.cached)
+        + row.cacheWrite*Number(p.cacheWrite || 0) + row.output*Number(p.output));
+      if (Number.isSafeInteger(micro)) { item.costUSD += micro / 1e6; item.pricedRecords += row.records; }
+    }
+    item.cacheHitRate = item.input ? item.cached / item.input : null;
+    groups.set(key, item);
+  }
+  return [...groups.values()].sort((a,b) => (b.input+b.output)-(a.input+a.output));
+}
+
 export async function localUsage(request, env, url) {
   try {
     if (url.pathname === '/v1/usage/devices' || url.pathname === '/v1/usage/devices/revoke') {
@@ -83,9 +124,73 @@ export async function localUsage(request, env, url) {
       if (writes[0].meta.changes === 0) return json({ error: 'device_already_bound' }, 409);
       return json({ ok: true, token, identity: { team_id: p.teamID, device_id: p.deviceID, member_id: p.memberID, member_name: p.memberName } });
     }
+    if (url.pathname === '/v1/usage/join') {
+      // The invite code is the only credential; member identity stays
+      // credential-bound afterwards, exactly like admin-provisioned devices.
+      if (request.method !== 'POST') return json({ error: 'method_not_allowed' }, 405);
+      if (!teamsEnabled(env)) return json({ error: 'teams_not_configured' }, 503);
+      const p = await body(request);
+      const code = normalizeInvite(p.inviteCode);
+      const memberName = typeof p.memberName === 'string' ? p.memberName.trim() : '';
+      const deviceID = typeof p.deviceID === 'string' ? p.deviceID.trim() : '';
+      const passphrase = typeof p.memberPassphrase === 'string' ? p.memberPassphrase : '';
+      if (code.length < 8 || code.length > 24) return json({ error: 'invalid_invite' }, 400);
+      if (!text(memberName, 60) || !text(deviceID, 120)) return json({ error: 'invalid_identity' }, 400);
+      if (passphrase && (passphrase.length < 4 || passphrase.length > 64)) return json({ error: 'invalid_passphrase' }, 400);
+      const ipBucket = 'join-ip|' + (request.headers.get('cf-connecting-ip') || 'local');
+      const codeBucket = 'join-code|' + (await inviteHash(code)).slice(0, 16);
+      if (await hitLimit(env, ipBucket, 900) > 20 || await hitLimit(env, codeBucket, 900) > 30)
+        return json({ error: 'too_many_attempts' }, 429, { 'retry-after': '900' });
+      const team = (await env.DB.prepare('SELECT team_id FROM usage_teams WHERE invite_hash=?').bind(await inviteHash(code)).all()).results[0];
+      if (!team) return json({ error: 'invalid_invite' }, 401);
+      const teamID = team.team_id;
+      const existingMember = (await env.DB.prepare('SELECT member_id FROM usage_members WHERE team_id=? AND member_name=?').bind(teamID, memberName).all()).results[0];
+      const device = (await env.DB.prepare('SELECT member_id FROM usage_devices WHERE team_id=? AND device_id=?').bind(teamID, deviceID).all()).results[0];
+      let memberID; let secretStatement = null;
+      if (existingMember) {
+        memberID = existingMember.member_id;
+        // Re-joining a device already bound to this member is a plain token
+        // rotation. Extending the name to a new device (or switching a device
+        // between members) requires the passphrase, so a teammate cannot
+        // attribute usage to someone else by typing their name.
+        if (!device || device.member_id !== memberID) {
+          const secret = (await env.DB.prepare('SELECT pass_hash FROM usage_member_secrets WHERE team_id=? AND member_id=?').bind(teamID, memberID).all()).results[0];
+          if (!secret) return json({ error: 'name_taken' }, 409);
+          if (!passphrase || !constantTimeEqual(await memberPassHash(teamID, memberID, passphrase), secret.pass_hash))
+            return json({ error: 'invalid_passphrase' }, 401);
+        }
+      } else {
+        if (device) return json({ error: 'device_already_bound' }, 409);
+        if (((await env.DB.prepare('SELECT COUNT(*) n FROM usage_members WHERE team_id=?').bind(teamID).all()).results[0] || {}).n >= 20)
+          return json({ error: 'team_full' }, 403);
+        memberID = newMemberID();
+        if (passphrase) secretStatement = env.DB.prepare('INSERT INTO usage_member_secrets(team_id,member_id,pass_hash) VALUES(?,?,?)')
+          .bind(teamID, memberID, await memberPassHash(teamID, memberID, passphrase));
+      }
+      const token = `aqu_${crypto.randomUUID().replaceAll('-', '')}${crypto.randomUUID().replaceAll('-', '')}`;
+      await env.DB.batch([
+        env.DB.prepare(`INSERT INTO usage_devices(team_id,device_id,member_id,member_name,token_hash,created_at) VALUES(?,?,?,?,?,?)
+          ON CONFLICT(team_id,device_id) DO UPDATE SET token_hash=excluded.token_hash,member_id=excluded.member_id,member_name=excluded.member_name,revoked=0`)
+          .bind(teamID, deviceID, memberID, memberName, await digest(token), new Date().toISOString()),
+        env.DB.prepare(`INSERT INTO usage_members(team_id,member_id,member_name) VALUES(?,?,?)
+          ON CONFLICT(team_id,member_id) DO UPDATE SET member_name=excluded.member_name`).bind(teamID, memberID, memberName),
+        ...(secretStatement ? [secretStatement] : []),
+      ]);
+      await clearLimit(env, ipBucket, codeBucket);
+      return json({ ok: true, token, identity: { team_id: teamID, device_id: deviceID, member_id: memberID, member_name: memberName } });
+    }
     const who = await identity(request, env);
     if (!who) return json({ error: 'unauthorized' }, 401);
     if (url.pathname === '/v1/usage/identity' && request.method === 'GET') return json({ ok: true, identity: who, prices: priceTable(env) });
+    if (url.pathname === '/v1/usage/member/passphrase' && request.method === 'POST') {
+      const p = await body(request);
+      const passphrase = typeof p.passphrase === 'string' ? p.passphrase : '';
+      if (passphrase.length < 4 || passphrase.length > 64) return json({ error: 'invalid_passphrase' }, 400);
+      await env.DB.prepare(`INSERT INTO usage_member_secrets(team_id,member_id,pass_hash) VALUES(?,?,?)
+        ON CONFLICT(team_id,member_id) DO UPDATE SET pass_hash=excluded.pass_hash`)
+        .bind(who.team_id, who.member_id, await memberPassHash(who.team_id, who.member_id, passphrase)).run();
+      return json({ ok: true });
+    }
     if (url.pathname === '/v1/usage/events/batch' && request.method === 'POST') {
       const p = await body(request);
       if (!Array.isArray(p.events) || p.events.length < 1 || p.events.length > 50) return json({ error: 'invalid_batch' }, 400);
@@ -122,42 +227,8 @@ export async function localUsage(request, env, url) {
       if (!date(from) || !date(to) || Date.parse(to) <= Date.parse(from) || Date.parse(to) - Date.parse(from) > 366 * 86400_000
         || !['member', 'device', 'model', 'account'].includes(group)) return json({ error: 'invalid_range' }, 400);
       const member = url.searchParams.get('member_id');
-      const prices = priceTable(env);
-      // Split SQL aggregates by price interval, not individual requests. This avoids
-      // loading the event ledger into Worker memory and preserves historical pricing.
-      const clauses = []; const priceArgs = [];
-      prices.forEach((p, index) => {
-        clauses.push(`WHEN model=? AND occurred_at>=? AND occurred_at<? THEN ${index}`);
-        priceArgs.push(p.model, new Date(p.effectiveFrom).toISOString(), p.effectiveTo ? new Date(p.effectiveTo).toISOString() : '9999-12-31T00:00:00.000Z');
-      });
-      const priceCase = clauses.length ? `(CASE ${clauses.join(' ')} ELSE -1 END)` : '-1';
-      const dimension = { member: 'member_id', device: 'device_id', model: 'model', account: "COALESCE(account_id,'unknown')" }[group];
-      const sql = `SELECT ${dimension} AS id, member_id, ${priceCase} AS price_index, COUNT(*) AS records,
-        SUM(input_tokens) AS input, SUM(cached_tokens) AS cached, SUM(cache_write_tokens) AS cacheWrite,
-        SUM(output_tokens) AS output, SUM(reasoning_tokens) AS reasoning,
-        SUM(CASE WHEN quality<>'exact' THEN 1 ELSE 0 END) AS estimatedRecords,
-        SUM(CASE WHEN cache_write_tokens>0 THEN 1 ELSE 0 END) AS writeRecords
-        FROM usage_events WHERE team_id=? AND occurred_at>=? AND occurred_at<? ${member ? 'AND member_id=?' : ''}
-        GROUP BY ${dimension},${group === 'device' ? 'member_id,' : ''}price_index,(cache_write_tokens>0)`;
-      const result = await env.DB.prepare(sql).bind(...priceArgs,who.team_id,new Date(from).toISOString(),new Date(to).toISOString(),...(member ? [member] : [])).all();
-      const names = await env.DB.prepare('SELECT member_id,member_name FROM usage_members WHERE team_id=?').bind(who.team_id).all();
-      const memberNames = new Map(names.results.map(x => [x.member_id, x.member_name]));
-      const groups = new Map();
-      for (const row of result.results) {
-        const key = group === 'device' ? `${row.member_id}:${row.id}` : row.id;
-        const item = groups.get(key) || { id: row.id, name: group === 'member' ? memberNames.get(row.id) || row.id : row.id,
-          memberID: ['model','account'].includes(group) ? null : row.member_id, records: 0, input: 0, cached: 0, cacheWrite: 0, output: 0, reasoning: 0, estimatedRecords: 0, pricedRecords: 0, costUSD: 0 };
-        for (const key of ['records','input','cached','cacheWrite','output','reasoning','estimatedRecords']) item[key] += row[key];
-        const p = prices[row.price_index];
-        if (p && (row.writeRecords === 0 || p.cacheWrite != null)) {
-          const micro = Math.round((row.input-row.cached-row.cacheWrite)*Number(p.input) + row.cached*Number(p.cached)
-            + row.cacheWrite*Number(p.cacheWrite || 0) + row.output*Number(p.output));
-          if (Number.isSafeInteger(micro)) { item.costUSD += micro / 1e6; item.pricedRecords += row.records; }
-        }
-        item.cacheHitRate = item.input ? item.cached / item.input : null;
-        groups.set(key, item);
-      }
-      return json({ ok: true, groups: [...groups.values()].sort((a,b) => (b.input+b.output)-(a.input+a.output)), from, to });
+      const groups = await usageGroups(env, who.team_id, from, to, group, member);
+      return json({ ok: true, groups, from, to });
     }
     return json({ error: 'not_found' }, 404);
   } catch (error) {

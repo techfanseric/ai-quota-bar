@@ -467,10 +467,21 @@ private struct ProviderModelsSection: View {
     }
 
     var body: some View {
-        let groups = groupedVisibleModels
+        let currentUsage = CodexLocalUsageModel.shared
+        let currentName = currentUsage.currentAccountID.flatMap { currentUsage.accountLabels[$0] }
+        let originalGroups = groupedVisibleModels
+        let currentIndex = data.provider == .codex ? originalGroups.firstIndex {
+            guard let name = currentName, let account = $0.accountName else { return false }
+            return name.caseInsensitiveCompare(account) == .orderedSame
+        } : nil
+        let groups = currentIndex.map { index in
+            [originalGroups[index]] + originalGroups.enumerated().filter { $0.offset != index }.map(\.element)
+        } ?? originalGroups
         VStack(alignment: .leading, spacing: 0) {
             providerHeader()
             if data.provider == .codex {
+                if currentIndex != nil, let first = groups.first { accountHeader(first) }
+                else { accountHeader(AccountModelGroup(accountName: currentName, models: [])) }
                 CodexLocalUsageMenuCard(model: .shared, language: language)
                     .padding(.horizontal, 8)
                     .padding(.vertical, 6)
@@ -482,7 +493,7 @@ private struct ProviderModelsSection: View {
 
             ForEach(Array(groups.enumerated()), id: \.offset) { groupIndex, group in
                 let rows = group.models
-                accountHeader(group)
+                if data.provider != .codex || currentIndex == nil || groupIndex != 0 { accountHeader(group) }
 
                 ForEach(Array(rows.enumerated()), id: \.element.id) { index, model in
                     ModelRow(
@@ -555,6 +566,9 @@ private struct ProviderModelsSection: View {
     private func providerHeader() -> some View {
         HStack(alignment: .firstTextBaseline) {
             HStack(spacing: 4) {
+                ProviderLogoIcon(provider: data.provider, pointSize: 12)
+                    .foregroundStyle(.secondary)
+
                 Text(data.provider.displayName)
                     .font(.system(size: 11, weight: .semibold))
                     .foregroundStyle(.secondary)

@@ -1,5 +1,6 @@
 import CodexBarCore
 import Foundation
+import CodexLocalUsageCore
 
 /// 适配层入口：把 codexbar 的 ProviderFetchResult 转换为 ai-quota-bar 的 UsageData
 final class CodexService {
@@ -39,9 +40,14 @@ final class CodexService {
             throw UsageError.apiError("Codex app is not running; usage refresh skipped.")
         }
 
+        let authRoot = URL(fileURLWithPath: ProcessInfo.processInfo.environment["CODEX_HOME"] ?? NSHomeDirectory() + "/.codex")
+        let accountBefore = UsageAccountObservation.read(root: authRoot)
         let context = makeContext(sourceMode: sourceMode)
         do {
             let result = try await descriptor.fetch(context: context)
+            let accountAfter = UsageAccountObservation.read(root: authRoot)
+            await CodexSubscriptionStatus.shared.receive(snapshot: result.usage, source: result.sourceLabel,
+                                                        before: accountBefore, after: accountAfter)
             return CodexUsageDataMapper.mapToUsageData(
                 snapshot: result.usage,
                 credits: result.credits,

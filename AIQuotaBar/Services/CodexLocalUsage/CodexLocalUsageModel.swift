@@ -35,7 +35,9 @@ final class CodexLocalUsageModel {
     var selectedAccount = "all" { didSet { historyCache.removeAll(); summaryCache.removeAll() } }
     var currentAccountID: String? { didSet { historyCache.removeAll(); summaryCache.removeAll() } }
     func refreshCurrentAccount() {
-        currentAccountID = UsageAccountObservation.read(root: root).accountID
+        let observation = UsageAccountObservation.read(root: root)
+        currentAccountID = observation.accountID
+        if let id = observation.accountID, let label = observation.label { accountLabels[id] = label }
     }
     private func trendEvents(currentAccount: Bool) -> [LocalUsageEvent] {
         guard currentAccount else { return filteredEvents }
@@ -93,6 +95,24 @@ final class CodexLocalUsageModel {
         return value
     }
 
+    /// Time enters the cache key so an open menu advances across hours and months.
+    func activityHistory(month: Bool, currentAccount: Bool = false, now: Date = Date()) -> [UsageHistoryBucket] {
+        _ = events.count; _ = prices.count; _ = selectedAccount; _ = currentAccountID
+        let key = "activity|\(month)|\(currentAccount)|\(Int(now.timeIntervalSince1970 / 60))|\(Calendar.current.timeZone.identifier)"
+        if let cached = historyCache[key] { return cached }
+        let scoped = trendEvents(currentAccount: currentAccount)
+        let result = month ? UsageHistory.month(events: scoped, prices: prices, now: now)
+            : UsageHistory.last24Hours(events: scoped, prices: prices, now: now)
+        // Bound minute-keyed caches while leaving space for both account scopes.
+        if historyCache.count > 16 { historyCache.removeAll() }
+        historyCache[key] = result
+        return result
+    }
+    func monthSummary(currentAccount: Bool = false, now: Date = Date()) -> UsageSummary {
+        let from = Calendar.current.dateInterval(of: .month, for: now)!.start
+        return UsageSummary(events: trendEvents(currentAccount: currentAccount), prices: prices, from: from, to: now)
+    }
+
     init(defaults: UserDefaults = .standard, databaseURL: URL? = nil) {
         self.defaults = defaults
         reportingEnabled = defaults.bool(forKey: "localUsage.reporting")
@@ -143,6 +163,24 @@ final class CodexLocalUsageModel {
             if !same { reportingEnabled = false; teamRows = []; teamDevices = []; syncStatus = "" }
             connection = value; self.client = client; try savePrices(result.prices)
             failures = 0; nextAttempt = .distantPast; error = nil
+        } catch { self.error = error.localizedDescription }
+    }
+    /// Self-service join: exchange an invite code and a display name for a
+    /// device credential, then bind exactly like an admin-provisioned device.
+    func joinTeam(inviteCode: String, memberName: String, passphrase: String, endpoint: String?, includeHistory: Bool) async {
+        guard !syncing else { return }
+        let trimmed = endpoint?.trimmingCharacters(in: .whitespacesAndNewlines).trimmingCharacters(in: CharacterSet(charactersIn: "/")) ?? ""
+        let origin = trimmed.isEmpty ? CloudSyncSettings.defaultEndpointURLString : trimmed
+        do {
+            let response = try await UsageClient.join(endpoint: origin, inviteCode: inviteCode, memberName: memberName, deviceID: deviceID, memberPassphrase: passphrase)
+            try await connect(endpoint: origin, token: response.token, includeHistory: includeHistory)
+        } catch { self.error = error.localizedDescription }
+    }
+    func setMemberPassphrase(_ passphrase: String) async {
+        do {
+            let client = try await activeClient()
+            try await client.setMemberPassphrase(passphrase)
+            syncStatus = "member passphrase saved"; error = nil
         } catch { self.error = error.localizedDescription }
     }
     func importPrices(_ data: Data) {

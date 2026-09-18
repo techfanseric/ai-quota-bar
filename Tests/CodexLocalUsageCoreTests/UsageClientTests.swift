@@ -14,6 +14,19 @@ private final class UsageProtocol: URLProtocol, @unchecked Sendable {
     }
     override func stopLoading() {}
 }
+private func requestBody(_ request: URLRequest) -> Data {
+    if let data = request.httpBody { return data }
+    guard let stream = request.httpBodyStream else { return Data() }
+    stream.open(); defer { stream.close() }
+    var data = Data(); var buffer = [UInt8](repeating: 0, count: 4096)
+    while stream.hasBytesAvailable {
+        let read = stream.read(&buffer, maxLength: buffer.count)
+        if read <= 0 { break }
+        data.append(buffer, count: read)
+    }
+    return data
+}
+
 final class UsageClientTests: XCTestCase {
     private func client() throws -> UsageClient {
         let config = URLSessionConfiguration.ephemeral; config.protocolClasses = [UsageProtocol.self]
@@ -49,6 +62,52 @@ final class UsageClientTests: XCTestCase {
         do { _ = try await client().identity(); XCTFail("Expected unauthorized") }
         catch { XCTAssertTrue(error.localizedDescription.contains("401")) }
     }
+    private var protocolSession: URLSession {
+        let config = URLSessionConfiguration.ephemeral; config.protocolClasses = [UsageProtocol.self]
+        return URLSession(configuration: config)
+    }
+    func testJoinSendsInviteCodeNameAndDeviceWithoutAnyCredential() async throws {
+        UsageProtocol.handler = { request in
+            XCTAssertEqual(request.url?.path, "/v1/usage/join")
+            XCTAssertEqual(request.httpMethod, "POST")
+            XCTAssertNil(request.value(forHTTPHeaderField: "Authorization"))
+            let body = try JSONSerialization.jsonObject(with: requestBody(request)) as? [String: Any]
+            XCTAssertEqual(body?["inviteCode"] as? String, "ABCD2345EFGH")
+            XCTAssertEqual(body?["memberName"] as? String, "Alice")
+            XCTAssertEqual(body?["deviceID"] as? String, "d1")
+            XCTAssertNil(body?["memberPassphrase"])
+            return (200, Data(#"{"token":"aqu_join","identity":{"team_id":"t1","member_id":"m1","member_name":"Alice","device_id":"d1"}}"#.utf8))
+        }
+        let response = try await UsageClient.join(endpoint: "https://test.invalid", inviteCode: " abcd-2345-efgh ", memberName: " Alice ", deviceID: " d1 ", session: protocolSession)
+        XCTAssertEqual(response.token, "aqu_join")
+        XCTAssertEqual(response.identity.member_id, "m1")
+    }
+    func testJoinWithPassphraseAndReadableFailures() async throws {
+        UsageProtocol.handler = { request in
+            let body = try JSONSerialization.jsonObject(with: requestBody(request)) as? [String: Any]
+            XCTAssertEqual(body?["memberPassphrase"] as? String, "hunter2")
+            return (409, Data("{}".utf8))
+        }
+        do {
+            _ = try await UsageClient.join(endpoint: "https://test.invalid", inviteCode: "ABCD-2345-EFGH", memberName: "Alice", deviceID: "d1", memberPassphrase: "hunter2", session: protocolSession)
+            XCTFail("Expected name conflict")
+        } catch { XCTAssertTrue(error.localizedDescription.contains("Name taken")) }
+        UsageProtocol.handler = { _ in (200, Data(#"{"token":"aqu_join","identity":{"team_id":"t1","member_id":"m1","member_name":"Alice","device_id":"other"}}"#.utf8)) }
+        do {
+            _ = try await UsageClient.join(endpoint: "https://test.invalid", inviteCode: "ABCD-2345-EFGH", memberName: "Alice", deviceID: "d1", session: protocolSession)
+            XCTFail("Expected device mismatch")
+        } catch { XCTAssertTrue(error.localizedDescription.contains("different device")) }
+    }
+    func testMemberPassphraseIsAuthenticated() async throws {
+        UsageProtocol.handler = { request in
+            XCTAssertEqual(request.url?.path, "/v1/usage/member/passphrase")
+            XCTAssertEqual(request.value(forHTTPHeaderField: "Authorization"), "Bearer test-device")
+            let body = try JSONSerialization.jsonObject(with: requestBody(request)) as? [String: Any]
+            XCTAssertEqual(body?["passphrase"] as? String, "correct horse")
+            return (200, Data(#"{"ok":true}"#.utf8))
+        }
+        try await client().setMemberPassphrase("correct horse")
+    }
     func testRealLocalWorkerWhenConfigured() async throws {
         let env = ProcessInfo.processInfo.environment
         guard let endpoint = env["USAGE_TEST_ENDPOINT"], let token = env["USAGE_TEST_TOKEN"] else { throw XCTSkip("Local HTTP integration server not requested") }
@@ -58,5 +117,20 @@ final class UsageClientTests: XCTestCase {
         XCTAssertEqual(first.accepted, second.accepted)
         let rows = try await client.summary(from: UsageTime.parse("2026-01-01T00:00:00Z")!, to: UsageTime.parse("2026-02-01T00:00:00Z")!, group: "member")
         XCTAssertEqual(rows.count, 1); XCTAssertEqual(rows[0].records, 1); XCTAssertEqual(rows[0].input, 100)
+    }
+    func testRealLocalTeamJoinWhenConfigured() async throws {
+        let env = ProcessInfo.processInfo.environment
+        guard let endpoint = env["USAGE_TEST_ENDPOINT"], let invite = env["USAGE_TEST_INVITE"] else { throw XCTSkip("Local HTTP integration server not requested") }
+        let joined = try await UsageClient.join(endpoint: endpoint, inviteCode: invite, memberName: "Join Member", deviceID: "integration-join-device", memberPassphrase: "integration-passphrase")
+        XCTAssertEqual(joined.identity.member_name, "Join Member")
+        let client = try UsageClient(endpoint: endpoint, token: joined.token)
+        let who = try await client.identity()
+        XCTAssertEqual(who.identity.device_id, "integration-join-device")
+        try await client.setMemberPassphrase("integration-passphrase")
+        let second = try await UsageClient.join(endpoint: endpoint, inviteCode: invite, memberName: "Join Member", deviceID: "integration-join-device-2", memberPassphrase: "integration-passphrase")
+        XCTAssertEqual(second.identity.member_id, joined.identity.member_id)
+        _ = try await client.send([event])
+        let rows = try await client.summary(from: UsageTime.parse("2026-01-01T00:00:00Z")!, to: UsageTime.parse("2026-02-01T00:00:00Z")!, group: "member")
+        XCTAssertTrue(rows.contains { $0.memberID == joined.identity.member_id && $0.input == 100 })
     }
 }

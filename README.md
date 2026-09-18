@@ -25,20 +25,17 @@ AI coding work is hard to manage when quota, network routes, and Mac sleep setti
   <img src="./docs/images/control-center.png" alt="AI Quota Bar control center" width="342">
 </p>
 
+## What’s new in v1.18.0
+
+Self-service teams: the owner creates a team on the website's /team page and members join with an invite code and their name — optional member passphrase supported. Settings gains an in-app feedback form that publishes straight to the website wall. The menu pins the current Codex account with its name, usage trends switch to "this month + last 24 hours", subscription renewal days get calendar markers, and menus/settings now use real provider logos.
+
+[Website](https://ai-quota-bar.pages.dev) · [Changelog](https://ai-quota-bar.pages.dev/changelog) · [Full v1.18.0 release notes](./docs/releases/v1.18.0.md)
+
 ## What’s new in v1.17.1
 
 30-day Codex usage matrix, clearer first-run guidance, cached Keychain credentials, discreet update reminders, and sync diagnostics in Settings. The website now shows both click panels and light/dark landscape/portrait dashboards.
 
 [Website](https://ai-quota-bar.pages.dev) · [Changelog](https://ai-quota-bar.pages.dev/changelog) · [Full v1.17.1 release notes](./docs/releases/v1.17.1.md)
-
-## What's new in v1.17.0
-
-- **Local Codex usage and account history.** Tokens, records, cache hit rate, estimated cost and hourly/daily trends, separate from shared account quota.
-- **Consolidated menu and display settings.** Codex comes first; the menu follows the current account. Configure menu visibility, mobile selection and chart style in one place.
-- **Member/device reporting and operations dashboard.** Explicit device binding and reporting, with separate opt-in anonymous activity statistics disabled by default.
-- **New cloud endpoint and product website.** Services now use ai-quota-bar.pages.dev. Faithful interactive UI previews and a mobile status ticker rendering fix.
-
-See the [complete v1.17.0 release notes](./docs/releases/v1.17.0.md).
 
 ## What it helps you do
 

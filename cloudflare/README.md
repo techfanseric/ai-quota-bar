@@ -8,7 +8,29 @@ The current public app uses the built-in service endpoint. This backend can be
 deployed independently for development; using a private deployment currently
 requires changing `CloudSyncSettings` in the app source and rebuilding it.
 
+## Website (ai-quota-bar.pages.dev)
+
+The marketing site (`public/` + `_worker.js`) is a Cloudflare Pages direct-upload
+project. It lives on the `node.cyberic@gmail.com` Cloudflare account — the local
+`wrangler login` usually cannot see it, so deploy with an API token and an
+explicit account ID:
+
+```bash
+CLOUDFLARE_ACCOUNT_ID=d9b4ce8306afc5594afc55786c3a76e4 \
+CLOUDFLARE_API_TOKEN=<token from ~/cf-fb-setup/secrets/cloudflare-api-tokens.md> \
+npm run deploy:pages
+```
+
+- Project: `ai-quota-bar` → https://ai-quota-bar.pages.dev (production on `main`).
+- The API token (Pages: Edit + Workers: Edit) is maintained in
+  `~/cf-fb-setup/secrets/cloudflare-api-tokens.md` on this machine; never commit
+  it. Re-deploy is idempotent — only changed files upload.
+- `npm run build:pages` alone refreshes `dist-pages/` for a local preview
+  (`/mobile-preview` and `/changelog` need the path rewrites that only the
+  deployed `_worker.js` provides; `python3 -m http.server` cannot serve them).
+
 ## Deploy
+
 
 1. Install and sign in to Wrangler.
 
@@ -67,9 +89,29 @@ Do not commit production tokens or a populated `wrangler.toml`.
 - `GET /v1/devices`: lists synchronized devices.
 - `DELETE /v1/data?device_id=...`: deletes one device's synchronized data.
 - `DELETE /v1/data?provider=...&account_name=...`: deletes one provider/account group across devices.
+- `POST /v1/team/create`: self-service team creation (rate-limited); returns the team ID, invite code and login password exactly once.
+- `POST /v1/team/login` / `POST /v1/team/logout` / `GET /v1/team/overview` / `POST /v1/team/invite/rotate` / `POST /v1/team/devices/revoke`: team dashboard session and management.
+- `POST /v1/usage/join`: joins a team with an invite code, member name and device ID; returns a one-time device token.
+- `POST /v1/usage/member/passphrase`: device-authenticated member passphrase for multi-Mac name reuse.
+- `POST /v1/feedback`: submits feedback for the public wall. Same-origin browser requests (the `/feedback` page) and native app requests with `Authorization: Bearer <SYNC_TOKEN>` (the About tab) are accepted; 5 submissions per IP per hour.
+- `GET /v1/feedback?limit=20&offset=0`: public quick-fetch API returning published feedback only. Contact info is stored for the operator but never returned here:
+
+  ```bash
+  curl -s https://ai-quota-bar.pages.dev/v1/feedback?limit=20
+  ```
+
+- `GET /v1/admin/feedback` / `POST /v1/admin/feedback/status` / `DELETE /v1/admin/feedback?id=...`: operator-console moderation (list with contact, hide/restore, delete), behind the existing admin session.
 
 `/v1/app-update` is public. Every sync, inspection, usage, and deletion endpoint
-requires `Authorization: Bearer <SYNC_TOKEN>`.
+requires `Authorization: Bearer <SYNC_TOKEN>` (usage endpoints use per-device
+credentials instead). Self-service team endpoints additionally require the
+`USAGE_TEAMS_ENABLED = "true"` var and the `0005_team_selfservice.sql`
+migration; see `docs/codex-local-usage.md` for the full flow. Feedback needs the
+`0006_feedback.sql` migration:
+
+```bash
+npx wrangler d1 execute ai-quota-bar --remote --file=migrations/0006_feedback.sql
+```
 
 ## D1 read-cost safeguards
 
@@ -151,4 +193,4 @@ The root page is served from `public/` through the Pages ASSETS binding. `npm ru
 
 ## 运营后台
 
-`/admin` 提供独立管理员登录、匿名安装数、日/周/月活、90 天趋势和版本分布。配置和统计口径见 [运营后台说明](../docs/operations.md)。
+`/admin` 提供独立管理员登录、匿名安装数、日/周/月活、90 天趋势和版本分布，以及反馈留言管理（查看含联系方式的完整内容、隐藏/恢复、删除；联系方式不会出现在任何公开 API）。配置和统计口径见 [运营后台说明](../docs/operations.md)。

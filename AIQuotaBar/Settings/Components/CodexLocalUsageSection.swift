@@ -6,18 +6,23 @@ import CodexLocalUsageCore
 struct CodexLocalUsageSection: View {
     @Bindable var model: CodexLocalUsageModel
     let language: AppLanguage
-    @State private var endpoint = ""
+    @State private var inviteCode = ""
+    @State private var memberName = ""
+    @State private var passphrase = ""
+    @State private var newPassphrase = ""
+    @State private var advancedEndpoint = ""
     @State private var token = ""
     @State private var includeHistory = false
     @State private var importing = false
     @State private var connecting = false
+    @State private var savingPassphrase = false
     private func t(_ zh: String, _ en: String) -> String { language == .simplifiedChinese ? zh : en }
 
     var body: some View {
         SettingsSection(title: t("Codex 本机用量", "Codex local usage"),
                         caption: t("来自本机日志，与共享账号额度分开统计。", "Measured from local logs, separately from shared account quota."), contentSpacing: 12) {
             HStack {
-                Text(t("近 30 天 · 下方为今日小时用量", "Last 30 days · Today’s hours below")).font(.caption).foregroundStyle(.secondary)
+                Text(t("本月 · 最近 24 小时", "This month · Last 24h")).font(.caption).foregroundStyle(.secondary)
                 Spacer()
                 Button { Task { await model.refresh() } } label: { Image(systemName: "arrow.clockwise") }
                     .disabled(model.scanning)
@@ -27,7 +32,7 @@ struct CodexLocalUsageSection: View {
             Text(t("账号未知的历史不会归给当前登录账号。登录观测仅在相邻采样账号一致且登录文件未变化时归属；切换、休眠和未监测时段保持未知。它不能证明请求实际使用的账号。", "Unknown history is never assigned to the current login. Login observations attribute only intervals with unchanged consecutive auth samples; switches, sleep and unobserved gaps remain unknown. This does not prove the account used by a request."))
                 .font(.caption).foregroundStyle(.secondary)
             CodexUsageTrend(model: model, language: language)
-            let summary = model.summary
+            let summary = model.monthSummary()
             HStack(alignment: .top, spacing: 18) {
                 metric("Tokens", summary.tokens.total.formatted())
                 metric(t("有效用量记录", "Usage records"), summary.records.formatted())
@@ -58,21 +63,50 @@ struct CodexLocalUsageSection: View {
             DisclosureGroup(t("成员归属与上报", "Member identity & reporting")) {
                 VStack(alignment: .leading, spacing: 10) {
                     Text(t("设备 ID：", "Device ID: ") + model.deviceID).font(.caption).textSelection(.enabled)
-                    TextField(t("团队服务器地址（HTTPS）", "Team server origin (HTTPS)"), text: $endpoint)
-                    SecureField(t("管理员为此设备签发的凭据", "Device credential issued by your administrator"), text: $token)
+                    if model.connection == nil {
+                        Text(t("队长在官网 /team 页面创建团队，把邀请码发给每位成员；在这里填入邀请码和你的名字即可加入。", "The team owner creates a team on the /team page and shares the invite code; enter it here with your name to join."))
+                            .font(.caption).foregroundStyle(.secondary)
+                    }
+                    TextField(t("邀请码", "Invite code"), text: $inviteCode)
+                    TextField(t("你的名字（团队统计中显示）", "Your name (shown in team stats)"), text: $memberName)
+                    SecureField(t("成员口令（可选；第二台 Mac 用同一名字加入时需要）", "Member passphrase (optional; needed to join a second Mac under the same name)"), text: $passphrase)
                     Toggle(t("将尚未分配的本机历史归属此成员", "Assign unassigned local history to this member"), isOn: $includeHistory)
                         .toggleStyle(.checkbox)
-                    Button(t("验证并绑定设备", "Verify and bind device")) {
+                    Button(t("加入团队", "Join team")) {
                         connecting = true
                         Task {
-                            await model.connect(endpoint: endpoint, token: token, includeHistory: includeHistory)
-                            if model.error == nil { token = "" }
+                            await model.joinTeam(inviteCode: inviteCode, memberName: memberName, passphrase: passphrase,
+                                                 endpoint: advancedEndpoint.isEmpty ? nil : advancedEndpoint, includeHistory: includeHistory)
+                            if model.error == nil { inviteCode = ""; passphrase = "" }
                             connecting = false
                         }
-                    }.disabled(connecting || model.syncing || endpoint.isEmpty || token.isEmpty)
+                    }.disabled(connecting || model.syncing || inviteCode.trimmingCharacters(in: .whitespaces).isEmpty || memberName.trimmingCharacters(in: .whitespaces).isEmpty)
                     if let connection = model.connection {
                         Text("\(connection.identity.member_name) · \(connection.identity.team_id)")
                         Text(t("上报起点：", "Reporting begins: ") + connection.since.formatted()).font(.caption)
+                        SecureField(t("设置成员口令（第二台 Mac 加入时使用）", "Set member passphrase (for joining a second Mac)"), text: $newPassphrase)
+                        Button(t("保存成员口令", "Save member passphrase")) {
+                            savingPassphrase = true
+                            Task {
+                                await model.setMemberPassphrase(newPassphrase)
+                                if model.error == nil { newPassphrase = "" }
+                                savingPassphrase = false
+                            }
+                        }.disabled(savingPassphrase || newPassphrase.count < 4)
+                    }
+                    DisclosureGroup(t("高级：私有部署与管理员签发凭据", "Advanced: private deployment & admin-issued credential")) {
+                        VStack(alignment: .leading, spacing: 8) {
+                            TextField(t("团队服务器地址（HTTPS，留空使用公共云端）", "Team server origin (HTTPS; empty uses the public cloud)"), text: $advancedEndpoint)
+                            SecureField(t("管理员为此设备签发的凭据", "Device credential issued by your administrator"), text: $token)
+                            Button(t("验证并绑定设备", "Verify and bind device")) {
+                                connecting = true
+                                Task {
+                                    await model.connect(endpoint: advancedEndpoint, token: token, includeHistory: includeHistory)
+                                    if model.error == nil { token = "" }
+                                    connecting = false
+                                }
+                            }.disabled(connecting || model.syncing || advancedEndpoint.isEmpty || token.isEmpty)
+                        }.padding(.top, 4)
                     }
                     Text(t("仅上报时间、模型、token 数和不透明事件标识，不上传对话、代码、路径或 OpenAI 凭据。成员切换不会改写已归属的历史。", "Reports only timestamps, models, token counts and opaque event IDs. No conversations, code, paths or OpenAI credentials. Switching members does not reassign history."))
                         .font(.caption).foregroundStyle(.secondary)
@@ -112,7 +146,7 @@ struct CodexLocalUsageSection: View {
             }
             if let error = model.error { Text(error).font(.caption).foregroundStyle(.red).textSelection(.enabled) }
         }
-        .onAppear { endpoint = model.connection?.endpoint ?? ""; model.days = 30 }
+        .onAppear { advancedEndpoint = model.connection?.endpoint ?? ""; model.days = 30 }
         .onChange(of: model.days) { _, _ in model.teamRows = []; model.teamDevices = []; model.teamAccounts = [] }
     }
     private func metric(_ label: String, _ value: String) -> some View {
