@@ -1,4 +1,5 @@
 import Foundation
+import Observation
 
 enum UpdateCheckOutcome {
     case upToDate(currentVersion: String)
@@ -19,20 +20,51 @@ enum UpdateCheckError: LocalizedError {
     }
 }
 
+@MainActor
+@Observable
 final class UpdateChecker {
     static let shared = UpdateChecker()
 
     private let owner = "techfanseric"
     private let repo = "ai-quota-bar"
-    private let defaults = UserDefaults.standard
+    private let defaults: UserDefaults
+    private let currentVersionProvider: () -> String
+    private let releaseLoader: (() async throws -> UpdateRelease)?
+    private var pendingCheck: Task<UpdateCheckOutcome, Error>?
+    private(set) var availableRelease: UpdateRelease?
+    private(set) var isChecking = false
+    private(set) var lastError: String?
+    private(set) var lastCheckedAt: Date?
+    private let cachedReleaseKey = "cachedAppUpdateRelease"
+    private let lastAttemptKey = "lastAppUpdateAttempt"
     private let lastAutomaticCheckAtKey = "lastAutomaticUpdateCheckAt"
     private let lastNotifiedVersionKey = "lastNotifiedUpdateVersion"
     private let githubLatestReleaseURL = URL(string: "https://api.github.com/repos/techfanseric/ai-quota-bar/releases/latest")!
     private let githubLatestRedirectURL = URL(string: "https://github.com/techfanseric/ai-quota-bar/releases/latest")!
 
-    private init() {}
+    init(defaults: UserDefaults = .standard,
+         currentVersion: @escaping () -> String = { UpdateChecker.currentAppVersion },
+         releaseLoader: (() async throws -> UpdateRelease)? = nil) {
+        self.defaults = defaults
+        self.currentVersionProvider = currentVersion
+        self.releaseLoader = releaseLoader
+        self.lastCheckedAt = defaults.object(forKey: "lastAutomaticUpdateCheckAt") as? Date
+        if let data = defaults.data(forKey: cachedReleaseKey),
+           let release = try? JSONDecoder().decode(UpdateRelease.self, from: data),
+           Self.isNewer(release.version, than: currentVersion()), release.hasTrustedURLs {
+            availableRelease = release
+        }
+    }
 
-    static var currentAppVersion: String {
+    nonisolated static func isNewer(_ latest: String, than current: String) -> Bool {
+        func normalize(_ s: String) -> String {
+            let value = s.trimmingCharacters(in: .whitespacesAndNewlines)
+            return value.lowercased().hasPrefix("v") ? String(value.dropFirst()) : value
+        }
+        return normalize(latest).compare(normalize(current), options: [.numeric, .caseInsensitive]) == .orderedDescending
+    }
+
+    nonisolated static var currentAppVersion: String {
         let bundle = Bundle.main
         if let short = bundle.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String,
            !short.isEmpty {
@@ -48,21 +80,41 @@ final class UpdateChecker {
     }
 
     func checkForUpdates() async throws -> UpdateCheckOutcome {
-        let currentVersion = Self.currentAppVersion
-        let release = try await latestRelease()
-
-        let latestVersion = normalizeVersionString(release.version)
-        let normalizedCurrent = normalizeVersionString(currentVersion)
-
-        if latestVersion.compare(normalizedCurrent, options: [.numeric, .caseInsensitive]) == .orderedDescending {
-            return .updateAvailable(
-                currentVersion: normalizedCurrent,
-                latestVersion: latestVersion,
-                releaseURL: release.releaseURL
-            )
+        if let pendingCheck { return try await pendingCheck.value }
+        isChecking = true
+        lastError = nil
+        defaults.set(Date(), forKey: lastAttemptKey)
+        let task = Task<UpdateCheckOutcome, Error> {
+            let release: UpdateRelease
+            if let releaseLoader { release = try await releaseLoader() }
+            else { release = try await latestRelease() }
+            guard release.hasTrustedURLs else { throw UpdateCheckError.invalidReleaseURL }
+            let current = normalizeVersionString(currentVersionProvider())
+            if Self.isNewer(release.version, than: current) {
+                availableRelease = release
+                defaults.set(try JSONEncoder().encode(release), forKey: cachedReleaseKey)
+                return .updateAvailable(currentVersion: current, latestVersion: normalizeVersionString(release.version), releaseURL: release.releaseURL)
+            }
+            availableRelease = nil
+            defaults.removeObject(forKey: cachedReleaseKey)
+            return .upToDate(currentVersion: current)
         }
+        pendingCheck = task
+        defer { pendingCheck = nil; isChecking = false }
+        do {
+            let result = try await task.value
+            lastCheckedAt = Date()
+            defaults.set(lastCheckedAt, forKey: lastAutomaticCheckAtKey)
+            return result
+        } catch {
+            lastError = error.localizedDescription
+            throw error
+        }
+    }
 
-        return .upToDate(currentVersion: normalizedCurrent)
+    func checkIfNeeded() async {
+        guard shouldRunAutomaticDailyCheck() else { return }
+        _ = try? await checkForUpdates()
     }
 
     private func latestRelease() async throws -> UpdateRelease {
@@ -156,14 +208,12 @@ final class UpdateChecker {
     }
 
     func shouldRunAutomaticDailyCheck(now: Date = Date()) -> Bool {
+        if let attempt = defaults.object(forKey: lastAttemptKey) as? Date,
+           now.timeIntervalSince(attempt) < 15 * 60 { return false }
         guard let lastCheck = defaults.object(forKey: lastAutomaticCheckAtKey) as? Date else {
             return true
         }
         return now.timeIntervalSince(lastCheck) >= 24 * 60 * 60
-    }
-
-    func markAutomaticCheck(at date: Date = Date()) {
-        defaults.set(date, forKey: lastAutomaticCheckAtKey)
     }
 
     func shouldNotifyUpdate(latestVersion: String) -> Bool {
@@ -187,9 +237,15 @@ final class UpdateChecker {
     }
 }
 
-private struct UpdateRelease {
+struct UpdateRelease: Codable {
     let version: String
     let releaseURL: URL
+    var downloadURL: URL { URL(string: "https://github.com/techfanseric/ai-quota-bar/releases/download/")!.appendingPathComponent(releaseURL.lastPathComponent).appendingPathComponent("AIQuotaBar.dmg") }
+    var changelogURL: URL { URL(string: "https://ai-quota-bar.pages.dev/changelog#\(version.hasPrefix("v") ? version : "v" + version)")! }
+    var hasTrustedURLs: Bool {
+        releaseURL.scheme == "https" && releaseURL.host == "github.com"
+            && releaseURL.path.hasPrefix("/techfanseric/ai-quota-bar/releases/tag/")
+    }
 }
 
 private struct CloudUpdateManifest: Decodable {
