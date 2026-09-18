@@ -751,7 +751,8 @@ final class UsageViewModel {
     }
 
     var leftClickMenuUsageSections: [UsageData] {
-        providerUsageSections.compactMap { data in
+        let sections = providerUsageSections
+        return (sections.filter { $0.provider == .codex } + sections.filter { $0.provider != .codex }).compactMap { data in
             let visibleModels = data.models.filter {
                 leftClickMenuDisplayPreferences.isModelVisible($0)
             }

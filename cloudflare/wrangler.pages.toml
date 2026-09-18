@@ -1,0 +1,13 @@
+name = "ai-quota-bar"
+pages_build_output_dir = "dist-pages"
+compatibility_date = "2026-05-14"
+
+[vars]
+CF_ACCOUNT_ID = "d9b4ce8306afc5594afc55786c3a76e4"
+D1_DATABASE_ID = "0d70b7e7-2397-4d89-a925-5c335257dd58"
+LATEST_INDEX_ENABLED = "true"
+
+[[d1_databases]]
+binding = "DB"
+database_name = "ai-quota-bar"
+database_id = "0d70b7e7-2397-4d89-a925-5c335257dd58"

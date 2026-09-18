@@ -15,10 +15,7 @@ final class CodexUsageDataMapperTests: XCTestCase {
             secondary: nil,
             tertiary: nil,
             extraRateWindows: nil,
-            kiroUsage: nil,
             providerCost: nil,
-            zaiUsage: nil,
-            minimaxUsage: nil,
             updatedAt: Date(timeIntervalSince1970: 1_699_999_000),
             identity: ProviderIdentitySnapshot(
                 providerID: .codex,
@@ -54,10 +51,7 @@ final class CodexUsageDataMapperTests: XCTestCase {
             secondary: window,
             tertiary: nil,
             extraRateWindows: nil,
-            kiroUsage: nil,
             providerCost: nil,
-            zaiUsage: nil,
-            minimaxUsage: nil,
             updatedAt: Date(),
             identity: nil)
 
@@ -88,10 +82,7 @@ final class CodexUsageDataMapperTests: XCTestCase {
             secondary: nil,
             tertiary: nil,
             extraRateWindows: [named],
-            kiroUsage: nil,
             providerCost: nil,
-            zaiUsage: nil,
-            minimaxUsage: nil,
             updatedAt: Date(),
             identity: nil)
 
@@ -121,10 +112,7 @@ final class CodexUsageDataMapperTests: XCTestCase {
             secondary: nil,
             tertiary: nil,
             extraRateWindows: [named],
-            kiroUsage: nil,
             providerCost: nil,
-            zaiUsage: nil,
-            minimaxUsage: nil,
             updatedAt: Date(),
             identity: ProviderIdentitySnapshot(
                 providerID: .codex,
@@ -150,10 +138,7 @@ final class CodexUsageDataMapperTests: XCTestCase {
             secondary: nil,
             tertiary: nil,
             extraRateWindows: nil,
-            kiroUsage: nil,
             providerCost: nil,
-            zaiUsage: nil,
-            minimaxUsage: nil,
             updatedAt: Date(),
             identity: nil)
         let credits = CreditsSnapshot(
@@ -199,10 +184,7 @@ final class CodexUsageDataMapperTests: XCTestCase {
             secondary: secondary,
             tertiary: nil,
             extraRateWindows: [extra],
-            kiroUsage: nil,
             providerCost: nil,
-            zaiUsage: nil,
-            minimaxUsage: nil,
             updatedAt: Date(),
             identity: ProviderIdentitySnapshot(
                 providerID: .codex,
@@ -229,10 +211,7 @@ final class CodexUsageDataMapperTests: XCTestCase {
             secondary: nil,
             tertiary: nil,
             extraRateWindows: nil,
-            kiroUsage: nil,
             providerCost: nil,
-            zaiUsage: nil,
-            minimaxUsage: nil,
             updatedAt: Date(),
             identity: nil)
 

@@ -1,0 +1,8 @@
+import { buildMobilePreview } from './build-mobile-preview.mjs';
+import { build } from 'esbuild';
+import { cp, mkdir, rm } from 'node:fs/promises';
+await rm('dist-pages', { recursive:true, force:true });
+await mkdir('dist-pages', { recursive:true });
+await cp('public', 'dist-pages', { recursive:true });
+await buildMobilePreview();
+await build({entryPoints:['src/worker.js'],bundle:true,format:'esm',platform:'browser',outfile:'dist-pages/_worker.js'});

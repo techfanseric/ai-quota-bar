@@ -11,8 +11,10 @@ struct MenuView: View {
     var body: some View {
         VStack(spacing: 0) {
             ScrollView(.vertical, showsIndicators: false) {
-                modelsList
-                    .fixedSize(horizontal: false, vertical: true)
+                VStack(spacing: 8) {
+                    modelsList
+                }
+                .fixedSize(horizontal: false, vertical: true)
             }
             .frame(maxHeight: presentationSizing.maximumScrollableHeight)
 
@@ -78,24 +80,14 @@ struct MenuView: View {
                 }
 
                 ForEach(Array(sections.enumerated()), id: \.offset) { _, data in
-                    if data.provider == .codex && data.models.isEmpty {
-                        MenuPlaceholderCard(
-                            icon: "terminal.fill",
-                            title: language.codexMenuNotConfiguredTitle(),
-                            message: language.codexMenuNotConfiguredMessage(),
-                            primaryActionTitle: language.text(.settings),
-                            primaryAction: onOpenSettings
-                        )
-                    } else {
-                        ProviderModelsSection(
-                            data: data,
-                            language: language,
-                            warningThreshold: viewModel.effectiveWarningThreshold,
-                            samples: viewModel.samples(for:),
-                            viewModel: viewModel,
-                            onLayoutChange: onLayoutChange
-                        )
-                    }
+                    ProviderModelsSection(
+                        data: data,
+                        language: language,
+                        warningThreshold: viewModel.effectiveWarningThreshold,
+                        samples: viewModel.samples(for:),
+                        viewModel: viewModel,
+                        onLayoutChange: onLayoutChange
+                    )
                 }
 
                 let visibleProviders = Set(sections.map(\.provider))
@@ -453,6 +445,15 @@ private struct ProviderModelsSection: View {
         let groups = groupedVisibleModels
         VStack(alignment: .leading, spacing: 0) {
             providerHeader()
+            if data.provider == .codex {
+                CodexLocalUsageMenuCard(model: .shared, language: language)
+                    .padding(.horizontal, 8)
+                    .padding(.vertical, 6)
+                if data.models.isEmpty {
+                    Text(language == .simplifiedChinese ? "账号额度尚未就绪，可在设置中连接账号。" : "Account quota unavailable. Connect an account in Settings.")
+                        .font(.caption2).foregroundStyle(.secondary).padding(.horizontal, 8)
+                }
+            }
 
             ForEach(Array(groups.enumerated()), id: \.offset) { groupIndex, group in
                 let rows = group.models

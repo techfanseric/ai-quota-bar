@@ -31,6 +31,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             object: nil
         )
 
+        CodexLocalUsageModel.shared.start()
+        AppUsageAnalytics.shared.start()
+
         // Start auto-refresh
         statusBarController?.viewModel.startAutoRefresh()
 
@@ -41,6 +44,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     }
 
     func applicationWillTerminate(_ notification: Notification) {
+        CodexLocalUsageModel.shared.stop()
+        AppUsageAnalytics.shared.stop()
         statusBarController?.viewModel.stopAutoRefresh()
         statusBarController?.stop()
         dailyUpdateTimer?.invalidate()
@@ -56,6 +61,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
     @MainActor
     func openSettings() {
+        AppUsageAnalytics.shared.recordActivity()
         guard let statusBarController else { return }
         let viewModel = statusBarController.viewModel
         if settingsWindowController == nil {

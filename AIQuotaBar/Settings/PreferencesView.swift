@@ -1,7 +1,7 @@
 import AppKit
 import SwiftUI
 
-/// 顶层 Preferences 容器：3 tab（General / Providers / About），窗口固定 792x638，
+/// 顶层 Preferences 容器，窗口固定 792x638，
 /// 不随 tab 切换 resize。
 @MainActor
 struct PreferencesView: View {
@@ -17,6 +17,13 @@ struct PreferencesView: View {
                           systemImage: PreferencesTab.general.systemImage)
                 }
                 .tag(PreferencesTab.general)
+
+            DisplayPane(viewModel: viewModel, service: mobileDashboardService)
+                .tabItem {
+                    Label(viewModel.appLanguage.modelDisplayTabTitle(),
+                          systemImage: PreferencesTab.display.systemImage)
+                }
+                .tag(PreferencesTab.display)
 
             UsagePane(viewModel: viewModel)
                 .tabItem {
@@ -34,7 +41,8 @@ struct PreferencesView: View {
 
             MobileDashboardPane(
                 viewModel: viewModel,
-                service: mobileDashboardService)
+                service: mobileDashboardService,
+                onCustomizeDisplay: { selection.tab = .display })
                 .tabItem {
                     Label(
                         viewModel.appLanguage
