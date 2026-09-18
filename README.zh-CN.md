@@ -1,5 +1,7 @@
 # AI Quota Bar
 
+[产品介绍与交互演示](https://ai-quota-bar.pages.dev/)
+
 <p align="center">
   随时知道 AI 编程配额还能用多久，让 Codex 长任务不中断，并在 OpenAI 连不上时直接从菜单栏恢复线路。
 </p>
@@ -23,14 +25,14 @@
   <img src="./docs/images/control-center.png" alt="AI Quota Bar 右键控制中心" width="342">
 </p>
 
-## v1.16.0 有什么变化
+## v1.17.0 有什么变化
 
-- **自由组合 Ring 服务商。** 显示方式与服务商选择分开，可任意组合 Codex、Kimi、MiniMax、GLM，也可全选。
-- **MiniMax 与 GLM 额度环。** 无需任务检测即可显示最新剩余额度；GLM 优先展示 5 小时额度，耗尽后仍保留 0% 空环。
-- **供应商开关联动。** 关闭的供应商不再出现在 Ring 选项或“全选”中，原有选择自动迁移。
-- **工作感知显示。** 选中的 MiniMax、GLM 常驻；Codex/Kimi 根据任务活动显示，空闲时保留选中范围内剩余额度最少的一家。
+- **本机 Codex 消耗与历史账号。** Tokens、记录、缓存命中率、估算成本及小时/每日趋势，与共享账号额度分开统计。
+- **菜单与显示设置整合。** Codex 置顶、菜单跟随当前账号；菜单显隐、手机模型选择和图表样式统一设置。
+- **成员设备上报与匿名运营后台。** 独立绑定与上报；可选匿名活跃统计，默认关闭。
+- **新云端与产品官网。** 服务迁至 ai-quota-bar.pages.dev，官网按真实界面复现，修复手机状态条渲染异常。
 
-完整改动和校验结果见 [v1.16.0 发布说明](./docs/releases/v1.16.0.md)。
+完整改动与升级说明见 [v1.17.0 发布说明](./docs/releases/v1.17.0.md)。
 
 ## 它能帮你解决什么
 
@@ -235,6 +237,10 @@ AI Quota Bar 不只是显示一个百分比。它会把剩余配额、重置时�
 - 云同步必须由用户主动开启，不上传供应商凭证，但会上传上一节列出的配额元数据。
 - 合盖相关系统修改必须明确管理员授权，并由辅助程序自动恢复。
 
+## Codex 本机用量与成员统计
+
+菜单与设置现支持本机 token、有效用量记录数、缓存命中率、可配置价格的估算成本，以及按成员和设备上报。统计来源为本机 Codex 日志，与账号剩余额度分开；成员上报默认关闭。详见[配置、部署和验证说明](docs/codex-local-usage.md)。
+
 ## 从源码构建
 
 架构和维护文档索引见 [`docs/README.md`](./docs/README.md)。
@@ -245,6 +251,7 @@ Swift Package 当前要求 CodexBar 与本仓库处于同级目录：
 mkdir ai-quota-bar-workspace
 cd ai-quota-bar-workspace
 git clone https://github.com/steipete/CodexBar.git codexbar
+git -C codexbar checkout b6e65a83dc471817b7ff7678e68e0204c9dd604f
 git clone https://github.com/techfanseric/ai-quota-bar.git
 cd ai-quota-bar
 

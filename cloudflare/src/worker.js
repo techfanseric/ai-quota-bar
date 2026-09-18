@@ -1,7 +1,53 @@
+import { operations } from "./operations.js";
+import { localUsage } from "./local-usage.js";
+
 export default {
   async fetch(request, env) {
     try {
       const url = new URL(request.url);
+      if (env.MIGRATION_READ_ONLY === "true" && ["POST", "PUT", "DELETE"].includes(request.method)) {
+        return new Response(JSON.stringify({error:"migration_in_progress"}), {status:503, headers:{"content-type":"application/json", "retry-after":"60"}});
+      }
+
+      if (url.pathname.startsWith("/v1/admin/") || url.pathname.startsWith("/v1/telemetry/")) {
+        return await operations(request, env, url);
+      }
+      if (["GET", "HEAD"].includes(request.method) && ["/admin", "/admin/", "/admin.css", "/admin.js"].includes(url.pathname)) {
+        const assetURL = new URL(request.url);
+        if (["/admin", "/admin/"].includes(url.pathname)) assetURL.pathname = "/admin";
+        const asset = await env.ASSETS.fetch(new Request(assetURL, request));
+        const response = new Response(asset.body, asset);
+        response.headers.set("cache-control", "no-store");
+        response.headers.set("x-robots-tag", "noindex, nofollow");
+        response.headers.set("content-security-policy", "default-src 'self'; script-src 'self'; style-src 'self'; connect-src 'self'; base-uri 'none'; frame-ancestors 'none'; form-action 'self'");
+        response.headers.set("x-content-type-options", "nosniff");
+        response.headers.set("referrer-policy", "no-referrer");
+        return response;
+      }
+      // Only these public assets bypass API authentication. No usage data is
+      // embedded in the product site or requested by its interactive demos.
+      if (["GET", "HEAD"].includes(request.method) && ["/mobile-preview", "/mobile-preview.css", "/mobile-preview.js"].includes(url.pathname)) {
+        const asset = await env.ASSETS.fetch(request);
+        const response = new Response(asset.body, asset);
+        response.headers.set("content-security-policy", "default-src 'none'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self'; connect-src 'none'; media-src 'none'; frame-ancestors 'self'; base-uri 'none'; form-action 'none'");
+        response.headers.set("x-content-type-options", "nosniff");
+        response.headers.set("x-robots-tag", "noindex");
+        response.headers.set("cache-control", "public, max-age=0, must-revalidate");
+        return response;
+      }
+      const publicPaths = new Set(["/", "/index.html", "/site.css", "/demo.js", "/favicon.svg", "/robots.txt", "/sitemap.xml"]);
+      if (["GET", "HEAD"].includes(request.method) && publicPaths.has(url.pathname)) {
+        const asset = await env.ASSETS.fetch(request);
+        const response = new Response(asset.body, asset);
+        response.headers.set("content-security-policy", "default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self'; connect-src 'none'; base-uri 'none'; frame-ancestors 'none'; form-action 'none'");
+        response.headers.set("x-content-type-options", "nosniff");
+        response.headers.set("referrer-policy", "strict-origin-when-cross-origin");
+        response.headers.set("cache-control", "public, max-age=0, must-revalidate");
+        return response;
+      }
+      if (request.method === "GET" && url.pathname === "/healthz") {
+        return json({ ok: true, service: "ai-quota-bar-sync" });
+      }
 
       if (request.method === "OPTIONS") {
         return cors(new Response(null, { status: 204 }));
@@ -9,6 +55,10 @@ export default {
 
       if (request.method === "GET" && url.pathname === "/v1/app-update") {
         return await appUpdateManifest(env);
+      }
+
+      if (url.pathname.startsWith("/v1/usage/")) {
+        return await localUsage(request, env, url);
       }
 
       if (!isAuthorized(request, env)) {
@@ -194,7 +244,7 @@ async function d1Usage(env) {
 }
 
 async function appUpdateManifest(env) {
-  const fallbackVersion = env.APP_LATEST_VERSION || "1.4.2";
+  const fallbackVersion = env.APP_LATEST_VERSION || "1.17.0";
   const fallbackURL = env.APP_RELEASE_URL || `https://github.com/techfanseric/ai-quota-bar/releases/tag/v${fallbackVersion}`;
   const fallbackDownloadURL = env.APP_DOWNLOAD_URL || `https://github.com/techfanseric/ai-quota-bar/releases/download/v${fallbackVersion}/AIQuotaBar.dmg`;
 

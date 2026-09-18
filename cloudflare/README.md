@@ -144,3 +144,11 @@ Index maintenance adds small writes for each newly latest sample. Exact duplicat
 uploads add none. This trades a bounded number of pointer writes for removing
 the repeated full-history read from every routine quota refresh. No API responses
 are cached, so uploads remain immediately visible to subsequent requests.
+
+## Product homepage
+
+The root page is served from `public/` through the Pages ASSETS binding. `npm run build:pages` copies the static files and bundles the existing API Worker. Only the explicitly listed public assets bypass authentication; `/v1/` keeps its existing authentication and database behavior. Frontend demos use deterministic sample data, do not call APIs, and include no screenshots or external assets. Downloads link to the public GitHub release; unreleased desktop features are labelled as previews.
+
+## 运营后台
+
+`/admin` 提供独立管理员登录、匿名安装数、日/周/月活、90 天趋势和版本分布。配置和统计口径见 [运营后台说明](../docs/operations.md)。

@@ -3,12 +3,16 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "check": "node --check src/worker.js",
+    "check": "node --check src/worker.js && node --check src/local-usage.js && node --check public/demo.js && node --check src/operations.js && node --check public/admin.js",
     "test": "node --experimental-sqlite --test tests/*.test.js",
-    "deploy": "wrangler deploy",
-    "db:migrate": "wrangler d1 execute ai-quota-bar --file=./schema.sql"
+    "deploy": "npm run deploy:pages",
+    "db:migrate": "wrangler d1 execute ai-quota-bar --file=./schema.sql",
+    "test:usage-http": "node --experimental-sqlite tests/local-usage-http.mjs",
+    "build:pages": "node scripts/build-pages.mjs",
+    "deploy:pages": "npm run build:pages && wrangler pages deploy dist-pages --project-name ai-quota-bar --branch main"
   },
   "devDependencies": {
+    "esbuild": "^0.28.2",
     "wrangler": "^4.15.0"
   }
 }

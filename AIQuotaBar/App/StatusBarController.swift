@@ -266,6 +266,7 @@ final class StatusBarController {
     }
 
     @objc private func handleStatusItemClick(_ sender: NSStatusBarButton) {
+        AppUsageAnalytics.shared.recordActivity()
         if NSApp.currentEvent?.type == .rightMouseUp {
             dismissMenu()
             clashRouteViewModel.language = viewModel.appLanguage

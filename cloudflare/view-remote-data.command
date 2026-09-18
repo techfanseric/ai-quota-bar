@@ -6,7 +6,7 @@ TOKEN_FILE="$ROOT_DIR/.sync-token"
 WORKER_URL="$(defaults read com.techfanseric.aiquotabar cloudSyncEndpointURL 2>/dev/null || true)"
 
 if [[ -z "${WORKER_URL}" ]]; then
-  WORKER_URL="https://ai-quota-bar-sync.techfanseric.workers.dev"
+  WORKER_URL="https://ai-quota-bar.pages.dev"
 fi
 
 if [[ ! -f "$TOKEN_FILE" ]]; then

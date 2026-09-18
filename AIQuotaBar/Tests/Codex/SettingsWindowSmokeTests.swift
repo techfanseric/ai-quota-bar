@@ -30,7 +30,7 @@ final class SettingsWindowSmokeTests: XCTestCase {
         defaults.removePersistentDomain(forName: suiteName)
     }
 
-    func testMobileDashboardPaneRendersAvailableAndOrphanedModels()
+    func testDisplayPaneRendersAvailableAndOrphanedModels()
         throws
     {
         let suiteName = "SettingsWindowSmokeTests.\(UUID().uuidString)"
@@ -63,7 +63,7 @@ final class SettingsWindowSmokeTests: XCTestCase {
         XCTAssertTrue(service.setSelectedModelKeys([orphan]))
 
         let hostingView = NSHostingView(
-            rootView: MobileDashboardPane(
+            rootView: DisplayPane(
                 viewModel: viewModel,
                 service: service))
         let window = NSWindow(

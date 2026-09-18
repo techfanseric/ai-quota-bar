@@ -151,7 +151,7 @@ final class CloudSyncRequestPolicyTests: XCTestCase {
     func testTimeoutErrorDescriptionIncludesProxyHint() {
         let error = CloudSyncError.network(URLError(.timedOut))
         let description = error.errorDescription ?? ""
-        XCTAssertTrue(description.contains("workers.dev"), description)
+        XCTAssertTrue(description.contains("同步服务器"), description)
         XCTAssertTrue(description.contains("代理"), description)
     }
 

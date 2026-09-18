@@ -11,3 +11,5 @@ dist-debug/
 
 # macOS
 .DS_Store
+
+cloudflare/dist-pages/

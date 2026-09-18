@@ -38,7 +38,7 @@ enum CloudSyncError: Error, LocalizedError {
         }
         switch urlError.code {
         case .timedOut:
-            return "请求超时：到同步服务器（workers.dev）的链路不通，请检查代理是否覆盖该域名"
+            return "请求超时：到同步服务器的链路不通，请检查网络或代理设置"
         case .notConnectedToInternet:
             return "无网络连接"
         case .cannotFindHost, .dnsLookupFailed:
@@ -64,7 +64,7 @@ struct CloudSyncSettings {
     static let enabledKey = "cloudSyncEnabled"
     static let endpointURLKey = "cloudSyncEndpointURL"
     static let deviceIDKey = "cloudSyncDeviceID"
-    static let defaultEndpointURLString = "https://ai-quota-bar-sync.techfanseric.workers.dev"
+    static let defaultEndpointURLString = "https://ai-quota-bar.pages.dev"
     static let defaultServiceToken = "d7dac44143ffaa6e1fe1237add43723dcc10ce72330410483a49de8c8d62c038"
 
     var isEnabled: Bool

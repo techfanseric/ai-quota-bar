@@ -2471,7 +2471,7 @@
   function updateProtectionTicker(tickerItems) {
     const semantic = fingerprint(tickerItems);
     let ticker = state.protectionTicker;
-    if (!ticker?.track?.isConnected) {
+    if (!ticker?.track?.isConnected || ticker.groups.some(items => items.length !== tickerItems.length)) {
       ticker = createProtectionTicker(tickerItems);
       state.protectionTickerSemantic = "";
     }

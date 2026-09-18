@@ -3,6 +3,7 @@ import SwiftUI
 /// Settings 窗口的 tab 枚举。对应 codexbar 的 PreferencesTab 风格。
 enum PreferencesTab: String, CaseIterable, Hashable {
     case general
+    case display
     case usage
     case sync
     case mobile
@@ -16,6 +17,7 @@ enum PreferencesTab: String, CaseIterable, Hashable {
     var title: String {
         switch self {
         case .general: return AppLanguage.current.text(.tabGeneral)
+        case .display: return AppLanguage.current.modelDisplayTabTitle()
         case .usage: return AppLanguage.current.text(.tabUsage)
         case .sync: return AppLanguage.current.text(.tabSync)
         case .mobile:
@@ -28,6 +30,7 @@ enum PreferencesTab: String, CaseIterable, Hashable {
     var systemImage: String {
         switch self {
         case .general: return "gearshape"
+        case .display: return "slider.horizontal.3"
         case .usage: return "chart.line.uptrend.xyaxis"
         case .sync: return "icloud"
         case .mobile: return "iphone.and.arrow.forward"

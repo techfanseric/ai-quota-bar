@@ -7,6 +7,7 @@ import SwiftUI
 struct MobileDashboardPane: View {
     @Bindable var viewModel: UsageViewModel
     @Bindable var service: MobileDashboardService
+    let onCustomizeDisplay: () -> Void
     @State private var feedback: String?
     @State private var manualPairingFeedback: String?
     @State private var pairingPolicyFeedback: String?
@@ -42,174 +43,17 @@ struct MobileDashboardPane: View {
     }
 
     private var modelSelectionSection: some View {
-        SettingsSection(
-            title: language.mobileDashboardModelsTitle(),
-            caption: language.mobileDashboardModelsDescription(),
-            contentSpacing: 10
-        ) {
-            HStack(spacing: 8) {
-                Text(
-                    language.mobileDashboardModelsSelectedCount(
-                        service.selectedModelKeys.count,
-                        maximum:
-                            MobileDashboardService
-                                .maximumSelectedModelCount))
-                    .font(.footnote.weight(.medium))
-                    .foregroundStyle(.secondary)
-                Spacer()
-                if service.selectedModelKeys.count
-                    == MobileDashboardService
-                        .maximumSelectedModelCount
-                {
-                    Text(language.mobileDashboardModelsLimitReached())
-                        .font(.footnote)
-                        .foregroundStyle(.tertiary)
-                }
+        HStack(spacing: 12) {
+            VStack(alignment: .leading, spacing: 4) {
+                Text(language.mobileDashboardModelsTitle()).font(.body)
+                Text(language.mobileDashboardModelsSelectedCount(service.selectedModelKeys.count,
+                    maximum: MobileDashboardService.maximumSelectedModelCount))
+                    .font(.footnote).foregroundStyle(.secondary)
             }
-
-            if modelProviderGroups.isEmpty {
-                Text(language.mobileDashboardModelsEmpty())
-                    .font(.footnote)
-                    .foregroundStyle(.tertiary)
-                    .fixedSize(horizontal: false, vertical: true)
-            } else {
-                ForEach(modelProviderGroups) { providerGroup in
-                    modelProviderGroup(providerGroup)
-                }
-            }
-
-            if !orphanedSelectionKeys.isEmpty {
-                Divider()
-                VStack(alignment: .leading, spacing: 6) {
-                    Text(
-                        language
-                            .mobileDashboardUnavailableModelsTitle())
-                        .font(.footnote.weight(.medium))
-                        .foregroundStyle(.secondary)
-                    Text(
-                        language
-                            .mobileDashboardUnavailableModelsDescription())
-                        .font(.footnote)
-                        .foregroundStyle(.tertiary)
-                        .fixedSize(
-                            horizontal: false,
-                            vertical: true)
-
-                    ForEach(
-                        orphanedSelectionKeys,
-                        id: \.self
-                    ) { key in
-                        orphanedModelRow(key)
-                    }
-                }
-            }
+            Spacer()
+            Button(language.modelDisplayManageTitle(), action: onCustomizeDisplay)
+                .controlSize(.small)
         }
-    }
-
-    private func modelProviderGroup(
-        _ providerGroup: MobileDashboardModelProviderGroup
-    ) -> some View {
-        VStack(alignment: .leading, spacing: 8) {
-            Text(providerGroup.providerName)
-                .font(.subheadline.weight(.semibold))
-
-            ForEach(
-                providerGroup.accounts.indices,
-                id: \.self
-            ) { accountIndex in
-                let accountGroup =
-                    providerGroup.accounts[accountIndex]
-                VStack(alignment: .leading, spacing: 5) {
-                    Text(accountGroup.accountDisplayName)
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-
-                    ForEach(
-                        accountGroup.models.indices,
-                        id: \.self
-                    ) { modelIndex in
-                        let model =
-                            accountGroup.models[modelIndex]
-                        candidateModelRow(
-                            model,
-                            providerName:
-                                providerGroup.providerName,
-                            accountName:
-                                accountGroup.accountDisplayName)
-                    }
-                }
-            }
-        }
-    }
-
-    private func candidateModelRow(
-        _ model: ModelUsageData,
-        providerName: String,
-        accountName: String
-    ) -> some View {
-        let key = model.mobileDashboardSelectionKey
-        return Toggle(
-            isOn: selectionBinding(for: key)
-        ) {
-            HStack(spacing: 10) {
-                Text(model.modelName)
-                    .lineLimit(1)
-                Spacer(minLength: 8)
-                Text(
-                    "\(Int(model.currentIntervalPercentageRemaining.rounded()))%"
-                )
-                .font(.footnote.monospacedDigit())
-                .foregroundStyle(.secondary)
-            }
-        }
-        .toggleStyle(.checkbox)
-        .disabled(isSelectionDisabled(key))
-        .help(selectionHelp(for: key))
-        .accessibilityLabel(
-            language.mobileDashboardModelAccessibilityLabel(
-                provider: providerName,
-                account: accountName,
-                model: model.modelName))
-        .accessibilityHint(selectionHelp(for: key))
-    }
-
-    private func orphanedModelRow(
-        _ key: MobileDashboardModelSelectionKey
-    ) -> some View {
-        let providerName =
-            UsageProvider(rawValue: key.providerRaw)?.displayName
-            ?? key.providerRaw
-        let accountName = key.normalizedAccount.isEmpty
-            ? language.mobileDashboardDefaultAccount()
-            : key.normalizedAccount
-        return Toggle(
-            isOn: selectionBinding(for: key)
-        ) {
-            HStack(spacing: 10) {
-                VStack(alignment: .leading, spacing: 2) {
-                    Text(key.normalizedModel)
-                    Text("\(providerName) · \(accountName)")
-                        .font(.caption)
-                        .foregroundStyle(.tertiary)
-                }
-                Spacer(minLength: 8)
-                Text(language.mobileDashboardUnavailableBadge())
-                    .font(.caption)
-                    .foregroundStyle(.orange)
-            }
-        }
-        .toggleStyle(.checkbox)
-        .disabled(isSelectionDisabled(key))
-        .help(selectionHelp(for: key))
-        .accessibilityLabel(
-            language.mobileDashboardModelAccessibilityLabel(
-                provider: providerName,
-                account: accountName,
-                model: key.normalizedModel))
-        .accessibilityHint(
-            language.mobileDashboardUnavailableModelAccessibilityHint()
-                + " "
-                + selectionHelp(for: key))
     }
 
     private var enableSection: some View {
@@ -768,124 +612,15 @@ struct MobileDashboardPane: View {
     }
 
     private var candidateModels: [ModelUsageData] {
-        var seen = Set<MobileDashboardModelSelectionKey>()
-        return viewModel.providerUsageSections
-            .flatMap(\.models)
-            .filter {
-                seen.insert(
-                    $0.mobileDashboardSelectionKey).inserted
-            }
+        ModelDisplayCatalog(models: viewModel.providerUsageSections.flatMap(\.models)).models
     }
 
-    private var candidateSelectionKeys:
-        [MobileDashboardModelSelectionKey]
-    {
+    private var candidateSelectionKeys: [MobileDashboardModelSelectionKey] {
         candidateModels.map(\.mobileDashboardSelectionKey)
     }
 
-    private var modelProviderGroups:
-        [MobileDashboardModelProviderGroup]
-    {
-        var groups: [MobileDashboardModelProviderGroup] = []
-        for model in candidateModels {
-            let providerIndex: Int
-            if let existing = groups.firstIndex(where: {
-                $0.providerRaw == model.provider.rawValue
-            }) {
-                providerIndex = existing
-            } else {
-                groups.append(
-                    MobileDashboardModelProviderGroup(
-                        providerRaw: model.provider.rawValue,
-                        providerName: model.provider.displayName,
-                        accounts: []))
-                providerIndex = groups.count - 1
-            }
-
-            let normalizedAccount = model.normalizedAccountName
-            if let accountIndex = groups[providerIndex]
-                .accounts.firstIndex(where: {
-                    $0.normalizedAccount == normalizedAccount
-                })
-            {
-                groups[providerIndex].accounts[accountIndex]
-                    .models.append(model)
-            } else {
-                let fullAccountName = model.accountName?
-                    .trimmingCharacters(
-                        in: .whitespacesAndNewlines)
-                let accountDisplayName =
-                    fullAccountName.flatMap {
-                        $0.isEmpty ? nil : $0
-                    }
-                    ?? language.mobileDashboardDefaultAccount()
-                groups[providerIndex].accounts.append(
-                    MobileDashboardModelAccountGroup(
-                        providerRaw: model.provider.rawValue,
-                        normalizedAccount: normalizedAccount,
-                        accountDisplayName: accountDisplayName,
-                        models: [model]))
-            }
-        }
-        return groups
-    }
-
-    private var orphanedSelectionKeys:
-        [MobileDashboardModelSelectionKey]
-    {
-        let candidateKeys = Set(candidateSelectionKeys)
-        return service.selectedModelKeys.filter {
-            !candidateKeys.contains($0)
-        }
-    }
-
     private func initializeModelSelection() {
-        service.initializeModelSelectionIfNeeded(
-            candidates: candidateModels)
-    }
-
-    private func selectionBinding(
-        for key: MobileDashboardModelSelectionKey
-    ) -> Binding<Bool> {
-        Binding(
-            get: {
-                service.selectedModelKeys.contains(key)
-            },
-            set: { isSelected in
-                guard isSelected
-                        != service.selectedModelKeys.contains(key)
-                else {
-                    return
-                }
-                _ = service.toggleModelSelection(key)
-            })
-    }
-
-    private func isSelectionDisabled(
-        _ key: MobileDashboardModelSelectionKey
-    ) -> Bool {
-        if service.selectedModelKeys.contains(key) {
-            return service.selectedModelKeys.count <= 1
-        }
-        return service.selectedModelKeys.count
-            >= MobileDashboardService.maximumSelectedModelCount
-    }
-
-    private func selectionHelp(
-        for key: MobileDashboardModelSelectionKey
-    ) -> String {
-        if service.selectedModelKeys.contains(key),
-           service.selectedModelKeys.count <= 1 {
-            return language
-                .mobileDashboardAtLeastOneModelRequired()
-        }
-        if !service.selectedModelKeys.contains(key),
-           service.selectedModelKeys.count
-            >= MobileDashboardService.maximumSelectedModelCount {
-            return language
-                .mobileDashboardDeselectModelFirst()
-        }
-        return language.mobileDashboardModelSelectionHint()
+        service.initializeModelSelectionIfNeeded(candidates: candidateModels)
     }
 
     private func copy(_ link: String) {
@@ -915,25 +650,6 @@ struct MobileDashboardPane: View {
             return false
         }
         return host.hasSuffix(".local")
-    }
-}
-
-private struct MobileDashboardModelProviderGroup: Identifiable {
-    let providerRaw: String
-    let providerName: String
-    var accounts: [MobileDashboardModelAccountGroup]
-
-    var id: String { providerRaw }
-}
-
-private struct MobileDashboardModelAccountGroup: Identifiable {
-    let providerRaw: String
-    let normalizedAccount: String
-    let accountDisplayName: String
-    var models: [ModelUsageData]
-
-    var id: String {
-        providerRaw + "\u{1F}" + normalizedAccount
     }
 }
 

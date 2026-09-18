@@ -1,5 +1,7 @@
 # AI Quota Bar
 
+[Product website & interactive demos](https://ai-quota-bar.pages.dev/)
+
 <p align="center">
   Know how much AI coding time you have left, keep long Codex tasks running, and recover OpenAI connections without leaving the menu bar.
 </p>
@@ -23,14 +25,14 @@ AI coding work is hard to manage when quota, network routes, and Mac sleep setti
   <img src="./docs/images/control-center.png" alt="AI Quota Bar control center" width="342">
 </p>
 
-## What’s new in v1.16.0
+## What's new in v1.17.0
 
-- **Choose your Ring combination.** Display mode and provider selection are now separate: select any combination of Codex, Kimi, MiniMax, and GLM, or select all.
-- **MiniMax and GLM quota rings.** Show their latest remaining quota without task tracking; GLM prioritizes its five-hour window, including an exhausted 0% ring.
-- **Provider switches stay in sync.** Disabled providers are excluded from Ring options and Select all. Existing selections migrate automatically.
-- **Work-aware display.** Selected MiniMax and GLM remain visible while Codex/Kimi follow task activity, with the lowest remaining selected Codex/Kimi quota shown while idle.
+- **Local Codex usage and account history.** Tokens, records, cache hit rate, estimated cost and hourly/daily trends, separate from shared account quota.
+- **Consolidated menu and display settings.** Codex comes first; the menu follows the current account. Configure menu visibility, mobile selection and chart style in one place.
+- **Member/device reporting and operations dashboard.** Explicit device binding and reporting, with separate opt-in anonymous activity statistics disabled by default.
+- **New cloud endpoint and product website.** Services now use ai-quota-bar.pages.dev. Faithful interactive UI previews and a mobile status ticker rendering fix.
 
-See the [v1.16.0 release notes](./docs/releases/v1.16.0.md) for the complete change and validation details.
+See the [complete v1.17.0 release notes](./docs/releases/v1.17.0.md).
 
 ## What it helps you do
 
@@ -235,6 +237,10 @@ Cloud sync is off by default. It uploads quota metadata and account labels, but 
 - Cloud sync is opt-in and never uploads provider credentials, but it does upload the quota metadata listed above.
 - Closed-lid changes require explicit administrator approval and are automatically restored by the helper.
 
+## Codex local usage and member reporting
+
+The menu and Usage settings show local tokens, usage records, weighted cache hit rates and estimated costs with configurable prices. Optional reporting groups usage by team member and device, independently of account quota. Member reporting is off by default. See the [setup, deployment and verification guide](docs/codex-local-usage.md).
+
 ## Build from source
 
 See [`docs/README.md`](./docs/README.md) for the architecture and maintenance documentation index.
@@ -245,6 +251,7 @@ The Swift package currently expects CodexBar as a sibling checkout:
 mkdir ai-quota-bar-workspace
 cd ai-quota-bar-workspace
 git clone https://github.com/steipete/CodexBar.git codexbar
+git -C codexbar checkout b6e65a83dc471817b7ff7678e68e0204c9dd604f
 git clone https://github.com/techfanseric/ai-quota-bar.git
 cd ai-quota-bar
 

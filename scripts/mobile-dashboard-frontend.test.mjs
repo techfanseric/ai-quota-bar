@@ -1919,3 +1919,22 @@ test("task telemetry lane disposal releases animations through repeated count ch
   delete globalThis.__cancelTaskTelemetryLaneAnimation;
   delete globalThis.__disposeTaskTelemetryLane;
 });
+
+test("status ticker tolerates quota/protection item counts changing between renders", async () => {
+  const script = await readText("app.js");
+  const update = namedFunction(script, "updateProtectionTicker", `
+    const state = { protectionTicker: null, protectionTickerSemantic: "" };
+    const fingerprint = JSON.stringify;
+    const tickerPhase = () => 0.5;
+    const restoreTickerPhase = () => {};
+    function createProtectionTicker(rows) {
+      return state.protectionTicker = {track:{isConnected:true},groups:[rows.map(()=>({keyNode:{},valueNode:{classList:{add(){}}}}))]};
+    }
+  `);
+  assert.doesNotThrow(() => {
+    update([]);
+    update([["Protection", "Active", "good"], ["Display", "On"]]);
+    update([["Protection", "Idle"]]);
+    update([]);
+  });
+});

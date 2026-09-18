@@ -15,6 +15,8 @@ struct GeneralPane: View {
                 Divider()
                 menuBarSection
                 Divider()
+                AnonymousAnalyticsSection(analytics: .shared, language: language)
+                Divider()
                 quitSection
             }
             .frame(maxWidth: .infinity, alignment: .leading)
