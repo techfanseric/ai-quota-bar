@@ -37,7 +37,7 @@ struct MenuView: View {
     @ViewBuilder
     private var modelsList: some View {
         let sections = viewModel.leftClickMenuUsageSections
-        if sections.isEmpty && !viewModel.hasAnyCredential {
+        if sections.isEmpty && !viewModel.hasAnyCredential && !viewModel.cloudSyncEnabled {
             VStack(alignment: .leading, spacing: 10) {
                 Text(language == .simplifiedChinese ? "从一个供应商开始" : "Start with one provider")
                     .font(.system(size: 12, weight: .semibold))
@@ -49,6 +49,15 @@ struct MenuView: View {
                 }.controlSize(.small).tint(.primary)
                 if showsUsagePreview { LocalUsageSamplePreview(language: language) }
             }.padding(8)
+        } else if sections.isEmpty && !viewModel.hasAnyCredential && viewModel.cloudSyncEnabled {
+            MenuPlaceholderCard(
+                icon: "icloud",
+                title: language == .simplifiedChinese ? "等待云端记录" : "Waiting for cloud history",
+                message: viewModel.cloudUsageLoadError ?? (language == .simplifiedChinese ? "云同步已配置，无需添加本机供应商。正在读取历史记录。" : "Cloud sync is configured; no local provider is required. Loading history."),
+                primaryActionTitle: language.text(.refresh),
+                primaryAction: { Task { await viewModel.refresh(showIconSelfTest: false) } },
+                secondaryActionTitle: language.text(.settings),
+                secondaryAction: onOpenSettings)
         } else if !sections.isEmpty {
             VStack(spacing: 0) {
                 let providerCount = Set(sections.map(\.provider)).count

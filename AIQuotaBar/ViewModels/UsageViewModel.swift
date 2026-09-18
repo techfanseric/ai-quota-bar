@@ -302,7 +302,7 @@ final class UsageViewModel {
         guard let primary = selectedMenuBarModel(from: candidates) else {
             let provider = fallbackMenuBarProvider()
             let failed = providerErrors[provider] != nil || (error != nil && usageData == nil)
-            let state: MenuBarSnapshotState = !hasAnyCredential ? .needsSetup : failed ? .failed : (isLoading || usageData == nil ? .loading : .unavailable)
+            let state: MenuBarSnapshotState = !hasAnyCredential && !cloudSyncEnabled ? .needsSetup : failed ? .failed : (isLoading || usageData == nil ? .loading : .unavailable)
             let snapshot = makeMenuBarStateSnapshot(
                 provider: provider,
                 state: state)

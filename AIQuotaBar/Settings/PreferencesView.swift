@@ -66,7 +66,7 @@ struct PreferencesView: View {
                 }
                 .tag(PreferencesTab.about)
         }
-        .onAppear { if !viewModel.hasAnyCredential { selection.tab = .providers } }
+        .onAppear { if !viewModel.hasAnyCredential && !viewModel.cloudSyncEnabled { selection.tab = .providers } }
         .padding(.horizontal, 24)
         .padding(.vertical, 16)
         .frame(width: PreferencesTab.providersWidth, height: PreferencesTab.windowHeight)
