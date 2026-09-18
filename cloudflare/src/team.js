@@ -1,3 +1,4 @@
+import { handoff, memberSession } from './team-handoff.js';
 import { quotaAccounts, deleteTeamQuota, auditStatement } from './team-quota.js';
 // Self-service team console: /v1/team/create, login/logout and the cookie
 // session that powers the /team dashboard. Sessions are signed with the
@@ -28,6 +29,7 @@ async function sign(value, key) {
 
 async function sessionTeam(request, env) {
   const cookie = (request.headers.get('cookie') || '').split(';').map(x => x.trim()).find(x => x.startsWith(COOKIE + '='))?.slice(COOKIE.length + 1);
+  if (cookie?.startsWith("member.")) return await memberSession(cookie,env);
   if (!cookie || cookie.length > 260) return null;
   const [teamID, expiry, nonce, signature, ...rest] = cookie.split('.');
   const now = Math.floor(Date.now() / 1000);
@@ -35,7 +37,7 @@ async function sessionTeam(request, env) {
     || !Number.isSafeInteger(+expiry) || +expiry <= now || +expiry > now + SESSION_SECONDS) return null;
   const team = (await env.DB.prepare('SELECT login_hash FROM usage_teams WHERE team_id=?').bind(teamID).all()).results[0];
   if (!team) return null;
-  return constantTimeEqual(signature, await sign(`${teamID}.${expiry}.${nonce}`, team.login_hash)) ? { teamID } : null;
+  return constantTimeEqual(signature, await sign(`${teamID}.${expiry}.${nonce}`, team.login_hash)) ? { teamID, role: "manager" } : null;
 }
 
 const sameOrigin = (request, url) => {
@@ -45,6 +47,7 @@ const sameOrigin = (request, url) => {
 
 export async function teamService(request, env, url) {
   try {
+    if (['/v1/team/handoff','/v1/team/redeem'].includes(url.pathname)) return await handoff(request,env,url,readBody);
     if (url.pathname === '/v1/team/create') {
       if (request.method !== 'POST') return json({ error: 'method_not_allowed' }, 405);
       if (!sameOrigin(request, url)) return json({ error: 'invalid_origin' }, 403);
@@ -92,6 +95,9 @@ export async function teamService(request, env, url) {
     }
     const session = await sessionTeam(request, env);
     if (!session) return json({ error: 'unauthorized' }, 401);
+    const expectedTeam = request.headers.get('x-aqb-team');
+    if (expectedTeam && expectedTeam !== session.teamID) return json({error:'team_session_changed'},409);
+    if (session.role === 'member' && request.method !== 'GET') return json({error:'team_manager_required'},403);
     if (url.pathname === '/v1/team/accounts' && request.method === 'GET') return json({ok:true,accounts:await quotaAccounts(env,session.teamID)});
     if (url.pathname === '/v1/team/accounts' && request.method === 'DELETE') {
       if (!sameOrigin(request,url)) return json({error:'invalid_origin'},403);
@@ -107,7 +113,7 @@ export async function teamService(request, env, url) {
       ]);
       return json({ok:true});
     }
-    if (request.method === 'GET' && url.pathname === '/v1/team/overview') return await overview(env, session.teamID, url);
+    if (request.method === 'GET' && url.pathname === '/v1/team/overview') return await overview(env, session.teamID, url, session);
     if (request.method === 'POST' && url.pathname === '/v1/team/invite/rotate') {
       if (!sameOrigin(request, url)) return json({ error: 'invalid_origin' }, 403);
       const inviteCode = newInviteCode();
@@ -129,7 +135,7 @@ export async function teamService(request, env, url) {
   }
 }
 
-async function overview(env, teamID, url) {
+async function overview(env, teamID, url, session) {
   const days = url.searchParams.get('days') || '30';
   if (!['7', '30', '90'].includes(days)) return json({ error: 'invalid_range' }, 400);
   const now = new Date();
@@ -155,7 +161,7 @@ async function overview(env, teamID, url) {
     device: await usageGroups(env, teamID, from, to, 'device'),
     account: await usageGroups(env, teamID, from, to, 'account'),
   };
-  return json({ ok: true, generatedAt: now.toISOString(), timezone: 'UTC', days, from, to,
+  return json({ ok: true, access: {role:session.role,canManage:session.role==='manager',memberID:session.memberID??null}, generatedAt: now.toISOString(), timezone: 'UTC', days, from, to,
     team: { teamID: team.team_id, teamName: team.team_name, createdAt: team.created_at, inviteRotatedAt: team.invite_rotated_at, memberLimit: MAX_TEAM_MEMBERS },
     members: results[1].results.map(m => ({ memberID: m.member_id, memberName: m.member_name, devices: devicesByMember.get(m.member_id) || [] })),
     usage });

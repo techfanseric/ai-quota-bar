@@ -6,7 +6,7 @@ import { spawn } from 'node:child_process';
 import worker from '../src/worker.js';
 
 const db = new DatabaseSync(':memory:');
-for (const file of ['0002_local_usage.sql', '0003_usage_accounts.sql', '0005_team_selfservice.sql']) {
+for (const file of ['0002_local_usage.sql', '0003_usage_accounts.sql', '0005_team_selfservice.sql', '0008_team_handoff.sql']) {
   db.exec(readFileSync(new URL('../migrations/' + file, import.meta.url), 'utf8'));
 }
 const mockDB = {
@@ -39,7 +39,7 @@ const team = await created.json(); if (!created.ok || !team.inviteCode) throw ne
 const server = http.createServer(async (req, res) => {
   try {
     const chunks = []; for await (const chunk of req) chunks.push(chunk);
-    const response = await worker.fetch(new Request(`http://127.0.0.1${req.url}`, { method: req.method, headers: req.headers, body: req.method === 'GET' ? undefined : Buffer.concat(chunks) }), env);
+    const response = await worker.fetch(new Request(`http://${req.headers.host}${req.url}`, { method: req.method, headers: req.headers, body: req.method === 'GET' ? undefined : Buffer.concat(chunks) }), env);
     res.writeHead(response.status, Object.fromEntries(response.headers)); res.end(Buffer.from(await response.arrayBuffer()));
   } catch { res.writeHead(500); res.end('{}'); }
 });

@@ -43,12 +43,15 @@
 
 ## 自助团队（/team）
 
-面向不想自己部署的团队。队长在 `https://ai-quota-bar.pages.dev/team` 创建团队，页面一次性给出三项凭据：团队 ID、邀请码和管理密码（服务端只存 SHA-256 哈希，丢失只能重建）。流程：
+在 App「设置 → 用量与团队」直接创建或加入团队；也可从 `https://ai-quota-bar.pages.dev/team` 创建。新建团队的管理密码自动保存在本机钥匙串，请另外备份；服务端只存哈希。
 
-1. 队长创建团队，保存团队 ID 与管理密码，把邀请码发给每位成员。
-2. 成员在 App 的 设置 → 用量 → Codex 本机用量 → 成员归属与上报 填入邀请码和自己的名字，点“加入团队”；服务端据此创建成员并签发设备凭据，之后与管理员签发的设备完全等价。
-3. 队长用团队 ID 和管理密码登录 `/team` 查看成员/设备/账号用量面板；任何已绑定成员也可在 App 的“团队成员用量”里查看。
-4. 需要换人时在面板轮换邀请码，旧码立即失效，已加入成员不受影响；也可移除某台设备，已入账历史保留。
+1. 创建时填写团队名称、自己的名字和成员口令，把邀请码分享给队友，不分享管理密码。
+2. 成员用邀请码、自己的名字和成员口令加入。设置自动加载 7 / 30 / 90 天团队用量，按成员展开设备，显示账号汇总。
+3. 所有成员点击「查看团队」即可打开只读团队面板，查看本团队全部成员、设备、用量和额度账号。服务端拒绝成员的删除、撤销和邀请管理请求。
+4. 管理者点击「管理团队」直接进入管理页。旧版本未保存管理凭据，需要首次补录一次管理密码，验证后写入钥匙串。
+5. 已加入的设备可以「创建或加入其他团队」，成功后切换，原团队历史与已归属用量保留在原团队。
+
+直达使用有效期 120 秒的一次性票据：设备凭据只进入 HTTPS Authorization，管理密码只进入 HTTPS 请求体；URL 仅含短时票据，页面兑换前立即删除 fragment。兑换后使用 Secure / HttpOnly / SameSite=Strict Cookie，有效期 8 小时。成员会话每次请求重新检查设备授权，退出、撤销或设备 token 轮换立即失效。管理权限仍需验证当前团队的管理密码。多标签页切换团队时，旧页面携带的团队 ID 与当前 Cookie 不匹配则拒绝请求。跨团队数据只在独立认证的 `/admin` 中展示。
 
 同名规则：一名成员的多台 Mac 使用同一名字。第二台 Mac 加入已存在的名字必须提供该成员的成员口令——首次加入后可在设置里设置（4–64 字符，服务端存哈希），防止队友冒用他人名字归属用量。没有口令的同名加入返回 `name_taken`；口令错误返回 401。已绑定设备换绑到其他成员同样需要对方口令（等价于管理员 `--reassign`）。同一设备重复加入同名是普通凭据轮换。
 
@@ -88,9 +91,11 @@ node scripts/provision-usage-device.mjs \
 ## 协议
 
 - `POST /v1/team/create`：`{teamName}`，公开但限速；一次性返回 teamID、inviteCode、loginPassword。需要 `USAGE_TEAMS_ENABLED`。
+- `POST /v1/team/handoff`：设备 Bearer 鉴权，`{}` 创建成员票据；`{managementPassword}` 验证同团队管理密码后创建管理员票据。
+- `POST /v1/team/redeem`：浏览器同源 POST `{ticket}`，原子消费票据并设置会话 Cookie。
 - `POST /v1/team/login` / `POST /v1/team/logout`：团队 ID + 管理密码换取签名 Cookie 会话（8 小时）。
-- `GET /v1/team/overview?days=7|30|90`：会话鉴权，返回成员/设备/账号结构与按成员、设备、账号的用量聚合（UTC 日期）。
-- `POST /v1/team/invite/rotate`、`POST /v1/team/devices/revoke`：会话鉴权。
+- `GET /v1/team/overview?days=7|30|90`：成员或管理会话鉴权，返回权限标识、成员/设备/账号结构与按成员、设备、账号的用量聚合（UTC 日期）。
+- `POST /v1/team/invite/rotate`、`POST /v1/team/devices/revoke`：仅管理员会话鉴权。
 - `POST /v1/usage/join`：`{inviteCode, memberName, deviceID, memberPassphrase?}`，邀请码即凭证；返回一次性设备 token，响应形状与 `/v1/usage/devices` 相同。
 - `POST /v1/usage/member/passphrase`：设备鉴权，设置或更换本成员口令（4–64 字符）。
 - `POST /v1/usage/devices`：独立管理员鉴权，注册或轮换设备，返回一次性可见的设备 token。
@@ -150,3 +155,7 @@ swift run -c release CodexUsageAudit "$HOME/.codex" /path/to/scratch/audit.sqlit
 新版 App 的默认额度同步、设备列表、资源用量和更新检查切换到新入口。本机成员上报针对两个旧官方入口，会先在新服务验证同一团队/成员/设备身份，才迁移本地绑定与凭据；上报起点、已发送状态、待传队列保持不变。自定义第三方入口不自动改写。
 
 旧 Cloudflare 资源在全量快照导入、逐表行内容哈希一致和新 App 实际上报通过后清理。旧版 App/其他设备需要更新到迁移后的版本；不会在旧账号长期保留消耗请求额度的代理。
+
+## v1.20 部署补充
+
+先执行 `cloudflare/migrations/0008_team_handoff.sql`，再部署 Pages。新表仅保存票据哈希和绑定信息；过期票据在签发时清理。此迁移新增表和索引，不修改团队用量历史。原有管理密码登录继续可用。

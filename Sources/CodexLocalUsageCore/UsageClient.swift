@@ -90,6 +90,19 @@ public final class UsageClient: @unchecked Sendable {
         request.httpBody = try JSONSerialization.data(withJSONObject: ["teamName": name.trimmingCharacters(in: .whitespacesAndNewlines)])
         return try await perform(request, session: client.session, join: true)
     }
+    /// Only a short-lived, one-use ticket enters the URL. Device and manager credentials stay in HTTPS bodies/headers.
+    public func teamBrowserURL(managementPassword: String? = nil) async throws -> URL {
+        struct Payload: Encodable { let managementPassword: String? }
+        struct Ticket: Decodable { let ticket: String; let role: String }
+        let value: Ticket = try await request(path: "/v1/team/handoff", body: JSONEncoder().encode(Payload(managementPassword: managementPassword)))
+        guard value.ticket.count == 64, value.ticket.allSatisfy({ "0123456789abcdef".contains($0) }),
+              value.role == (managementPassword == nil ? "member" : "manager") else {
+            throw UsageFailure.invalid("Invalid team sign-in response")
+        }
+        var parts = URLComponents(url: endpoint, resolvingAgainstBaseURL: false)!
+        parts.path = "/team"; parts.fragment = "handoff=" + value.ticket
+        return parts.url!
+    }
     public func leave() async throws {
         struct Ack: Decodable { let ok: Bool }
         let _: Ack = try await request(path: "/v1/usage/leave", body: Data("{}".utf8))

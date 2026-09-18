@@ -25,13 +25,13 @@ AI coding work is hard to manage when quota, network routes, and Mac sleep setti
   <img src="./docs/images/control-center.png" alt="AI Quota Bar control center" width="342">
 </p>
 
-## What’s new in v1.19.0
+## What’s new in v1.20.0
 
-Usage and Sync are now **Usage & Team**. Create or join a team directly in the app, then view member, device and account usage alongside sync status. Team data, credentials, caches and upload queues are isolated. Owners manage their own team in `/team`; cross-team data, legacy records, D1 and deletion audit belong in `/admin`.
+**Create teams in Settings and open your team without signing in again.** Usage & Team now defaults to creation, offers an explicit create/join-and-switch flow, and loads team usage automatically. Every member can open a read-only team dashboard; managers enter directly with credentials saved in macOS Keychain. Existing managers enter their password once to enable this.
 
-**Upgrade:** legacy shared sync credentials no longer work. Upgrade and create or join a team to resume sharing. Local usage remains available; historical cloud data stays read-only and is never assigned to a team by account name. Team quota history is retained for 90 days.
+Browser handoff links last two minutes and can be used once. Members can inspect their team's members, devices, usage and quota accounts, but cannot delete data, revoke devices or rotate invitations. Cross-team controls remain in `/admin`. This release also corrects website previews against the native app, including overlapping hero heatmap cells.
 
-[Website](https://ai-quota-bar.pages.dev) · [Changelog](https://ai-quota-bar.pages.dev/changelog) · [Full v1.19.0 release notes](./docs/releases/v1.19.0.md)
+[Website](https://ai-quota-bar.pages.dev) · [Changelog](https://ai-quota-bar.pages.dev/changelog) · [Full v1.20.0 release notes](./docs/releases/v1.20.0.md)
 
 ## What’s new in v1.17.1
 
@@ -215,10 +215,13 @@ This is a safety net, not a replacement for ventilation. A closed MacBook can co
 
 ## Manage a team’s usage
 
-Open **Settings → Usage & Team** to create a team and save its one-time invitation and management credentials. Members join with an invite code, member name and member passphrase. Creating or joining enables member reporting and quota sharing; each can be paused independently. Use the same member passphrase on another Mac. Leaving revokes the current device credential.
+Open **Settings → Usage & Team** to create a team. Its management password is saved in Keychain; keep a separate backup and share only the invite code with members. Members join with an invite code, member name and member passphrase. Creating or joining enables member reporting and quota sharing; each can be paused independently. Use the same member passphrase on another Mac. Leaving revokes the current device credential.
 
 - Local statistics work without a team.
-- Team members can view their team’s usage and quotas; other teams cannot read, change or delete them.
+- **View team** opens the member dashboard directly, with no password entry. Members see each other’s usage, devices and quota accounts in read-only mode.
+- **Manage team** opens management directly for saved credentials; existing managers enter the management password once.
+- **Create or join another team** switches this Mac only after success; usage already assigned to the old team stays there.
+- Other teams cannot read, change or delete this team’s data.
 - Quota history is retained for 90 days. Owners clean up team accounts or revoke member devices in `/team`.
 - Platform operators use independently authenticated `/admin` for cross-team data, legacy records, database usage and deletion audit.
 - Shared data includes usage statistics, quota metadata and account labels (which may contain email addresses), never provider credentials or conversations.
