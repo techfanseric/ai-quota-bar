@@ -12,45 +12,52 @@ export function paceFill(delta) { return Math.abs(delta) <= 2 ? 0 : Math.min(1, 
 export function waveHead(elapsed, index, count) { return (1 - ((elapsed / 1.8 + index / count) % 1) + 1) % 1; }
 const ns = 'http://www.w3.org/2000/svg';
 function node(tag, attrs = {}, text) { const n = document.createElementNS(ns, tag); for (const [k,v] of Object.entries(attrs)) n.setAttribute(k,v); if (text) n.textContent=text; return n; }
-function arc(start,end,r=8) {
- const p = t => [11 + r * Math.sin(t * Math.PI * 2),11 - r * Math.cos(t * Math.PI * 2)];
- const a=p(start),b=p(end);return `M${a}A${r},${r} 0 ${end-start>.5?1:0} 1 ${b}`;
+function arc(start,end) {
+ const p = t => { const a=(38-256*t)*Math.PI/180;return [11+7.61*Math.cos(a),12.05-7.61*Math.sin(a)]; };
+ const a=p(start),b=p(end);return `M${a}A7.61,7.61 0 ${(end-start)*256>180?1:0} 1 ${b}`;
+}
+export function fanSectorPath(sign,inner,outer,fraction) {
+ const mid=sign>0?90:270,start=mid-55*fraction,end=mid+55*fraction;
+ const p=(r,a)=>[11+r*20/410*Math.cos(a*Math.PI/180),12.05-r*20/410*Math.sin(a*Math.PI/180)];
+ const a=p(outer,start),b=p(outer,end),c=p(inner,end),d=p(inner,start);
+ return `M${a}A${outer*20/410},${outer*20/410} 0 0 0 ${b}L${c}A${inner*20/410},${inner*20/410} 0 0 1 ${d}Z`;
+}
+export function visibleArcInterval(start,end) {
+ const openingEnd=(90-38)/360,span=256/360;
+ const lower=Math.max(start,openingEnd),upper=Math.min(end,openingEnd+span);
+ return upper>lower?[Math.max(0,(lower-openingEnd)/span),Math.min(1,(upper-openingEnd)/span)]:null;
 }
 function draw(svg, elapsed, remaining, delta, tasks, initial) {
-	const count=waveCount(tasks), children=[];
-	children.push(node('circle',{cx:11,cy:11,r:8,fill:'none',stroke:'currentColor','stroke-opacity':.12,'stroke-width':1.4}));
-	if(remaining>0)children.push(node('path',{d:arc(0,Math.min(.99999,remaining)),fill:'none',stroke:'currentColor','stroke-opacity':count?.6:1,'stroke-width':2.4,'stroke-linecap':'round'}));
-	if(!count&&remaining>.01&&remaining<.99) {
-		// 静止时的进度端点圆点（drawProgressEndpoint，r=1.35）。
-		const a=Math.PI/2-Math.PI*2*remaining;
-		children.push(node('circle',{cx:11+Math.cos(a)*8,cy:11-Math.sin(a)*8,r:1.35,fill:'currentColor'}));
-	}
-	for(let i=0;i<count;i++) {
-		const head=waveHead(elapsed,i,count),span=Math.min(.16,1/(count*1.45));
-		for(let segment=0;segment<6;segment++) {
-			const start=head+segment*span/6,end=start+span/6*1.08;
-			// Split at quota boundary and wrap so thick/thin waves match native geometry.
-			const cuts=[start,end];for(let turn=0;turn<3;turn++)for(const point of [turn,turn+remaining])if(point>start&&point<end)cuts.push(point);
-			cuts.sort((a,b)=>a-b);
-			for(let j=0;j<cuts.length-1;j++) {const mid=(cuts[j]+cuts[j+1])/2,active=(mid%1)<remaining;
-				children.push(node('path',{d:arc(cuts[j],cuts[j+1]),fill:'none',stroke:'currentColor','stroke-width':active?2.6:1.6,'stroke-opacity':.78*Math.pow(1-(segment+.54)/6,.65)*(active?1:.45),'stroke-linecap':'round'}));
-			}
-		}
-	}
-	children.push(node('circle',{cx:11,cy:11,r:4.25,fill:'none',stroke:'currentColor','stroke-opacity':.12,'stroke-width':.7}));
-	const fill=paceFill(delta),id=svg.dataset.clip;
-	children.push(node('defs',{},null));children.at(-1).append(node('clipPath',{id}));children.at(-1).firstChild.append(node('circle',{cx:11,cy:11,r:4.25}));
-	if(fill)children.push(node('rect',{x:delta<0?11-4.25*fill:11,y:6.75,width:4.25*fill,height:8.5,fill:'currentColor','fill-opacity':.86,'clip-path':`url(#${id})`}));
-	// 中心半圆边框：透支高亮左半，盈余高亮右半（drawCodexCore，1.05 宽）。
-	const deficit=delta<0;
-	children.push(node('path',{d:'M11 6.75A4.25 4.25 0 0 0 11 15.25',fill:'none',stroke:'currentColor','stroke-width':1.05,'stroke-opacity':deficit?.86:.12}));
-	children.push(node('path',{d:'M11 6.75A4.25 4.25 0 0 1 11 15.25',fill:'none',stroke:'currentColor','stroke-width':1.05,'stroke-opacity':deficit?.12:.86}));
-	children.push(node('path',{d:'M11 7.3V14.7',stroke:'currentColor','stroke-width':1}));
-	const core=node('g',{'class':'cycle-core'});core.append(...children.splice(children.length-(fill?6:5)));
-	// The quota ring remains visible while hover reveals the provider initial.
-	const label=node('text',{x:11,y:14.1,'text-anchor':'middle','font-size':9,'font-weight':600,fill:'currentColor',class:'cycle-initial'},initial);
-	svg.replaceChildren(...children,core,label);
+ const count=waveCount(tasks), children=[];
+ children.push(node('path',{d:arc(0,1),fill:'none',stroke:'currentColor','stroke-opacity':.18,'stroke-width':2.68,'stroke-linecap':'round'}));
+ if(remaining>0)children.push(node('path',{d:arc(0,Math.min(1,remaining)),fill:'none',stroke:remaining<=.2?'#d6a00a':'currentColor','stroke-opacity':1,'stroke-width':2.68,'stroke-linecap':'round'}));
+ for(let i=0;i<count;i++) {
+  const head=waveHead(elapsed,i,count),span=Math.min(.16,1/(count*1.45));
+  for(let segment=0;segment<16;segment++) {
+   const start=head+segment*span/16,end=start+span/16;
+   for(let turn=Math.floor(start);turn<=Math.floor(end);turn++) {
+    const visible=visibleArcInterval(Math.max(0,start-turn),Math.min(1,end-turn));
+    if(!visible)continue;
+    const cuts=[...visible];if(remaining>cuts[0]&&remaining<cuts[1])cuts.splice(1,0,remaining);
+    for(let j=0;j<cuts.length-1;j++) {
+     const active=(cuts[j]+cuts[j+1])/2<remaining;
+     children.push(node('path',{d:arc(cuts[j],cuts[j+1]),fill:'none',stroke:active?'var(--cycle-highlight, #fff)':'currentColor','stroke-width':1.15,'stroke-opacity':.78*Math.pow(1-(segment+.5)/16,.65)*(active?1:.45)}));
+    }
+   }
+  }
+
+ }
+ const known=Number.isFinite(delta),fill=known?paceFill(delta)*2:0;
+ children.push(node('circle',{cx:11,cy:12.05,r:38/2*20/410,fill:'currentColor','fill-opacity':known?1:.18}));
+ for(const sign of [-1,1])for(const [index,inner,outer] of [[0,42,69],[1,82,109]]) {
+  children.push(node('path',{d:fanSectorPath(sign,inner,outer,1),fill:'currentColor','fill-opacity':.18}));
+  const amount=Math.min(1,Math.max(0,fill-index));
+  if(known&&delta*sign>0&&amount>0)children.push(node('path',{d:fanSectorPath(sign,inner,outer,amount),fill:'currentColor'}));
+ }
+ children.push(node('text',{x:11,y:6.6,'text-anchor':'middle','font-size':6.34,'font-weight':700,fill:'currentColor'},initial));
+ svg.replaceChildren(...children);
 }
+
 if(typeof document !== 'undefined') {
 	 // 四个状态平铺展示：自检/单任务/多任务持续演示各自的运动，空闲天然静止。
 	 const stateSpecs={
@@ -75,7 +82,7 @@ if(typeof document !== 'undefined') {
 	  }
 	  liveIcons.forEach(s=>{
 	   const spec=liveSpecs[s.dataset.cycleIcon]||{remaining:.6,tasks:0},initial=s.dataset.cycleIcon[0].toUpperCase();
-	   draw(s,.55,spec.remaining,spec.delta??0,spec.tasks,initial);});
+	   draw(s,.55,spec.remaining,spec.delta,spec.tasks,initial);});
 	 }
 	 function render() {
 	  for(const {svg,spec} of stateIcons) {
@@ -86,7 +93,7 @@ if(typeof document !== 'undefined') {
 	  renderLiveRings();
 	 }
 	 function tick(now) {raf=0;if(!visible||document.hidden)return;
-	  if(now-last>=1000/15){elapsed+=(now-last)/1000;last=now;render();}
+	  if(now-last>=1000/30){elapsed+=(now-last)/1000;last=now;render();}
 	  raf=requestAnimationFrame(tick);}
 	 function run() {cancelAnimationFrame(raf);last=performance.now();
 	  if(!reduced.matches&&visible&&!document.hidden)raf=requestAnimationFrame(tick);}
@@ -101,7 +108,7 @@ if(typeof document !== 'undefined') {
 	 const liveSpecs={codex:{remaining:.64,delta:7,tasks:1},kimi:{remaining:.42,delta:-8,tasks:3},minimax:{remaining:.75,tasks:0},glm:{remaining:.58,tasks:0}};
 	 function renderLiveRings(){liveIcons.forEach(s=>{
 	  const spec=liveSpecs[s.dataset.cycleIcon]||{remaining:.6,tasks:0},initial=s.dataset.cycleIcon[0].toUpperCase();
-	  draw(s,elapsed,spec.remaining,spec.delta??0,spec.tasks,initial);});}
+	  draw(s,elapsed,spec.remaining,spec.delta,spec.tasks,initial);});}
 	 renderLiveRings();
 	 if(reduced.matches)renderStaticFrame();else{render();run();}
 	}

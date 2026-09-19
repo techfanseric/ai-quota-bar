@@ -7,9 +7,12 @@ struct WarningPanelView: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
             HStack {
-                Image(systemName: "exclamationmark.triangle.fill")
-                    .foregroundColor(.orange)
-                    .font(.title2)
+                QuotaSymbolView(
+                    provider: usageData.provider,
+                    remainingPercent: usageData.mostUrgentModel?.currentIntervalPercentageRemaining,
+                    lowQuota: true)
+                    .frame(width: 26, height: 29)
+                    .accessibilityLabel(language.text(.warningPanelTitle))
                 Text(language.text(.warningPanelTitle))
                     .font(.headline)
                 Spacer()

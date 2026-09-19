@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { selfTestFrame, waveCount, waveHead, paceFill } from '../public/cycle-demo.js';
+import { selfTestFrame, waveCount, waveHead, paceFill, visibleArcInterval } from '../public/cycle-demo.js';
 test('self test uses native three-second quota and directional pace cycle',()=>{
  assert.equal(selfTestFrame(0).remaining,.08);
  assert.equal(selfTestFrame(1).delta,0);
@@ -17,4 +17,11 @@ test('task waves cap at five, are evenly spaced and travel counterclockwise',()=
 test('pace uses native staged fill and two-day normalization',()=>{
  assert.equal(paceFill(2),0);assert.equal(paceFill(-7),.25);
  assert.equal(paceFill(100/7),.5);assert.equal(paceFill(200/7),1);
+});
+
+test('task waves are masked in the provider opening',()=>{
+ assert.equal(visibleArcInterval(0,.1),null);
+ assert.equal(visibleArcInterval(.9,1),null);
+ assert.deepEqual(visibleArcInterval(0,1),[0,1]);
+ assert.ok(visibleArcInterval(.2,.3)[1]<.5);
 });

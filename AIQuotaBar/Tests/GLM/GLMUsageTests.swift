@@ -2,6 +2,52 @@ import XCTest
 @testable import AIQuotaBar
 
 final class GLMUsageTests: XCTestCase {
+    @MainActor
+    func testMenuBarGLMFollowsSelectedWindowsWithoutInventingShortWindowPace() throws {
+        let defaults = UserDefaults.standard
+        let keys = [MenuBarRingQuotaWindow.storageKey, MenuBarReserveQuotaWindow.storageKey,
+                    MenuBarRingPreferences.providersKey, MenuBarRingDisplayMode.storageKey,
+                    MenuBarContentSelection.storageKey, MenuBarAppearance.storageKey,
+                    UsageViewModel.pausedProvidersKey, CloudSyncSettings.enabledKey]
+        let previous = keys.map { ($0, defaults.object(forKey: $0)) }
+        defer {
+            for (key, value) in previous {
+                if let value { defaults.set(value, forKey: key) }
+                else { defaults.removeObject(forKey: key) }
+            }
+        }
+        defaults.set(false, forKey: CloudSyncSettings.enabledKey)
+        defaults.set([String](), forKey: UsageViewModel.pausedProvidersKey)
+        let reset = Date().addingTimeInterval(3.5 * 86400).timeIntervalSince1970 * 1000
+        func data(weeklyRemaining: Int?) throws -> UsageData {
+            let weekly = weeklyRemaining.map {
+                ",{\"type\":\"CREDIT_LIMIT\",\"unit\":6,\"number\":1,\"usage\":1000,\"currentValue\":\(1000-$0),\"remaining\":\($0),\"nextResetTime\":\(reset)}"
+            } ?? ""
+            let json = "{\"code\":200,\"success\":true,\"data\":{\"limits\":[{\"type\":\"CREDIT_LIMIT\",\"unit\":3,\"number\":5,\"usage\":100,\"currentValue\":10,\"remaining\":90}\(weekly)]}}"
+            return try UsageService.shared.decodeGLMUsageData(from: Data(json.utf8))
+        }
+        let model = UsageViewModel()
+        model.menuBarRingSelectedProviders = [.glm]
+        model.menuBarRingQuotaWindow = .weekly
+        model.menuBarReserveQuotaWindow = .synchronized
+        model.usageData = try data(weeklyRemaining: 600)
+        XCTAssertEqual(model.menuBarSnapshots.first?.ringPercent, 60)
+        XCTAssertEqual(try XCTUnwrap(model.menuBarSnapshots.first?.paceDeltaPercent), 10, accuracy: 0.02)
+        model.menuBarRingQuotaWindow = .current
+        XCTAssertEqual(model.menuBarSnapshots.first?.ringPercent, 90)
+        XCTAssertNil(model.menuBarSnapshots.first?.paceDeltaPercent)
+        model.menuBarReserveQuotaWindow = .weekly
+        XCTAssertEqual(model.menuBarSnapshots.first?.ringPercent, 90)
+        XCTAssertEqual(try XCTUnwrap(model.menuBarSnapshots.first?.paceDeltaPercent), 10, accuracy: 0.02)
+        model.menuBarRingQuotaWindow = .weekly
+        model.usageData = try data(weeklyRemaining: 0)
+        XCTAssertEqual(model.menuBarSnapshots.first?.ringPercent, 0)
+        XCTAssertLessThan(try XCTUnwrap(model.menuBarSnapshots.first?.paceDeltaPercent), -49)
+        model.usageData = try data(weeklyRemaining: nil)
+        XCTAssertEqual(model.menuBarSnapshots.first?.ringPercent, 90)
+        XCTAssertNil(model.menuBarSnapshots.first?.paceDeltaPercent)
+    }
+
     func testCurrentCreditResponseKeepsWindowsDistinctAndUsesServerRemaining() throws {
         // Shape observed in the personal usage dashboard on 2026-09-11.
         // The server rounds currentValue and remaining independently.
@@ -15,6 +61,16 @@ final class GLMUsageTests: XCTestCase {
         XCTAssertEqual(result.models.map(\.currentIntervalTotal), [2000, 10000])
         XCTAssertNil(result.models[0].endTime)
         XCTAssertNil(result.models[0].startTime)
+        let short = result.models[0]
+        XCTAssertTrue(short.isShortCurrentInterval)
+        XCTAssertNil(short.currentIntervalPaceDeltaPercent)
+        let now = Date()
+        let window = try XCTUnwrap(short.quotaChartWindow(now: now))
+        XCTAssertEqual(window.end, now)
+        XCTAssertEqual(window.end.timeIntervalSince(window.start), 5 * 3600)
+        XCTAssertTrue(QuotaCurveModelSelector.curveModelIDs(
+            in: result.models, renderableModelIDs: Set(result.models.map(\.id))
+        ).contains(short.id))
         let weekly = result.models[1]
         XCTAssertEqual(weekly.endTime!.timeIntervalSince1970, 1789647732.997, accuracy: 0.001)
         XCTAssertEqual(weekly.endTime!.timeIntervalSince(weekly.startTime!), 7 * 24 * 3600)
