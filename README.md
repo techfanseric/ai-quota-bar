@@ -25,6 +25,20 @@ AI coding work is hard to manage when quota, network routes, and Mac sleep setti
   <img src="./docs/images/control-center.png" alt="AI Quota Bar control center" width="342">
 </p>
 
+## v1.22.0 · Clearer icons and accurate GLM status
+
+Larger **bidirectional fan** icons make pace easier to read: upper segments mean reserve, lower segments mean deficit, and a center dot means on pace. A wider opening separates the persistent provider letter from the ring. Yellow warns of low quota; a red dash means unavailable. Launch, menu-bar, warning, mobile and website icons share the same design.
+
+![Menu-bar states in light and dark appearances](./docs/design/quota-symbol-states.png)
+
+GLM now follows the selected weekly quota for its ring and pace. Its 5h chart uses actual samples even when reset metadata is missing. Supported personal web credentials also show available reset allowances and the next expiry, without redeeming them.
+
+[Full changes since v1.21.0](./docs/releases/v1.22.0.en.md), including team-dashboard refinements.
+
+## What’s new in v1.21.0
+
+Quota-reset dates are marked on the usage calendar, with exact times on hover. Matrix callouts follow their cells, and the website recreates the team settings and usage charts. [Published changelog](https://ai-quota-bar.pages.dev/en/changelog).
+
 ## What’s new in v1.20.0
 
 **Create teams in Settings and open your team without signing in again.** Usage & Team now defaults to creation, offers an explicit create/join-and-switch flow, and loads team usage automatically. Every member can open a read-only team dashboard; managers enter directly with credentials saved in macOS Keychain. Existing managers enter their password once to enable this.

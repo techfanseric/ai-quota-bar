@@ -479,6 +479,22 @@ private struct ProviderModelsSection: View {
         } ?? originalGroups
         VStack(alignment: .leading, spacing: 0) {
             providerHeader()
+            if data.provider == .glm, let resets = data.glmResetAllowances {
+                let fiveHour = resets.availableFiveHour()
+                let weekly = resets.availableWeekly()
+                VStack(alignment: .leading, spacing: 3) {
+                    Text(language == .simplifiedChinese
+                         ? "可用重置 · 5h \(fiveHour.count) 次 · 周 \(weekly.count) 次"
+                         : "Available resets · 5h ×\(fiveHour.count) · Weekly ×\(weekly.count)")
+                        .font(.system(size: 10, weight: .medium))
+                    if let expiry = (fiveHour + weekly).min() {
+                        Text((language == .simplifiedChinese ? "最近到期：" : "Next expiry: ")
+                             + expiry.formatted(date: .abbreviated, time: .shortened))
+                            .font(.system(size: 9)).foregroundStyle(.secondary)
+                    }
+                }
+                .padding(.horizontal, 10).padding(.vertical, 6)
+            }
             if data.provider == .codex {
                 if currentIndex != nil, let first = groups.first { accountHeader(first) }
                 else { accountHeader(AccountModelGroup(accountName: currentName, models: [])) }
@@ -1294,8 +1310,8 @@ private struct QuotaAreaChart: View {
 
     @State private var hoverLocation: CGPoint?
 
-    private var windowStart: Date? { windowOverride?.start ?? model.startTime }
-    private var windowEnd: Date? { windowOverride?.end ?? model.endTime }
+    private var windowStart: Date? { windowOverride?.start ?? model.quotaChartWindow()?.start }
+    private var windowEnd: Date? { windowOverride?.end ?? model.quotaChartWindow()?.end }
 
     /// Y 轴上限：预览历史 count 窗口时，旧周期总量可能与当前不同，
     /// 用窗口内样本最大值兜底防截断；percent 模式恒 100。
@@ -1454,17 +1470,20 @@ private struct QuotaAreaChart: View {
             areaPath.addLine(to: CGPoint(x: point.x, y: point.y))
             areaPath.addLine(to: CGPoint(x: point.x, y: layout.plotRect.maxY))
             areaPath.closeSubpath()
-            context.fill(
-                areaPath,
-                with: .linearGradient(
-                    Gradient(colors: [
-                        tint.opacity(0.22),
-                        tint.opacity(0.03)
-                    ]),
-                    startPoint: CGPoint(x: 0, y: layout.plotRect.minY),
-                    endPoint: CGPoint(x: 0, y: layout.plotRect.maxY)
+            // A rolling GLM window has no evidence before its first observation.
+            if !(model.isGLMFiveHourWindow && model.startTime == nil) {
+                context.fill(
+                    areaPath,
+                    with: .linearGradient(
+                        Gradient(colors: [
+                            tint.opacity(0.22),
+                            tint.opacity(0.03)
+                        ]),
+                        startPoint: CGPoint(x: 0, y: layout.plotRect.minY),
+                        endPoint: CGPoint(x: 0, y: layout.plotRect.maxY)
+                    )
                 )
-            )
+            }
 
             var guide = Path()
             guide.move(to: CGPoint(x: point.x, y: layout.plotRect.maxY))

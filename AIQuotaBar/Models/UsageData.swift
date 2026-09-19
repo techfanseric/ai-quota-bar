@@ -19,6 +19,7 @@ struct UsageData: Codable {
     let subscribeTitle: String?
     /// Optional current subscription end date. Only populated for `.miniMax`.
     let subscribeEndTime: Date?
+    var glmResetAllowances: GLMResetAllowances? = nil
 
     /// Percentage remaining (0-100)
     var percentageRemaining: Double {
@@ -77,7 +78,8 @@ struct UsageData: Codable {
             timestamp: timestamp,
             models: nextModels,
             subscribeTitle: subscribeTitle,
-            subscribeEndTime: subscribeEndTime)
+            subscribeEndTime: subscribeEndTime,
+            glmResetAllowances: glmResetAllowances)
     }
 
     private func sortWeight(for model: ModelUsageData, warningThreshold: Double) -> (Int, Double, String) {
@@ -418,7 +420,20 @@ struct ModelUsageData: Codable, Identifiable {
             runOutProbability: nil)
     }
 
+    /// GLM can omit reset metadata even though the quota is explicitly a 5h window.
+    var isGLMFiveHourWindow: Bool {
+        provider == .glm && modelName.localizedCaseInsensitiveContains("5h")
+    }
+
+    /// A display-only rolling window; never invent reset dates or pacing inputs.
+    func quotaChartWindow(now: Date = Date()) -> (start: Date, end: Date)? {
+        if let startTime, let endTime { return (startTime, endTime) }
+        guard isGLMFiveHourWindow else { return nil }
+        return (now.addingTimeInterval(-5 * 3600), now)
+    }
+
     var isShortCurrentInterval: Bool {
+        if isGLMFiveHourWindow { return true }
         guard let currentIntervalDuration else { return false }
         return currentIntervalDuration < 86_400
     }

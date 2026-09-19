@@ -1,35 +1,20 @@
 import AppKit
 import SwiftUI
 
-private final class StatusButtonHoverTrackingView: NSView {
-    var onHoverChanged: ((Bool) -> Void)?
-    private var hoverTrackingArea: NSTrackingArea?
+private final class StatusButtonAppearanceTrackingView: NSView {
+    var onAppearanceChanged: (() -> Void)?
 
-    override func updateTrackingAreas() {
-        super.updateTrackingAreas()
-        if let hoverTrackingArea {
-            removeTrackingArea(hoverTrackingArea)
-        }
-        let trackingArea = NSTrackingArea(
-            rect: bounds,
-            options: [.mouseEnteredAndExited, .activeAlways, .inVisibleRect],
-            owner: self,
-            userInfo: nil)
-        addTrackingArea(trackingArea)
-        hoverTrackingArea = trackingArea
+    override func viewDidChangeEffectiveAppearance() {
+        super.viewDidChangeEffectiveAppearance()
+        onAppearanceChanged?()
     }
 
-    override func mouseEntered(with event: NSEvent) {
-        onHoverChanged?(true)
+    override func viewDidChangeBackingProperties() {
+        super.viewDidChangeBackingProperties()
+        onAppearanceChanged?()
     }
 
-    override func mouseExited(with event: NSEvent) {
-        onHoverChanged?(false)
-    }
-
-    override func hitTest(_ point: NSPoint) -> NSView? {
-        nil
-    }
+    override func hitTest(_ point: NSPoint) -> NSView? { nil }
 }
 
 /// 状态栏显示：两行 NSTextField 直接 addSubview 到 NSStatusBarButton。
@@ -120,11 +105,9 @@ final class StatusBarController {
     private var hasHandledCurrentOutage = false
     private var recoveryTask: Task<Void, Never>?
     private var compactImageAnimationTask: Task<Void, Never>?
-    private let compactHoverTrackingView = StatusButtonHoverTrackingView()
+    private let compactAppearanceTrackingView = StatusButtonAppearanceTrackingView()
     private var compactImageFrames: [NSImage] = []
-    private var compactHoverImage: NSImage?
-    private var compactImageFrameIndex = 0
-    private var isCompactButtonHovered = false
+    private let compactAnimationEpoch = ProcessInfo.processInfo.systemUptime
 
     init() {
         sleepProtectionCoordinator.setProtectedProviders(
@@ -152,12 +135,12 @@ final class StatusBarController {
             statusView.frame = NSRect(x: 0, y: 0, width: initialStatusItemLength, height: 22)
             statusView.autoresizingMask = [.width, .height]
             button.addSubview(statusView)
-            compactHoverTrackingView.frame = button.bounds
-            compactHoverTrackingView.autoresizingMask = [.width, .height]
-            compactHoverTrackingView.onHoverChanged = { [weak self] isHovered in
-                self?.setCompactButtonHovered(isHovered)
+            compactAppearanceTrackingView.frame = button.bounds
+            compactAppearanceTrackingView.autoresizingMask = [.width, .height]
+            compactAppearanceTrackingView.onAppearanceChanged = { [weak self] in
+                self?.updateStatusItem()
             }
-            button.addSubview(compactHoverTrackingView)
+            button.addSubview(compactAppearanceTrackingView)
             updateStatusItem()
             installActiveScreenObservers(button: button)
         }
@@ -467,8 +450,6 @@ final class StatusBarController {
             compactImageAnimationTask?.cancel()
             compactImageAnimationTask = nil
             compactImageFrames.removeAll()
-            compactHoverImage = nil
-            isCompactButtonHovered = false
             statusItem?.button?.image = nil
             attachStatusViewIfNeeded()
             statusView.isHidden = false
@@ -517,30 +498,26 @@ final class StatusBarController {
         let scale = button.window?.backingScaleFactor
             ?? NSScreen.main?.backingScaleFactor
             ?? 2
+        statusView.appearance = button.effectiveAppearance
         let frames = statusView.renderedCompactFrames(scale: scale)
-        guard let firstFrame = frames.first else {
+        guard !frames.isEmpty else {
             button.image = nil
             return
         }
 
         compactImageFrames = frames
-        compactHoverImage = statusView.renderedCompactFrames(
-            scale: scale,
-            showsProviderInitials: true).first
-        compactImageFrameIndex = 0
-        presentCompactImage(firstFrame, on: button)
+        let elapsed = ProcessInfo.processInfo.systemUptime - compactAnimationEpoch
+        let initialIndex = Int(elapsed * Double(StatusBarAnimationCadence.taskWaveFramesPerSecond)) % frames.count
+        presentCompactImage(frames[initialIndex], on: button)
         button.setAccessibilityLabel(statusItemTooltip)
         guard frames.count > 1 else { return }
 
         compactImageAnimationTask = Task { @MainActor [weak self, weak button] in
-            var index = 0
             while !Task.isCancelled {
-                index = (index + 1) % frames.count
-                self?.compactImageFrameIndex = index
-                if self?.isCompactButtonHovered == false {
-                    if let button {
-                        self?.presentCompactImage(frames[index], on: button)
-                    }
+                let elapsed = ProcessInfo.processInfo.systemUptime - (self?.compactAnimationEpoch ?? 0)
+                let index = Int(elapsed * Double(StatusBarAnimationCadence.taskWaveFramesPerSecond)) % frames.count
+                if let button {
+                    self?.presentCompactImage(frames[index], on: button)
                 }
                 do {
                     try await Task.sleep(
@@ -550,20 +527,6 @@ final class StatusBarController {
                 }
                 guard self != nil, button != nil else { return }
             }
-        }
-    }
-
-    private func setCompactButtonHovered(_ isHovered: Bool) {
-        guard viewModel.menuBarAppearance == .compactRing,
-              isHovered != isCompactButtonHovered,
-              let button = statusItem?.button else { return }
-        isCompactButtonHovered = isHovered
-        if isHovered, let compactHoverImage {
-            presentCompactImage(compactHoverImage, on: button)
-        } else if compactImageFrames.indices.contains(compactImageFrameIndex) {
-            presentCompactImage(
-                compactImageFrames[compactImageFrameIndex],
-                on: button)
         }
     }
 
@@ -858,63 +821,72 @@ final class StatusBarCompactRingsView: NSView {
     ) -> [NSImage] {
         ringViews.forEach { $0.setHovered(showsProviderInitials) }
         defer { ringViews.forEach { $0.setHovered(false) } }
-        let pointSize = NSSize(width: preferredWidth, height: height)
-        let frameCount = !showsProviderInitials
-            && ringViews.contains(where: { $0.hasActiveTaskForRendering })
-            ? Int(
-                StatusBarAnimationCadence.taskWaveDuration
-                    * Double(StatusBarAnimationCadence.taskWaveFramesPerSecond))
-            : 1
-        let pixelsWide = max(1, Int(ceil(pointSize.width * scale)))
-        let pixelsHigh = max(1, Int(ceil(pointSize.height * scale)))
-
+        let pointSize = NSSize(width: ceil(preferredWidth), height: ceil(height))
+        let hasTasks = ringViews.contains { $0.hasActiveTaskForRendering }
+        let hasSelfTest = ringViews.contains { $0.isSelfTestingForRendering }
+        let hasOffline = ringViews.contains { $0.isOfflineForRendering }
+        let duration: Double = hasTasks && (hasSelfTest || hasOffline) ? 9
+            : hasSelfTest ? 3 : hasTasks ? StatusBarAnimationCadence.taskWaveDuration : 1
+        let animates = hasTasks || hasSelfTest || hasOffline
+        let frameCount = !showsProviderInitials && animates
+            && !NSWorkspace.shared.accessibilityDisplayShouldReduceMotion
+            ? Int(duration * Double(StatusBarAnimationCadence.taskWaveFramesPerSecond)) : 1
+        // Every frame carries native 1x and Retina pixels, including when the
+        // primary menu bar lives on a 1x screen. Never upscale a cached 1x frame.
+        let scales = Array(Set([CGFloat(1), CGFloat(2), max(1, scale)])).sorted(by: >)
         let frames = (0 ..< frameCount).compactMap { frameIndex -> NSImage? in
-            guard let bitmap = NSBitmapImageRep(
-                bitmapDataPlanes: nil,
-                pixelsWide: pixelsWide,
-                pixelsHigh: pixelsHigh,
-                bitsPerSample: 8,
-                samplesPerPixel: 4,
-                hasAlpha: true,
-                isPlanar: false,
-                colorSpaceName: .deviceRGB,
-                bytesPerRow: 0,
-                bitsPerPixel: 0),
-                let context = NSGraphicsContext(bitmapImageRep: bitmap)
-            else { return nil }
-
-            bitmap.size = pointSize
-            NSGraphicsContext.saveGraphicsState()
-            NSGraphicsContext.current = context
-            // NSGraphicsContext(bitmapImageRep:) keeps an identity CTM even
-            // when the bitmap representation has a 2x logical size. Draw in
-            // points explicitly so Retina frames preserve the on-screen size
-            // of the original custom status view.
-            context.cgContext.scaleBy(x: scale, y: scale)
-            context.cgContext.clear(NSRect(origin: .zero, size: pointSize))
-
-            for (index, ringView) in ringViews.enumerated() {
-                let ringFrame = NSRect(
-                    x: horizontalPadding
-                        + CGFloat(index) * (Self.ringWidth + ringSpacing),
-                    y: 0,
-                    width: Self.ringWidth,
-                    height: height)
-                ringView.frame = NSRect(
-                    origin: .zero,
-                    size: ringFrame.size)
-                ringView.setTaskOrbitPhaseForRendering(
-                    CGFloat(frameIndex) / CGFloat(frameCount))
-                context.cgContext.saveGState()
-                context.cgContext.translateBy(x: ringFrame.minX, y: 0)
-                ringView.draw(ringView.bounds)
-                context.cgContext.restoreGState()
-            }
-            NSGraphicsContext.restoreGraphicsState()
-
             let image = NSImage(size: pointSize)
-            image.addRepresentation(bitmap)
-            image.isTemplate = true
+            for scale in scales {
+                let pixelsWide = max(1, Int(ceil(pointSize.width * scale)))
+                let pixelsHigh = max(1, Int(ceil(pointSize.height * scale)))
+                guard let bitmap = NSBitmapImageRep(
+                    bitmapDataPlanes: nil,
+                    pixelsWide: pixelsWide,
+                    pixelsHigh: pixelsHigh,
+                    bitsPerSample: 8,
+                    samplesPerPixel: 4,
+                    hasAlpha: true,
+                    isPlanar: false,
+                    colorSpaceName: .deviceRGB,
+                    bytesPerRow: 0,
+                    bitsPerPixel: 0),
+                    let context = NSGraphicsContext(bitmapImageRep: bitmap)
+                else { return nil }
+
+                bitmap.size = pointSize
+                NSGraphicsContext.saveGraphicsState()
+                NSGraphicsContext.current = context
+                // NSGraphicsContext(bitmapImageRep:) keeps an identity CTM even
+                // when the bitmap representation has a 2x logical size. Draw in
+                // points explicitly so Retina frames preserve the on-screen size
+                // of the original custom status view.
+                context.cgContext.scaleBy(x: scale, y: scale)
+                context.cgContext.clear(NSRect(origin: .zero, size: pointSize))
+
+                for (index, ringView) in ringViews.enumerated() {
+                    let ringFrame = NSRect(
+                        x: horizontalPadding
+                            + CGFloat(index) * (Self.ringWidth + ringSpacing),
+                        y: 0,
+                        width: Self.ringWidth,
+                        height: height)
+                    ringView.frame = NSRect(
+                        origin: .zero,
+                        size: ringFrame.size)
+                    ringView.setAnimationTimeForRendering(
+                        Double(frameIndex) / Double(StatusBarAnimationCadence.taskWaveFramesPerSecond))
+                    context.cgContext.saveGState()
+                    context.cgContext.translateBy(x: (ringFrame.minX * scale).rounded() / scale, y: 0)
+                    effectiveAppearance.performAsCurrentDrawingAppearance {
+                        ringView.draw(ringView.bounds)
+                    }
+                    context.cgContext.restoreGState()
+                }
+                NSGraphicsContext.restoreGraphicsState()
+
+                image.addRepresentation(bitmap)
+            }
+            image.isTemplate = false
             return image
         }
         ringViews.forEach { $0.suspendAnimationLoops() }
@@ -938,14 +910,13 @@ final class StatusBarCompactRingsView: NSView {
 }
 
 /// 单一 22pt glance target。
-/// 外环 = provider 剩余比例；分半内圆 = 左 deficit / 右 reserve；
-/// OpenAI 双域名均不可达时，外环显示全消耗轨道，内圆变为持续明暗的禁止图标。
-/// 悬停时，内圆临时替换为 provider 首字母。
+/// 缺口中的字母标识 provider；外环显示剩余；中心上方扇形为 reserve，下方扇形为 deficit。
+/// 不可用时显示红色横杠，保留最后已知额度。服务商字母始终可见。
 enum MenuBarTaskEnergyMotion {
     static let waveSpanFraction: CGFloat = 0.16
     static let maximumWaveCount = 5
-    static let thickWaveLineWidth: CGFloat = 2.6
-    static let thinWaveLineWidth: CGFloat = 1.6
+    static let thickWaveLineWidth: CGFloat = 1.15
+    static let thinWaveLineWidth: CGFloat = 1.15
     static let thinWaveOpacityScale: CGFloat = 0.45
 
     static func waveCount(activeTaskCount: Int) -> Int {
@@ -975,6 +946,17 @@ enum MenuBarTaskEnergyMotion {
         return (1 - forwardPhase).truncatingRemainder(dividingBy: 1)
     }
 
+    /// Map a physical clockwise orbit interval to the visible quota arc.
+    /// The 104-degree opening is empty space, not an instantaneous wrap point.
+    static func visibleArcInterval(start: CGFloat, end: CGFloat) -> ClosedRange<CGFloat>? {
+        let openingEnd = (90 - QuotaSymbolRenderer.ringStartAngle) / 360
+        let visibleSpan = QuotaSymbolRenderer.ringSweepAngle / 360
+        let lower = max(start, openingEnd)
+        let upper = min(end, openingEnd + visibleSpan)
+        guard upper > lower else { return nil }
+        return max(0, (lower - openingEnd) / visibleSpan)...min(1, (upper - openingEnd) / visibleSpan)
+    }
+
     static func waveLineWidth(
         at position: CGFloat,
         remainingFraction: CGFloat
@@ -994,11 +976,9 @@ enum MenuBarTaskEnergyMotion {
         at position: CGFloat,
         remainingFraction: CGFloat
     ) -> CGFloat {
-        waveLineWidth(
-            at: position,
-            remainingFraction: remainingFraction) == thinWaveLineWidth
-            ? thinWaveOpacityScale
-            : 1
+        let normalized = (position.truncatingRemainder(dividingBy: 1) + 1)
+            .truncatingRemainder(dividingBy: 1)
+        return normalized < min(1, max(0, remainingFraction)) ? 1 : thinWaveOpacityScale
     }
 
     static func waveOpacity(
@@ -1015,23 +995,20 @@ enum MenuBarTaskEnergyMotion {
 }
 
 enum StatusBarAnimationCadence {
-    // NSStatusItem mirrors its custom view into every menu-bar replica by
-    // snapshotting the complete layer tree after each invalidation. Driving a
-    // 22-point icon at 30 fps therefore costs substantially more than drawing
-    // an ordinary in-window view. These cadences keep continuous motion clear
-    // without continuously waking and rasterizing every replica.
+    // Cache full-resolution frames once per state change; playback only swaps
+    // images. Smooth motion must not trade away spatial resolution or contrast.
     static let selfTestNanoseconds: UInt64 = 66_000_000
-    static let taskWaveFramesPerSecond = 15
+    static let taskWaveFramesPerSecond = 30
     static let taskWaveDuration: TimeInterval = 1.8
-    static let continuousNanoseconds: UInt64 = 66_000_000
-    static let taskWaveSegmentCount = 6
+    static let continuousNanoseconds: UInt64 = 33_333_333
+    static let taskWaveSegmentCount = 16
 }
 
 @MainActor
 final class StatusBarCompactRingView: NSView {
     let preferredWidth: CGFloat = 22
     private static let consumedStrokeAlpha: CGFloat = 0.12
-    private static let activeLiveRingOpacity: CGFloat = 0.60
+    private static let activeLiveRingOpacity: CGFloat = 1
     private static let offlinePulseMinimumOpacity: CGFloat = 0.32
     private static let offlinePulseDuration: TimeInterval = 1
     private var snapshot = MenuBarSnapshot(
@@ -1050,9 +1027,7 @@ final class StatusBarCompactRingView: NSView {
     private var activeTaskCount = 0
     private var selfTestFrame: MenuBarSelfTestFrame?
     private var taskOrbitPhase: CGFloat = 0
-    private var offlineMorph: CGFloat = 0
     private var offlinePulseOpacity: CGFloat = 1
-    private var morphTask: Task<Void, Never>?
     private var offlinePulseTask: Task<Void, Never>?
     private var selfTestTask: Task<Void, Never>?
     private var taskEnergyTask: Task<Void, Never>?
@@ -1097,16 +1072,11 @@ final class StatusBarCompactRingView: NSView {
         setAccessibilityLabel(accessibilityLabel)
         guard stateChanged else { return }
 
-        let wasOffline = isOffline
         self.snapshot = snapshot
         self.connectivity = connectivity
         self.paceDisplayMode = paceDisplayMode
         self.isSelfTesting = normalizedSelfTesting
         self.activeTaskCount = normalizedTaskCount
-        let shouldBeOffline = isOffline
-        if wasOffline != shouldBeOffline {
-            animateOfflineMorph(to: shouldBeOffline ? 1 : 0)
-        }
         updateOfflinePulseAnimation()
         updateSelfTestAnimation()
         updateTaskEnergyAnimation()
@@ -1116,84 +1086,37 @@ final class StatusBarCompactRingView: NSView {
     override func draw(_ dirtyRect: NSRect) {
         super.draw(dirtyRect)
 
-        let center = NSPoint(x: bounds.midX, y: bounds.midY)
-        let radius = min(
-            8.0,
-            max(0, min(bounds.width, bounds.height) / 2 - 0.5))
-        guard radius > 0 else { return }
-
-        drawArc(
-            center: center,
-            radius: radius,
-            fraction: 1,
-            color: NSColor.labelColor.withAlphaComponent(Self.consumedStrokeAlpha),
-            lineWidth: 1.4)
-
-        let effectiveState: MenuBarSnapshotState = selfTestFrame == nil ? snapshot.state : .ready
-        let effectiveRingPercent = selfTestFrame?.ringPercent ?? snapshot.ringPercent
-        let liveRingAmount: CGFloat = snapshot.provider == .codex ? 1 - offlineMorph : 1
-        let liveRingOpacity: CGFloat = showsTaskEnergy
-            ? Self.activeLiveRingOpacity
-            : 1
-
-        if liveRingAmount > 0.001 {
-            switch effectiveState {
-            case .ready:
-                let progress = min(100, max(0, effectiveRingPercent ?? 0)) / 100
-                drawArc(
-                    center: center,
-                    radius: radius,
-                    fraction: progress,
-                    color: NSColor.labelColor.withAlphaComponent(
-                        liveRingAmount * liveRingOpacity),
-                    lineWidth: 2.4)
-                if showsTaskEnergy {
-                    drawTaskEnergyWave(
-                        center: center,
-                        radius: radius,
-                        originFraction: progress,
-                        alpha: liveRingAmount)
-                } else {
-                    drawProgressEndpoint(
-                        center: center,
-                        radius: radius,
-                        fraction: progress,
-                        alpha: liveRingAmount
-                            * liveRingOpacity)
-                }
-            case .loading:
-                drawArc(
-                    center: center,
-                    radius: radius,
-                    fraction: 0.28,
-                    color: NSColor.labelColor.withAlphaComponent(
-                        0.58 * liveRingAmount * liveRingOpacity),
-                    lineWidth: 2.4)
-                if showsTaskEnergy {
-                    drawTaskEnergyWave(
-                        center: center,
-                        radius: radius,
-                        originFraction: 0.28,
-                        alpha: liveRingAmount)
-                }
-            case .needsSetup:
-                break
-            case .unavailable, .failed:
-                drawUnavailableSlash(
-                    center: center,
-                    radius: radius,
-                    alpha: liveRingAmount * liveRingOpacity)
+        let state = selfTestFrame == nil ? snapshot.state : .ready
+        let percent = selfTestFrame?.ringPercent ?? snapshot.ringPercent
+        let delta = selfTestFrame?.paceDeltaPercent ?? snapshot.paceDeltaPercent
+        let glyph = MenuBarPaceGlyph(deltaPercent: delta, mode: paceDisplayMode)
+        let status: QuotaSymbolRenderer.Status
+        if isOffline { status = .offline }
+        else {
+            switch state {
+            case .ready: status = .ready
+            case .loading: status = .loading
+            case .needsSetup: status = .setup
+            case .unavailable: status = .unavailable
+            case .failed: status = .failed
             }
         }
-
-        if isHovered {
-            drawProviderInitial(center: center)
-        } else {
-            drawCodexCore(
-                center: center,
-                radius: 4.25,
-                state: effectiveState,
-                paceDeltaPercent: selfTestFrame?.paceDeltaPercent ?? snapshot.paceDeltaPercent)
+        let symbolRect = bounds.insetBy(dx: 1, dy: 1)
+        QuotaSymbolRenderer.draw(
+            in: symbolRect, initial: snapshot.providerInitial,
+            remaining: percent.map { $0 / 100 },
+            signedFill: delta.map { _ in glyph.fillFraction * (glyph.direction == .deficit ? -1 : 1) },
+            status: status,
+            lowQuota: selfTestFrame == nil ? snapshot.isLowQuota : (percent ?? 100) <= 20,
+            offlineOpacity: offlinePulseOpacity,
+            liveOpacity: showsTaskEnergy ? Self.activeLiveRingOpacity : 1)
+        if showsTaskEnergy {
+            let scale = min(symbolRect.width / 367, symbolRect.height / 410)
+            drawTaskEnergyWave(
+                center: NSPoint(x: bounds.midX, y: bounds.midY - 21.5 * scale),
+                radius: 155.975 * scale,
+                originFraction: (percent ?? 0) / 100,
+                alpha: 1)
         }
     }
 
@@ -1202,7 +1125,22 @@ final class StatusBarCompactRingView: NSView {
     }
 
     private var showsTaskEnergy: Bool {
-        activeTaskCount > 0 && !isOffline && !isSelfTesting
+        activeTaskCount > 0 && snapshot.state == .ready && !isOffline && !isSelfTesting
+    }
+
+    var isSelfTestingForRendering: Bool { isSelfTesting }
+    var isOfflineForRendering: Bool { isOffline }
+
+    func setAnimationTimeForRendering(_ elapsed: Double) {
+        setTaskOrbitPhaseForRendering(CGFloat(elapsed / StatusBarAnimationCadence.taskWaveDuration))
+        if isSelfTesting {
+            selfTestFrame = .frame(elapsed: elapsed, paceDisplayMode: paceDisplayMode)
+        }
+        if isOffline {
+            let wave = (1 + cos(elapsed * 2 * .pi / Self.offlinePulseDuration)) / 2
+            offlinePulseOpacity = Self.offlinePulseMinimumOpacity
+                + (1 - Self.offlinePulseMinimumOpacity) * CGFloat(wave)
+        }
     }
 
     var hasActiveTaskForRendering: Bool { showsTaskEnergy }
@@ -1354,48 +1292,12 @@ final class StatusBarCompactRingView: NSView {
         }
     }
 
-    private func animateOfflineMorph(to target: CGFloat) {
-        morphTask?.cancel()
-
-        if NSWorkspace.shared.accessibilityDisplayShouldReduceMotion {
-            offlineMorph = target
-            needsDisplay = true
-            return
-        }
-
-        let startValue = offlineMorph
-        let startTime = ProcessInfo.processInfo.systemUptime
-        let duration: TimeInterval = 0.2
-        morphTask = Task { @MainActor [weak self] in
-            while !Task.isCancelled {
-                let elapsed = ProcessInfo.processInfo.systemUptime - startTime
-                let rawProgress = min(1, max(0, elapsed / duration))
-                let easedProgress = rawProgress * rawProgress * (3 - 2 * rawProgress)
-                self?.offlineMorph = startValue + (target - startValue) * CGFloat(easedProgress)
-                self?.needsDisplay = true
-
-                guard rawProgress < 1 else { return }
-                do {
-                    try await Task.sleep(nanoseconds: 16_000_000)
-                } catch {
-                    return
-                }
-            }
-        }
-    }
-
 #if DEBUG
-    var isShowingProviderInitialForTesting: Bool { isHovered }
+    var isShowingProviderInitialForTesting: Bool { true }
     var activeTaskCountForTesting: Int { activeTaskCount }
 
     func setHoveredForTesting(_ value: Bool) {
         setHovered(value)
-    }
-
-    func setOfflineMorphForTesting(_ value: CGFloat) {
-        morphTask?.cancel()
-        offlineMorph = min(1, max(0, value))
-        needsDisplay = true
     }
 
     func setOfflinePulseOpacityForTesting(_ value: CGFloat) {
@@ -1411,238 +1313,9 @@ final class StatusBarCompactRingView: NSView {
     }
 #endif
 
-    private func drawCodexCore(
-        center: NSPoint,
-        radius: CGFloat,
-        state: MenuBarSnapshotState,
-        paceDeltaPercent: Double?
-    ) {
-        let glyph = MenuBarPaceGlyph(
-            deltaPercent: paceDeltaPercent,
-            mode: paceDisplayMode)
-        let activeAlpha: CGFloat
-        switch state {
-        case .ready: activeAlpha = 0.86
-        case .loading: activeAlpha = 0.52
-        case .needsSetup: activeAlpha = 0.35
-        case .unavailable: activeAlpha = 0.44
-        case .failed: activeAlpha = 0.68
-        }
-
-        let circleRect = NSRect(
-            x: center.x - radius,
-            y: center.y - radius,
-            width: radius * 2,
-            height: radius * 2)
-        let circle = NSBezierPath(ovalIn: circleRect)
-        let normalAmount = 1 - offlineMorph
-
-        let angle = (.pi / 2) * normalAmount
-        let dividerHalfLength = radius - 0.55
-        let dividerLineWidth: CGFloat = 1
-
-        if offlineMorph > 0.001 {
-            let offlineShape = NSBezierPath()
-            offlineShape.append(circle)
-            offlineShape.append(cutoutBandPath(
-                center: center,
-                angle: angle,
-                halfLength: radius + 0.35,
-                halfWidth: (1.55 * offlineMorph) / 2))
-            offlineShape.windingRule = .evenOdd
-            NSGraphicsContext.current?.saveGraphicsState()
-            circle.addClip()
-            NSColor.labelColor
-                .withAlphaComponent(offlineMorph * offlinePulseOpacity)
-                .setFill()
-            offlineShape.fill()
-            NSGraphicsContext.current?.restoreGraphicsState()
-        }
-
-        if glyph.fillFraction > 0, normalAmount > 0.001 {
-            NSGraphicsContext.current?.saveGraphicsState()
-            circle.addClip()
-            // Preserve the day-normalized pace mapping while keeping any non-zero
-            // direction visible by flooring its rendered width to one pixel.
-            let backingScale = window?.backingScaleFactor
-                ?? NSScreen.main?.backingScaleFactor
-                ?? 2
-            let minimumVisibleWidth = dividerLineWidth / 2 + 1 / max(1, backingScale)
-            let fillWidth = max(
-                radius * CGFloat(glyph.fillFraction),
-                minimumVisibleWidth)
-            let fillRect: NSRect
-            switch glyph.direction {
-            case .deficit:
-                fillRect = NSRect(
-                    x: center.x - fillWidth,
-                    y: center.y - radius,
-                    width: fillWidth,
-                    height: radius * 2)
-            case .reserve:
-                fillRect = NSRect(
-                    x: center.x,
-                    y: center.y - radius,
-                    width: fillWidth,
-                    height: radius * 2)
-            case .onTrack:
-                fillRect = .zero
-            }
-            NSColor.labelColor.withAlphaComponent(activeAlpha * normalAmount).setFill()
-            NSBezierPath(rect: fillRect).fill()
-            NSGraphicsContext.current?.restoreGraphicsState()
-        }
-
-        let leftBorderAlpha: CGFloat
-        let rightBorderAlpha: CGFloat
-        switch glyph.direction {
-        case .deficit:
-            leftBorderAlpha = glyph.showsActiveBorder ? activeAlpha : 0
-            rightBorderAlpha = Self.consumedStrokeAlpha
-        case .onTrack:
-            leftBorderAlpha = Self.consumedStrokeAlpha
-            rightBorderAlpha = Self.consumedStrokeAlpha
-        case .reserve:
-            leftBorderAlpha = Self.consumedStrokeAlpha
-            rightBorderAlpha = glyph.showsActiveBorder ? activeAlpha : 0
-        }
-        drawCoreBorderHalf(
-            center: center,
-            radius: radius,
-            isLeft: true,
-            alpha: leftBorderAlpha * normalAmount)
-        drawCoreBorderHalf(
-            center: center,
-            radius: radius,
-            isLeft: false,
-            alpha: rightBorderAlpha * normalAmount)
-
-        let direction = NSPoint(x: cos(angle), y: sin(angle))
-        let dividerStart = NSPoint(
-            x: center.x - direction.x * dividerHalfLength,
-            y: center.y - direction.y * dividerHalfLength)
-        let dividerEnd = NSPoint(
-            x: center.x + direction.x * dividerHalfLength,
-            y: center.y + direction.y * dividerHalfLength)
-
-        if normalAmount > 0.001 {
-            let divider = NSBezierPath()
-            divider.move(to: dividerStart)
-            divider.line(to: dividerEnd)
-            divider.lineWidth = dividerLineWidth
-            divider.lineCapStyle = .butt
-            let dividerAlpha: CGFloat = state == .ready ? 1 : activeAlpha
-            NSColor.labelColor
-                .withAlphaComponent(dividerAlpha)
-                .setStroke()
-            divider.stroke()
-        }
-
-    }
-
-    private func drawCoreBorderHalf(
-        center: NSPoint,
-        radius: CGFloat,
-        isLeft: Bool,
-        alpha: CGFloat
-    ) {
-        guard alpha > 0.001 else { return }
-        let path = NSBezierPath()
-        path.appendArc(
-            withCenter: center,
-            radius: radius,
-            startAngle: 90,
-            endAngle: isLeft ? 270 : -90,
-            clockwise: !isLeft)
-        path.lineWidth = 1.05
-        path.lineCapStyle = .butt
-        NSColor.labelColor.withAlphaComponent(alpha).setStroke()
-        path.stroke()
-    }
-
-    private func cutoutBandPath(
-        center: NSPoint,
-        angle: CGFloat,
-        halfLength: CGFloat,
-        halfWidth: CGFloat
-    ) -> NSBezierPath {
-        let along = NSPoint(x: cos(angle), y: sin(angle))
-        let across = NSPoint(x: -sin(angle), y: cos(angle))
-        let corners = [
-            NSPoint(
-                x: center.x - along.x * halfLength - across.x * halfWidth,
-                y: center.y - along.y * halfLength - across.y * halfWidth),
-            NSPoint(
-                x: center.x + along.x * halfLength - across.x * halfWidth,
-                y: center.y + along.y * halfLength - across.y * halfWidth),
-            NSPoint(
-                x: center.x + along.x * halfLength + across.x * halfWidth,
-                y: center.y + along.y * halfLength + across.y * halfWidth),
-            NSPoint(
-                x: center.x - along.x * halfLength + across.x * halfWidth,
-                y: center.y - along.y * halfLength + across.y * halfWidth),
-        ]
-        let path = NSBezierPath()
-        path.move(to: corners[0])
-        for corner in corners.dropFirst() {
-            path.line(to: corner)
-        }
-        path.close()
-        return path
-    }
-
-    private func drawArc(
-        center: NSPoint,
-        radius: CGFloat,
-        fraction: Double,
-        color: NSColor,
-        lineWidth: CGFloat
-    ) {
-        guard fraction > 0 else { return }
-        let path = NSBezierPath()
-        path.appendArc(
-            withCenter: center,
-            radius: radius,
-            startAngle: 90,
-            endAngle: 90 - CGFloat(360 * min(1, fraction)),
-            clockwise: true)
-        path.lineWidth = lineWidth
-        // At 99% a round cap visually closes the remaining gap. A butt cap
-        // preserves the tiny but meaningful "nearly full" opening.
-        path.lineCapStyle = fraction > 0.98 && fraction < 1 ? .butt : .round
-        color.setStroke()
-        path.stroke()
-    }
-
-    /// 同色端点让剩余弧边界在 22pt 下保持清楚。
-    private func drawProgressEndpoint(
-        center: NSPoint,
-        radius: CGFloat,
-        fraction: Double,
-        alpha: CGFloat,
-        dotRadius: CGFloat = 1.35,
-        forceVisible: Bool = false
-    ) {
-        guard fraction > 0.01,
-              forceVisible || fraction < 0.99 else {
-            return
-        }
-        let angle = CGFloat.pi / 2 - CGFloat.pi * 2 * CGFloat(fraction)
-        let endpoint = NSPoint(
-            x: center.x + cos(angle) * radius,
-            y: center.y + sin(angle) * radius)
-        let dot = NSBezierPath(ovalIn: NSRect(
-            x: endpoint.x - dotRadius,
-            y: endpoint.y - dotRadius,
-            width: dotRadius * 2,
-            height: dotRadius * 2))
-        NSColor.labelColor.withAlphaComponent(alpha).setFill()
-        dot.fill()
-    }
-
     /// 每个活跃任务映射为一道沿完整环逆时针前进的能量波，最多五道。
-    /// 波头最实，尾部沿顺时针方向逐渐透明；经过剩余段时使用粗线，
-    /// 经过已消耗段时无缝切换为细线，二者始终共用同一圆心轨道。
+    /// 光带保持在外环内部，按物理圆周运动并遮去顶部缺口。
+    /// 剩余段用反差亮线、消耗段用深线；外环自身不降透明度。
     private func drawTaskEnergyWave(
         center: NSPoint,
         radius: CGFloat,
@@ -1677,7 +1350,7 @@ final class StatusBarCompactRingView: NSView {
             for segmentIndex in 0 ..< segmentCount {
                 let start = waveHead
                     + CGFloat(segmentIndex) * segmentWidth
-                let end = start + segmentWidth * 1.08
+                let end = start + segmentWidth
                 let midpoint = (start + end) / 2
                 let clockwiseDistance = (midpoint - waveHead)
                     / (waveTail - waveHead)
@@ -1714,10 +1387,13 @@ final class StatusBarCompactRingView: NSView {
             let revolution = floor(cursor)
             let revolutionEnd = revolution + 1
             let pieceEnd = min(endFraction, revolutionEnd)
-            let normalizedStart = cursor - revolution
-            let normalizedEnd = pieceEnd >= revolutionEnd - 0.000_001
-                ? CGFloat(1)
-                : pieceEnd - revolution
+            guard let visible = MenuBarTaskEnergyMotion.visibleArcInterval(
+                start: cursor - revolution, end: pieceEnd - revolution) else {
+                cursor = pieceEnd
+                continue
+            }
+            let normalizedStart = visible.lowerBound
+            let normalizedEnd = visible.upperBound
 
             var boundaries = [normalizedStart, normalizedEnd]
             if remainingFraction > normalizedStart + 0.000_001,
@@ -1735,8 +1411,8 @@ final class StatusBarCompactRingView: NSView {
                     radius: radius,
                     startFraction: start,
                     endFraction: end,
-                    color: color.withAlphaComponent(
-                        color.alphaComponent * opacityScale),
+                    color: (midpoint < remainingFraction ? NSColor.windowBackgroundColor : NSColor.labelColor)
+                        .withAlphaComponent(color.alphaComponent * opacityScale),
                     lineWidth: MenuBarTaskEnergyMotion.waveLineWidth(
                         at: midpoint,
                         remainingFraction: remainingFraction))
@@ -1758,8 +1434,8 @@ final class StatusBarCompactRingView: NSView {
         path.appendArc(
             withCenter: center,
             radius: radius,
-            startAngle: 90 - 360 * startFraction,
-            endAngle: 90 - 360 * endFraction,
+            startAngle: QuotaSymbolRenderer.ringStartAngle - QuotaSymbolRenderer.ringSweepAngle * startFraction,
+            endAngle: QuotaSymbolRenderer.ringStartAngle - QuotaSymbolRenderer.ringSweepAngle * endFraction,
             clockwise: true)
         path.lineWidth = lineWidth
         path.lineCapStyle = .butt
@@ -1767,35 +1443,7 @@ final class StatusBarCompactRingView: NSView {
         path.stroke()
     }
 
-    private func drawUnavailableSlash(center: NSPoint, radius: CGFloat, alpha: CGFloat) {
-        let path = NSBezierPath()
-        let inset = radius * 0.58
-        path.move(to: NSPoint(x: center.x - inset, y: center.y - inset))
-        path.line(to: NSPoint(x: center.x + inset, y: center.y + inset))
-        path.lineWidth = 1.4
-        path.lineCapStyle = .round
-        let stateAlpha: CGFloat = snapshot.state == .failed ? 0.78 : 0.42
-        NSColor.labelColor.withAlphaComponent(stateAlpha * alpha).setStroke()
-        path.stroke()
-    }
 
-    private func drawProviderInitial(center: NSPoint) {
-        let paragraph = NSMutableParagraphStyle()
-        paragraph.alignment = .center
-        let attributes: [NSAttributedString.Key: Any] = [
-            .font: NSFont.systemFont(ofSize: 8, weight: .semibold),
-            .foregroundColor: NSColor.labelColor.withAlphaComponent(0.72),
-            .paragraphStyle: paragraph,
-        ]
-        let text = snapshot.providerInitial as NSString
-        let size = text.size(withAttributes: attributes)
-        let rect = NSRect(
-            x: center.x - size.width / 2,
-            y: center.y - size.height / 2 - 0.25,
-            width: size.width,
-            height: size.height)
-        text.draw(in: rect, withAttributes: attributes)
-    }
 }
 
 /// 两行 NSTextField 容器。直接 addSubview 到 NSStatusBarButton。

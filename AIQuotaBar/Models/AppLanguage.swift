@@ -1449,9 +1449,9 @@ enum AppLanguage: String, CaseIterable, Codable, Identifiable {
     func menuBarAppearanceDescription() -> String {
         switch self {
         case .english:
-            return "The outer ring shows remaining quota, the split center shows pace, and hover reveals the provider initial."
+            return "The letter identifies the provider. The ring shows remaining quota; upper fan segments show reserve, lower segments show deficit. Yellow warns of low quota; a red dash means unavailable."
         case .simplifiedChinese:
-            return "紧凑环外圈显示剩余额度，分半内圆显示消耗节奏；悬停时显示服务商首字母。"
+            return "顶部字母标识服务商；外环显示剩余额度，上方扇形表示余量，下方扇形表示透支。黄色提示低额度，红色横杠表示不可用。"
         }
     }
 
@@ -1499,9 +1499,9 @@ enum AppLanguage: String, CaseIterable, Codable, Identifiable {
     func menuBarRingQuotaWindowDescription() -> String {
         switch self {
         case .english:
-            return "Choose whether Codex and Kimi outer rings show weekly or current-window remaining quota."
+            return "Choose whether Codex, Kimi, and GLM outer rings show weekly or current-window remaining quota."
         case .simplifiedChinese:
-            return "选择 Codex 与 Kimi 外环显示周周期还是当前短周期的剩余额度。"
+            return "选择 Codex、Kimi 与 GLM 外环显示周周期还是当前短周期的剩余额度。"
         }
     }
 
@@ -1526,9 +1526,9 @@ enum AppLanguage: String, CaseIterable, Codable, Identifiable {
     func menuBarReserveQuotaWindowDescription() -> String {
         switch self {
         case .english:
-            return "Choose which quota cycle drives the split center's reserve or deficit; by default it follows the outer ring."
+            return "Choose which quota cycle drives the bidirectional fan center’s reserve or deficit; by default it follows the outer ring."
         case .simplifiedChinese:
-            return "选择中心分半元素的 reserve / deficit 采用哪个额度周期；默认跟随外环。"
+            return "选择中心双向扇形的 reserve / deficit 采用哪个额度周期；默认跟随外环。"
         }
     }
 

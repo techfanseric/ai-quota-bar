@@ -59,7 +59,7 @@ enum MenuBarAppearance: String, CaseIterable, Codable, Identifiable {
     var id: String { rawValue }
 }
 
-/// How precisely the split Codex pace glyph maps a pace delta to center fill.
+/// How precisely the bidirectional fan pace glyph maps a pace delta to center fill.
 enum MenuBarPaceDisplayMode: String, CaseIterable, Codable, Identifiable {
     /// Preserve the three glanceable 1/3, 2/3, and full-fill levels.
     case staged
@@ -82,7 +82,7 @@ enum MenuBarRingQuotaWindow: String, CaseIterable, Codable, Identifiable {
     var id: String { rawValue }
 }
 
-/// Which quota window supplies the split center's reserve/deficit pace.
+/// Which quota window supplies the bidirectional fan center's reserve/deficit pace.
 enum MenuBarReserveQuotaWindow: String, CaseIterable, Codable, Identifiable {
     case synchronized
     case weekly
@@ -164,8 +164,8 @@ enum MenuBarCompactSnapshotSelector {
     }
 }
 
-/// Pace encoding for the split center circle. Weekly pace deviation is normalized
-/// so one day fills half of the active side and two days fill it completely.
+/// Pace encoding for the bidirectional fan bars. Weekly pace deviation is normalized
+/// so one day fills the inner sector of the active side and two days fill it completely.
 struct MenuBarPaceGlyph: Equatable {
     static let weeklyCycleDays = 7.0
     static let fullScaleDeviationDays = 2.0

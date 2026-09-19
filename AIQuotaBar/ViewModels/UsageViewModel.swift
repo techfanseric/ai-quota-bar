@@ -441,7 +441,7 @@ final class UsageViewModel {
             tooltip: menuBarReadyTooltip(
                 primary: primary,
                 weeklyRemainingPercent: menuBarRingQuotaWindow == .weekly
-                    && (primary.provider == .codex || primary.provider == .kimi)
+                    && (primary.provider == .codex || primary.provider == .kimi || primary.provider == .glm)
                         ? ringPercent
                         : nil,
                 paceDelta: paceDelta))
@@ -489,7 +489,7 @@ final class UsageViewModel {
     /// - 其他 provider 取 candidates 第一个(已按 reset 排序)
     private func pickPrimary(from candidates: [ModelUsageData]) -> ModelUsageData? {
         if let shortWindow = candidates.first(where: {
-            ($0.provider == .codex || $0.provider == .kimi)
+            ($0.provider == .codex || $0.provider == .kimi || $0.provider == .glm)
                 && $0.modelName.localizedCaseInsensitiveContains("5h")
         }) {
             return shortWindow
@@ -545,13 +545,13 @@ final class UsageViewModel {
         return (lhs.endTime ?? .distantFuture) < (rhs.endTime ?? .distantFuture)
     }
 
-    /// Codex and Kimi can independently source the split center's pace from
+    /// Codex, Kimi and GLM can independently source the bidirectional fan center's pace from
     /// their weekly or current window. Missing weekly data falls back safely.
     private func menuBarPaceSource(
         for primary: ModelUsageData,
         models: [ModelUsageData]
     ) -> ModelUsageData {
-        guard primary.provider == .codex || primary.provider == .kimi,
+        guard primary.provider == .codex || primary.provider == .kimi || primary.provider == .glm,
               menuBarReserveQuotaWindow.resolved(
                 outerRing: menuBarRingQuotaWindow) == .weekly else {
             return primary
@@ -564,7 +564,7 @@ final class UsageViewModel {
             ?? primary
     }
 
-    /// Codex and Kimi can source the outer arc from either their weekly quota
+    /// Codex, Kimi and GLM can source the outer arc from either their weekly quota
     /// or the selected short/current quota. Providers without weekly data keep
     /// their existing current-window behavior.
     private func menuBarRingPercent(
@@ -572,15 +572,16 @@ final class UsageViewModel {
         models: [ModelUsageData]
     ) -> Double? {
         guard menuBarRingQuotaWindow == .weekly,
-              primary.provider == .codex || primary.provider == .kimi else {
+              primary.provider == .codex || primary.provider == .kimi || primary.provider == .glm else {
             return primary.currentIntervalPercentageRemaining
         }
-        return weeklyModel(
+        let weeklyRemaining = weeklyModel(
             for: primary.provider,
             in: models.filter {
                 $0.normalizedAccountName == primary.normalizedAccountName
             })?
             .currentIntervalPercentageRemaining
+        return weeklyRemaining ?? (primary.provider == .glm ? primary.currentIntervalPercentageRemaining : nil)
     }
 
     private func fallbackMenuBarProvider() -> UsageProvider {
@@ -1266,11 +1267,8 @@ final class UsageViewModel {
     }
 
     func samples(for model: ModelUsageData) -> [ModelQuotaSample] {
-        guard let startTime = model.startTime,
-              let endTime = model.endTime else {
-            return []
-        }
-        return samples(for: model, in: (start: startTime, end: endTime))
+        guard let window = model.quotaChartWindow() else { return [] }
+        return samples(for: model, in: window)
     }
 
     /// 任意窗口的曲线样本：当前周期图表与历史 cycle 悬停预览共用。
@@ -1705,12 +1703,9 @@ final class UsageViewModel {
                 mobileDashboardSelectedModelKeys)
 
         for model in data.models where sampledModelIDs.contains(model.id) {
-            guard let startTime = model.startTime,
-                  let endTime = model.endTime else {
-                continue
-            }
+            guard let window = model.quotaChartWindow(now: timestamp) else { continue }
 
-            let clampedTimestamp = min(max(timestamp, startTime), endTime)
+            let clampedTimestamp = min(max(timestamp, window.start), window.end)
             let newSample = ModelQuotaSample(
                 timestamp: clampedTimestamp,
                 remaining: model.currentIntervalRemaining,

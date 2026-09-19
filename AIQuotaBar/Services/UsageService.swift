@@ -366,7 +366,15 @@ final class UsageService {
                URL(string: credential.apiURL)?.host == "bigmodel.cn" {
                 subscriptionResetTime = try? await fetchGLMSubscriptionResetTime(credential: credential)
             }
-            return try decodeGLMUsageData(from: data, subscriptionResetTime: subscriptionResetTime)
+            var usage = try decodeGLMUsageData(from: data, subscriptionResetTime: subscriptionResetTime)
+            if let resetRequest = GLMResetAllowances.request(for: credential) {
+                // Optional, bounded, and independent of the authoritative quota response.
+                if let (resetData, resetResponse) = try? await URLSession.shared.data(for: resetRequest),
+                   (resetResponse as? HTTPURLResponse)?.statusCode == 200 {
+                    usage.glmResetAllowances = try? GLMResetAllowances.decode(resetData)
+                }
+            }
+            return usage
         } catch let usageError as UsageError {
             throw usageError
         } catch {

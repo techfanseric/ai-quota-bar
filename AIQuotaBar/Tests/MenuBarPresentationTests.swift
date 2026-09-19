@@ -650,7 +650,7 @@ final class MenuBarPresentationTests: XCTestCase {
             subscribeEndTime: nil)
 
         XCTAssertEqual(viewModel.menuBarSnapshots.map(\.provider), [.codex, .kimi, .miniMax, .glm])
-        XCTAssertEqual(viewModel.menuBarSnapshots.map(\.ringPercent), [65, 42, 23, 0])
+        XCTAssertEqual(viewModel.menuBarSnapshots.map(\.ringPercent), [65, 42, 23, 67])
         XCTAssertEqual(viewModel.menuBarSnapshots.last?.modelName, "GLM Credits (5h)")
         XCTAssertEqual(viewModel.menuBarSnapshots.last?.state, .ready)
 

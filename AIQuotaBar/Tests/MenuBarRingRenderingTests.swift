@@ -1,3 +1,5 @@
+// Rendering probes require the DEBUG-only AppKit test hooks.
+#if DEBUG
 import AppKit
 import XCTest
 @testable import AIQuotaBar
@@ -9,8 +11,8 @@ final class MenuBarRingRenderingTests: XCTestCase {
             50_000_000)
         XCTAssertLessThanOrEqual(
             StatusBarAnimationCadence.taskWaveSegmentCount,
-            6)
-        XCTAssertEqual(StatusBarAnimationCadence.taskWaveFramesPerSecond, 15)
+            16)
+        XCTAssertEqual(StatusBarAnimationCadence.taskWaveFramesPerSecond, 30)
     }
 
     @MainActor
@@ -30,37 +32,34 @@ final class MenuBarRingRenderingTests: XCTestCase {
 
         let scale: CGFloat = 4
         let center = Int(11 * scale)
-        let radius = Int(8 * scale)
+        let radius = Int(7.61 * scale)
+        let centerY = Int(12.05 * scale)
 
         let idleRingLuminance = try luminance(
             idle,
             x: center + radius,
-            y: center)
+            y: centerY)
         let activeBaseLuminance = try luminance(
             activeWaveAway,
             x: center + radius,
-            y: center)
-        XCTAssertGreaterThan(
-            activeBaseLuminance,
-            idleRingLuminance + 0.2)
+            y: centerY)
+        XCTAssertEqual(activeBaseLuminance, idleRingLuminance, accuracy: 0.05)
 
         let waveLuminance = try luminance(
             activeWaveOnThickArc,
             x: center + radius,
-            y: center)
-        XCTAssertLessThan(
-            waveLuminance,
-            activeBaseLuminance - 0.2)
+            y: centerY)
+        XCTAssertGreaterThan(waveLuminance, activeBaseLuminance + 0.2)
 
         let consumedSampleX = center - radius
         let consumedAwayLuminance = try luminance(
             activeWaveAway,
             x: consumedSampleX,
-            y: center)
+            y: centerY)
         let consumedWaveLuminance = try luminance(
             activeWaveOnThinArc,
             x: consumedSampleX,
-            y: center)
+            y: centerY)
         XCTAssertLessThan(
             consumedWaveLuminance,
             consumedAwayLuminance - 0.05,
@@ -233,8 +232,8 @@ final class MenuBarRingRenderingTests: XCTestCase {
             (80, 18, .staged, .reachable, 0, 1),
             (35, -MenuBarPaceGlyph.percentPointsPerDay, .continuous, .reachable, 0, 1),
             (70, MenuBarPaceGlyph.fullScaleDeltaPercent, .continuous, .reachable, 0, 1),
-            (70, MenuBarPaceGlyph.fullScaleDeltaPercent + 1, .continuous, .reachable, 0, 1),
-            (70, 0, .staged, .unreachable, 0.5, 1),
+            (70, nil, .continuous, .reachable, 0, 1),
+            (0, 0, .staged, .unreachable, 1, 1),
             (70, 42, .staged, .unreachable, 1, 1),
             (70, 42, .staged, .unreachable, 1, 0.32),
         ]
@@ -278,7 +277,6 @@ final class MenuBarRingRenderingTests: XCTestCase {
                 connectivity: state.connectivity,
                 paceDisplayMode: state.mode,
                 accessibilityLabel: "Preview")
-            view.setOfflineMorphForTesting(state.offlineMorph)
             view.setOfflinePulseOpacityForTesting(state.offlinePulseOpacity)
 
             context.cgContext.saveGState()
@@ -312,62 +310,19 @@ final class MenuBarRingRenderingTests: XCTestCase {
         func centerX(for stateIndex: Int) -> Int {
             stateIndex * iconPixelWidth + iconPixelWidth / 2
         }
-        let centerY = pixelsHigh / 2
 
-        func borderLuminance(stateIndex: Int, xOffset: CGFloat) -> Int {
-            luminanceAt(
-                x: centerX(for: stateIndex) + Int(xOffset * scale),
-                y: centerY)
+        // Canonical SVG bar centers mapped into the 22pt view. Bitmap rows run
+        // from the top, while the native renderer uses bottom-left coordinates.
+        func sectorLuminance(_ index: Int, sourceY: CGFloat) -> Int {
+            luminanceAt(x: centerX(for: index), y: Int((1 + sourceY * 20 / 410) * scale))
         }
-
-        let deficitLeft = borderLuminance(stateIndex: 1, xOffset: -4.25)
-        let deficitRight = borderLuminance(stateIndex: 1, xOffset: 4.25)
-        XCTAssertGreaterThan(deficitLeft, deficitRight + 60)
-
-        let onPaceLeft = borderLuminance(stateIndex: 2, xOffset: -4.25)
-        let onPaceRight = borderLuminance(stateIndex: 2, xOffset: 4.25)
-        let onPaceDivider = borderLuminance(stateIndex: 2, xOffset: 0)
-        XCTAssertLessThan(abs(onPaceLeft - onPaceRight), 40)
-        XCTAssertLessThan(onPaceDivider + 150, min(onPaceLeft, onPaceRight))
-
-        let diagonalDivider = borderLuminance(stateIndex: 7, xOffset: 0)
-        XCTAssertLessThan(
-            abs(diagonalDivider - onPaceDivider),
-            80,
-            "The diagonal pace divider should use the same color as the vertical divider")
-
-        let reserveLeft = borderLuminance(stateIndex: 3, xOffset: -4.25)
-        let reserveRight = borderLuminance(stateIndex: 3, xOffset: 4.25)
-        XCTAssertGreaterThan(reserveRight, reserveLeft + 60)
-
-        let exactTwoDayOuterEdge = borderLuminance(stateIndex: 5, xOffset: 4.5)
-        let overflowOuterEdge = borderLuminance(stateIndex: 6, xOffset: 4.5)
-        XCTAssertLessThan(overflowOuterEdge + 100, exactTwoDayOuterEdge)
-
-        let offlineBrightIndex = states.count - 2
-        let offlineDimIndex = states.count - 1
-        let offlineCenterX = centerX(for: offlineBrightIndex)
-        let bandLuminance = luminanceAt(x: offlineCenterX, y: centerY)
-        let filledLuminance = luminanceAt(x: offlineCenterX, y: centerY + Int(2 * scale))
-        XCTAssertGreaterThan(bandLuminance - filledLuminance, 300)
-
-        let dimFilledLuminance = luminanceAt(
-            x: centerX(for: offlineDimIndex),
-            y: centerY + Int(2 * scale))
-        XCTAssertGreaterThan(dimFilledLuminance - filledLuminance, 250)
-
-        let ringTopOffset = Int(8.0 * scale)
-        let onlineRingTop = luminanceAt(
-            x: centerX(for: 5),
-            y: centerY + ringTopOffset)
-        let offlineBrightRingTop = luminanceAt(
-            x: centerX(for: offlineBrightIndex),
-            y: centerY + ringTopOffset)
-        let offlineDimRingTop = luminanceAt(
-            x: centerX(for: offlineDimIndex),
-            y: centerY + ringTopOffset)
-        XCTAssertGreaterThan(offlineBrightRingTop - onlineRingTop, 250)
-        XCTAssertLessThan(abs(offlineBrightRingTop - offlineDimRingTop), 5)
+        XCTAssertLessThan(sectorLuminance(1, sourceY: 282), sectorLuminance(1, sourceY: 171) - 100)
+        XCTAssertLessThan(sectorLuminance(3, sourceY: 171), sectorLuminance(3, sourceY: 282) - 100)
+        XCTAssertLessThan(sectorLuminance(2, sourceY: 227), sectorLuminance(2, sourceY: 171) - 100)
+        XCTAssertGreaterThan(sectorLuminance(6, sourceY: 227), sectorLuminance(2, sourceY: 227) + 100,
+                             "Unknown pace must not look like confirmed on-pace")
+        XCTAssertGreaterThan(sectorLuminance(9, sourceY: 227), sectorLuminance(8, sourceY: 227) + 100,
+                             "Offline dash should pulse without hiding the provider or quota")
 
         if let previewPath = ProcessInfo.processInfo.environment["AI_QUOTA_RENDER_PREVIEW_PATH"] {
             try pngData.write(to: URL(fileURLWithPath: previewPath), options: .atomic)
@@ -375,7 +330,7 @@ final class MenuBarRingRenderingTests: XCTestCase {
     }
 
     @MainActor
-    func testHoverTemporarilyReplacesKimiPaceCoreWithProviderInitial() throws {
+    func testHoverPreservesKimiPaceAndProviderInitial() throws {
         let view = StatusBarCompactRingView(
             frame: NSRect(x: 0, y: 0, width: 22, height: 22))
         let snapshot = MenuBarSnapshot(
@@ -399,12 +354,12 @@ final class MenuBarRingRenderingTests: XCTestCase {
         view.setHoveredForTesting(false)
         let restored = try renderedPNG(of: view)
 
-        XCTAssertNotEqual(normal, hovered)
+        XCTAssertEqual(normal, hovered)
         XCTAssertEqual(normal, restored)
     }
 
     @MainActor
-    func testHoveringCompactStripRevealsEveryProviderInitialTogether() {
+    func testCompactStripAlwaysShowsEveryProviderInitial() {
         let view = StatusBarCompactRingsView(
             frame: NSRect(x: 0, y: 0, width: 44, height: 22))
         let snapshots = [UsageProvider.codex, .kimi].map { provider in
@@ -427,11 +382,11 @@ final class MenuBarRingRenderingTests: XCTestCase {
             activeTaskCounts: [:],
             accessibilityLabel: "Codex and Kimi")
 
-        XCTAssertEqual(view.providerInitialCountForTesting, 0)
+        XCTAssertEqual(view.providerInitialCountForTesting, 2)
         view.setHoveredForTesting(true)
         XCTAssertEqual(view.providerInitialCountForTesting, 2)
         view.setHoveredForTesting(false)
-        XCTAssertEqual(view.providerInitialCountForTesting, 0)
+        XCTAssertEqual(view.providerInitialCountForTesting, 2)
     }
 
     @MainActor
@@ -488,13 +443,13 @@ final class MenuBarRingRenderingTests: XCTestCase {
             height: 22,
             showsProviderInitials: true)
 
-        XCTAssertEqual(frames.count, 27)
+        XCTAssertEqual(frames.count, 54)
         XCTAssertEqual(frames.first?.size.height, 22)
         XCTAssertEqual(hoverFrames.count, 1)
         XCTAssertNotEqual(
             try XCTUnwrap(frames.first?.tiffRepresentation),
             try XCTUnwrap(frames.dropFirst(5).first?.tiffRepresentation))
-        XCTAssertNotEqual(
+        XCTAssertEqual(
             try XCTUnwrap(frames.first?.tiffRepresentation),
             try XCTUnwrap(hoverFrames.first?.tiffRepresentation))
 
@@ -590,3 +545,5 @@ final class MenuBarRingRenderingTests: XCTestCase {
             + color.blueComponent
     }
 }
+
+#endif
