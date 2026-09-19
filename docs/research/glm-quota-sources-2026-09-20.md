@@ -1,6 +1,6 @@
 # GLM quota source investigation — 2026-09-20
 
-Status: live personal-account verification completed. The existing quota source is correct. Implemented only a verified, independent read-only reset-allowance summary. Release-mode GLM, menu presentation and curve selection regression tests: 47 passed. Signed and installed locally for acceptance; production release remains pending.
+Status: live personal-account verification completed. The existing quota source is correct. Implemented only a verified, independent read-only reset-allowance summary. Release-mode GLM, menu presentation and curve selection regression tests: 47 passed. Accepted by the user and included in v1.22.0 (build 48).
 
 ## Evidence versions
 
