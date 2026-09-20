@@ -153,6 +153,76 @@ final class UsageTests: XCTestCase {
         XCTAssertEqual(result.pricedRecords, 100_000)
         XCTAssertEqual(result.cost, 25)
     }
+    func testIncrementalScanResolvesOnlyChangedFamilyAndSurvivesRestart() async throws {
+        let dir = try temp(), sessions = dir.appendingPathComponent("sessions")
+        try FileManager.default.createDirectory(at: sessions, withIntermediateDirectories: true)
+        func write(_ name: String, _ lines: [String]) throws {
+            try Data((lines.joined(separator: "\n") + "\n").utf8).write(to: sessions.appendingPathComponent(name + ".jsonl"))
+        }
+        let first = token(counter(100), last: counter(100))
+        try write("parent", [meta("p"), first])
+        try write("child", [meta("c", parent: "p", time: "2026-09-01T00:00:02Z"), first,
+            token(counter(140, output: 20), last: counter(40), time: "2026-09-01T00:00:03Z")])
+        try write("unrelated", [meta("other"), first])
+        let database = dir.appendingPathComponent("usage.sqlite")
+        let store = try UsageStore(url: database)
+        let initial = try await store.scan(root: dir)
+        XCTAssertEqual(initial.events.count, 3)
+        let unchanged = try await store.scan(root: dir)
+        XCTAssertEqual(unchanged.resolvedFileCount, 0)
+        XCTAssertEqual(unchanged.parsedFileCount, 0)
+        XCTAssertEqual(unchanged.revision, initial.revision)
+        let reopened = try UsageStore(url: database)
+        let warm = try await reopened.scan(root: dir)
+        XCTAssertEqual(warm.resolvedFileCount, 0)
+        XCTAssertEqual(warm.events, initial.events)
+        try write("child", [meta("c", parent: "p", time: "2026-09-01T00:00:02Z"), first,
+            token(counter(140, output: 20), last: counter(40), time: "2026-09-01T00:00:03Z"),
+            token(counter(160, output: 30), last: counter(20), time: "2026-09-01T00:00:04Z")])
+        let updated = try await reopened.scan(root: dir)
+        XCTAssertEqual(updated.parsedFileCount, 1)
+        XCTAssertEqual(updated.resolvedFileCount, 2)
+        XCTAssertEqual(updated.events.count, 4)
+        XCTAssertEqual(updated.events.reduce(0) { $0 + $1.tokens.input }, 260)
+    }
+
+    func testDeferredChildIsRetriedWhenParentArrives() async throws {
+        let dir = try temp(), sessions = dir.appendingPathComponent("sessions")
+        try FileManager.default.createDirectory(at: sessions, withIntermediateDirectories: true)
+        let first = token(counter(100), last: counter(100))
+        let child = [meta("c", parent: "p", time: "2026-09-01T00:00:02Z"), first,
+            token(counter(150, output: 20), last: counter(50), time: "2026-09-01T00:00:03Z")]
+        try Data((child.joined(separator: "\n") + "\n").utf8).write(to: sessions.appendingPathComponent("c.jsonl"))
+        let store = try UsageStore(url: dir.appendingPathComponent("usage.sqlite"))
+        let deferred = try await store.scan(root: dir)
+        XCTAssertEqual(deferred.deferred, 1); XCTAssertTrue(deferred.events.isEmpty)
+        let unchanged = try await store.scan(root: dir)
+        XCTAssertEqual(unchanged.deferred, 1); XCTAssertEqual(unchanged.resolvedFileCount, 0)
+        try Data(([meta("p"), first].joined(separator: "\n") + "\n").utf8).write(to: sessions.appendingPathComponent("p.jsonl"))
+        let resolved = try await store.scan(root: dir)
+        XCTAssertEqual(resolved.deferred, 0); XCTAssertEqual(resolved.events.count, 2)
+        XCTAssertEqual(resolved.events.reduce(0) { $0 + $1.tokens.input }, 150)
+    }
+
+    func testVisibleWindowDoesNotDeleteOutboxOrLocalHistory() async throws {
+        let dir = try temp(), store = try UsageStore(url: dir.appendingPathComponent("usage.sqlite"))
+        let older = LocalUsageEvent(id: "old", occurredAt: "2026-01-01T00:00:00.000Z", model: "m", tokens: UsageTokens(input: 10))
+        let recent = LocalUsageEvent(id: "new", occurredAt: "2026-09-01T00:00:00.000Z", model: "m", tokens: UsageTokens(input: 20))
+        try await store.insert([older], binding: "member", since: .distantPast)
+        try await store.insert([recent])
+        let scan = try await store.scan(root: dir, eventsSince: UsageTime.parse("2026-08-01T00:00:00Z")!)
+        XCTAssertEqual(scan.events, [recent])
+        let pending = try await store.pending(binding: "member")
+        XCTAssertEqual(pending, [older])
+        let all = try await store.events(); XCTAssertEqual(all.count, 2)
+        let stats = try await store.storageStats()
+        XCTAssertEqual(stats.localOnlyRecords, 1); XCTAssertEqual(stats.pendingRecords, 1)
+        XCTAssertEqual(stats.confirmedRecords, 0); XCTAssertGreaterThan(stats.totalBytes, 0)
+        try await store.acknowledge(binding: "member", ids: [older.id])
+        let sent = try await store.storageStats()
+        XCTAssertEqual(sent.confirmedRecords, 1); XCTAssertEqual(sent.pendingRecords, 0)
+    }
+
     func testClientRejectsUnsafeEndpoints() {
         XCTAssertThrowsError(try UsageClient(endpoint: "http://example.com", token: "fixture"))
         XCTAssertThrowsError(try UsageClient(endpoint: "https://user:pass@example.com", token: "fixture"))

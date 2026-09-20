@@ -151,7 +151,7 @@ public enum UsageParser {
     }
 
     /// Excludes a child's copied parent prefix; unresolved ancestry is held back, never guessed.
-    public static func resolve(_ files: [ParsedUsageFile]) -> (events: [LocalUsageEvent], deferred: Int, issues: Int) {
+    public static func resolve(_ files: [ParsedUsageFile]) -> (events: [LocalUsageEvent], deferred: Int, issues: Int, deferredSessionIDs: Set<String>) {
         let groups = Dictionary(grouping: files.filter { $0.sessionID != nil }, by: { $0.sessionID! })
         var memo: [String: [ParsedUsageFile.Record]] = [:]
         var unresolved = Set<String>()
@@ -228,7 +228,7 @@ public enum UsageParser {
         var events: [LocalUsageEvent] = []
         for id in groups.keys.sorted() { events += (records(id, visiting: []) ?? []).map(\.event) }
         var seen = Set<String>()
-        return (events.filter { seen.insert($0.id).inserted }, unresolved.count, files.reduce(0) { $0 + $1.issues })
+        return (events.filter { seen.insert($0.id).inserted }, unresolved.count, files.reduce(0) { $0 + $1.issues }, unresolved)
     }
 }
 

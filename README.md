@@ -25,6 +25,12 @@ AI coding work is hard to manage when quota, network routes, and Mac sleep setti
   <img src="./docs/images/control-center.png" alt="AI Quota Bar control center" width="342">
 </p>
 
+## v1.23.0 · Lower background load, visible storage and delivery
+
+Fix repeated menu-bar frame generation and full-history usage processing while retaining monitoring intervals and 30 fps animation. A ten-minute single-machine run averaged 9.07% process CPU versus 95.39% for the old build; results vary by machine and workload. Settings now show storage, delivery states and a cloud verification action. Oversized quota uploads causing HTTP 413 are fixed. The interface loads 35 days while older disk records remain intact.
+
+[v1.23.0 release notes](./docs/releases/v1.23.0.en.md)
+
 ## v1.22.0 · Clearer icons and accurate GLM status
 
 Larger **bidirectional fan** icons make pace easier to read: upper segments mean reserve, lower segments mean deficit, and a center dot means on pace. A wider opening separates the persistent provider letter from the ring. Yellow warns of low quota; a red dash means unavailable. Launch, menu-bar, warning, mobile and website icons share the same design.

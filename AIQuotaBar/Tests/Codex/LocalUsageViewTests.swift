@@ -119,7 +119,7 @@ import CodexLocalUsageCore
         XCTAssertEqual(model.rangeSummary(days: 7).records, 3)
     }
 
-    func testLocalUsagePaneAndMenuRenderInBothLanguages() throws {
+    func testLocalUsagePaneAndMenuRenderInBothLanguages() async throws {
         let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         defer { try? FileManager.default.removeItem(at: directory) }
         let name = "LocalUsageViewTests.\(UUID().uuidString)"
@@ -132,6 +132,10 @@ import CodexLocalUsageCore
                 tokens: UsageTokens(input: Int64([125000, 85000, 210000, 95000, 175000, 50000, 120000][day]), cached: 40000, output: 12000))
         }
         model.files = 12; model.lastScan = Date(); model.issues = 1; model.deferred = 1
+        let storage = try UsageStore(url: directory.appendingPathComponent("test.sqlite"))
+        try await storage.insert(model.events)
+        model.storageStats = try await storage.storageStats()
+        model.sourceLogBytes = 10_000_000_000
         for language in AppLanguage.allCases {
             let root = ScrollView { CodexLocalUsageSection(model: model, language: language).padding(20) }.frame(width: 720, height: 650).background(Color.white).environment(\.colorScheme, .light)
             let view = NSHostingView(rootView: root)

@@ -11,6 +11,8 @@
 
 ## 发布说明
 
+- [v1.23.0](./releases/v1.23.0.zh-CN.md)：常驻性能、存储显示与上传修复。
+
 - [v1.16.0](./releases/v1.16.0.md)
 - [v1.15.0](./releases/v1.15.0.md)
 - [全部发布说明](https://github.com/techfanseric/ai-quota-bar/releases)

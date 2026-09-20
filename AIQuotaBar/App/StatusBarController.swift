@@ -1,6 +1,35 @@
 import AppKit
 import SwiftUI
 
+/// Only visible inputs invalidate raster frames. Tooltip/reset text does not.
+struct CompactStatusRenderState: Equatable {
+    let snapshots: [MenuBarSnapshot]
+    let connectivity: CodexConnectivityState
+    let pace: MenuBarPaceDisplayMode
+    let selfTesting: Bool
+    let tasks: [UsageProvider: Int]
+    let padding: Double
+    let spacing: Double
+    let appearance: String
+    let scale: CGFloat
+    let height: CGFloat
+    let reduceMotion: Bool
+
+    static func == (lhs: Self, rhs: Self) -> Bool {
+        lhs.snapshots.count == rhs.snapshots.count
+            && zip(lhs.snapshots, rhs.snapshots).allSatisfy { a, b in
+                a.provider == b.provider && a.ringPercent == b.ringPercent
+                    && a.paceDeltaPercent == b.paceDeltaPercent && a.state == b.state
+                    && a.isLowQuota == b.isLowQuota
+            }
+            && lhs.connectivity == rhs.connectivity && lhs.pace == rhs.pace
+            && lhs.selfTesting == rhs.selfTesting && lhs.tasks == rhs.tasks
+            && lhs.padding == rhs.padding && lhs.spacing == rhs.spacing
+            && lhs.appearance == rhs.appearance && lhs.scale == rhs.scale
+            && lhs.height == rhs.height && lhs.reduceMotion == rhs.reduceMotion
+    }
+}
+
 private final class StatusButtonAppearanceTrackingView: NSView {
     var onAppearanceChanged: (() -> Void)?
 
@@ -101,12 +130,15 @@ final class StatusBarController {
         sleepProtectionCoordinator: sleepProtectionCoordinator)
     private let initialStatusItemLength: CGFloat = 110
     private var screenObserverTokens: [NSObjectProtocol] = []
+    private var accessibilityDisplayObserver: NSObjectProtocol?
     private var consecutiveUnreachableChecks = 0
     private var hasHandledCurrentOutage = false
     private var recoveryTask: Task<Void, Never>?
     private var compactImageAnimationTask: Task<Void, Never>?
     private let compactAppearanceTrackingView = StatusButtonAppearanceTrackingView()
     private var compactImageFrames: [NSImage] = []
+    private var compactRenderState: CompactStatusRenderState?
+    private var appearanceUpdateScheduled = false
     private let compactAnimationEpoch = ProcessInfo.processInfo.systemUptime
 
     init() {
@@ -138,11 +170,16 @@ final class StatusBarController {
             compactAppearanceTrackingView.frame = button.bounds
             compactAppearanceTrackingView.autoresizingMask = [.width, .height]
             compactAppearanceTrackingView.onAppearanceChanged = { [weak self] in
-                self?.updateStatusItem()
+                // AppKit temporarily changes appearances while taking menu-bar
+                // replica snapshots. Inspect the settled appearance next run loop.
+                self?.scheduleAppearanceUpdate()
             }
             button.addSubview(compactAppearanceTrackingView)
             updateStatusItem()
             installActiveScreenObservers(button: button)
+            accessibilityDisplayObserver = NSWorkspace.shared.notificationCenter.addObserver(
+                forName: NSWorkspace.accessibilityDisplayOptionsDidChangeNotification, object: nil, queue: .main
+            ) { [weak self] _ in Task { @MainActor in self?.scheduleAppearanceUpdate() } }
         }
 
         observeProperties(viewModel) { viewModel in
@@ -407,6 +444,9 @@ final class StatusBarController {
     deinit {
         // 单例场景下不会真跑,但单测 / 未来替换会用到 —— 显式 removeObserver
         // 避免 zombie observer 留存。`NotificationCenter.removeObserver` 自身线程安全。
+        if let accessibilityDisplayObserver {
+            NSWorkspace.shared.notificationCenter.removeObserver(accessibilityDisplayObserver)
+        }
         let tokens = screenObserverTokens
         for token in tokens {
             NotificationCenter.default.removeObserver(token)
@@ -444,12 +484,28 @@ final class StatusBarController {
 
     // MARK: - Status item rendering
 
+    private func scheduleAppearanceUpdate() {
+        guard !appearanceUpdateScheduled else { return }
+        appearanceUpdateScheduled = true
+        DispatchQueue.main.async { [weak self] in
+            guard let self else { return }
+            self.appearanceUpdateScheduled = false
+            // Snapshot callbacks commonly report no persistent appearance change.
+            // Avoid even layout/accessibility writes in that case.
+            if let button = self.statusItem?.button,
+               self.viewModel.menuBarAppearance == .compactRing,
+               self.makeCompactRenderState(button: button) == self.compactRenderState { return }
+            self.updateStatusItem()
+        }
+    }
+
     private func updateStatusItem() {
         switch viewModel.menuBarAppearance {
         case .detailedText:
             compactImageAnimationTask?.cancel()
             compactImageAnimationTask = nil
             compactImageFrames.removeAll()
+            compactRenderState = nil
             statusItem?.button?.image = nil
             attachStatusViewIfNeeded()
             statusView.isHidden = false
@@ -485,8 +541,29 @@ final class StatusBarController {
         button.addSubview(statusView)
     }
 
+    private func makeCompactRenderState(button: NSStatusBarButton) -> CompactStatusRenderState {
+        let scale = button.window?.backingScaleFactor ?? NSScreen.main?.backingScaleFactor ?? 2
+        return CompactStatusRenderState(
+            snapshots: displayedCompactSnapshots, connectivity: connectivityMonitor.state,
+            pace: viewModel.menuBarPaceDisplayMode, selfTesting: viewModel.isMenuBarSelfTesting,
+            tasks: sleepProtectionCoordinator.activeTaskCounts,
+            padding: viewModel.menuBarCompactHorizontalPadding, spacing: viewModel.menuBarCompactRingSpacing,
+            appearance: button.effectiveAppearance.bestMatch(from: [.accessibilityHighContrastDarkAqua, .accessibilityHighContrastAqua, .darkAqua, .aqua])?.rawValue ?? "",
+            scale: scale, height: statusView.frame.height,
+            reduceMotion: NSWorkspace.shared.accessibilityDisplayShouldReduceMotion)
+    }
+
     private func presentCompactButtonImages() {
         guard let button = statusItem?.button else { return }
+        let renderState = makeCompactRenderState(button: button)
+        let scale = renderState.scale
+        button.setAccessibilityLabel(statusItemTooltip)
+        guard renderState != compactRenderState else {
+            statusView.suspendCompactAnimations()
+            return
+        }
+        // Publish the key before AppKit callbacks can reenter this method.
+        compactRenderState = renderState
         compactImageAnimationTask?.cancel()
         compactImageAnimationTask = nil
 
@@ -495,9 +572,6 @@ final class StatusBarController {
         // already fully rasterizable, so detach that hierarchy and use the
         // status button's optimized image path instead.
         statusView.removeFromSuperview()
-        let scale = button.window?.backingScaleFactor
-            ?? NSScreen.main?.backingScaleFactor
-            ?? 2
         statusView.appearance = button.effectiveAppearance
         let frames = statusView.renderedCompactFrames(scale: scale)
         guard !frames.isEmpty else {
@@ -533,7 +607,7 @@ final class StatusBarController {
     private func presentCompactImage(_ image: NSImage, on button: NSStatusBarButton) {
         button.imagePosition = .imageOnly
         button.imageScaling = .scaleNone
-        button.image = image
+        if button.image !== image { button.image = image }
     }
 
     private var statusItemTooltip: String {
@@ -693,6 +767,8 @@ private final class StatusBarContentView: NSView {
         wantsLayer = true
         layer?.opacity = isOnActiveScreen ? 1.0 : 0.5
     }
+
+    func suspendCompactAnimations() { compactView.suspendAnimationLoops() }
 
     func renderedCompactFrames(
         scale: CGFloat,
