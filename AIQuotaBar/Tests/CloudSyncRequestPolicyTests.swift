@@ -1,5 +1,6 @@
 import Foundation
 import XCTest
+import CodexLocalUsageCore
 @testable import AIQuotaBar
 
 @MainActor
@@ -16,6 +17,39 @@ final class CloudSyncRequestPolicyTests: XCTestCase {
         var request = URLRequest(url: URL(string: "https://cloud-sync-test.invalid/v1/quota-samples")!)
         request.httpMethod = "POST"
         try await service.sendWithRetry(request: request, body: Data("{}".utf8))
+    }
+
+    func testOversizedLegacyQueueSendsOnlySupportedSnapshotAndDrainsAfterAcknowledgement() async throws {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let scoped = directory.appendingPathComponent(usageDigest("fixture"))
+        try FileManager.default.createDirectory(at: scoped, withIntermediateDirectories: true)
+        let body: [String: Any] = ["teamBinding": "fixture", "deviceID": "device", "sampledAt": "2026-09-01T00:00:00Z",
+            "models": [], "utilizationHistories": ["codex": ["model": ["modelId": "model",
+                "entries": Array(repeating: ["capturedAt": "2026-09-01T00:00:00Z", "usedPercent": 50] as [String: Any], count: 12_000)]]]]
+        let data = try JSONSerialization.data(withJSONObject: body)
+        XCTAssertGreaterThan(data.count, 262_144)
+        let file = scoped.appendingPathComponent("legacy.json")
+        try data.write(to: file)
+        let queue = CloudSyncQueue(directoryURL: directory)
+        XCTAssertEqual(queue.statistics(binding: "fixture").currentTeamFiles, 1)
+        let (_, session) = fixture([.http(503, "temporary outage"), .http(200, "{}")])
+        defer { session.invalidateAndCancel() }
+        let enabled = UserDefaults.standard.object(forKey: CloudSyncSettings.enabledKey)
+        UserDefaults.standard.set(true, forKey: CloudSyncSettings.enabledKey)
+        defer { if let enabled { UserDefaults.standard.set(enabled, forKey: CloudSyncSettings.enabledKey) } else { UserDefaults.standard.removeObject(forKey: CloudSyncSettings.enabledKey) } }
+        let service = CloudSyncService(session: session, retryBackoffs: [], contextProvider: {
+            TeamQuotaContext(binding: "fixture", endpoint: "https://cloud-sync-test.invalid", token: "device-token")
+        }, bindingProvider: { "fixture" }, queue: queue)
+        await service.flushPendingQueue()
+        XCTAssertTrue(FileManager.default.fileExists(atPath: file.path), "Failed delivery must retain the original queue file")
+        XCTAssertNotNil(service.lastSyncStatus.lastFailureDate)
+        await service.flushPendingQueue()
+        XCTAssertFalse(FileManager.default.fileExists(atPath: file.path))
+        XCTAssertNotNil(service.lastSyncStatus.lastSuccessDate)
+        XCTAssertEqual(CloudSyncStubProtocol.requestBodySizes.count, 2)
+        XCTAssertTrue(CloudSyncStubProtocol.requestBodySizes.allSatisfy { $0 < 1024 })
+        XCTAssertEqual(queue.statistics(binding: "fixture").currentTeamFiles, 0)
     }
 
     func testUnauthorizedIsNotRetried() async {
@@ -225,6 +259,8 @@ private final class CloudSyncStubProtocol: URLProtocol {
     private static var replies: [Reply] = []
     private static var paths: [String] = []
     private static var authHeaders: [String] = []
+    private static var bodySizes: [Int] = []
+    static var requestBodySizes: [Int] { lock.lock(); defer { lock.unlock() }; return bodySizes }
     static var authorizationHeaders: [String] { lock.lock(); defer { lock.unlock() }; return authHeaders }
 
     static var requestPaths: [String] {
@@ -237,14 +273,24 @@ private final class CloudSyncStubProtocol: URLProtocol {
         lock.lock()
         defer { lock.unlock() }
         replies = newReplies
-        paths = []; authHeaders = []
+        paths = []; authHeaders = []; bodySizes = []
     }
 
     override class func canInit(with request: URLRequest) -> Bool { true }
     override class func canonicalRequest(for request: URLRequest) -> URLRequest { request }
 
     override func startLoading() {
+        var bodySize = request.httpBody?.count ?? 0
+        if let stream = request.httpBodyStream {
+            stream.open(); defer { stream.close() }
+            var buffer = [UInt8](repeating: 0, count: 4096)
+            while stream.hasBytesAvailable {
+                let count = stream.read(&buffer, maxLength: buffer.count)
+                if count <= 0 { break }; bodySize += count
+            }
+        }
         Self.lock.lock()
+        Self.bodySizes.append(bodySize)
         Self.paths.append(request.url!.path)
         Self.authHeaders.append(request.value(forHTTPHeaderField: "Authorization") ?? "")
         let reply = Self.replies.isEmpty ? Reply.http(599, "unexpected retry") : Self.replies.removeFirst()

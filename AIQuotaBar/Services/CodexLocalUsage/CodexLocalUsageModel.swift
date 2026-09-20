@@ -25,6 +25,16 @@ final class CodexLocalUsageModel {
     var issues = 0
     var deferred = 0
     var incomplete = 0
+    var verifyingDelivery = false
+    var deliveryVerification: String?
+    var deliveryVerificationMatches: Bool?
+    var quotaQueueStats: CloudSyncQueue.Statistics?
+    var sourceLogBytes: Int64 = 0
+    var storageStats: UsageStore.StorageStats?
+    var lastUploadConfirmedAt: Date?
+    var nextUploadAttemptAt: Date?
+    private var displayedRevision: Int?
+    private var displayedWindow: Date?
     var delivery: [String: Int] = [:]
     var rejectionReasons: [String: Int] = [:]
     var teamRows: [TeamUsageRow] = []
@@ -43,7 +53,7 @@ final class CodexLocalUsageModel {
     var currentAccountID: String? { didSet { historyCache.removeAll(); summaryCache.removeAll() } }
     func refreshCurrentAccount() {
         let observation = UsageAccountObservation.read(root: root)
-        currentAccountID = observation.accountID
+        if currentAccountID != observation.accountID { currentAccountID = observation.accountID }
         if let id = observation.accountID, let label = observation.label { accountLabels[id] = label }
     }
     private func trendEvents(currentAccount: Bool) -> [LocalUsageEvent] {
@@ -123,6 +133,7 @@ final class CodexLocalUsageModel {
     init(defaults: UserDefaults = .standard, databaseURL: URL? = nil, client: UsageClient? = nil) {
         self.client = client
         self.defaults = defaults
+        lastUploadConfirmedAt = defaults.object(forKey: "localUsage.lastUploadConfirmedAt") as? Date
         reportingEnabled = defaults.bool(forKey: "localUsage.reporting")
         if let data = defaults.data(forKey: "localUsage.connection") { connection = try? JSONDecoder().decode(LocalUsageConnection.self, from: data) }
         if let data = defaults.data(forKey: "localUsage.prices"), let decoded = try? JSONDecoder().decode([UsagePrice].self, from: data), (try? UsagePrice.validate(decoded)) != nil { prices = decoded }
@@ -135,7 +146,11 @@ final class CodexLocalUsageModel {
     func start() {
         guard timer == nil else { return }
         timer = Timer.scheduledTimer(withTimeInterval: 60, repeats: true) { [weak self] _ in Task { @MainActor in await self?.refresh() } }
-        Task { await refresh() }
+        timer?.tolerance = 5
+        Task {
+            await refresh()
+            if CommandLine.arguments.contains("--verify-usage-delivery") { await verifyCloudDelivery() }
+        }
     }
     func stop() { timer?.invalidate(); timer = nil; syncTask?.cancel() }
     func refresh() async {
@@ -144,9 +159,19 @@ final class CodexLocalUsageModel {
         scanning = true
         defer { scanning = false }
         do {
-            let result = try await store.scan(root: root, binding: reportingEnabled ? connection?.binding : nil, since: connection?.since ?? .distantFuture, observation: UsageAccountObservation.read(root: root))
+            // The visible local charts need this month/30 days plus the rolling 24h.
+            // Older durable records stay on disk, available for delivery and future retention migration.
+            let window = Calendar.current.date(byAdding: .day, value: -35, to: Calendar.current.startOfDay(for: Date()))!
+            let result = try await store.scan(root: root, binding: reportingEnabled ? connection?.binding : nil,
+                since: connection?.since ?? .distantFuture, observation: UsageAccountObservation.read(root: root), eventsSince: window)
             accountLabels = try await store.accountTimeline().labels
-            events = result.events; files = result.files; issues = result.issues; deferred = result.deferred; incomplete = result.incomplete
+            if displayedRevision != result.revision || displayedWindow != window {
+                events = result.events; displayedRevision = result.revision; displayedWindow = window
+            }
+            quotaQueueStats = CloudSyncService.shared.queueStatistics()
+            sourceLogBytes = result.sourceLogBytes
+            files = result.files; issues = result.issues; deferred = result.deferred; incomplete = result.incomplete
+            storageStats = try await store.storageStats()
             lastScan = Date(); error = nil
             if let connection {
                 delivery = try await store.deliveryCounts(binding: connection.binding)
@@ -238,7 +263,11 @@ final class CodexLocalUsageModel {
     }
     private func savePrices(_ value: [UsagePrice]) throws {
         try UsagePrice.validate(value)
-        defaults.set(try JSONEncoder().encode(value), forKey: "localUsage.prices"); prices = value
+        let encoder = JSONEncoder(); encoder.outputFormatting = [.sortedKeys]
+        let data = try encoder.encode(value)
+        if try encoder.encode(prices) != data {
+            defaults.set(data, forKey: "localUsage.prices"); prices = value
+        }
     }
     private func activeClient() async throws -> UsageClient {
         guard let connection else { throw UsageFailure.invalid("Connect a registered device first") }
@@ -266,13 +295,18 @@ final class CodexLocalUsageModel {
                 if batch.isEmpty { break }
                 let receipt = try await client.send(batch)
                 try await store.acknowledge(binding: connection.binding, ids: receipt.accepted, rejected: receipt.rejected.map(\.id), reasons: Dictionary(uniqueKeysWithValues: receipt.rejected.map { ($0.id, $0.reason) }))
+                if !receipt.accepted.isEmpty {
+                    lastUploadConfirmedAt = Date()
+                    defaults.set(lastUploadConfirmedAt, forKey: "localUsage.lastUploadConfirmedAt")
+                }
                 if !receipt.rejected.isEmpty { syncStatus = receipt.rejected.map(\.reason).joined(separator: ", ") }
             }
             guard self.connection?.binding == connection.binding else { return }
             delivery = try await store.deliveryCounts(binding: connection.binding)
             rejectionReasons = try await store.rejectionReasons(binding: connection.binding)
             syncStatus = "\(delivery["sent", default: 0]) sent · \(delivery["pending", default: 0]) pending · \(delivery["rejected", default: 0]) rejected"
-            failures = 0; nextAttempt = .distantPast
+            storageStats = try await store.storageStats()
+            failures = 0; nextAttempt = .distantPast; nextUploadAttemptAt = nil
         } catch is CancellationError { return }
         catch {
             guard self.connection?.binding == connection.binding else { return }
@@ -280,8 +314,63 @@ final class CodexLocalUsageModel {
             nextAttempt = Date().addingTimeInterval(min(3600, 60 * pow(2, Double(min(failures - 1, 6)))))
             syncStatus = error.localizedDescription
             if syncStatus.contains("401") { nextAttempt = .distantFuture; client = nil }
+            nextUploadAttemptAt = nextAttempt
+            // Successful earlier batches remain visible even if a later batch fails.
+            delivery = (try? await store.deliveryCounts(binding: connection.binding)) ?? delivery
+            rejectionReasons = (try? await store.rejectionReasons(binding: connection.binding)) ?? rejectionReasons
+            storageStats = (try? await store.storageStats()) ?? storageStats
         }
     }
+    /// Compare a fixed acknowledged time range with the server using this device's
+    /// existing credential. No historic local-only records are uploaded by this check.
+    func verifyCloudDelivery() async {
+        guard !verifyingDelivery, let connection, let store else { return }
+        verifyingDelivery = true
+        defer { verifyingDelivery = false }
+        do {
+            let client = try await activeClient()
+            let records = try await store.confirmedEvents(binding: connection.binding)
+            guard let first = records.first.flatMap({ UsageTime.parse($0.occurredAt) }),
+                  let last = records.last.flatMap({ UsageTime.parse($0.occurredAt) }) else {
+                deliveryVerification = "No acknowledged records to verify."; deliveryVerificationMatches = nil; return
+            }
+            let expected = UsageSummary(events: records)
+            let end = last.addingTimeInterval(0.001)
+            var cursor = first, serverRecords = 0
+            var serverTokens = UsageTokens()
+            while cursor < end {
+                try Task.checkCancellation()
+                let next = min(end, cursor.addingTimeInterval(365 * 86400))
+                let series = try await client.timeline(from: cursor, to: next, bucketSeconds: 86400,
+                    member: connection.identity.member_id, device: connection.identity.device_id)
+                for row in series.groups {
+                    serverRecords += row.records
+                    serverTokens = serverTokens + row.summary.tokens
+                }
+                cursor = next
+            }
+            guard self.connection?.binding == connection.binding else { return }
+            let matches = expected.records == serverRecords && expected.tokens == serverTokens
+            deliveryVerificationMatches = matches
+            let language = AppLanguage(rawValue: defaults.string(forKey: "appLanguage") ?? "") ?? .english
+            deliveryVerification = language == .simplifiedChinese
+                ? "云端核验：本地已确认 \(expected.records.formatted()) 条 / 云端 \(serverRecords.formatted()) 条；\(matches ? "记录数与各项 token 总量一致" : "存在差异，需检查共享事件或上报状态")。"
+                : "Cloud check: \(expected.records.formatted()) local acknowledged / \(serverRecords.formatted()) remote; \(matches ? "record and token totals match" : "mismatch; check shared events or delivery state")."
+            let directory = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
+                .appendingPathComponent("AIQuotaBar/Diagnostics")
+            try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+            let report: [String: Any] = ["checkedAt": UsageTime.string(Date()), "from": UsageTime.string(first),
+                "to": UsageTime.string(end), "localRecords": expected.records, "remoteRecords": serverRecords,
+                "localTokens": expected.tokens.total, "remoteTokens": serverTokens.total, "allTokenFieldsMatch": expected.tokens == serverTokens,
+                "matches": matches]
+            try JSONSerialization.data(withJSONObject: report, options: [.prettyPrinted, .sortedKeys])
+                .write(to: directory.appendingPathComponent("usage-delivery-audit.json"), options: .atomic)
+        } catch {
+            deliveryVerificationMatches = false
+            deliveryVerification = error.localizedDescription
+        }
+    }
+
     private func migrateHostedConnection(_ old: LocalUsageConnection, store: UsageStore) async throws -> LocalUsageConnection {
         guard ["https://ai-quota-bar-sync.techfanseric.workers.dev", "https://quota.talktrace.app"].contains(old.endpoint) else { return old }
         let token = try await Self.loadToken(account: old.binding)

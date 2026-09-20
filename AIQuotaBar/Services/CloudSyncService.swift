@@ -134,10 +134,12 @@ final class CloudSyncService {
 
     /// view 可读：`Last sync: 2m ago` 或 `Failed: 5m ago`
     private(set) var lastSyncStatus: CloudSyncStatus = .idle
+    private var isFlushingQueue = false
 
     init(session: URLSession? = nil, retryBackoffs: [UInt64] = [1, 4, 16],
          contextProvider: @escaping @MainActor () async throws -> TeamQuotaContext = { try await CodexLocalUsageModel.shared.quotaContext() },
-         bindingProvider: @escaping @MainActor () -> String? = { CodexLocalUsageModel.shared.connection?.binding }) {
+         bindingProvider: @escaping @MainActor () -> String? = { CodexLocalUsageModel.shared.connection?.binding },
+         queue: CloudSyncQueue? = nil) {
         self.contextProvider = contextProvider
         self.bindingProvider = bindingProvider
         self.session = session ?? URLSession(configuration: .ephemeral, delegate: CloudSyncRedirectBlocker(), delegateQueue: nil)
@@ -145,13 +147,13 @@ final class CloudSyncService {
         let encoder = JSONEncoder()
         encoder.dateEncodingStrategy = .iso8601
         self.encoder = encoder
-        self.queue = CloudSyncQueue()
+        self.queue = queue ?? CloudSyncQueue()
         // 启动时恢复上次状态：跨重启保留"上次同步 Xm ago"上下文
         self.lastSyncStatus = .idle // Never display an old team's saved status.
     }
 
-    /// 同步当前 quota 快照 + 跨周期 utilization 历史到云端。
-    /// - 历史项可空；为空时 payload 仍可成功（服务端忽略）。
+    /// Sync current quota snapshots to the team endpoint.
+    /// Legacy utilization history remains local; this endpoint does not accept it.
     /// - 失败时不抛给上层 — 由调用方通过 `lastSyncStatus` 查询；
     ///   失败 payload 已落盘到 `CloudSyncQueue`，下次调用时自动重试。
     /// - 启动时 `flushPendingQueue()` 先把堆积的 payload 推上去。
@@ -179,25 +181,14 @@ final class CloudSyncService {
             return
         }
 
-        var historiesPayload: [String: [String: CloudUtilizationHistoryPayload]]?
-        if let utilizationHistories {
-            var byProvider: [String: [String: CloudUtilizationHistoryPayload]] = [:]
-            for (provider, store) in utilizationHistories {
-                var byModel: [String: CloudUtilizationHistoryPayload] = [:]
-                for (modelId, history) in store.historiesOrEmpty {
-                    byModel[modelId] = CloudUtilizationHistoryPayload(history: history)
-                }
-                byProvider[provider.rawValue] = byModel
-            }
-            historiesPayload = byProvider
-        }
-
+        // Team quota storage accepts snapshots, not the legacy utilization-history
+        // extension. Attaching all local history eventually exceeded its 256 KiB cap.
         var payload = CloudUsageSnapshotPayload(
             deviceID: settings.deviceID,
             sampledAt: sampledAt,
             retentionDays: CloudDataRetentionLimit.current.rawValue,
             models: usageData.models.map { CloudModelQuotaPayload(model: $0) },
-            utilizationHistories: historiesPayload
+            utilizationHistories: nil
         )
 
         payload.teamBinding = context.binding
@@ -213,6 +204,7 @@ final class CloudSyncService {
             try await sendWithRetry(request: request, body: body, binding: context.binding)
             guard bindingProvider() == context.binding else { return }
             recordSuccess(at: Date())
+            await flushPendingQueue()
         } catch is CancellationError {
             // 用户禁用云同步 / 切换 endpoint 等场景:不记录失败、不 enqueue payload,
             // 避免 UI 显示 "失败 Ym ago" 和队列堆积虚假任务
@@ -227,6 +219,9 @@ final class CloudSyncService {
 
     /// 启动时主动 flush 一次堆积队列（fire-and-forget，失败不重入队列避免死循环）
     func flushPendingQueue() async {
+        guard !isFlushingQueue else { return }
+        isFlushingQueue = true
+        defer { isFlushingQueue = false }
         let settings = CloudSyncSettings.current
         guard settings.isEnabled else { return }
         guard let context = try? await contextProvider(), bindingProvider() == context.binding else { return }
@@ -246,17 +241,26 @@ final class CloudSyncService {
 
         await queue.flush(binding: context.binding) { [self] payload in
             guard bindingProvider() == context.binding, CloudSyncSettings.current.isEnabled else { throw CancellationError() }
-            let body = try encoder.encode(payload)
-            var req = request
-            req.httpBody = body
-            let (data, response) = try await session.data(for: req)
-            guard let http = response as? HTTPURLResponse, (200...299).contains(http.statusCode) else {
-                let status = (response as? HTTPURLResponse)?.statusCode ?? -1
-                let message = String(data: data, encoding: .utf8) ?? ""
-                throw CloudSyncError.serverError(status, message)
-            }
+            do {
+                // Normalize older queued payloads as well; retrying 700 KiB bodies
+                // against a 256 KiB endpoint can never drain the queue.
+                let body = try encoder.encode(payload.teamSnapshot)
+                var req = request
+                req.httpBody = body
+                let (data, response) = try await session.data(for: req)
+                guard let http = response as? HTTPURLResponse, (200...299).contains(http.statusCode) else {
+                    let status = (response as? HTTPURLResponse)?.statusCode ?? -1
+                    let message = String(data: data, encoding: .utf8) ?? ""
+                    throw CloudSyncError.serverError(status, message)
+                }
+                guard bindingProvider() == context.binding else { throw CancellationError() }
+                recordSuccess(at: Date())
+            } catch is CancellationError { throw CancellationError() }
+            catch { recordFailure(reason: .network, error: error); throw error }
         }
     }
+
+    func queueStatistics() -> CloudSyncQueue.Statistics { queue.statistics(binding: bindingProvider()) }
 
     /// 同步状态：UI 可读 `lastSyncStatus` 显示 "Last sync: 2m ago" 或 "Failed: 5m ago"
     func resetTeamStatus() { lastSyncStatus = .idle }
@@ -1610,8 +1614,13 @@ struct CloudUsageSnapshotPayload: Codable {
     let models: [CloudModelQuotaPayload]
     /// 跨周期 utilization 历史：key = provider.rawValue，
     /// value = `modelId -> CloudUtilizationHistoryPayload`。
-    /// 旧服务端忽略未知字段，向后兼容；新服务端用来重建用户历史。
+    /// Decode legacy retry files only. The current team endpoint does not store it.
     let utilizationHistories: [String: [String: CloudUtilizationHistoryPayload]]?
+
+    var teamSnapshot: Self {
+        Self(teamBinding: teamBinding, deviceID: deviceID, sampledAt: sampledAt,
+             retentionDays: retentionDays, models: models, utilizationHistories: nil)
+    }
 }
 
 struct CloudModelQuotaPayload: Codable {

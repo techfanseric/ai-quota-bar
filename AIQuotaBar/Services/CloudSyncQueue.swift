@@ -8,8 +8,8 @@ import CodexLocalUsageCore
 /// 队列有上限（`maxQueueSize`）：网络长期挂掉时无界堆积会占满磁盘。
 /// 超限时按修改时间丢最旧的文件，保留最新的若干条。
 final class CloudSyncQueue {
-    /// 队列容量上限：50 条 ≈ 50KB 不到 1MB，足够覆盖一周断网。
-    /// 超了说明用户一直没联网，老数据意义不大。
+    /// Snapshot count limit, not a time guarantee. At one batch per 10 minutes,
+    /// 50 entries cover about 8 hours; local usage events use a separate durable outbox.
     static let maxQueueSize = 50
 
     private let directoryURL: URL
@@ -42,7 +42,7 @@ final class CloudSyncQueue {
         do {
             try fileManager.createDirectory(at: directoryURL, withIntermediateDirectories: true)
             trimIfNeeded(in: directoryURL)
-            let data = try encoder.encode(payload)
+            let data = try encoder.encode(payload.teamSnapshot)
             let url = directoryURL.appendingPathComponent("\(UUID().uuidString).json")
             let options: Data.WritingOptions = [.atomic]
             try data.write(to: url, options: options)
@@ -51,6 +51,24 @@ final class CloudSyncQueue {
             print("CloudSyncQueue enqueue failed: \(error.localizedDescription)")
 #endif
         }
+    }
+
+    struct Statistics {
+        var bytes: Int64 = 0
+        var currentTeamFiles = 0
+        var otherFiles = 0
+    }
+    func statistics(binding: String?) -> Statistics {
+        var result = Statistics()
+        let current = binding.map(scopedDirectory)
+        if let enumerator = fileManager.enumerator(at: directoryURL, includingPropertiesForKeys: [.fileSizeKey], options: [.skipsHiddenFiles]) {
+            for case let file as URL in enumerator where file.pathExtension == "json" {
+                result.bytes += Int64((try? file.resourceValues(forKeys: [.fileSizeKey]).fileSize) ?? 0)
+                if file.deletingLastPathComponent().standardizedFileURL.path == current?.standardizedFileURL.path { result.currentTeamFiles += 1 }
+                else { result.otherFiles += 1 }
+            }
+        }
+        return result
     }
 
     func clearAll() {
@@ -106,7 +124,12 @@ final class CloudSyncQueue {
             return
         }
 
-        for file in files where file.pathExtension == "json" {
+        let ordered = files.filter { $0.pathExtension == "json" }.sorted {
+            let a = (try? $0.resourceValues(forKeys: [.contentModificationDateKey]).contentModificationDate) ?? .distantPast
+            let b = (try? $1.resourceValues(forKeys: [.contentModificationDateKey]).contentModificationDate) ?? .distantPast
+            return a < b
+        }
+        for file in ordered {
             guard let data = try? Data(contentsOf: file),
                   let payload = try? decoder.decode(CloudUsageSnapshotPayload.self, from: data) else {
                 // 解码失败的文件直接清掉，避免反复阻塞队列
