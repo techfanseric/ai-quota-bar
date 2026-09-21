@@ -25,6 +25,12 @@ AI coding work is hard to manage when quota, network routes, and Mac sleep setti
   <img src="./docs/images/control-center.png" alt="AI Quota Bar control center" width="342">
 </p>
 
+## v1.23.1 · Calmer menu text, website preview aligned
+
+The MiniMax subscription line in the menu drops the repeated "expires" wording and shows just the date, and long subscription subtitles shrink slightly instead of truncating. The homepage team-panel preview reproduces the released /team dashboard, and legacy demo styles that collided with the real chart classes were removed.
+
+[v1.23.1 release notes](./docs/releases/v1.23.1.en.md)
+
 ## v1.23.0 · Lower background load, visible storage and delivery
 
 Fix repeated menu-bar frame generation and full-history usage processing while retaining monitoring intervals and 30 fps animation. A ten-minute single-machine run averaged 9.07% process CPU versus 95.39% for the old build; results vary by machine and workload. Settings now show storage, delivery states and a cloud verification action. Oversized quota uploads causing HTTP 413 are fixed. The interface loads 35 days while older disk records remain intact.
