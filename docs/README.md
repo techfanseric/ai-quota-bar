@@ -11,6 +11,7 @@
 
 ## 发布说明
 
+- [v1.23.1](./releases/v1.23.1.zh-CN.md)：菜单到期行与副标题打磨，官网团队面板预览对齐。
 - [v1.23.0](./releases/v1.23.0.zh-CN.md)：常驻性能、存储显示与上传修复。
 
 - [v1.16.0](./releases/v1.16.0.md)
@@ -18,6 +19,8 @@
 - [全部发布说明](https://github.com/techfanseric/ai-quota-bar/releases)
 
 ## 运维与历史资料
+
+- [常驻负载与本机用量审查](./performance-audit-2026-09-20.md)：2026-09-20 的现场测量、修复与边界说明。
 
 - [D1 读成本迁移记录](../cloudflare/DEPLOYMENT_NOTES.md)：2026-09-02 的生产迁移和验证结果。
 - [云同步实现沿革](./cloud-sync-implementation-summary.md)：从初版到当前内置服务的变化。
