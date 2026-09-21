@@ -731,12 +731,7 @@ enum AppLanguage: String, CaseIterable, Codable, Identifiable {
         formatter.dateFormat = "yyyy-MM-dd"
         let dateText = formatter.string(from: endTime)
 
-        switch self {
-        case .english:
-            return "\(shortTitle) · expires \(dateText)"
-        case .simplifiedChinese:
-            return "\(shortTitle) · 到期 \(dateText)"
-        }
+        return "\(shortTitle) · \(dateText)"
     }
 
     func specificModelStatus(for model: ModelUsageData?) -> String {

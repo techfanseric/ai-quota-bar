@@ -603,6 +603,7 @@ private struct ProviderModelsSection: View {
                 .font(.system(size: 10, weight: .medium, design: .rounded))
                 .foregroundStyle(.secondary)
                 .lineLimit(1)
+                .minimumScaleFactor(0.9)
 
 
         }
