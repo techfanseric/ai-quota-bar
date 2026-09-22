@@ -25,6 +25,12 @@
   <img src="./docs/images/control-center.png" alt="AI Quota Bar 右键控制中心" width="342">
 </p>
 
+## v1.24.0 更新
+
+Kimi 现在自动检测桌面与网页登录，同时保留 CLI 兼容。已保存的 API Key 优先，设置页显示最近成功来源。
+
+[v1.24.0 完整发布说明](./docs/releases/v1.24.0.zh-CN.md)
+
 ## v1.23.1 · 菜单文字更简洁，官网预览对齐
 
 左键菜单 MiniMax 套餐到期行去掉重复的「到期」字样，只保留日期；套餐名过长时副标题轻微缩小而不是截断。官网首页团队面板预览复现真实 /team 面板，并移除了与真实前端图表类名冲突的旧演示样式。
@@ -109,11 +115,20 @@ Codex 用量改为 30 天矩阵，完善新手引导、钥匙串缓存与低打�
 - 预编译 DMG 当前面向 Apple Silicon；源码构建会使用构建 Mac 的架构。
 - 至少配置一个配额来源：
   - 已安装并登录的 Codex CLI。
-  - 已安装并登录的 Kimi Code CLI，或 Kimi Code API Key。
+  - 已登录的 Kimi 桌面端、Kimi 网页登录、Kimi Code CLI，或 Kimi Code API Key。
   - GLM Coding Plan API Key，或从 GLM 用量页面复制的额度请求 cURL。
   - MiniMax 编程套餐 bearer token。
 - 可选：启用了本地 external controller 的 Clash Verge Rev、Mihomo 或 Clash。
 - 可选：启用合盖继续运行时需要管理员授权。
+
+### Kimi 数据来源
+
+默认自动检测，无需选择额度来源：已保存的 API Key → 有效桌面登录 → 已保存的网页登录 → CLI → 可直接读取的浏览器登录。桌面本地登录失效时自动检查其他来源；已选中有效登录后，网络或服务端错误不会触发账号切换。手动来源保留在「设置 → 服务商 → Kimi → 高级」中。
+
+- 桌面端：支持新版 Kimi 的加密登录存储和旧版 Cookie。必要时点击「允许读取桌面登录」完成 macOS 钥匙串授权；后台刷新不会弹出授权窗口。
+- 网页端：自动检测可无交互读取的 kimi.com 登录，扫描结果缓存 5 分钟；多个账号才需要在高级选项中选择。也可显式导入浏览器登录或手动连接 kimi.ai。自动检测不会弹出浏览器钥匙串授权窗口。
+- 登录过期时，在 Kimi 中重新登录；网页登录需要重新导入。项目不会修改 Kimi 的凭证或刷新令牌。
+- 展示 Code 短周期、周额度，以及接口提供的会员总额度。国内桌面端已实机验证；海外接口尚未实机验证。
 
 ## 安装
 
@@ -151,7 +166,7 @@ AI Quota Bar 通过 [`CodexBarCore`](https://github.com/steipete/CodexBar) 提�
 
 ### Kimi
 
-先使用官方 CLI 登录一次，然后在“Settings → Providers → Kimi”中将 API Key 留空：
+登录 Kimi 桌面端后刷新 AI Quota Bar 即可。在“Settings → Providers → Kimi”中将 API Key 留空，保持默认自动检测。可读取的浏览器登录也可作为来源。若使用 CLI 兼容来源，先登录一次：
 
 ```bash
 kimi
@@ -258,7 +273,7 @@ AI Quota Bar 不只是显示一个百分比。它会把剩余配额、重置时�
 
 - MiniMax 凭证存储在 macOS 钥匙串。
 - GLM API Key 或网页请求凭据存储在 macOS 钥匙串。
-- 可选的 Kimi API Key 存储在 macOS 钥匙串；CLI 凭证继续由 Kimi Code 管理。
+- 可选的 Kimi API Key 和显式保存的网页登录存储在 macOS 钥匙串；桌面及浏览器登录只在本机读取，CLI 凭证继续由 Kimi Code 管理。
 - Codex 凭证由本机 Codex/CodexBar 管理。
 - Clash/Mihomo 只允许访问回环地址的 external controller。
 - 连接监控只读。

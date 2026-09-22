@@ -98,6 +98,9 @@ struct ProviderDetailView: View {
                 onSourceModeChange: onUpdateCodexSourceMode
             )
         case .kimi:
+            KimiSourceSection(language: language) {
+                viewModel.kimiSourceDidChange()
+            }
             ProviderCredentialSection(
                 provider: .kimi,
                 credential: $kimiCredential,
