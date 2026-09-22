@@ -281,7 +281,7 @@ enum AppLanguage: String, CaseIterable, Codable, Identifiable {
         case (.english, .codex):
             return "Codex is configured through the codexbar subsystem. Use the Codex section above to manage accounts and source mode."
         case (.english, .kimi):
-            return "Optional. Leave blank to read quota from the current Kimi Code CLI login through its local `/status` command; otherwise enter a Kimi Code API key stored in Keychain."
+            return "Optional. Leave blank to automatically detect Desktop, web, or CLI sign-in. A saved API key takes priority."
         case (.simplifiedChinese, .miniMax):
             return "填入 MiniMax coding plan remains 接口使用的 Bearer token。"
         case (.simplifiedChinese, .glm):
@@ -289,7 +289,7 @@ enum AppLanguage: String, CaseIterable, Codable, Identifiable {
         case (.simplifiedChinese, .codex):
             return "Codex 通过 codexbar 子系统配置。请使用上方的 Codex 区管理账号和数据源模式。"
         case (.simplifiedChinese, .kimi):
-            return "可选。留空时通过本机 `/status` 指令读取当前 Kimi Code CLI 登录的配额；也可以填写 Kimi Code API Key 并保存到钥匙串。"
+            return "可选。留空即可自动检测桌面、网页或 CLI 登录，无需选择来源；已保存的 API Key 优先。"
         }
     }
 

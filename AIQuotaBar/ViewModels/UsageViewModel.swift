@@ -710,7 +710,7 @@ final class UsageViewModel {
                 || CodexAccountCoordinator.shared.hasManagedAccount
         case .kimi:
             return KeychainService.shared.hasCredential(for: .kimi)
-                || KimiService.shared.hasCLICredential
+                || KimiService.shared.hasAutomaticSource
         default:
             return KeychainService.shared.hasCredential(for: provider)
         }
@@ -924,6 +924,17 @@ final class UsageViewModel {
         quotaChartDisplayPreferences = preferences
     }
 
+    @ObservationIgnored private var kimiSourceRevision = UUID()
+
+    func kimiSourceDidChange() {
+        kimiSourceRevision = UUID()
+        providerUsageData.removeValue(forKey: .kimi)
+        providerErrors.removeValue(forKey: .kimi)
+        usageData = combinedUsageData(from: providerUsageData.values, timestamp: lastRefreshTime ?? Date())
+        updateStatusBarText()
+        Task { await refresh() }
+    }
+
     /// User-visible refreshes run at least one complete compact-icon self-test
     /// cycle and continue until the request completes. Background timer refreshes opt out.
     func refresh(showIconSelfTest: Bool = true) async {
@@ -956,6 +967,12 @@ final class UsageViewModel {
         error = nil
         providerErrors = [:]
 
+        if isProviderEnabled(.kimi), !KeychainService.shared.hasCredential(for: .kimi) {
+            await KimiService.shared.discoverAutomaticSources()
+            if !isConfigured(.kimi) {
+                providerUsageData.removeValue(forKey: .kimi)
+            }
+        }
         let allConfiguredProviders = configuredProviders
         let providers = allConfiguredProviders.filter(shouldFetchProvider)
         let skippedProviders = allConfiguredProviders.filter { !shouldFetchProvider($0) }
@@ -974,6 +991,7 @@ final class UsageViewModel {
         var nextProviderErrors: [UsageProvider: UsageError] = [:]
         let sampleTimestamp = Date()
         let sampledTeamBinding = CodexLocalUsageModel.shared.connection?.binding
+        let sampledKimiSourceRevision = kimiSourceRevision
         for provider in skippedProviders {
             if let previous = providerUsageData[provider] {
                 nextProviderData[provider] = previous
@@ -1002,6 +1020,7 @@ final class UsageViewModel {
                 }
                 // A provider may have been paused while its request was in flight.
                 guard isProviderEnabled(provider) else { continue }
+                guard provider != .kimi || sampledKimiSourceRevision == kimiSourceRevision else { continue }
                 switch result {
                 case .success(let data):
                     nextProviderData[provider] = data
@@ -1020,6 +1039,12 @@ final class UsageViewModel {
             }
         }
 
+        // Kimi may have completed before another provider while its source changed.
+        if sampledKimiSourceRevision != kimiSourceRevision {
+            nextProviderData.removeValue(forKey: .kimi)
+            fetchedProviderData.removeValue(forKey: .kimi)
+            nextProviderErrors.removeValue(forKey: .kimi)
+        }
         providerUsageData = nextProviderData
         providerErrors = nextProviderErrors
         usageData = combinedUsageData(from: nextProviderData.values, timestamp: sampleTimestamp)

@@ -25,6 +25,12 @@ AI coding work is hard to manage when quota, network routes, and Mac sleep setti
   <img src="./docs/images/control-center.png" alt="AI Quota Bar control center" width="342">
 </p>
 
+## New in v1.24.0
+
+Kimi now automatically discovers desktop and web sessions alongside CLI credentials. Saved API keys remain preferred, and Settings show the most recently successful source.
+
+[v1.24.0 release notes](./docs/releases/v1.24.0.en.md)
+
 ## v1.23.1 · Calmer menu text, website preview aligned
 
 The MiniMax subscription line in the menu drops the repeated "expires" wording and shows just the date, and long subscription subtitles shrink slightly instead of truncating. The homepage team-panel preview reproduces the released /team dashboard, and legacy demo styles that collided with the real chart classes were removed.
@@ -109,11 +115,20 @@ Create or join a team, inspect member and device summaries, and control local us
 - Apple Silicon for the prebuilt DMG. Source builds target the architecture of the build Mac.
 - At least one quota provider:
   - Codex CLI installed and signed in.
-  - Kimi Code CLI installed and signed in, or a Kimi Code API key.
+  - A Kimi Desktop sign-in, web session, Kimi Code CLI sign-in, or Kimi Code API key.
   - A GLM Coding Plan API key, or a quota-request cURL copied from the GLM usage page.
   - MiniMax coding-plan bearer token.
 - Optional: Clash Verge Rev, Mihomo, or Clash with a loopback-bound external controller.
 - Optional: administrator approval to install the closed-lid helper.
+
+### Kimi data sources
+
+No source setup is needed. Auto detects a saved API key → valid Desktop sign-in → saved web session → CLI → accessible browser sign-in. Unavailable local credentials are skipped; network/server errors after selecting a valid login do not switch accounts. Manual overrides remain under Settings → Providers → Kimi → Advanced.
+
+- Desktop supports the newer encrypted Kimi token store and legacy cookies. Click **Allow Desktop Access** if macOS Keychain authorization is needed. Background refresh never prompts.
+- Web automatically detects accessible kimi.com browser sessions without Keychain prompts. Scan results are cached for five minutes. Multiple accounts require a choice in Advanced, which also supports explicit browser import and manual kimi.ai sign-in.
+- Sign in again when Desktop credentials expire; re-import an expired web session. AI Quota Bar never modifies Kimi's credentials or refresh tokens.
+- Code short-window and weekly limits are shown separately from the membership total when provided. Mainland Desktop has been verified on a real installation; overseas endpoints have not.
 
 ## Install
 
@@ -151,7 +166,7 @@ AI Quota Bar uses [`CodexBarCore`](https://github.com/steipete/CodexBar) and off
 
 ### Kimi
 
-Sign in once with the official CLI, then leave the API key blank under **Settings → Providers → Kimi**:
+Sign in to Kimi Desktop, then refresh AI Quota Bar. Leave the API key blank and use the default Automatic source under **Settings → Providers → Kimi**. A readable browser session also works. To use the CLI fallback, sign in once:
 
 ```bash
 kimi
@@ -258,7 +273,7 @@ Open **Settings → Usage & Team** to create a team. Its management password is 
 
 - MiniMax credentials are stored in macOS Keychain.
 - GLM API keys and imported web-request credentials are stored in macOS Keychain.
-- Optional Kimi API keys are stored in macOS Keychain; CLI credentials remain managed by Kimi Code.
+- Optional Kimi API keys and explicitly saved web sessions are stored in macOS Keychain. Desktop and browser sessions are read locally; CLI credentials remain managed by Kimi Code.
 - Codex credentials are managed locally by Codex/CodexBar.
 - Clash/Mihomo access is limited to a loopback external controller.
 - Connection monitoring is read-only.
