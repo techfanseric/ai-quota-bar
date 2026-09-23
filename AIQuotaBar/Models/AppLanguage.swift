@@ -1244,6 +1244,14 @@ enum AppLanguage: String, CaseIterable, Codable, Identifiable {
         }
     }
 
+    /// 跨周期柱图 X 轴 label：月度窗口用（如 Kimi Total usage）。
+    func modelUtilizationMonthlyCycleLabel() -> String {
+        switch self {
+        case .english: return "Monthly cycles"
+        case .simplifiedChinese: return "月度周期"
+        }
+    }
+
     /// 周期历史模式选择器的标题（General → Behavior 区块里）。
     func utilizationHistoryModeLabel() -> String {
         switch self {

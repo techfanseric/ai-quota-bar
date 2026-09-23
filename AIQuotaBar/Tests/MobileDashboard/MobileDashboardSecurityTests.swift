@@ -167,6 +167,7 @@ final class MobileDashboardSecurityTests: XCTestCase {
             resetsAt: nil,
             resetText: "later",
             isShortWindow: false,
+            cyclesKind: nil,
             isExhausted: false,
             isFull: false,
             isCurrentIntervalPercentMode: true,

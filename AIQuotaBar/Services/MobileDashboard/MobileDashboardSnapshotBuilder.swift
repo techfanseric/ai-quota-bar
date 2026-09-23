@@ -238,6 +238,7 @@ enum MobileDashboardSnapshotBuilder {
             resetsAt: model.endTime,
             resetText: model.resetTimeText,
             isShortWindow: model.isShortCurrentInterval,
+            cyclesKind: Self.cyclesKind(for: model),
             isExhausted: model.isExhaustedCurrentInterval,
             isFull: model.isFullQuotaUnused,
             isCurrentIntervalPercentMode:
@@ -574,6 +575,15 @@ enum MobileDashboardSnapshotBuilder {
 
     private static func clampedPercent(_ value: Double) -> Double {
         min(100, max(0, value))
+    }
+
+    /// Kimi 月度总量窗口（"Total usage"）没有 windowMinutes/startTime，
+    /// isShortCurrentInterval 会把它归入周周期，这里单独识别成月度。
+    private static func cyclesKind(for model: ModelUsageData) -> String {
+        if model.provider == .kimi, model.modelName == "Total usage" {
+            return "monthly"
+        }
+        return model.isShortCurrentInterval ? "short" : "weekly"
     }
 
 }

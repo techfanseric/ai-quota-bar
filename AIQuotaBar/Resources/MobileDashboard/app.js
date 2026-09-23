@@ -289,6 +289,7 @@
       recentCycles: "Recent cycles",
       shortCycles: "5h cycles",
       weeklyCycles: "Week cycles",
+      monthlyCycles: "Monthly cycles",
       cycleLabel: "left",
       noSamples: "No sample history yet.",
       enabled: "Enabled",
@@ -519,6 +520,7 @@
       recentCycles: "近期周期",
       shortCycles: "5 小时周期",
       weeklyCycles: "周周期",
+      monthlyCycles: "月度周期",
       cycleLabel: "剩余",
       noSamples: "暂无样本历史。",
       enabled: "已开启",
@@ -2129,7 +2131,15 @@
   function renderQuotaCycles(model) {
     const cycles = orderedUtilizationCycles(model);
     if (cycles.length === 0) return null;
-    const label = t(model.isShortWindow === true ? "shortCycles" : "weeklyCycles");
+    const cyclesKind =
+      model.cyclesKind || (model.isShortWindow === true ? "short" : "weekly");
+    const label = t(
+      cyclesKind === "monthly"
+        ? "monthlyCycles"
+        : cyclesKind === "short"
+          ? "shortCycles"
+          : "weeklyCycles",
+    );
     const section = element("div", "quota-cycles");
     const heading = element("div", "quota-cycles-heading");
     heading.append(

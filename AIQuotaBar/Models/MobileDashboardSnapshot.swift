@@ -81,6 +81,9 @@ struct MobileModelQuotaSnapshot: Codable, Equatable {
     let resetsAt: Date?
     let resetText: String
     let isShortWindow: Bool
+    /// 周期柱图种类："short" / "weekly" / "monthly"；旧快照没有该字段时为 nil，
+    /// 前端退回按 isShortWindow 推断。
+    let cyclesKind: String?
     let isExhausted: Bool
     let isFull: Bool
     /// Mirrors `ModelUsageData.isCurrentIntervalPercentMode`, so clients do

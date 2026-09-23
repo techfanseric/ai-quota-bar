@@ -85,6 +85,53 @@ final class ModelDisplaySettingsTests: XCTestCase {
         }
     }
 
+    @MainActor
+    func testProviderOrderSectionRendersWithoutMutatingPreferences() throws {
+        for language in AppLanguage.allCases {
+            var preferences = LeftClickMenuDisplayPreferences()
+            let original = preferences
+            let host = NSHostingView(rootView: section(language: language,
+                preferences: Binding(get: { preferences }, set: { preferences = $0 })))
+            host.layoutSubtreeIfNeeded()
+            XCTAssertGreaterThan(host.fittingSize.height, 0)
+            XCTAssertEqual(preferences, original, "Rendering must not mutate the saved order")
+
+            preferences.moveProvider(.kimi, byOffset: 1)
+            XCTAssertEqual(preferences.providerOrder, [.codex, .glm, .kimi, .miniMax])
+            XCTAssertTrue(preferences.hasCustomProviderOrder)
+            let customizedHost = NSHostingView(rootView: section(language: language,
+                preferences: Binding(get: { preferences }, set: { preferences = $0 })))
+            customizedHost.layoutSubtreeIfNeeded()
+            XCTAssertGreaterThan(customizedHost.fittingSize.height, 0)
+
+            if let directory = ProcessInfo.processInfo.environment["SETTINGS_SCREENSHOT_DIR"] {
+                for (name, view) in [("default", host), ("customized", customizedHost)] {
+                    view.frame = NSRect(origin: .zero, size: view.fittingSize)
+                    view.layoutSubtreeIfNeeded()
+                    guard view.bounds.width > 0, view.bounds.height > 0,
+                          let bitmap = view.bitmapImageRepForCachingDisplay(in: view.bounds) else { continue }
+                    view.cacheDisplay(in: view.bounds, to: bitmap)
+                    try bitmap.representation(using: .png, properties: [:])?.write(to:
+                        URL(fileURLWithPath: directory).appendingPathComponent(
+                            "provider-order-\(name)-\(language.rawValue).png"))
+                }
+            }
+
+            preferences.resetProviderOrder()
+            XCTAssertFalse(preferences.hasCustomProviderOrder)
+        }
+    }
+
+    @ViewBuilder
+    private func section(
+        language: AppLanguage,
+        preferences: Binding<LeftClickMenuDisplayPreferences>
+    ) -> some View {
+        LeftClickMenuProviderOrderSection(language: language, preferences: preferences)
+            .padding(20).frame(width: 704, alignment: .leading)
+            .background(Color(nsColor: .windowBackgroundColor))
+    }
+
     private func model(_ provider: UsageProvider, _ account: String, _ name: String) -> ModelUsageData {
         ModelUsageData(provider: provider, accountName: account, modelName: name,
             currentIntervalTotal: 100, currentIntervalUsed: 50, weeklyTotal: 0, weeklyUsed: 0,

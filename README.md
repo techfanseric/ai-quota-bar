@@ -25,7 +25,13 @@ AI coding work is hard to manage when quota, network routes, and Mac sleep setti
   <img src="./docs/images/control-center.png" alt="AI Quota Bar control center" width="342">
 </p>
 
-## New in v1.24.0
+## New in v1.25.0
+
+Settings → Display can now reorder providers in the left-click menu with arrow buttons (default: Codex, Kimi, GLM, MiniMax), and Kimi's monthly "Total usage" history bars are correctly labeled "Monthly cycles" instead of "Week cycles", in the menu and on the mobile dashboard.
+
+[v1.25.0 release notes](./docs/releases/v1.25.0.en.md)
+
+## v1.24.0 · Automatic Kimi desktop and web sessions
 
 Kimi now automatically discovers desktop and web sessions alongside CLI credentials. Saved API keys remain preferred, and Settings show the most recently successful source.
 

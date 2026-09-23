@@ -25,6 +25,12 @@
   <img src="./docs/images/control-center.png" alt="AI Quota Bar 右键控制中心" width="342">
 </p>
 
+## v1.25.0 更新
+
+设置 → 显示新增「菜单供应商顺序」，可用箭头调整左键菜单中各供应商的排列（默认 Codex、Kimi、GLM、MiniMax）；Kimi 月度「Total usage」的历史柱图标签从「Week cycles」修正为「Monthly cycles」，菜单与手机看板同步生效。
+
+[v1.25.0 完整发布说明](./docs/releases/v1.25.0.zh-CN.md)
+
 ## v1.24.0 更新
 
 Kimi 现在自动检测桌面与网页登录，同时保留 CLI 兼容。已保存的 API Key 优先，设置页显示最近成功来源。

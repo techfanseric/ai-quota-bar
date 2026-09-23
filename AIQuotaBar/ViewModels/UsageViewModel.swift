@@ -761,8 +761,17 @@ final class UsageViewModel {
     }
 
     var leftClickMenuUsageSections: [UsageData] {
-        let sections = providerUsageSections
-        return (sections.filter { $0.provider == .codex } + sections.filter { $0.provider != .codex }).compactMap { data in
+        let orderIndex = Dictionary(uniqueKeysWithValues:
+            leftClickMenuDisplayPreferences.providerOrder.enumerated().map { ($1, $0) })
+        let fallbackIndex = Dictionary(uniqueKeysWithValues:
+            UsageProvider.allCases.enumerated().map { ($1, $0) })
+        let sections = providerUsageSections.sorted { lhs, rhs in
+            let lhsRank = orderIndex[lhs.provider] ?? fallbackIndex[lhs.provider] ?? Int.max
+            let rhsRank = orderIndex[rhs.provider] ?? fallbackIndex[rhs.provider] ?? Int.max
+            if lhsRank != rhsRank { return lhsRank < rhsRank }
+            return (fallbackIndex[lhs.provider] ?? Int.max) < (fallbackIndex[rhs.provider] ?? Int.max)
+        }
+        return sections.compactMap { data in
             let visibleModels = data.models.filter {
                 leftClickMenuDisplayPreferences.isModelVisible($0)
             }

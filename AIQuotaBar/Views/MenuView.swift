@@ -1159,10 +1159,21 @@ private struct ModelRow: View {
 
     private var cycleInfoText: String? {
         guard !cycles.isEmpty else { return nil }
-        let label = model.isShortCurrentInterval
-            ? language.modelUtilizationShortCycleLabel()
-            : language.modelUtilizationLongCycleLabel()
+        let label: String
+        if model.isShortCurrentInterval {
+            label = language.modelUtilizationShortCycleLabel()
+        } else if isMonthlyWindow {
+            label = language.modelUtilizationMonthlyCycleLabel()
+        } else {
+            label = language.modelUtilizationLongCycleLabel()
+        }
         return "\(label) · left"
+    }
+
+    /// Kimi 的月度总量窗口（"Total usage"）没有 windowMinutes/startTime，
+    /// 会被 isShortCurrentInterval 归到长周期分支，需要单独识别成月度。
+    private var isMonthlyWindow: Bool {
+        model.provider == .kimi && model.modelName == "Total usage"
     }
 
     private var currentUtilizationCycle: CurrentUtilizationCycle? {
