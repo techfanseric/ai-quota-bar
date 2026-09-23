@@ -104,7 +104,7 @@ final class ProviderAppPresenceTests: XCTestCase {
     func testFollowRunningAppsHidesProvidersWhoseAppIsClosed() {
         let viewModel = makeViewModel(running: [.codex, .kimi])
         viewModel.followRunningApps = true
-        defer { viewModel.followRunningApps = false }
+        defer { resetFollowAndCollapse(viewModel) }
 
         XCTAssertTrue(viewModel.isProviderDisplayedInMenus(.codex))
         XCTAssertTrue(viewModel.isProviderDisplayedInMenus(.kimi))
@@ -127,11 +127,115 @@ final class ProviderAppPresenceTests: XCTestCase {
         let viewModel = makeViewModel(running: [.codex])
         viewModel.followRunningApps = true
         defer {
-            viewModel.followRunningApps = false
+            resetFollowAndCollapse(viewModel)
             viewModel.setProviderEnabled(true, provider: .codex)
         }
         viewModel.setProviderEnabled(false, provider: .codex)
 
         XCTAssertFalse(viewModel.isProviderDisplayedInMenus(.codex))
+    }
+
+    // MARK: - Left-click menu collapse state
+
+    @MainActor
+    private func resetFollowAndCollapse(_ viewModel: UsageViewModel) {
+        viewModel.followRunningApps = false
+        UsageProvider.allCases.forEach {
+            viewModel.leftClickMenuDisplayPreferences
+                .setProviderCollapsed(false, provider: $0)
+        }
+    }
+
+    @MainActor
+    func testEnablingFollowCollapsesProvidersWithoutRunningApps() {
+        let viewModel = makeViewModel(running: [.codex])
+        defer { resetFollowAndCollapse(viewModel) }
+
+        viewModel.followRunningApps = true
+
+        XCTAssertFalse(viewModel.isProviderCollapsed(.codex))
+        XCTAssertTrue(viewModel.isProviderCollapsed(.kimi))
+        XCTAssertTrue(viewModel.isProviderCollapsed(.glm))
+        XCTAssertTrue(viewModel.isProviderCollapsed(.miniMax))
+    }
+
+    @MainActor
+    func testAppQuitCollapsesOnlyTheAffectedProvider() {
+        let running = LockedRunningApps([.codex, .kimi])
+        let monitor = ProviderAppPresenceMonitor { running.snapshots() }
+        let viewModel = UsageViewModel(
+            providerPresence: { _ in true },
+            appPresenceMonitor: monitor)
+        defer { resetFollowAndCollapse(viewModel) }
+        viewModel.followRunningApps = true
+        viewModel.syncCollapsedProvidersWithRunningApps()
+
+        // 用户手动展开应用未运行的 GLM。
+        viewModel.toggleProviderCollapsed(.glm)
+        XCTAssertFalse(viewModel.isProviderCollapsed(.glm))
+
+        // Kimi 退出：只收起 Kimi，手动展开的 GLM 保持不变。
+        running.set([.codex])
+        monitor.refresh()
+        viewModel.handleAppPresenceChanged()
+
+        XCTAssertTrue(viewModel.isProviderCollapsed(.kimi))
+        XCTAssertFalse(viewModel.isProviderCollapsed(.codex))
+        XCTAssertFalse(viewModel.isProviderCollapsed(.glm))
+
+        // Kimi 重新打开：自动展开。
+        running.set([.codex, .kimi])
+        monitor.refresh()
+        viewModel.handleAppPresenceChanged()
+
+        XCTAssertFalse(viewModel.isProviderCollapsed(.kimi))
+    }
+
+    @MainActor
+    func testCollapsedStatePersistsThroughPreferences() throws {
+        let suiteName = "ProviderAppPresenceTests-\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suiteName))
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+
+        var preferences = LeftClickMenuDisplayPreferences()
+        preferences.setProviderCollapsed(true, provider: .glm)
+        preferences.save(to: defaults)
+
+        let restored = LeftClickMenuDisplayPreferences.load(from: defaults)
+        XCTAssertTrue(restored.isProviderCollapsed(.glm))
+        XCTAssertFalse(restored.isProviderCollapsed(.codex))
+    }
+
+    @MainActor
+    func testLegacyPreferencesWithoutCollapseFieldDecodeExpanded() throws {
+        let suiteName = "ProviderAppPresenceTests-\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suiteName))
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        defaults.set(Data("{}".utf8), forKey: LeftClickMenuDisplayPreferences.storageKey)
+
+        let restored = LeftClickMenuDisplayPreferences.load(from: defaults)
+        XCTAssertFalse(restored.isProviderCollapsed(.codex))
+    }
+}
+
+/// 测试用的可变运行应用集合，让 monitor 闭包能读到最新状态。
+private final class LockedRunningApps: @unchecked Sendable {
+    private var providers: Set<UsageProvider>
+
+    init(_ providers: Set<UsageProvider>) {
+        self.providers = providers
+    }
+
+    func set(_ providers: Set<UsageProvider>) {
+        self.providers = providers
+    }
+
+    func snapshots() -> [RunningAppSnapshot] {
+        providers.map { provider in
+            RunningAppSnapshot(
+                bundleIdentifier:
+                    provider.companionAppMatcher.bundleIdentifiers.first,
+                processName: nil)
+        }
     }
 }

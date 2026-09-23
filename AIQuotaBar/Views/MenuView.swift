@@ -97,6 +97,11 @@ struct MenuView: View {
                         warningThreshold: viewModel.effectiveWarningThreshold,
                         samples: viewModel.samples(for:),
                         viewModel: viewModel,
+                        isCollapsed: viewModel.isProviderCollapsed(data.provider),
+                        onToggleCollapse: {
+                            viewModel.toggleProviderCollapsed(data.provider)
+                            onLayoutChange()
+                        },
                         onLayoutChange: onLayoutChange
                     )
                 }
@@ -104,7 +109,6 @@ struct MenuView: View {
                 let visibleProviders = Set(sections.map(\.provider))
                 let visibleProviderErrors = UsageProvider.allCases.filter {
                     viewModel.providerErrors[$0] != nil && !visibleProviders.contains($0)
-                        && viewModel.isProviderDisplayedInMenus($0)
                 }
                 if !visibleProviderErrors.isEmpty {
                     Divider()
@@ -127,18 +131,6 @@ struct MenuView: View {
                     }
                 }
             }
-        } else if viewModel.followRunningApps,
-                  !viewModel.providerUsageSections.isEmpty {
-            // 跟随模式：有已配置供应商，但其应用都未运行，导致菜单被过滤为空。
-            MenuPlaceholderCard(
-                icon: "app.badge",
-                title: language.noRunningProviderAppsTitle(),
-                message: language.noRunningProviderAppsDescription(),
-                primaryActionTitle: language.noRunningProviderAppsShowAllAction(),
-                primaryAction: { viewModel.followRunningApps = false },
-                secondaryActionTitle: language.text(.settings),
-                secondaryAction: onOpenSettings
-            )
         } else if viewModel.hasHiddenLeftClickMenuItems,
                   !viewModel.providerUsageSections.isEmpty {
             MenuPlaceholderCard(
@@ -340,6 +332,8 @@ private struct ProviderModelsSection: View {
     let warningThreshold: Double
     let samples: (ModelUsageData) -> [ModelQuotaSample]
     let viewModel: UsageViewModel
+    let isCollapsed: Bool
+    let onToggleCollapse: () -> Void
     let onLayoutChange: () -> Void
 
     @State private var showsFullQuotaModels = false
@@ -492,6 +486,7 @@ private struct ProviderModelsSection: View {
         } ?? originalGroups
         VStack(alignment: .leading, spacing: 0) {
             providerHeader()
+            if !isCollapsed {
             if data.provider == .glm, let resets = data.glmResetAllowances {
                 let fiveHour = resets.availableFiveHour()
                 let weekly = resets.availableWeekly()
@@ -588,41 +583,50 @@ private struct ProviderModelsSection: View {
                     )
                 }
             }
+            }
         }
     }
 
     @ViewBuilder
     private func providerHeader() -> some View {
-        HStack(alignment: .firstTextBaseline) {
-            HStack(spacing: 4) {
-                ProviderLogoIcon(provider: data.provider, pointSize: 12)
-                    .foregroundStyle(.secondary)
-
-                Text(data.provider.displayName)
-                    .font(.system(size: 11, weight: .semibold))
-                    .foregroundStyle(.secondary)
-
-                if data.provider != .codex,
-                   let source = providerSourceSummary() {
-                    Text(source)
-                        .font(.system(size: 11, weight: .semibold))
+        Button(action: onToggleCollapse) {
+            HStack(alignment: .firstTextBaseline) {
+                HStack(spacing: 4) {
+                    Image(systemName: isCollapsed ? "chevron.right" : "chevron.down")
+                        .font(.system(size: 8, weight: .bold))
                         .foregroundStyle(.tertiary)
+                        .frame(width: 9)
+
+                    ProviderLogoIcon(provider: data.provider, pointSize: 12)
+                        .foregroundStyle(.secondary)
+
+                    Text(data.provider.displayName)
+                        .font(.system(size: 11, weight: .semibold))
+                        .foregroundStyle(.secondary)
+
+                    if data.provider != .codex,
+                       let source = providerSourceSummary() {
+                        Text(source)
+                            .font(.system(size: 11, weight: .semibold))
+                            .foregroundStyle(.tertiary)
+                    }
                 }
+
+                Spacer()
+
+                Text(providerHeaderSubtitle() ?? providerCountSummary())
+                    .font(.system(size: 10, weight: .medium, design: .rounded))
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.9)
             }
-
-            Spacer()
-
-            Text(providerHeaderSubtitle() ?? providerCountSummary())
-                .font(.system(size: 10, weight: .medium, design: .rounded))
-                .foregroundStyle(.secondary)
-                .lineLimit(1)
-                .minimumScaleFactor(0.9)
-
-
+            .padding(.horizontal, 8)
+            .padding(.top, 6)
+            .padding(.bottom, 2)
+            .contentShape(Rectangle())
         }
-        .padding(.horizontal, 8)
-        .padding(.top, 6)
-        .padding(.bottom, 2)
+        .buttonStyle(.plain)
+        .help(language.providerCollapseHint(isCollapsed: isCollapsed))
     }
 
     @ViewBuilder
@@ -1263,17 +1267,25 @@ private struct ModelRow: View {
     /// 周窗口才画天分隔线：按本地 0:00 对齐（与曲线图日界线一致）
     private func weeklyDayMarkerPercents() -> [Double] {
         guard !model.isShortCurrentInterval else { return [] }
-        guard let startTime = model.startTime, let endTime = model.endTime else { return [] }
-        return QuotaChartTimeTickBuilder.midnightTicks(startTime: startTime, endTime: endTime)
+        guard let window = model.quotaChartWindow() else { return [] }
+        return QuotaChartTimeTickBuilder.midnightTicks(startTime: window.start, endTime: window.end)
             .map { $0.ratio * 100 }
     }
 
-    /// 周窗口内完整自然日的 MM/dd 标签位置（居中于当天正午），hover 时显示
+    /// 周窗口内完整自然日的 MM/dd 标签位置（居中于当天正午），hover 时显示。
+    /// 月计划这类长窗口全量日标签会挤在一起，抽稀到最多 6 个。
     private func weeklyFullDayLabelPercents() -> [(percent: Double, label: String)] {
         guard !model.isShortCurrentInterval else { return [] }
-        guard let startTime = model.startTime, let endTime = model.endTime else { return [] }
-        return QuotaChartTimeTickBuilder.fullDayTicks(startTime: startTime, endTime: endTime)
-            .map { (percent: $0.ratio * 100, label: $0.label) }
+        guard let window = model.quotaChartWindow() else { return [] }
+        var ticks = QuotaChartTimeTickBuilder.fullDayTicks(startTime: window.start, endTime: window.end)
+        let maxLabels = 6
+        if ticks.count > maxLabels {
+            let step = Int(ceil(Double(ticks.count) / Double(maxLabels)))
+            ticks = ticks.enumerated().compactMap { index, tick in
+                index % step == 0 ? tick : nil
+            }
+        }
+        return ticks.map { (percent: $0.ratio * 100, label: $0.label) }
     }
 
     /// reset time 行里 pace 文字颜色：reserve（你有余量）用 secondary 灰，

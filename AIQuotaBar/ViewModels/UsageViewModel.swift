@@ -258,12 +258,17 @@ final class UsageViewModel {
         }
     }
 
-    /// 开启后，菜单栏与左键菜单只显示对应桌面应用正在运行的供应商。
-    /// 不影响配额刷新与设置页。
+    /// 开启后，菜单栏只显示对应桌面应用正在运行的供应商，左键菜单中
+    /// 未运行应用的供应商区自动收起。不影响配额刷新与设置页。
     var followRunningApps: Bool {
         didSet {
             UserDefaults.standard.set(
                 followRunningApps, forKey: Self.followRunningAppsKey)
+            if followRunningApps {
+                // 开启瞬间全量对齐一次；之后由 App 开关事件增量维护。
+                lastPresenceRunning = appPresenceMonitor.runningProviders
+                applyRunningAppsToCollapsedProviders(changedProviders: nil)
+            }
             updateStatusBarText()
         }
     }
@@ -677,17 +682,67 @@ final class UsageViewModel {
         scheduleCycleEndRefresh()
     }
 
-    /// 菜单栏与左键菜单的供应商级显示过滤：已启用，且未开启跟随
+    /// 菜单栏的供应商级显示过滤：已启用，且未开启跟随
     /// 或对应桌面应用正在运行。配额刷新、设置页与手机看板不受此影响。
+    /// 左键菜单不再移除供应商，而是自动收起（见 collapsedProviders）。
     func isProviderDisplayedInMenus(_ provider: UsageProvider) -> Bool {
         isProviderEnabled(provider)
             && (!followRunningApps || appPresenceMonitor.isRunning(provider))
     }
 
-    /// 应用启动 / 退出后由 StatusBarController 触发，重算状态栏与菜单显示。
-    func handleAppPresenceChanged() {
+    /// 左键菜单中供应商区的收起状态（持久化，手动与自动共用）。
+    func isProviderCollapsed(_ provider: UsageProvider) -> Bool {
+        leftClickMenuDisplayPreferences.isProviderCollapsed(provider)
+    }
+
+    func toggleProviderCollapsed(_ provider: UsageProvider) {
+        leftClickMenuDisplayPreferences.setProviderCollapsed(
+            !leftClickMenuDisplayPreferences.isProviderCollapsed(provider),
+            provider: provider)
+    }
+
+    /// App 启动时调用：开启跟随的状态下把收起状态对齐到当前运行的应用。
+    func syncCollapsedProvidersWithRunningApps() {
         guard followRunningApps else { return }
+        lastPresenceRunning = appPresenceMonitor.runningProviders
+        applyRunningAppsToCollapsedProviders(changedProviders: nil)
+    }
+
+    /// 应用启动 / 退出后由 StatusBarController 触发。
+    /// 增量更新：只对运行状态发生变化的供应商自动收起/展开，
+    /// 用户对其他供应商的手动调整保持不变。
+    func handleAppPresenceChanged() {
+        if followRunningApps {
+            let running = appPresenceMonitor.runningProviders
+            let changed = lastPresenceRunning.map {
+                $0.symmetricDifference(running)
+            } ?? []
+            lastPresenceRunning = running
+            applyRunningAppsToCollapsedProviders(changedProviders: changed)
+        }
         updateStatusBarText()
+    }
+
+    @ObservationIgnored private var lastPresenceRunning: Set<UsageProvider>?
+
+    /// 运行中的应用展开、未运行的收起；`changedProviders` 为 nil 时全量对齐。
+    private func applyRunningAppsToCollapsedProviders(
+        changedProviders: Set<UsageProvider>?
+    ) {
+        let targets = changedProviders ?? Set(UsageProvider.allCases)
+        guard !targets.isEmpty else { return }
+        var prefs = leftClickMenuDisplayPreferences
+        var mutated = false
+        for provider in targets {
+            let collapsed = !appPresenceMonitor.isRunning(provider)
+            if prefs.isProviderCollapsed(provider) != collapsed {
+                prefs.setProviderCollapsed(collapsed, provider: provider)
+                mutated = true
+            }
+        }
+        if mutated {
+            leftClickMenuDisplayPreferences = prefs
+        }
     }
 
     /// Providers whose local task lifecycle can participate in sleep
@@ -796,7 +851,6 @@ final class UsageViewModel {
         let fallbackIndex = Dictionary(uniqueKeysWithValues:
             UsageProvider.allCases.enumerated().map { ($1, $0) })
         let sections = providerUsageSections
-            .filter { isProviderDisplayedInMenus($0.provider) }
             .sorted { lhs, rhs in
             let lhsRank = orderIndex[lhs.provider] ?? fallbackIndex[lhs.provider] ?? Int.max
             let rhsRank = orderIndex[rhs.provider] ?? fallbackIndex[rhs.provider] ?? Int.max

@@ -25,7 +25,13 @@ AI coding work is hard to manage when quota, network routes, and Mac sleep setti
   <img src="./docs/images/control-center.png" alt="AI Quota Bar control center" width="342">
 </p>
 
-## New in v1.26.0
+## New in v1.27.0
+
+Left-click menu sections now collapse instead of disappearing when "Follow running apps" hides a provider — click the header to toggle, and the state is remembered. Launch needs only one Keychain authorization (the Kimi desktop key is cached in our own vault after a single approval), and Kimi's monthly bar is segmented by day with pace (reserve/deficit) indicators.
+
+[v1.27.0 release notes](./docs/releases/v1.27.0.en.md)
+
+## v1.26.0 · Menus follow running apps
 
 Settings → Display adds "Follow running apps": once enabled, the menu bar and left-click menu only show providers whose desktop app is currently open (ChatGPT, ZCode, Kimi, MiniMax Code) — hidden when the app quits, restored when it relaunches, with background quota refresh unaffected.
 

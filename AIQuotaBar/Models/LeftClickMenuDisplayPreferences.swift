@@ -25,6 +25,9 @@ struct LeftClickMenuDisplayPreferences: Codable, Equatable {
 
     var hiddenAccounts: Set<LeftClickMenuAccountKey> = []
     var hiddenModels: Set<MobileDashboardModelSelectionKey> = []
+    /// 收起的供应商区。App 开关（跟随模式）与用户手动点击都会写这个集合，
+    /// 最后一次操作生效；菜单重开与 App 重启后保持。
+    var collapsedProviders: Set<UsageProvider> = []
     /// 仅在用户调整过顺序时持久化；nil 表示沿用 `UsageProvider.leftClickMenuDefaultOrder`。
     var customProviderOrder: [UsageProvider]?
 
@@ -66,6 +69,9 @@ struct LeftClickMenuDisplayPreferences: Codable, Equatable {
         hiddenModels = try container.decodeIfPresent(
             Set<MobileDashboardModelSelectionKey>.self,
             forKey: .hiddenModels) ?? []
+        collapsedProviders = try container.decodeIfPresent(
+            Set<UsageProvider>.self,
+            forKey: .collapsedProviders) ?? []
         customProviderOrder = Self.normalizedCustomOrder(
             try container.decodeIfPresent([String].self, forKey: .customProviderOrder)?
                 .compactMap(UsageProvider.init(rawValue:)))
@@ -90,6 +96,21 @@ struct LeftClickMenuDisplayPreferences: Codable, Equatable {
     func isModelVisible(_ model: ModelUsageData) -> Bool {
         isAccountVisible(LeftClickMenuAccountKey(model: model))
             && !hiddenModels.contains(model.mobileDashboardSelectionKey)
+    }
+
+    func isProviderCollapsed(_ provider: UsageProvider) -> Bool {
+        collapsedProviders.contains(provider)
+    }
+
+    mutating func setProviderCollapsed(
+        _ isCollapsed: Bool,
+        provider: UsageProvider
+    ) {
+        if isCollapsed {
+            collapsedProviders.insert(provider)
+        } else {
+            collapsedProviders.remove(provider)
+        }
     }
 
     mutating func setAccountVisible(

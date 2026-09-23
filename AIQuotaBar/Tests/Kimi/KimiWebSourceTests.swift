@@ -59,6 +59,41 @@ final class KimiWebSourceTests: XCTestCase {
         XCTAssertNil(mapped.models.first?.startTime)
     }
 
+    func testMonthlyTotalUsageDerivesDisplayWindowFromExpiry() throws {
+        let stats = Data(#"{"subscriptionBalance":{"feature":"FEATURE_OMNI","type":"SUBSCRIPTION","amountUsedRatio":0.42,"expireTime":"2026-10-01T00:00:00Z"}}"#.utf8)
+        let snapshot = try KimiWebUsageClient.parse(Data(#"{"usages":[]}"#.utf8), stats: stats)
+        let mapped = try KimiUsageDataMapper.map(snapshot, source: "Kimi Web")
+        let total = try XCTUnwrap(mapped.models.first)
+        XCTAssertTrue(total.isKimiMonthlyTotalWindow)
+        // 展示窗口按到期日回推一个自然月，但不写入 startTime（不参与节奏计算）
+        XCTAssertNil(total.startTime)
+        let window = try XCTUnwrap(total.quotaChartWindow())
+        XCTAssertEqual(window.end, total.endTime)
+        XCTAssertEqual(
+            window.start,
+            Calendar.current.date(byAdding: .month, value: -1, to: try XCTUnwrap(total.endTime)))
+    }
+
+    func testMonthlyTotalUsageEstimatesPaceFromDerivedWindow() throws {
+        // 到期日在一周后：展示窗口回推一个自然月，elapsed 约 23/30，
+        // 已用 58% 低于时间进度约 77%，应有 reserve（ahead）。
+        let expiry = Date().addingTimeInterval(7 * 86_400)
+        let formatter = DateFormatter()
+        formatter.timeZone = TimeZone(identifier: "UTC")
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        formatter.dateFormat = "yyyy-MM-dd'T'HH:mm:ss'Z'"
+        let stats = Data(
+            #"{"subscriptionBalance":{"feature":"FEATURE_OMNI","type":"SUBSCRIPTION","amountUsedRatio":0.42,"expireTime":"\#(formatter.string(from: expiry))"}}"#
+                .utf8)
+        let snapshot = try KimiWebUsageClient.parse(Data(#"{"usages":[]}"#.utf8), stats: stats)
+        let mapped = try KimiUsageDataMapper.map(snapshot, source: "Kimi Web")
+        let total = try XCTUnwrap(mapped.models.first)
+        let pace = try XCTUnwrap(total.currentIntervalPace)
+        XCTAssertTrue(pace.stage.isAhead)
+        XCTAssertNotNil(total.currentIntervalPaceUsedPercent)
+        XCTAssertNotNil(total.currentIntervalPaceDeltaPercent)
+    }
+
     func testMalformedOptionalStatsDoNotDiscardCodeQuota() throws {
         let snapshot = try KimiWebUsageClient.parse(usage, stats: Data("invalid".utf8))
         XCTAssertEqual(snapshot.primary?.remainingPercent, 71)
@@ -119,6 +154,120 @@ final class KimiWebSourceTests: XCTestCase {
         let reader = KimiDesktopSessionReader(home: home)
         XCTAssertFalse(reader.isPresent)
         XCTAssertThrowsError(try reader.load())
+    }
+
+    func testLoadUsesCachedSafeStorageKeyWithoutFreshKeychainRead() throws {
+        let home = try makeDesktopHome()
+        var reads = 0
+        var writes = 0
+        var clears = 0
+        let cache = KimiDesktopSessionReader.SafeStorageKeyCache(
+            read: { reads += 1; return Data("test-password".utf8) },
+            write: { _ in writes += 1 },
+            clear: { clears += 1 })
+        let reader = KimiDesktopSessionReader(home: home, keyCache: cache) { _ in
+            XCTFail("Cached key must be used without touching Kimi's Keychain entry")
+            throw KimiSessionError.missing
+        }
+        let session = try reader.load()
+        XCTAssertEqual(session.token, "fixture-token")
+        XCTAssertEqual(reads, 1)
+        XCTAssertEqual(writes, 0)
+        XCTAssertEqual(clears, 0)
+    }
+
+    func testLoadCachesKeyAfterFreshAuthorizedRead() throws {
+        let home = try makeDesktopHome()
+        var written: Data?
+        var clears = 0
+        let cache = KimiDesktopSessionReader.SafeStorageKeyCache(
+            read: { nil },
+            write: { written = $0 },
+            clear: { clears += 1 })
+        var freshCalls = 0
+        let reader = KimiDesktopSessionReader(home: home, keyCache: cache) { allowInteraction in
+            freshCalls += 1
+            XCTAssertTrue(allowInteraction)
+            return Data("test-password".utf8)
+        }
+        let session = try reader.load(allowInteraction: true)
+        XCTAssertEqual(session.token, "fixture-token")
+        XCTAssertEqual(written, Data("test-password".utf8))
+        XCTAssertEqual(freshCalls, 1)
+        XCTAssertEqual(clears, 0)
+    }
+
+    func testBackgroundLoadWithoutCachedKeyNeverTouchesKeychain() throws {
+        let home = try makeDesktopHome()
+        var writes = 0
+        let cache = KimiDesktopSessionReader.SafeStorageKeyCache(
+            read: { nil },
+            write: { _ in writes += 1 },
+            clear: {})
+        let reader = KimiDesktopSessionReader(home: home, keyCache: cache) { _ in
+            XCTFail("Background refresh must not read Kimi's Keychain entry")
+            throw KimiSessionError.missing
+        }
+        XCTAssertThrowsError(try reader.load()) { error in
+            guard case let KimiSessionError.keychain(status) = error else {
+                return XCTFail("Expected keychain error, got \(error)")
+            }
+            XCTAssertEqual(status, errSecInteractionNotAllowed)
+        }
+        XCTAssertEqual(writes, 0)
+    }
+
+    func testStaleCachedKeyStaysSilentInBackgroundAndRefreshesInteractively() throws {
+        let home = try makeDesktopHome()
+        var written: Data?
+        var clears = 0
+        let cache = KimiDesktopSessionReader.SafeStorageKeyCache(
+            read: { Data("rotated-away".utf8) },
+            write: { written = $0 },
+            clear: { clears += 1 })
+        var freshCalls = 0
+        let reader = KimiDesktopSessionReader(home: home, keyCache: cache) { _ in
+            freshCalls += 1
+            return Data("test-password".utf8)
+        }
+        // Background: stale key must not trigger a fresh read or a vault write.
+        XCTAssertThrowsError(try reader.load())
+        XCTAssertEqual(freshCalls, 0)
+        XCTAssertEqual(clears, 0)
+        XCTAssertNil(written)
+        // Interactive: clear the stale copy, re-authorize once, cache the new key.
+        let session = try reader.load(allowInteraction: true)
+        XCTAssertEqual(session.token, "fixture-token")
+        XCTAssertEqual(clears, 1)
+        XCTAssertEqual(freshCalls, 1)
+        XCTAssertEqual(written, Data("test-password".utf8))
+    }
+
+    func testUnrecoverableKeyFailsInsteadOfRetryingForever() throws {
+        let home = try makeDesktopHome()
+        var freshCalls = 0
+        let reader = KimiDesktopSessionReader(
+            home: home,
+            keyCache: .disabled
+        ) { _ in
+            freshCalls += 1
+            return Data("wrong".utf8)
+        }
+        XCTAssertThrowsError(try reader.load(allowInteraction: true))
+        XCTAssertEqual(freshCalls, 1)
+    }
+
+    private func makeDesktopHome() throws -> URL {
+        let home = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        let storeDirectory = home.appendingPathComponent("Library/Application Support/kimi-desktop/bridge-store")
+        try FileManager.default.createDirectory(at: storeDirectory, withIntermediateDirectories: true)
+        let envelope = #"{"encryption":"safeStorage.v1","data":"djEwYB7lpQcXAs4B4ScVNUAkltS5wY3vQdQ37kgpSNtHa4/YqOOJDTtOiIEDCQ8lz+DB4o2EzAxsN33rYE0PI7ItsuoSeN8qVvvpxV9TGhwk6PIgayEV8Pw9QNKyZC9M7liY/l6HRUYhZJGHh3s0M8KRkw=="}"#
+        try envelope.write(
+            to: storeDirectory.appendingPathComponent("token-store.json"),
+            atomically: true,
+            encoding: .utf8)
+        addTeardownBlock { try? FileManager.default.removeItem(at: home) }
+        return home
     }
 
     func testLiveAutomaticDesktopWhenExplicitlyEnabled() async throws {
