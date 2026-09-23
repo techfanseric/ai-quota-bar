@@ -1411,6 +1411,45 @@ enum AppLanguage: String, CaseIterable, Codable, Identifiable {
             : "至少选择一家；服务商配置并启用后显示额度。"
     }
 
+    // MARK: - Follow running apps
+
+    var followRunningAppsSectionTitle: String {
+        self == .english ? "Menu visibility" : "菜单可见性"
+    }
+
+    var followRunningAppsLabel: String {
+        self == .english ? "Follow running apps" : "跟随运行中的应用"
+    }
+
+    var followRunningAppsDescription: String {
+        self == .english
+            ? "Show a provider in the menu bar and left-click menu only while its app is open: ChatGPT (Codex), ZCode (GLM), Kimi, MiniMax Code. Quota refresh and Settings are unaffected."
+            : "仅在对应应用打开时，于菜单栏和左键菜单显示该供应商：ChatGPT（Codex）、ZCode（GLM）、Kimi、MiniMax Code。不影响后台配额刷新与设置页。"
+    }
+
+    func noRunningProviderAppsTitle() -> String {
+        switch self {
+        case .english: return "No provider apps running"
+        case .simplifiedChinese: return "没有正在运行的供应商应用"
+        }
+    }
+
+    func noRunningProviderAppsDescription() -> String {
+        switch self {
+        case .english:
+            return "Open ChatGPT, ZCode, Kimi, or MiniMax Code and its provider appears here automatically."
+        case .simplifiedChinese:
+            return "打开 ChatGPT、ZCode、Kimi 或 MiniMax Code 后，对应供应商会自动显示在这里。"
+        }
+    }
+
+    func noRunningProviderAppsShowAllAction() -> String {
+        switch self {
+        case .english: return "Show all providers"
+        case .simplifiedChinese: return "显示全部供应商"
+        }
+    }
+
     func menuBarContentLabel() -> String {
         switch self {
         case .english: return "Compact content"

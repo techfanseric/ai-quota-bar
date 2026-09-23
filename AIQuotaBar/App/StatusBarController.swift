@@ -147,6 +147,7 @@ final class StatusBarController {
         setupStatusItem()
         setupMenu()
         sleepProtectionCoordinator.start()
+        viewModel.appPresenceMonitor.start()
         connectivityMonitor.start()
         clashConnectionViewModel.startBackgroundMonitoring()
         viewModel.flushPendingCloudSyncQueue()
@@ -208,6 +209,15 @@ final class StatusBarController {
             _ = coordinator.activeTaskCounts
         } onChange: { [weak self] in
             self?.updateStatusItem()
+        }
+
+        // 应用启动 / 退出 → 跟随模式下的菜单栏与左键菜单显示集合。
+        observeProperties(viewModel.appPresenceMonitor) { monitor in
+            _ = monitor.runningProviders
+        } onChange: { [weak self] in
+            guard let self else { return }
+            self.viewModel.handleAppPresenceChanged()
+            self.updateMenuLayout()
         }
 
         observeProperties(viewModel) { viewModel in
@@ -459,6 +469,7 @@ final class StatusBarController {
         recoveryTask?.cancel()
         recoveryTask = nil
         sleepProtectionCoordinator.stop()
+        viewModel.appPresenceMonitor.stop()
         dismissMenu()
         clashRoutePopoverController.close()
         clashConnectionViewModel.stop()

@@ -25,6 +25,12 @@
   <img src="./docs/images/control-center.png" alt="AI Quota Bar 右键控制中心" width="342">
 </p>
 
+## v1.26.0 更新
+
+设置 → 显示新增「跟随运行中的应用」：开启后菜单栏与左键菜单只显示已打开应用对应的供应商（ChatGPT、ZCode、Kimi、MiniMax Code），应用退出自动隐藏、打开自动恢复；后台配额刷新不受影响。
+
+[v1.26.0 完整发布说明](./docs/releases/v1.26.0.zh-CN.md)
+
 ## v1.25.0 更新
 
 设置 → 显示新增「菜单供应商顺序」，可用箭头调整左键菜单中各供应商的排列（默认 Codex、Kimi、GLM、MiniMax）；Kimi 月度「Total usage」的历史柱图标签从「Week cycles」修正为「Monthly cycles」，菜单与手机看板同步生效。

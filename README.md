@@ -25,7 +25,13 @@ AI coding work is hard to manage when quota, network routes, and Mac sleep setti
   <img src="./docs/images/control-center.png" alt="AI Quota Bar control center" width="342">
 </p>
 
-## New in v1.25.0
+## New in v1.26.0
+
+Settings → Display adds "Follow running apps": once enabled, the menu bar and left-click menu only show providers whose desktop app is currently open (ChatGPT, ZCode, Kimi, MiniMax Code) — hidden when the app quits, restored when it relaunches, with background quota refresh unaffected.
+
+[v1.26.0 release notes](./docs/releases/v1.26.0.en.md)
+
+## v1.25.0 · Reorderable menu providers
 
 Settings → Display can now reorder providers in the left-click menu with arrow buttons (default: Codex, Kimi, GLM, MiniMax), and Kimi's monthly "Total usage" history bars are correctly labeled "Monthly cycles" instead of "Week cycles", in the menu and on the mobile dashboard.
 
