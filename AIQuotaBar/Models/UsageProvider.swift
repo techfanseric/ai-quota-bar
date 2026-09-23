@@ -10,6 +10,10 @@ enum UsageProvider: String, CaseIterable, Codable, Identifiable {
         [.miniMax, .codex, .kimi, .glm]
     }
 
+    /// 左键菜单的默认供应商顺序：Codex 置顶，MiniMax 垫底；
+    /// 其余供应商保持 allCases 的相对顺序。
+    static let leftClickMenuDefaultOrder: [UsageProvider] = [.codex, .kimi, .glm, .miniMax]
+
     var id: String { rawValue }
 
     var displayName: String {
