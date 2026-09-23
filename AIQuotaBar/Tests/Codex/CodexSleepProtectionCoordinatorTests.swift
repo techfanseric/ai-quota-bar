@@ -295,8 +295,93 @@ final class CodexSleepProtectionCoordinatorTests: XCTestCase {
         XCTAssertEqual(fixture.coordinator.protectionStatus, .active)
     }
 
+    func testClientSnapshotsProtectGLMAndMiniMaxTasks() throws {
+        let now = Date()
+        let fixture = try makeFixture()
+        fixture.coordinator.setProtectedProviders([.glm, .miniMax])
+        fixture.coordinator.start()
+
+        fixture.coordinator.receiveZcodeSnapshot(
+            ProviderLocalActivitySnapshot(
+                activeSessionIDs: ["glm:zcode:sess-zcode"],
+                lastEventAt: now,
+                lastEventBySession: ["glm:zcode:sess-zcode": now]))
+        fixture.coordinator.receiveMiniMaxSnapshot(
+            ProviderLocalActivitySnapshot(
+                activeSessionIDs: ["minimax:cli:mvs-1"],
+                lastEventAt: now,
+                lastEventBySession: ["minimax:cli:mvs-1": now]))
+
+        XCTAssertEqual(fixture.coordinator.activeTurnCount, 2)
+        XCTAssertEqual(fixture.coordinator.activeTaskCount(for: .glm), 1)
+        XCTAssertEqual(fixture.coordinator.activeTaskCount(for: .miniMax), 1)
+        XCTAssertEqual(fixture.coordinator.activeProviders, [.glm, .miniMax])
+        XCTAssertTrue(fixture.assertions.isHoldingAssertions)
+        XCTAssertEqual(fixture.coordinator.protectionStatus, .active)
+
+        fixture.coordinator.receiveZcodeSnapshot(.empty)
+        fixture.coordinator.receiveMiniMaxSnapshot(.empty)
+        XCTAssertEqual(fixture.coordinator.activeTurnCount, 0)
+        XCTAssertFalse(fixture.assertions.isHoldingAssertions)
+    }
+
+    func testClaudeCodeSessionsAreAttributedPerProvider() throws {
+        let now = Date()
+        let fixture = try makeFixture()
+        fixture.coordinator.setProtectedProviders([.glm])
+        fixture.coordinator.start()
+
+        fixture.coordinator.receiveClaudeCodeSnapshot(
+            ProviderLocalActivitySnapshot(
+                activeSessionIDs: [
+                    "glm:claude:session-glm",
+                    "minimax:claude:session-minimax",
+                ],
+                lastEventAt: now))
+
+        XCTAssertEqual(fixture.coordinator.activeTurnCount, 1)
+        XCTAssertEqual(fixture.coordinator.activeTaskCount(for: .glm), 1)
+        XCTAssertEqual(fixture.coordinator.activeTaskCount(for: .miniMax), 0)
+        XCTAssertEqual(fixture.coordinator.activeProviders, [.glm])
+        XCTAssertTrue(fixture.assertions.isHoldingAssertions)
+    }
+
+    func testMobileSummaryLabelsClientTasksAndExpiresThem() throws {
+        let now = Date(timeIntervalSince1970: 10_000)
+        let fixture = try makeFixture()
+        fixture.coordinator.setProtectedProviders([.glm, .miniMax])
+        fixture.coordinator.start()
+        fixture.coordinator.receiveZcodeSnapshot(
+            ProviderLocalActivitySnapshot(
+                activeSessionIDs: ["glm:zcode:sess-zcode"],
+                lastEventAt: now,
+                lastEventBySession: ["glm:zcode:sess-zcode": now]))
+        fixture.coordinator.receiveClaudeCodeSnapshot(
+            ProviderLocalActivitySnapshot(
+                activeSessionIDs: ["minimax:claude:session-1"],
+                lastEventAt: now,
+                lastEventBySession: ["minimax:claude:session-1": now]))
+
+        let working = fixture.coordinator.mobileActivitySummary(now: now)
+        XCTAssertEqual(working.state, .working)
+        XCTAssertEqual(working.activeTaskCount, 2)
+        let sources = working.tasks.compactMap(\.source).sorted()
+        XCTAssertEqual(sources, ["Claude Code", "ZCode"])
+        XCTAssertNil(working.oldestStartedAt)
+
+        let staleNow = now.addingTimeInterval(
+            CodexSleepProtectionCoordinator.mobileActivityFreshnessWindow + 1)
+        let stale = fixture.coordinator.mobileActivitySummary(now: staleNow)
+        XCTAssertEqual(stale.state, .stale)
+        XCTAssertEqual(stale.activeTaskCount, 2)
+        XCTAssertTrue(stale.tasks.allSatisfy { $0.state == .stale })
+    }
+
     private func makeFixture(
-        turnEndGracePeriod: TimeInterval = 0
+        turnEndGracePeriod: TimeInterval = 0,
+        zcodeActivityProvider: (any ProviderLocalActivityProviding)? = nil,
+        miniMaxActivityProvider: (any ProviderLocalActivityProviding)? = nil,
+        claudeCodeActivityProvider: (any ProviderLocalActivityProviding)? = nil
     ) throws -> (
         coordinator: CodexSleepProtectionCoordinator,
         assertions: FakePowerAssertionController,
@@ -324,6 +409,9 @@ final class CodexSleepProtectionCoordinatorTests: XCTestCase {
             hookInstaller: installer,
             localActivityProvider: nil,
             kimiActivityProvider: nil,
+            zcodeActivityProvider: zcodeActivityProvider,
+            miniMaxActivityProvider: miniMaxActivityProvider,
+            claudeCodeActivityProvider: claudeCodeActivityProvider,
             closedLidModeManager: closedLidManager,
             workspaceNotificationCenter: workspaceCenter,
             turnEndGracePeriod: turnEndGracePeriod

@@ -18,9 +18,9 @@ extension AppLanguage {
     func sleepProtectionEnabledDescription() -> String {
         switch self {
         case .english:
-            return "Prevents idle sleep only during active Codex or Kimi tasks. All assertions are released when the tasks finish or AI Quota Bar exits."
+            return "Prevents idle sleep only while a detected local AI task is working (Codex, Kimi, GLM, MiniMax). All assertions are released when the tasks finish or AI Quota Bar exits."
         case .simplifiedChinese:
-            return "仅在 Codex 或 Kimi 任务进行期间阻止空闲休眠；任务结束或退出 AI Quota Bar 时会立即释放全部系统断言。"
+            return "仅在检测到本地 AI 任务（Codex、Kimi、GLM、MiniMax）进行时阻止空闲休眠；任务结束或退出 AI Quota Bar 时会立即释放全部系统断言。"
         }
     }
 
@@ -277,14 +277,17 @@ extension AppLanguage {
     private func taskProtectionProviderNames(
         _ providers: Set<UsageProvider>
     ) -> String {
-        let names = [UsageProvider.codex, .kimi]
+        let names = [UsageProvider.codex, .kimi, .glm, .miniMax]
             .filter { providers.contains($0) }
             .map(\.displayName)
         switch (self, names.count) {
         case (_, 0): return "AI"
         case (_, 1): return names[0]
-        case (.english, _): return names.joined(separator: " and ")
-        case (.simplifiedChinese, _): return names.joined(separator: " 与 ")
+        case (.english, 2): return names.joined(separator: " and ")
+        case (.english, _):
+            return names.dropLast().joined(separator: ", ")
+                + ", and " + names.last!
+        case (.simplifiedChinese, _): return names.joined(separator: "、")
         }
     }
 

@@ -746,8 +746,11 @@ final class UsageViewModel {
     }
 
     /// Providers whose local task lifecycle can participate in sleep
-    /// protection. Unlike quota refresh, Codex is included only when a local
-    /// account, auth file, or running Codex app/CLI is actually present.
+    /// protection. Unlike quota refresh, a provider is included only when a
+    /// local client that can actually run tasks is present: Codex needs an
+    /// account or auth file, Kimi a CLI credential, GLM a Keychain plan
+    /// credential or a ZCode installation, and MiniMax a plan token or a
+    /// MiniMax CLI session store.
     var taskProtectionProviders: Set<UsageProvider> {
         var providers = Set<UsageProvider>()
         if isProviderEnabled(.codex), hasLocalCodexRegistration {
@@ -758,7 +761,26 @@ final class UsageViewModel {
             || KimiService.shared.hasCLICredential {
             providers.insert(.kimi)
         }
+        if isProviderEnabled(.glm), hasLocalGLMTaskClient {
+            providers.insert(.glm)
+        }
+        if isProviderEnabled(.miniMax), hasLocalMiniMaxTaskClient {
+            providers.insert(.miniMax)
+        }
         return providers
+    }
+
+    /// GLM coding tasks run either in ZCode (desktop/CLI) or in Claude Code
+    /// against the plan's Anthropic-compatible endpoint; ZCode's presence is
+    /// what can be verified locally without touching Claude settings.
+    private var hasLocalGLMTaskClient: Bool {
+        KeychainService.shared.hasCredential(for: .glm)
+            || ZcodeActivityDetector.isClientInstalled()
+    }
+
+    private var hasLocalMiniMaxTaskClient: Bool {
+        KeychainService.shared.hasCredential(for: .miniMax)
+            || MiniMaxActivityDetector.isClientInstalled()
     }
 
     private var hasLocalCodexRegistration: Bool {
