@@ -23,7 +23,7 @@ enum PowerAssertionError: LocalizedError {
 }
 
 final class PowerAssertionController: PowerAssertionControlling {
-    private static let reason = "AI Quota Bar: Codex is working"
+    private static let reason = "AI Quota Bar: an AI task is working"
     // A declared user activity only suppresses the screen saver for a few
     // seconds, so it must be re-declared well under the shortest plausible
     // screen-saver timer. 45s keeps a working margin below one minute.

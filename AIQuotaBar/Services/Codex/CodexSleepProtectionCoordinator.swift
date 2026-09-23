@@ -64,6 +64,13 @@ final class CodexSleepProtectionCoordinator {
     static let mobileActivityFreshnessWindow: TimeInterval = 10 * 60
     static let mobileActivityRecentEventLimit = 5
     static let mobileActivityTaskCountLimit = 99
+
+    /// Session-ID prefixes owned by passive client detectors. Any merged
+    /// session ID carrying one of these prefixes has no turn lifecycle of
+    /// its own, only a last-event freshness signal.
+    static let clientSessionPrefixes: Set<String> = [
+        "kimi:", "glm:zcode:", "glm:claude:", "minimax:cli:", "minimax:claude:",
+    ]
     /// How long power assertions and the closed-lid lease are kept after the
     /// last active turn ends. Bridges gaps between turns and activity
     /// detection dropouts so protection does not flap mid-task.
@@ -111,10 +118,22 @@ final class CodexSleepProtectionCoordinator {
     private let kimiActivityProvider: (
         any KimiLocalActivityProviding
     )?
+    private let zcodeActivityProvider: (
+        any ProviderLocalActivityProviding
+    )?
+    private let miniMaxActivityProvider: (
+        any ProviderLocalActivityProviding
+    )?
+    private let claudeCodeActivityProvider: (
+        any ProviderLocalActivityProviding
+    )?
     private let workspaceNotificationCenter: NotificationCenter
     private var activityTracker = CodexActivityTracker()
     private var localActivitySnapshot = CodexLocalActivitySnapshot.empty
     private var kimiActivitySnapshot = KimiLocalActivitySnapshot.empty
+    private var zcodeActivitySnapshot = ProviderLocalActivitySnapshot.empty
+    private var miniMaxActivitySnapshot = ProviderLocalActivitySnapshot.empty
+    private var claudeCodeActivitySnapshot = ProviderLocalActivitySnapshot.empty
     private var workspaceObserverTokens: [NSObjectProtocol] = []
     private var isSessionActive = true
     private var hasStarted = false
@@ -151,6 +170,7 @@ final class CodexSleepProtectionCoordinator {
     @ObservationIgnored private var hookListener: CodexHookListener?
     @ObservationIgnored private var localActivityTask: Task<Void, Never>?
     @ObservationIgnored private var kimiActivityTask: Task<Void, Never>?
+    @ObservationIgnored private var clientActivityTask: Task<Void, Never>?
 
     init(
         defaults: UserDefaults = .standard,
@@ -162,6 +182,15 @@ final class CodexSleepProtectionCoordinator {
         kimiActivityProvider: (
             any KimiLocalActivityProviding
         )? = KimiLocalActivityDetector(),
+        zcodeActivityProvider: (
+            any ProviderLocalActivityProviding
+        )? = ZcodeActivityDetector(),
+        miniMaxActivityProvider: (
+            any ProviderLocalActivityProviding
+        )? = MiniMaxActivityDetector(),
+        claudeCodeActivityProvider: (
+            any ProviderLocalActivityProviding
+        )? = ClaudeCodeActivityDetector(),
         closedLidModeManager: ClosedLidModeManager? = nil,
         workspaceNotificationCenter: NotificationCenter = NSWorkspace.shared.notificationCenter,
         turnEndGracePeriod: TimeInterval = CodexSleepProtectionCoordinator.defaultTurnEndGracePeriod
@@ -171,6 +200,9 @@ final class CodexSleepProtectionCoordinator {
         self.hookInstaller = hookInstaller
         self.localActivityProvider = localActivityProvider
         self.kimiActivityProvider = kimiActivityProvider
+        self.zcodeActivityProvider = zcodeActivityProvider
+        self.miniMaxActivityProvider = miniMaxActivityProvider
+        self.claudeCodeActivityProvider = claudeCodeActivityProvider
         self.closedLidModeManager = closedLidModeManager ?? ClosedLidModeManager(
             defaults: defaults
         )
@@ -209,8 +241,24 @@ final class CodexSleepProtectionCoordinator {
             as? KimiLocalActivityDetector {
             receiveKimiSnapshot(detector.detectSnapshot())
         }
+        if protectedProviders.contains(.glm),
+           let detector = zcodeActivityProvider as? ZcodeActivityDetector {
+            receiveZcodeSnapshot(detector.detectSnapshot(now: Date()))
+        }
+        if protectedProviders.contains(.miniMax),
+           let detector = miniMaxActivityProvider
+            as? MiniMaxActivityDetector {
+            receiveMiniMaxSnapshot(detector.detectSnapshot(now: Date()))
+        }
+        if protectedProviders.contains(.glm)
+            || protectedProviders.contains(.miniMax),
+           let detector = claudeCodeActivityProvider
+            as? ClaudeCodeActivityDetector {
+            receiveClaudeCodeSnapshot(detector.detectSnapshot(now: Date()))
+        }
         startLocalActivityMonitoring()
         startKimiActivityMonitoring()
+        startClientActivityMonitoring()
         installWorkspaceObservers()
         closedLidModeManager.start()
 
@@ -231,6 +279,8 @@ final class CodexSleepProtectionCoordinator {
         localActivityTask = nil
         kimiActivityTask?.cancel()
         kimiActivityTask = nil
+        clientActivityTask?.cancel()
+        clientActivityTask = nil
         hookListener?.stop()
         hookListener = nil
         for token in workspaceObserverTokens {
@@ -240,6 +290,9 @@ final class CodexSleepProtectionCoordinator {
         activityTracker.reset()
         localActivitySnapshot = .empty
         kimiActivitySnapshot = .empty
+        zcodeActivitySnapshot = .empty
+        miniMaxActivitySnapshot = .empty
+        claudeCodeActivitySnapshot = .empty
         activeTurnCount = 0
         activeTaskCounts = [:]
         lastEventAt = nil
@@ -257,7 +310,7 @@ final class CodexSleepProtectionCoordinator {
     }
 
     func setProtectedProviders(_ providers: Set<UsageProvider>) {
-        let supported = providers.intersection([.codex, .kimi])
+        let supported = providers.intersection(Set(UsageProvider.allCases))
         guard supported != protectedProviders else { return }
         protectedProviders = supported
         if hasStarted {
@@ -304,6 +357,33 @@ final class CodexSleepProtectionCoordinator {
         kimiActivitySnapshot = snapshot
         logger.notice(
             "Local Kimi detector found \(snapshot.activeSessionIDs.count) active tasks"
+        )
+        refreshMergedActivity()
+    }
+
+    func receiveZcodeSnapshot(_ snapshot: ProviderLocalActivitySnapshot) {
+        guard hasStarted else { return }
+        zcodeActivitySnapshot = snapshot
+        logger.notice(
+            "Local ZCode detector found \(snapshot.activeSessionIDs.count) active tasks"
+        )
+        refreshMergedActivity()
+    }
+
+    func receiveMiniMaxSnapshot(_ snapshot: ProviderLocalActivitySnapshot) {
+        guard hasStarted else { return }
+        miniMaxActivitySnapshot = snapshot
+        logger.notice(
+            "Local MiniMax detector found \(snapshot.activeSessionIDs.count) active tasks"
+        )
+        refreshMergedActivity()
+    }
+
+    func receiveClaudeCodeSnapshot(_ snapshot: ProviderLocalActivitySnapshot) {
+        guard hasStarted else { return }
+        claudeCodeActivitySnapshot = snapshot
+        logger.notice(
+            "Local Claude Code detector found \(snapshot.activeSessionIDs.count) active tasks"
         )
         refreshMergedActivity()
     }
@@ -386,35 +466,11 @@ final class CodexSleepProtectionCoordinator {
         let cutoff = now.addingTimeInterval(
             -Self.mobileActivityFreshnessWindow)
         return activeSessionIDs.map { sessionID in
-            if sessionID.hasPrefix("kimi:") {
-                let lastActivityAt = kimiActivitySnapshot.lastEventAt
-                let isFresh = lastActivityAt.map {
-                    $0 >= cutoff && $0 <= now
-                } ?? false
-                return CodexActivityTask(
-                    state: isFresh ? .working : .stale,
-                    title: nil,
-                    projectName: nil,
-                    gitBranch: nil,
-                    source: "Kimi Code",
-                    model: nil,
-                    modelProvider: "Kimi",
-                    reasoningEffort: nil,
-                    sandboxPolicy: nil,
-                    approvalMode: nil,
-                    tokensUsed: nil,
-                    activeSubtaskCount: 0,
-                    subtaskNames: [],
-                    createdAt: nil,
-                    startedAt: nil,
-                    elapsedSeconds: nil,
-                    lastActivityAt: lastActivityAt,
-                    cliVersion: nil,
-                    phase: .unknown,
-                    toolCategory: nil,
-                    toolStatus: nil,
-                    progressLines: [],
-                    recentEvents: [])
+            if let clientTask = clientActivityTask(
+                sessionID: sessionID,
+                now: now,
+                cutoff: cutoff) {
+                return clientTask
             }
             let local = localActivitySnapshot.sessionActivities[sessionID]
             let hookStart = activityTracker.reliableOldestStartedAt(
@@ -486,12 +542,84 @@ final class CodexSleepProtectionCoordinator {
         }
     }
 
+    /// Builds the content-free task view for passive client detectors
+    /// (Kimi CLI, ZCode, MiniMax CLI, Claude Code). These clients expose no
+    /// turn lifecycle, only a last-event freshness signal, so tasks flip to
+    /// stale once their source goes quiet.
+    private func clientActivityTask(
+        sessionID: String,
+        now: Date,
+        cutoff: Date
+    ) -> CodexActivityTask? {
+        let source: String
+        let modelProvider: String
+        let lastActivityAt: Date?
+        if sessionID.hasPrefix("kimi:") {
+            source = "Kimi Code"
+            modelProvider = "Kimi"
+            lastActivityAt = kimiActivitySnapshot.lastEventAt
+        } else if sessionID.hasPrefix("glm:zcode:") {
+            source = "ZCode"
+            modelProvider = "GLM"
+            lastActivityAt = zcodeActivitySnapshot.lastEventBySession[sessionID]
+                ?? zcodeActivitySnapshot.lastEventAt
+        } else if sessionID.hasPrefix("minimax:cli:") {
+            source = "MiniMax CLI"
+            modelProvider = "MiniMax"
+            lastActivityAt = miniMaxActivitySnapshot
+                .lastEventBySession[sessionID]
+                ?? miniMaxActivitySnapshot.lastEventAt
+        } else if sessionID.hasPrefix("glm:claude:") {
+            source = "Claude Code"
+            modelProvider = "GLM"
+            lastActivityAt = claudeCodeActivitySnapshot
+                .lastEventBySession[sessionID]
+        } else if sessionID.hasPrefix("minimax:claude:") {
+            source = "Claude Code"
+            modelProvider = "MiniMax"
+            lastActivityAt = claudeCodeActivitySnapshot
+                .lastEventBySession[sessionID]
+        } else {
+            return nil
+        }
+        let isFresh = lastActivityAt.map {
+            $0 >= cutoff && $0 <= now
+        } ?? false
+        return CodexActivityTask(
+            state: isFresh ? .working : .stale,
+            title: nil,
+            projectName: nil,
+            gitBranch: nil,
+            source: source,
+            model: nil,
+            modelProvider: modelProvider,
+            reasoningEffort: nil,
+            sandboxPolicy: nil,
+            approvalMode: nil,
+            tokensUsed: nil,
+            activeSubtaskCount: 0,
+            subtaskNames: [],
+            createdAt: nil,
+            startedAt: nil,
+            elapsedSeconds: nil,
+            lastActivityAt: lastActivityAt,
+            cliVersion: nil,
+            phase: .unknown,
+            toolCategory: nil,
+            toolStatus: nil,
+            progressLines: [],
+            recentEvents: [])
+    }
+
     private func reliableMergedOldestStartedAt(
         for activeSessionIDs: Set<String>
     ) -> Date? {
         var starts: [Date] = []
         for sessionID in activeSessionIDs {
-            guard !sessionID.hasPrefix("kimi:") else { return nil }
+            // Client-detected sessions have no reliable per-task start time.
+            guard !Self.clientSessionPrefixes.contains(where: {
+                sessionID.hasPrefix($0)
+            }) else { return nil }
             if let localStart = localActivitySnapshot
                 .sessionActivities[sessionID]?.startedAt {
                 starts.append(localStart)
@@ -573,11 +701,19 @@ final class CodexSleepProtectionCoordinator {
         let kimiCount = protectedProviders.contains(.kimi)
             ? kimiActivitySnapshot.activeSessionIDs.count
             : 0
+        let glmCount = protectedProviders.contains(.glm)
+            ? glmActiveSessionIDs.count
+            : 0
+        let miniMaxCount = protectedProviders.contains(.miniMax)
+            ? miniMaxActiveSessionIDs.count
+            : 0
         activeTaskCounts = [
             .codex: codexCount,
             .kimi: kimiCount,
+            .glm: glmCount,
+            .miniMax: miniMaxCount,
         ]
-        activeTurnCount = codexCount + kimiCount
+        activeTurnCount = codexCount + kimiCount + glmCount + miniMaxCount
         lastEventAt = [
             protectedProviders.contains(.codex)
                 ? activityTracker.lastEventAt
@@ -588,10 +724,36 @@ final class CodexSleepProtectionCoordinator {
             protectedProviders.contains(.kimi)
                 ? kimiActivitySnapshot.lastEventAt
                 : nil,
+            protectedProviders.contains(.glm)
+                ? zcodeActivitySnapshot.lastEventAt
+                : nil,
+            protectedProviders.contains(.miniMax)
+                ? miniMaxActivitySnapshot.lastEventAt
+                : nil,
+            protectedProviders.contains(.glm)
+                || protectedProviders.contains(.miniMax)
+                ? claudeCodeActivitySnapshot.lastEventAt
+                : nil,
         ]
         .compactMap { $0 }
         .max()
         applyCurrentState()
+    }
+
+    private var glmActiveSessionIDs: Set<String> {
+        var result = zcodeActivitySnapshot.activeSessionIDs
+        result.formUnion(claudeCodeActivitySnapshot.activeSessionIDs.filter {
+            $0.hasPrefix("\(UsageProvider.glm.rawValue):claude:")
+        })
+        return result
+    }
+
+    private var miniMaxActiveSessionIDs: Set<String> {
+        var result = miniMaxActivitySnapshot.activeSessionIDs
+        result.formUnion(claudeCodeActivitySnapshot.activeSessionIDs.filter {
+            $0.hasPrefix("\(UsageProvider.miniMax.rawValue):claude:")
+        })
+        return result
     }
 
     private var mergedActiveSessionIDs: Set<String> {
@@ -600,6 +762,12 @@ final class CodexSleepProtectionCoordinator {
             : []
         if protectedProviders.contains(.kimi) {
             result.formUnion(kimiActivitySnapshot.activeSessionIDs)
+        }
+        if protectedProviders.contains(.glm) {
+            result.formUnion(glmActiveSessionIDs)
+        }
+        if protectedProviders.contains(.miniMax) {
+            result.formUnion(miniMaxActiveSessionIDs)
         }
         return result
     }
@@ -617,7 +785,14 @@ final class CodexSleepProtectionCoordinator {
                 || activityTracker.lastEventAt != nil)
         let hasKimiSource = protectedProviders.contains(.kimi)
             && kimiActivityProvider != nil
-        return hasCodexSource || hasKimiSource
+        let hasGLMSource = protectedProviders.contains(.glm)
+            && (zcodeActivityProvider != nil
+                || claudeCodeActivityProvider != nil)
+        let hasMiniMaxSource = protectedProviders.contains(.miniMax)
+            && (miniMaxActivityProvider != nil
+                || claudeCodeActivityProvider != nil)
+        return hasCodexSource || hasKimiSource || hasGLMSource
+            || hasMiniMaxSource
     }
 
     private func applyCurrentState() {
@@ -718,6 +893,45 @@ final class CodexSleepProtectionCoordinator {
                 }
             }
         }
+    }
+
+    /// Polls the passive client detectors (ZCode, MiniMax CLI, Claude Code).
+    /// One task sequences all three; each detector performs its work off the
+    /// main actor and every read is gated on the current protected set.
+    private func startClientActivityMonitoring() {
+        guard zcodeActivityProvider != nil
+            || miniMaxActivityProvider != nil
+            || claudeCodeActivityProvider != nil else { return }
+        clientActivityTask = Task { [weak self] in
+            while !Task.isCancelled {
+                guard let self else { return }
+                await self.pollClientActivitySnapshots()
+                guard !Task.isCancelled else { return }
+                do {
+                    try await Task.sleep(nanoseconds: 2_000_000_000)
+                } catch {
+                    return
+                }
+            }
+        }
+    }
+
+    private func pollClientActivitySnapshots() async {
+        let readsZcode = protectedProviders.contains(.glm)
+        let readsMiniMax = protectedProviders.contains(.miniMax)
+        let readsClaude = readsZcode || readsMiniMax
+        async let zcodeSnapshot = readsZcode
+            ? (zcodeActivityProvider?.snapshot() ?? .empty)
+            : .empty
+        async let miniMaxSnapshot = readsMiniMax
+            ? (miniMaxActivityProvider?.snapshot() ?? .empty)
+            : .empty
+        async let claudeCodeSnapshot = readsClaude
+            ? (claudeCodeActivityProvider?.snapshot() ?? .empty)
+            : .empty
+        receiveZcodeSnapshot(await zcodeSnapshot)
+        receiveMiniMaxSnapshot(await miniMaxSnapshot)
+        receiveClaudeCodeSnapshot(await claudeCodeSnapshot)
     }
 
     private func configureCodexHookListener() {

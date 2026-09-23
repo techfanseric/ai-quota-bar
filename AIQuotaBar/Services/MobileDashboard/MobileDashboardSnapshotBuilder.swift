@@ -285,6 +285,12 @@ enum MobileDashboardSnapshotBuilder {
                 || (task.modelProvider?
                     .localizedCaseInsensitiveContains("kimi") ?? false) {
                 provider = "kimi"
+            } else if task.modelProvider?
+                .localizedCaseInsensitiveContains("glm") == true {
+                provider = "glm"
+            } else if task.modelProvider?
+                .localizedCaseInsensitiveContains("minimax") == true {
+                provider = "minimax"
             } else {
                 provider = "codex"
             }
