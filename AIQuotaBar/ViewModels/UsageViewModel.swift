@@ -258,6 +258,19 @@ final class UsageViewModel {
         }
     }
 
+    /// 开启后，菜单栏与左键菜单只显示对应桌面应用正在运行的供应商。
+    /// 不影响配额刷新与设置页。
+    var followRunningApps: Bool {
+        didSet {
+            UserDefaults.standard.set(
+                followRunningApps, forKey: Self.followRunningAppsKey)
+            updateStatusBarText()
+        }
+    }
+
+    /// 供应商桌面应用运行侦测。StatusBarController 负责 start/stop 与变更回调。
+    let appPresenceMonitor: ProviderAppPresenceMonitor
+
     private static let utilizationHistoryModeKey = "utilizationHistoryMode"
     private static let quotaForecastLookbackIntervalsKey =
         "quotaForecastLookbackIntervals"
@@ -266,6 +279,7 @@ final class UsageViewModel {
     private static let cloudWeeklyCyclesVisibilityLimitKey = "cloudWeeklyCyclesVisibilityLimit"
     private static let cloudDataRetentionLimitKey = CloudDataRetentionLimit.storageKey
     static let pausedProvidersKey = "pausedUsageProviders"
+    static let followRunningAppsKey = "menuFollowsRunningApps"
 
     // MARK: - Computed Properties
 
@@ -300,6 +314,7 @@ final class UsageViewModel {
         let now = Date()
         let allModels = usageData?.models ?? []
         let candidates = menuBarCandidateModels(from: allModels, now: now)
+            .filter { isProviderDisplayedInMenus($0.provider) }
 
         guard let primary = selectedMenuBarModel(from: candidates) else {
             let provider = fallbackMenuBarProvider()
@@ -372,7 +387,9 @@ final class UsageViewModel {
         let selected = availableMenuBarRingProviders.filter {
             menuBarRingSelectedProviders.contains($0)
         }
-        let visible = selected.filter { registered.contains($0) && isProviderEnabled($0) }
+        let visible = selected.filter {
+            registered.contains($0) && isProviderDisplayedInMenus($0)
+        }
         // Preserve access to settings even before any selected provider is configured.
         guard !visible.isEmpty else {
             return [makeMenuBarStateSnapshot(
@@ -660,6 +677,19 @@ final class UsageViewModel {
         scheduleCycleEndRefresh()
     }
 
+    /// 菜单栏与左键菜单的供应商级显示过滤：已启用，且未开启跟随
+    /// 或对应桌面应用正在运行。配额刷新、设置页与手机看板不受此影响。
+    func isProviderDisplayedInMenus(_ provider: UsageProvider) -> Bool {
+        isProviderEnabled(provider)
+            && (!followRunningApps || appPresenceMonitor.isRunning(provider))
+    }
+
+    /// 应用启动 / 退出后由 StatusBarController 触发，重算状态栏与菜单显示。
+    func handleAppPresenceChanged() {
+        guard followRunningApps else { return }
+        updateStatusBarText()
+    }
+
     /// Providers whose local task lifecycle can participate in sleep
     /// protection. Unlike quota refresh, Codex is included only when a local
     /// account, auth file, or running Codex app/CLI is actually present.
@@ -765,7 +795,9 @@ final class UsageViewModel {
             leftClickMenuDisplayPreferences.providerOrder.enumerated().map { ($1, $0) })
         let fallbackIndex = Dictionary(uniqueKeysWithValues:
             UsageProvider.allCases.enumerated().map { ($1, $0) })
-        let sections = providerUsageSections.sorted { lhs, rhs in
+        let sections = providerUsageSections
+            .filter { isProviderDisplayedInMenus($0.provider) }
+            .sorted { lhs, rhs in
             let lhsRank = orderIndex[lhs.provider] ?? fallbackIndex[lhs.provider] ?? Int.max
             let rhsRank = orderIndex[rhs.provider] ?? fallbackIndex[rhs.provider] ?? Int.max
             if lhsRank != rhsRank { return lhsRank < rhsRank }
@@ -794,8 +826,12 @@ final class UsageViewModel {
 
     // MARK: - Initialization
 
-    init(providerPresence: ((UsageProvider) -> Bool)? = nil) {
+    init(
+        providerPresence: ((UsageProvider) -> Bool)? = nil,
+        appPresenceMonitor: ProviderAppPresenceMonitor? = nil
+    ) {
         self.providerPresenceOverride = providerPresence
+        self.appPresenceMonitor = appPresenceMonitor ?? ProviderAppPresenceMonitor()
         self.refreshInterval = UserDefaults.standard.object(forKey: "refreshInterval") as? Int ?? 600
         self.warningThreshold = UserDefaults.standard.double(forKey: "warningThreshold") > 0
             ? UserDefaults.standard.double(forKey: "warningThreshold")
@@ -862,6 +898,8 @@ final class UsageViewModel {
         self.pausedProviders = Set(
             (UserDefaults.standard.stringArray(forKey: Self.pausedProvidersKey) ?? [])
                 .compactMap(UsageProvider.init(rawValue:)))
+        self.followRunningApps =
+            UserDefaults.standard.bool(forKey: Self.followRunningAppsKey)
 
         if providerPresence == nil {
             teamObserver = NotificationCenter.default.publisher(for: .teamConnectionChanged).sink { [weak self] _ in

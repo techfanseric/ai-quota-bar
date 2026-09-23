@@ -104,6 +104,7 @@ struct MenuView: View {
                 let visibleProviders = Set(sections.map(\.provider))
                 let visibleProviderErrors = UsageProvider.allCases.filter {
                     viewModel.providerErrors[$0] != nil && !visibleProviders.contains($0)
+                        && viewModel.isProviderDisplayedInMenus($0)
                 }
                 if !visibleProviderErrors.isEmpty {
                     Divider()
@@ -126,6 +127,18 @@ struct MenuView: View {
                     }
                 }
             }
+        } else if viewModel.followRunningApps,
+                  !viewModel.providerUsageSections.isEmpty {
+            // 跟随模式：有已配置供应商，但其应用都未运行，导致菜单被过滤为空。
+            MenuPlaceholderCard(
+                icon: "app.badge",
+                title: language.noRunningProviderAppsTitle(),
+                message: language.noRunningProviderAppsDescription(),
+                primaryActionTitle: language.noRunningProviderAppsShowAllAction(),
+                primaryAction: { viewModel.followRunningApps = false },
+                secondaryActionTitle: language.text(.settings),
+                secondaryAction: onOpenSettings
+            )
         } else if viewModel.hasHiddenLeftClickMenuItems,
                   !viewModel.providerUsageSections.isEmpty {
             MenuPlaceholderCard(

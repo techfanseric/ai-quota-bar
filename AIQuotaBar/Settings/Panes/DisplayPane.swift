@@ -8,6 +8,16 @@ struct DisplayPane: View {
     var body: some View {
         ScrollView(.vertical, showsIndicators: true) {
             VStack(alignment: .leading, spacing: 20) {
+                SettingsSection(
+                    title: viewModel.appLanguage.followRunningAppsSectionTitle,
+                    contentSpacing: 12
+                ) {
+                    PreferenceToggleRow(
+                        title: viewModel.appLanguage.followRunningAppsLabel,
+                        subtitle: viewModel.appLanguage.followRunningAppsDescription,
+                        isOn: $viewModel.followRunningApps)
+                }
+                Divider()
                 LeftClickMenuProviderOrderSection(
                     language: viewModel.appLanguage,
                     preferences: $viewModel.leftClickMenuDisplayPreferences)
