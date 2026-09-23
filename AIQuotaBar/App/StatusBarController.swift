@@ -124,10 +124,12 @@ final class StatusBarController {
                     self.viewModel.appLanguage
                 await self.clashRouteViewModel.testRoutes()
             })
+    private let clashPanelDisplayStore = ClashPanelDisplayStore()
     private lazy var clashRoutePopoverController = ClashRoutePopoverController(
         routeViewModel: clashRouteViewModel,
         connectionViewModel: clashConnectionViewModel,
-        sleepProtectionCoordinator: sleepProtectionCoordinator)
+        sleepProtectionCoordinator: sleepProtectionCoordinator,
+        displayStore: clashPanelDisplayStore)
     private let initialStatusItemLength: CGFloat = 110
     private var screenObserverTokens: [NSObjectProtocol] = []
     private var accessibilityDisplayObserver: NSObjectProtocol?
@@ -149,13 +151,34 @@ final class StatusBarController {
         sleepProtectionCoordinator.start()
         viewModel.appPresenceMonitor.start()
         viewModel.syncCollapsedProvidersWithRunningApps()
-        connectivityMonitor.start()
         clashConnectionViewModel.startBackgroundMonitoring()
+        connectivityMonitor.start()
+        updateClashWorkGating()
         viewModel.flushPendingCloudSyncQueue()
         mobileDashboardService.startIfEnabled()
         synchronizeMobileDashboardModelSelection()
         observeMobileDashboardModelSelection()
         observeCredentialVaultDidLoad()
+    }
+
+    /// 「跟随运行中的应用」下，右键面板的 OpenAI 分区与它们的后台工作
+    /// 跟随 Codex 运行状态：未运行 → 自动收起 + 暂停连接后台轮询与
+    /// 连通性探测；运行或跟随关闭 → 展开 + 恢复。
+    private func updateClashWorkGating() {
+        let codexRunning = viewModel.appPresenceMonitor.isRunning(.codex)
+        let followEnabled = viewModel.followRunningApps
+
+        clashPanelDisplayStore.alignWithCodexPresence(
+            isRunning: codexRunning,
+            followRunningAppsEnabled: followEnabled)
+        clashConnectionViewModel.setBackgroundMonitoringAllowed(
+            !followEnabled || codexRunning)
+
+        if followEnabled && !codexRunning {
+            connectivityMonitor.stop()
+        } else {
+            connectivityMonitor.start()
+        }
     }
 
     /// The vault now loads asynchronously after launch; if it answered
@@ -235,7 +258,14 @@ final class StatusBarController {
         } onChange: { [weak self] in
             guard let self else { return }
             self.viewModel.handleAppPresenceChanged()
+            self.updateClashWorkGating()
             self.updateMenuLayout()
+        }
+
+        observeProperties(viewModel) { viewModel in
+            _ = viewModel.followRunningApps
+        } onChange: { [weak self] in
+            self?.updateClashWorkGating()
         }
 
         observeProperties(viewModel) { viewModel in
@@ -391,6 +421,14 @@ final class StatusBarController {
         updateStatusItem()
 
         guard viewModel.configuredProviders.contains(.codex) else {
+            consecutiveUnreachableChecks = 0
+            hasHandledCurrentOutage = false
+            return
+        }
+
+        // 跟随模式下 Codex 未运行：探测已停，保险起见不再触发自动恢复。
+        if viewModel.followRunningApps,
+           !viewModel.appPresenceMonitor.isRunning(.codex) {
             consecutiveUnreachableChecks = 0
             hasHandledCurrentOutage = false
             return

@@ -3,15 +3,19 @@ import SwiftUI
 
 struct ClashRoutePopoverView: View {
     @Bindable var viewModel: ClashRouteViewModel
+    let isCollapsed: Bool
+    let onToggleCollapse: () -> Void
     @FocusState private var isFilterFieldFocused: Bool
 
     var body: some View {
         VStack(spacing: 0) {
             header
-            Divider()
-            content
-            switchHistory
-            footer
+            if !isCollapsed {
+                Divider()
+                content
+                switchHistory
+                footer
+            }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(Color(nsColor: .windowBackgroundColor))
@@ -24,12 +28,31 @@ struct ClashRoutePopoverView: View {
     private var header: some View {
         VStack(alignment: .leading, spacing: 10) {
             HStack(alignment: .firstTextBaseline, spacing: 8) {
-                Text(language.clashRoutesTitle())
-                    .font(.system(size: 13, weight: .semibold))
+                Button(action: onToggleCollapse) {
+                    HStack(spacing: 5) {
+                        Image(
+                            systemName: isCollapsed
+                                ? "chevron.right"
+                                : "chevron.down"
+                        )
+                        .font(.system(size: 8, weight: .bold))
+                        .foregroundStyle(.tertiary)
+                        .frame(width: 9)
+
+                        Text(language.clashRoutesTitle())
+                            .font(.system(size: 13, weight: .semibold))
+                    }
+                    .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel(Text(language.clashRoutesTitle()))
+                .accessibilityAddTraits(isCollapsed ? [] : [.isSelected])
 
                 Spacer()
 
-                if viewModel.isSpeedTesting {
+                if isCollapsed {
+                    EmptyView()
+                } else if viewModel.isSpeedTesting {
                     ProgressView()
                         .controlSize(.small)
                 } else if case .ready = viewModel.phase {
@@ -48,6 +71,7 @@ struct ClashRoutePopoverView: View {
                     .foregroundStyle(.secondary)
                 }
             }
+            if !isCollapsed {
 
             HStack(spacing: 7) {
                 if viewModel.isFilterEditing {
@@ -183,10 +207,23 @@ struct ClashRoutePopoverView: View {
                         .foregroundStyle(.tertiary)
                 }
             }
+            }
         }
         .padding(.horizontal, 14)
-        .padding(.top, 13)
-        .padding(.bottom, 12)
+        .padding(.top, isCollapsed ? 6 : 13)
+        .padding(.bottom, isCollapsed ? 6 : 12)
+        .frame(
+            maxWidth: .infinity,
+            maxHeight: isCollapsed
+                ? ClashPopoverLayout.collapsedSectionHeight
+                : nil,
+            alignment: .top)
+        .contentShape(Rectangle())
+        .onTapGesture {
+            if isCollapsed {
+                onToggleCollapse()
+            }
+        }
     }
 
     private var filterFieldBackground: some View {
