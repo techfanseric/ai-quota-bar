@@ -6,18 +6,22 @@ final class ClashRoutePopoverController: NSObject {
     private let routeViewModel: ClashRouteViewModel
     private let connectionViewModel: ClashConnectionViewModel
     private let sleepProtectionCoordinator: CodexSleepProtectionCoordinator
+    private let displayStore: ClashPanelDisplayStore
     private let panel: MenuBarPanel
     private let hostingView:
         NSHostingView<MenuBarPanelSurface<ClashPopoverView>>
+    private weak var anchoredButton: NSStatusBarButton?
 
     init(
         routeViewModel: ClashRouteViewModel,
         connectionViewModel: ClashConnectionViewModel,
-        sleepProtectionCoordinator: CodexSleepProtectionCoordinator
+        sleepProtectionCoordinator: CodexSleepProtectionCoordinator,
+        displayStore: ClashPanelDisplayStore
     ) {
         self.routeViewModel = routeViewModel
         self.connectionViewModel = connectionViewModel
         self.sleepProtectionCoordinator = sleepProtectionCoordinator
+        self.displayStore = displayStore
         panel = MenuBarPanel()
         hostingView = NSHostingView(
             rootView: MenuBarPanelSurface {
@@ -25,13 +29,16 @@ final class ClashRoutePopoverController: NSObject {
                     routeViewModel: routeViewModel,
                     connectionViewModel: connectionViewModel,
                     sleepProtectionCoordinator:
-                        sleepProtectionCoordinator)
+                        sleepProtectionCoordinator,
+                    displayStore: displayStore)
             })
         super.init()
 
         let contentSize = NSSize(
             width: ClashPopoverLayout.width,
-            height: ClashPopoverLayout.height)
+            height: ClashPopoverLayout.panelHeight(
+                routesCollapsed: displayStore.isRoutesCollapsed,
+                connectionsCollapsed: displayStore.isConnectionsCollapsed))
         hostingView.frame = NSRect(
             origin: .zero,
             size: contentSize)
@@ -42,6 +49,7 @@ final class ClashRoutePopoverController: NSObject {
             self?.connectionViewModel.endLiveUpdates()
             self?.routeViewModel.endFilterEditing()
         }
+        observeSectionChanges()
     }
 
     var isShown: Bool {
@@ -70,23 +78,72 @@ final class ClashRoutePopoverController: NSObject {
         let appearance = StatusItemMenuAppearance.resolved(
             from: NSApp.effectiveAppearance)
         routeViewModel.endFilterEditing()
+        anchoredButton = button
         panel.appearance = appearance
         hostingView.appearance = appearance
         panel.present(
             relativeTo: button,
             placement: placement,
-            contentSize: NSSize(
-                width: ClashPopoverLayout.width,
-                height: ClashPopoverLayout.height))
-        connectionViewModel.beginLiveUpdates()
+            contentSize: currentContentSize())
+        if !displayStore.isConnectionsCollapsed {
+            connectionViewModel.beginLiveUpdates()
+        }
         Task {
             await routeViewModel.prepareForDisplay(
-                automaticallyTest: automaticallyTest)
+                automaticallyTest: automaticallyTest
+                    && !displayStore.isRoutesCollapsed)
         }
     }
 
     func close() {
         connectionViewModel.endLiveUpdates()
         panel.dismiss()
+    }
+
+    private func currentContentSize() -> NSSize {
+        NSSize(
+            width: ClashPopoverLayout.width,
+            height: ClashPopoverLayout.panelHeight(
+                routesCollapsed: displayStore.isRoutesCollapsed,
+                connectionsCollapsed: displayStore.isConnectionsCollapsed))
+    }
+
+    /// 展开收起变化时：重算面板高度；收起/展开 connections 增删 live 轮询；
+    /// 展开 routes 时补一次自动测速（"用户想看"）。
+    private func handleSectionsChanged() {
+        guard panel.isVisible else { return }
+        resizePanel()
+        if displayStore.isConnectionsCollapsed {
+            connectionViewModel.endLiveUpdates()
+        } else {
+            connectionViewModel.beginLiveUpdates()
+        }
+        if !displayStore.isRoutesCollapsed {
+            Task {
+                await routeViewModel.prepareForDisplay(automaticallyTest: true)
+            }
+        }
+    }
+
+    private func resizePanel() {
+        guard let button = anchoredButton,
+              let placement = MenuBarPanelPlacement.resolve(
+                relativeTo: button) else { return }
+        let size = currentContentSize()
+        panel.setFrame(
+            placement.panelFrame(contentSize: size),
+            display: true)
+        hostingView.frame = NSRect(origin: .zero, size: size)
+    }
+
+    private func observeSectionChanges() {
+        withObservationTracking { [displayStore] in
+            _ = displayStore.collapsedSections
+        } onChange: { [weak self] in
+            Task { @MainActor [weak self] in
+                self?.handleSectionsChanged()
+                self?.observeSectionChanges()
+            }
+        }
     }
 }

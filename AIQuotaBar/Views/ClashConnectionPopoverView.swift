@@ -2,13 +2,17 @@ import SwiftUI
 
 struct ClashConnectionPopoverView: View {
     @Bindable var viewModel: ClashConnectionViewModel
+    let isCollapsed: Bool
+    let onToggleCollapse: () -> Void
 
     var body: some View {
         VStack(spacing: 0) {
             header
-            Divider()
-            content
-            footer
+            if !isCollapsed {
+                Divider()
+                content
+                footer
+            }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(Color(nsColor: .windowBackgroundColor))
@@ -21,30 +25,63 @@ struct ClashConnectionPopoverView: View {
     private var header: some View {
         VStack(alignment: .leading, spacing: 5) {
             HStack(alignment: .firstTextBaseline, spacing: 8) {
-                Text(language.clashConnectionsTitle())
-                    .font(.system(size: 13, weight: .semibold))
+                Button(action: onToggleCollapse) {
+                    HStack(spacing: 5) {
+                        Image(
+                            systemName: isCollapsed
+                                ? "chevron.right"
+                                : "chevron.down"
+                        )
+                        .font(.system(size: 8, weight: .bold))
+                        .foregroundStyle(.tertiary)
+                        .frame(width: 9)
+
+                        Text(language.clashConnectionsTitle())
+                            .font(.system(size: 13, weight: .semibold))
+                    }
+                    .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel(Text(language.clashConnectionsTitle()))
+                .accessibilityAddTraits(isCollapsed ? [] : [.isSelected])
 
                 Spacer()
 
-                HStack(spacing: 5) {
-                    Circle()
-                        .fill(viewModel.isLive ? Color.green : Color.secondary)
-                        .frame(width: 6, height: 6)
-                    Text(
-                        viewModel.isLive
-                            ? language.clashConnectionsLive()
-                            : language.clashConnectionsBackground())
-                        .font(.system(size: 9, weight: .medium))
-                        .foregroundStyle(.secondary)
+                if !isCollapsed {
+                    HStack(spacing: 5) {
+                        Circle()
+                            .fill(viewModel.isLive ? Color.green : Color.secondary)
+                            .frame(width: 6, height: 6)
+                        Text(
+                            viewModel.isLive
+                                ? language.clashConnectionsLive()
+                                : language.clashConnectionsBackground())
+                            .font(.system(size: 9, weight: .medium))
+                            .foregroundStyle(.secondary)
+                    }
                 }
             }
 
-            Text(language.clashConnectionsFixedFilter())
-                .font(.system(size: 9))
-                .foregroundStyle(.tertiary)
+            if !isCollapsed {
+                Text(language.clashConnectionsFixedFilter())
+                    .font(.system(size: 9))
+                    .foregroundStyle(.tertiary)
+            }
         }
         .padding(.horizontal, 14)
-        .padding(.vertical, 8)
+        .padding(.vertical, isCollapsed ? 5 : 8)
+        .frame(
+            maxWidth: .infinity,
+            maxHeight: isCollapsed
+                ? ClashPopoverLayout.collapsedSectionHeight
+                : nil,
+            alignment: .top)
+        .contentShape(Rectangle())
+        .onTapGesture {
+            if isCollapsed {
+                onToggleCollapse()
+            }
+        }
     }
 
     @ViewBuilder

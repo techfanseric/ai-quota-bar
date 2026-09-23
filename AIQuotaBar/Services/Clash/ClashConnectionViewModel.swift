@@ -20,6 +20,9 @@ final class ClashConnectionViewModel {
     private var monitoringTask: Task<Void, Never>?
     private var monitoringGeneration = 0
     private var isMonitoringEnabled = false
+    /// 「跟随运行中的应用」下 Codex 未运行时置 false：暂停 60 秒后台轮询。
+    /// 面板 live 轮询（用户主动查看）不受影响。
+    private var isBackgroundAllowed = true
     private var liveUpdateOwners: Set<String> = []
 
     private let liveIntervalMilliseconds = 1_000
@@ -41,9 +44,20 @@ final class ClashConnectionViewModel {
     }
 
     func startBackgroundMonitoring() {
+        setBackgroundMonitoringAllowed(true)
         guard !isMonitoringEnabled else { return }
         isMonitoringEnabled = true
         restartMonitoring()
+    }
+
+    /// 跟随模式且 Codex 未运行时暂停 60 秒后台轮询；
+    /// live 轮询（任一 owner 持有）继续工作。
+    func setBackgroundMonitoringAllowed(_ allowed: Bool) {
+        guard isBackgroundAllowed != allowed else { return }
+        isBackgroundAllowed = allowed
+        if isMonitoringEnabled {
+            restartMonitoring()
+        }
     }
 
     func beginLiveUpdates(owner: String = "popover") {
@@ -100,6 +114,7 @@ final class ClashConnectionViewModel {
 
     private func monitor(generation: Int) async {
         while isMonitoringEnabled,
+              isLive || isBackgroundAllowed,
               generation == monitoringGeneration,
               !Task.isCancelled {
             do {

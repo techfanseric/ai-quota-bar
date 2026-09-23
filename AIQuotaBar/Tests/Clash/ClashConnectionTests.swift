@@ -86,11 +86,17 @@ final class ClashConnectionTests: XCTestCase {
         let size = NSSize(
             width: ClashPopoverLayout.width,
             height: ClashPopoverLayout.height)
+        let panelDefaultsSuite =
+            "ClashConnectionLiveRender.Prefs.\(UUID())"
+        let panelDefaults = try XCTUnwrap(
+            UserDefaults(suiteName: panelDefaultsSuite))
         let hostingView = NSHostingView(
             rootView: ClashPopoverView(
                 routeViewModel: routeViewModel,
                 connectionViewModel: connectionViewModel,
-                sleepProtectionCoordinator: sleepProtectionCoordinator)
+                sleepProtectionCoordinator: sleepProtectionCoordinator,
+                displayStore: ClashPanelDisplayStore(
+                    defaults: panelDefaults))
                 .frame(width: size.width, height: size.height))
         hostingView.frame = NSRect(origin: .zero, size: size)
         hostingView.layoutSubtreeIfNeeded()
