@@ -1427,6 +1427,20 @@ enum AppLanguage: String, CaseIterable, Codable, Identifiable {
             : "菜单栏仅在对应应用打开时显示该供应商，应用退出后左键菜单中的对应分区自动收起：ChatGPT（Codex）、ZCode（GLM）、Kimi、MiniMax Code。分区仍可手动展开或收起。不影响后台配额刷新与设置页。"
     }
 
+    var menuBarPlaceholderSectionTitle: String {
+        self == .english ? "Menu bar placeholder" : "菜单栏占位图标"
+    }
+
+    var menuBarPlaceholderCountLabel: String {
+        self == .english ? "Show provider count in placeholder" : "占位时显示供应商数量"
+    }
+
+    var menuBarPlaceholderCountDescription: String {
+        self == .english
+            ? "When every provider is hidden (follow running apps, or display manually paused), show the number of enabled providers instead of the brand mark."
+            : "当所有供应商都被隐藏（跟随模式下无应用运行，或显示被手动暂停）时，菜单栏占位图标显示已启用的供应商数量，而不是品牌字母标。"
+    }
+
     func providerCollapseHint(isCollapsed: Bool) -> String {
         switch (self, isCollapsed) {
         case (.english, true): return "Expand"
@@ -1618,10 +1632,28 @@ enum AppLanguage: String, CaseIterable, Codable, Identifiable {
         case (.english, .ready): return "ready"
         case (.english, .unavailable): return "no data"
         case (.english, .failed): return "error"
+        case (.english, .placeholder): return "nothing to show"
         case (.simplifiedChinese, .loading): return "加载中"
         case (.simplifiedChinese, .ready): return "正常"
         case (.simplifiedChinese, .unavailable): return "暂无数据"
         case (.simplifiedChinese, .failed): return "获取失败"
+        case (.simplifiedChinese, .placeholder): return "无活动窗口"
+        }
+    }
+
+    func menuBarPlaceholderTooltip(
+        providerCount: Int,
+        reason: MenuBarPlaceholderReason
+    ) -> String {
+        switch (self, reason) {
+        case (.english, .followMode):
+            return "AI Quota Bar\n\(providerCount) providers configured · nothing to show (follow running apps)"
+        case (.simplifiedChinese, .followMode):
+            return "AI Quota Bar\n已配置 \(providerCount) 家供应商 · 当前无活动窗口（跟随模式）"
+        case (.english, .manuallyPaused):
+            return "AI Quota Bar\n\(providerCount) providers configured · display paused"
+        case (.simplifiedChinese, .manuallyPaused):
+            return "AI Quota Bar\n已配置 \(providerCount) 家供应商 · 显示已手动暂停"
         }
     }
 

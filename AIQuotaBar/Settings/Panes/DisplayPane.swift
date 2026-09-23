@@ -18,6 +18,16 @@ struct DisplayPane: View {
                         isOn: $viewModel.followRunningApps)
                 }
                 Divider()
+                SettingsSection(
+                    title: viewModel.appLanguage.menuBarPlaceholderSectionTitle,
+                    contentSpacing: 12
+                ) {
+                    PreferenceToggleRow(
+                        title: viewModel.appLanguage.menuBarPlaceholderCountLabel,
+                        subtitle: viewModel.appLanguage.menuBarPlaceholderCountDescription,
+                        isOn: $viewModel.menuBarPlaceholderShowsCount)
+                }
+                Divider()
                 LeftClickMenuProviderOrderSection(
                     language: viewModel.appLanguage,
                     preferences: $viewModel.leftClickMenuDisplayPreferences)

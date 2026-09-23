@@ -14,6 +14,7 @@ struct CompactStatusRenderState: Equatable {
     let scale: CGFloat
     let height: CGFloat
     let reduceMotion: Bool
+    let placeholderShowsCount: Bool
 
     static func == (lhs: Self, rhs: Self) -> Bool {
         lhs.snapshots.count == rhs.snapshots.count
@@ -27,6 +28,7 @@ struct CompactStatusRenderState: Equatable {
             && lhs.padding == rhs.padding && lhs.spacing == rhs.spacing
             && lhs.appearance == rhs.appearance && lhs.scale == rhs.scale
             && lhs.height == rhs.height && lhs.reduceMotion == rhs.reduceMotion
+            && lhs.placeholderShowsCount == rhs.placeholderShowsCount
     }
 }
 
@@ -588,6 +590,7 @@ final class StatusBarController {
                 paceDisplayMode: viewModel.menuBarPaceDisplayMode,
                 isSelfTesting: viewModel.isMenuBarSelfTesting,
                 activeTaskCounts: sleepProtectionCoordinator.activeTaskCounts,
+                placeholderShowsCount: viewModel.menuBarPlaceholderShowsCount,
                 horizontalPadding: viewModel.menuBarCompactHorizontalPadding,
                 ringSpacing: viewModel.menuBarCompactRingSpacing,
                 accessibilityLabel: statusItemTooltip)
@@ -617,7 +620,8 @@ final class StatusBarController {
             padding: viewModel.menuBarCompactHorizontalPadding, spacing: viewModel.menuBarCompactRingSpacing,
             appearance: button.effectiveAppearance.bestMatch(from: [.accessibilityHighContrastDarkAqua, .accessibilityHighContrastAqua, .darkAqua, .aqua])?.rawValue ?? "",
             scale: scale, height: statusView.frame.height,
-            reduceMotion: NSWorkspace.shared.accessibilityDisplayShouldReduceMotion)
+            reduceMotion: NSWorkspace.shared.accessibilityDisplayShouldReduceMotion,
+            placeholderShowsCount: viewModel.menuBarPlaceholderShowsCount)
     }
 
     private func presentCompactButtonImages() {
@@ -804,6 +808,7 @@ private final class StatusBarContentView: NSView {
         paceDisplayMode: MenuBarPaceDisplayMode,
         isSelfTesting: Bool,
         activeTaskCounts: [UsageProvider: Int],
+        placeholderShowsCount: Bool,
         horizontalPadding: Double,
         ringSpacing: Double,
         accessibilityLabel: String
@@ -815,6 +820,7 @@ private final class StatusBarContentView: NSView {
             paceDisplayMode: paceDisplayMode,
             isSelfTesting: isSelfTesting,
             activeTaskCounts: activeTaskCounts,
+            placeholderShowsCount: placeholderShowsCount,
             horizontalPadding: horizontalPadding,
             ringSpacing: ringSpacing,
             accessibilityLabel: accessibilityLabel)
@@ -875,6 +881,7 @@ final class StatusBarCompactRingsView: NSView {
         paceDisplayMode: MenuBarPaceDisplayMode,
         isSelfTesting: Bool,
         activeTaskCounts: [UsageProvider: Int],
+        placeholderShowsCount: Bool = false,
         horizontalPadding: Double =
             MenuBarCompactLayoutPreferences.defaultHorizontalPadding,
         ringSpacing: Double =
@@ -908,6 +915,7 @@ final class StatusBarCompactRingsView: NSView {
                 paceDisplayMode: paceDisplayMode,
                 isSelfTesting: isSelfTesting,
                 activeTaskCount: activeTaskCounts[snapshot.provider] ?? 0,
+                placeholderShowsCount: placeholderShowsCount,
                 accessibilityLabel: snapshot.tooltip)
             ringView.setHovered(isHovered)
         }
@@ -1175,6 +1183,7 @@ final class StatusBarCompactRingView: NSView {
     private var selfTestTask: Task<Void, Never>?
     private var taskEnergyTask: Task<Void, Never>?
     private var isHovered = false
+    private var placeholderShowsCount = false
 
     override var isFlipped: Bool { false }
 
@@ -1202,6 +1211,7 @@ final class StatusBarCompactRingView: NSView {
         paceDisplayMode: MenuBarPaceDisplayMode = .staged,
         isSelfTesting: Bool = false,
         activeTaskCount: Int = 0,
+        placeholderShowsCount: Bool = false,
         accessibilityLabel: String
     ) {
         let normalizedTaskCount = max(0, activeTaskCount)
@@ -1211,6 +1221,7 @@ final class StatusBarCompactRingView: NSView {
             || self.paceDisplayMode != paceDisplayMode
             || self.isSelfTesting != normalizedSelfTesting
             || self.activeTaskCount != normalizedTaskCount
+            || self.placeholderShowsCount != placeholderShowsCount
 
         setAccessibilityLabel(accessibilityLabel)
         guard stateChanged else { return }
@@ -1220,6 +1231,7 @@ final class StatusBarCompactRingView: NSView {
         self.paceDisplayMode = paceDisplayMode
         self.isSelfTesting = normalizedSelfTesting
         self.activeTaskCount = normalizedTaskCount
+        self.placeholderShowsCount = placeholderShowsCount
         updateOfflinePulseAnimation()
         updateSelfTestAnimation()
         updateTaskEnergyAnimation()
@@ -1233,6 +1245,14 @@ final class StatusBarCompactRingView: NSView {
         let percent = selfTestFrame?.ringPercent ?? snapshot.ringPercent
         let delta = selfTestFrame?.paceDeltaPercent ?? snapshot.paceDeltaPercent
         let glyph = MenuBarPaceGlyph(deltaPercent: delta, mode: paceDisplayMode)
+        if state == .placeholder {
+            QuotaSymbolRenderer.drawBrandMark(
+                in: bounds.insetBy(dx: 1, dy: 1),
+                count: placeholderShowsCount
+                    ? snapshot.placeholderProviderCount
+                    : nil)
+            return
+        }
         let status: QuotaSymbolRenderer.Status
         if isOffline { status = .offline }
         else {
@@ -1242,6 +1262,7 @@ final class StatusBarCompactRingView: NSView {
             case .needsSetup: status = .setup
             case .unavailable: status = .unavailable
             case .failed: status = .failed
+            case .placeholder: status = .unavailable
             }
         }
         let symbolRect = bounds.insetBy(dx: 1, dy: 1)
