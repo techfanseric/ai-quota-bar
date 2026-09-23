@@ -148,6 +148,7 @@ final class StatusBarController {
         setupMenu()
         sleepProtectionCoordinator.start()
         viewModel.appPresenceMonitor.start()
+        viewModel.syncCollapsedProvidersWithRunningApps()
         connectivityMonitor.start()
         clashConnectionViewModel.startBackgroundMonitoring()
         viewModel.flushPendingCloudSyncQueue()

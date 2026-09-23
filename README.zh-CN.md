@@ -25,6 +25,12 @@
   <img src="./docs/images/control-center.png" alt="AI Quota Bar 右键控制中心" width="342">
 </p>
 
+## v1.27.0 更新
+
+左键菜单的供应商区在「跟随运行中的应用」下改为自动收起/展开（不再整块移除），标题行可手动切换且状态记忆；启动钥匙串授权合并为一次（Kimi 桌面端密钥首次授权后缓存进自家凭证库）；Kimi 月计划柱图按天切分并补齐节奏（reserve/deficit）提示。
+
+[v1.27.0 完整发布说明](./docs/releases/v1.27.0.zh-CN.md)
+
 ## v1.26.0 更新
 
 设置 → 显示新增「跟随运行中的应用」：开启后菜单栏与左键菜单只显示已打开应用对应的供应商（ChatGPT、ZCode、Kimi、MiniMax Code），应用退出自动隐藏、打开自动恢复；后台配额刷新不受影响。

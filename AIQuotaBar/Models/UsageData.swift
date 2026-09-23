@@ -348,14 +348,23 @@ struct ModelUsageData: Codable, Identifiable {
             || currentIntervalRemainingPercent != nil
     }
 
+    /// 节奏计算的周期窗口：优先真实起止时间；Kimi 月计划只有到期日，
+    /// 用回推一个自然月的展示窗口估算节奏（柱图 pace 针、reserve/deficit 都走这里）。
+    /// GLM 5h 的滚动展示窗口不参与节奏（elapsed 恒等于满周期，没有意义）。
+    private var currentIntervalPaceWindow: (start: Date, end: Date)? {
+        if let startTime, let endTime { return (startTime, endTime) }
+        if isKimiMonthlyTotalWindow { return quotaChartWindow() }
+        return nil
+    }
+
     /// 当前周期已用时长占总时长的比例（0-1）。nil 时表示无法计算
     /// （缺起止时间，或 credits 这类反向语义模式）。
     var currentIntervalElapsedRatio: Double? {
         guard progressBarPercentOverride == nil else { return nil }
-        guard let startTime, let endTime else { return nil }
-        let duration = endTime.timeIntervalSince(startTime)
+        guard let window = currentIntervalPaceWindow else { return nil }
+        let duration = window.end.timeIntervalSince(window.start)
         guard duration > 0 else { return nil }
-        let elapsed = Date().timeIntervalSince(startTime)
+        let elapsed = Date().timeIntervalSince(window.start)
         return min(max(elapsed / duration, 0), 1)
     }
 
@@ -399,13 +408,13 @@ struct ModelUsageData: Codable, Identifiable {
 
     /// 节奏快照：复用 codexbar 的 UsagePace.Stage 算法（|delta|≤2 onTrack, ≤6 slightly, ≤12 ahead/behind, >12 far）
     /// 走 `UsagePace.historical` 走的就是这套 stage 分桶。
-    /// nil 时表示无法计算（缺起止时间 / credits 模式 / 刚开始且已有消耗 —— 跟 codexbar 一致）。
+    /// nil 时表示无法计算（缺周期窗口 / credits 模式 / 刚开始且已有消耗 —— 跟 codexbar 一致）。
     var currentIntervalPace: UsagePace? {
         guard progressBarPercentOverride == nil else { return nil }
-        guard let startTime, let endTime else { return nil }
-        let duration = endTime.timeIntervalSince(startTime)
+        guard let window = currentIntervalPaceWindow else { return nil }
+        let duration = window.end.timeIntervalSince(window.start)
         guard duration > 0 else { return nil }
-        let elapsed = min(max(Date().timeIntervalSince(startTime), 0), duration)
+        let elapsed = min(max(Date().timeIntervalSince(window.start), 0), duration)
 
         // codexbar 的 guard：elapsed == 0 且 actual > 0 时不计算（刚开始时已用 > 0 是脏数据）
         let actual = currentIntervalPercentageUsed
@@ -425,11 +434,26 @@ struct ModelUsageData: Codable, Identifiable {
         provider == .glm && modelName.localizedCaseInsensitiveContains("5h")
     }
 
-    /// A display-only rolling window; never invent reset dates or pacing inputs.
+    /// Kimi 月计划（Total usage）：只带 expireTime，没有周期开始时间。
+    /// 柱图需要一个展示窗口才能按天切分，按到期日回推一个自然月。
+    var isKimiMonthlyTotalWindow: Bool {
+        provider == .kimi
+            && modelName == "Total usage"
+            && startTime == nil
+            && endTime != nil
+    }
+
+    /// A display-only rolling window; never invent reset dates.
+    /// The derived Kimi monthly window also feeds pace estimation
+    /// (`currentIntervalPaceWindow`); the GLM 5h rolling window never does.
     func quotaChartWindow(now: Date = Date()) -> (start: Date, end: Date)? {
         if let startTime, let endTime { return (startTime, endTime) }
-        guard isGLMFiveHourWindow else { return nil }
-        return (now.addingTimeInterval(-5 * 3600), now)
+        if isGLMFiveHourWindow { return (now.addingTimeInterval(-5 * 3600), now) }
+        if isKimiMonthlyTotalWindow, let endTime,
+           let start = Calendar.current.date(byAdding: .month, value: -1, to: endTime) {
+            return (start, endTime)
+        }
+        return nil
     }
 
     var isShortCurrentInterval: Bool {

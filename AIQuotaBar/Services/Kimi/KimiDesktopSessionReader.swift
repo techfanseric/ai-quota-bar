@@ -5,8 +5,41 @@ import LocalAuthentication
 import Security
 
 struct KimiDesktopSessionReader {
+    /// Cache for the Kimi desktop safeStorage key, backed by our own credential
+    /// vault. Reading the original "kimi-desktop Safe Storage" Keychain entry
+    /// triggers a macOS authorization prompt on every launch (ad-hoc signing
+    /// invalidates its ACL after each build), so after the first authorized
+    /// read we cache a copy and only touch Kimi's entry again when the cached
+    /// key stops decrypting (key rotation).
+    struct SafeStorageKeyCache {
+        var read: () -> Data?
+        var write: (Data) -> Void
+        var clear: () -> Void
+
+        static let live = SafeStorageKeyCache(
+            read: { KeychainService.shared.cachedKimiDesktopSafeStorageKey() },
+            write: { KeychainService.shared.cacheKimiDesktopSafeStorageKey($0) },
+            clear: { KeychainService.shared.clearKimiDesktopSafeStorageKey() })
+
+        static let disabled = SafeStorageKeyCache(
+            read: { nil },
+            write: { _ in },
+            clear: {})
+    }
+
     let home: URL
-    init(home: URL = FileManager.default.homeDirectoryForCurrentUser) { self.home = home }
+    let keyCache: SafeStorageKeyCache
+    let freshKey: (Bool) throws -> Data
+
+    init(
+        home: URL = FileManager.default.homeDirectoryForCurrentUser,
+        keyCache: SafeStorageKeyCache = .live,
+        freshKey: ((Bool) throws -> Data)? = nil
+    ) {
+        self.home = home
+        self.keyCache = keyCache
+        self.freshKey = freshKey ?? { try Self.password(allowInteraction: $0) }
+    }
 
     var tokenStoreURL: URL {
         home.appendingPathComponent("Library/Application Support/kimi-desktop/bridge-store/token-store.json")
@@ -25,7 +58,33 @@ struct KimiDesktopSessionReader {
                   let encrypted = Data(base64Encoded: envelope.data) else {
                 throw KimiSessionError.invalidStore
             }
-            let password = try Self.password(allowInteraction: allowInteraction)
+            // Cached key first: no prompt, no access to Kimi's Keychain entry.
+            // A wrong key can still pass AES padding, so only a fully decodable
+            // session counts as a cache hit.
+            if let cached = keyCache.read() {
+                if let plaintext = try? Self.decrypt(encrypted, password: cached),
+                   let session = try? Self.decodeStore(plaintext).validated() {
+                    return session
+                }
+                if !allowInteraction {
+                    // Stale cache on a background refresh: stay silent and let
+                    // the next interactive load re-authorize instead of writing
+                    // the vault (a write would prompt too).
+                    throw KimiSessionError.keychain(errSecInteractionNotAllowed)
+                }
+                // Kimi rotated its safeStorage key (or the store changed); drop
+                // the stale copy and fall through to a fresh authorized read.
+                keyCache.clear()
+            } else if !allowInteraction {
+                // Background refreshes must never touch Kimi's Keychain entry:
+                // on this macOS the partition check prompts even with
+                // interactionNotAllowed, so without a cached key there is no
+                // silent path. The Settings "Allow Desktop Access" button
+                // performs the one interactive read that seeds the cache.
+                throw KimiSessionError.keychain(errSecInteractionNotAllowed)
+            }
+            let password = try freshKey(allowInteraction)
+            keyCache.write(password)
             return try Self.decodeStore(Self.decrypt(encrypted, password: password)).validated()
         }
         if let token = KimiDesktopAuthToken.load(homeDirectory: home) {

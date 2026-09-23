@@ -73,6 +73,11 @@ struct CredentialVaultV1: Codable, Equatable, Sendable {
     var mobileDashboardAccessToken: String?
     var mobileDashboardTokenMigration:
         MobileDashboardTokenMigrationStateV1?
+    /// Kimi 桌面端 safeStorage 密钥（base64）的本地副本。
+    /// 首次经用户授权读取 Kimi 钥匙串条目后缓存到这里，
+    /// 之后启动只访问自家条目，避免重复弹出他应用条目的授权框。
+    /// Kimi 轮换密钥导致解密失败时清除并重取。
+    var kimiDesktopSafeStorageKey: String?
 
     init(
         providers: [String: String] = [:],
@@ -80,7 +85,8 @@ struct CredentialVaultV1: Codable, Equatable, Sendable {
         cloudSyncToken: String? = nil,
         mobileDashboardAccessToken: String? = nil,
         mobileDashboardTokenMigration:
-            MobileDashboardTokenMigrationStateV1? = nil
+            MobileDashboardTokenMigrationStateV1? = nil,
+        kimiDesktopSafeStorageKey: String? = nil
     ) {
         version = Self.currentVersion
         self.providers = providers
@@ -89,6 +95,7 @@ struct CredentialVaultV1: Codable, Equatable, Sendable {
         self.mobileDashboardAccessToken = mobileDashboardAccessToken
         self.mobileDashboardTokenMigration =
             mobileDashboardTokenMigration
+        self.kimiDesktopSafeStorageKey = kimiDesktopSafeStorageKey
     }
 
     static func decodeCompatible(from data: Data) throws -> Self {
@@ -272,15 +279,16 @@ actor CredentialVaultStore {
     func deviceCredential(binding: String) async -> String? {
         let result = await loadVault()
         if case let .found(vault) = result, let value = vault.deviceCredentials?[binding] { return value }
-        guard case .failure = result else {
-            let legacy = readLegacyString(account: binding, services: [service + ".local-usage"])
-            guard case let .found(value) = legacy, var vault = writableVault(from: result) else { return nil }
-            var credentials = vault.deviceCredentials ?? [:]
-            credentials[binding] = value; vault.deviceCredentials = credentials
-            if writeVault(vault) { cachedState = .found(vault) }
-            return value
+        guard case .notFound = result else { return nil }
+        let legacy = readLegacyString(account: binding, services: [service + ".local-usage"])
+        guard case let .found(value) = legacy, var vault = writableVault(from: result) else { return nil }
+        var credentials = vault.deviceCredentials ?? [:]
+        credentials[binding] = value; vault.deviceCredentials = credentials
+        if writeVault(vault) {
+            cachedState = .found(vault)
+            deleteLegacy(account: binding, services: [service + ".local-usage"])
         }
-        return nil
+        return value
     }
 
     func saveDeviceCredential(_ value: String, binding: String) async -> Bool {
@@ -321,7 +329,11 @@ actor CredentialVaultStore {
            let value = vault.providers[provider.rawValue] {
             return value
         }
-        if case .failure = loadResult { return nil }
+        // Legacy per-key items are only probed while the vault itself is
+        // missing (first launch after the vault was introduced). Once a vault
+        // exists, probing other items would trigger extra Keychain prompts on
+        // every launch for ad-hoc signed builds.
+        guard case .notFound = loadResult else { return nil }
         let legacyResult = readLegacyString(
             account: provider.keychainAccount,
             services: [service] + legacyServices)
@@ -334,6 +346,9 @@ actor CredentialVaultStore {
         vault.providers[provider.rawValue] = value
         if writeVault(vault) {
             cachedState = .found(vault)
+            deleteLegacy(
+                account: provider.keychainAccount,
+                services: [service] + legacyServices)
         }
         return value
     }
@@ -363,7 +378,7 @@ actor CredentialVaultStore {
            let token = vault.cloudSyncToken {
             return token
         }
-        if case .failure = loadResult { return nil }
+        guard case .notFound = loadResult else { return nil }
         let legacyResult = readLegacyString(
             account: "cloudSyncToken",
             services: [service])
@@ -376,6 +391,7 @@ actor CredentialVaultStore {
         vault.cloudSyncToken = token
         if writeVault(vault) {
             cachedState = .found(vault)
+            deleteLegacy(account: "cloudSyncToken", services: [service])
         }
         return token
     }
@@ -450,6 +466,28 @@ actor CredentialVaultStore {
         await mutateVault { vault in
             vault.mobileDashboardAccessToken = nil
             vault.mobileDashboardTokenMigration = nil
+        }
+    }
+
+    func kimiDesktopSafeStorageKey() async -> Data? {
+        guard case let .found(vault) = await loadVault(),
+              let encoded = vault.kimiDesktopSafeStorageKey,
+              let data = Data(base64Encoded: encoded), !data.isEmpty else {
+            return nil
+        }
+        return data
+    }
+
+    func saveKimiDesktopSafeStorageKey(_ key: Data) async -> Bool {
+        guard !key.isEmpty else { return false }
+        return await mutateVault { vault in
+            vault.kimiDesktopSafeStorageKey = key.base64EncodedString()
+        }
+    }
+
+    func deleteKimiDesktopSafeStorageKey() async -> Bool {
+        await mutateVault { vault in
+            vault.kimiDesktopSafeStorageKey = nil
         }
     }
 
@@ -774,6 +812,26 @@ final class KeychainService: @unchecked Sendable {
     func deleteMobileDashboardAccessToken() -> Bool {
         blocking { [vault] in
             await vault.deleteMobileDashboardAccessToken()
+        }
+    }
+
+    func cachedKimiDesktopSafeStorageKey() -> Data? {
+        blocking { [vault] in
+            await vault.kimiDesktopSafeStorageKey()
+        }
+    }
+
+    @discardableResult
+    func cacheKimiDesktopSafeStorageKey(_ key: Data) -> Bool {
+        blocking { [vault] in
+            await vault.saveKimiDesktopSafeStorageKey(key)
+        }
+    }
+
+    @discardableResult
+    func clearKimiDesktopSafeStorageKey() -> Bool {
+        blocking { [vault] in
+            await vault.deleteKimiDesktopSafeStorageKey()
         }
     }
 

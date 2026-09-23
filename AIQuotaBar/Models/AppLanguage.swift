@@ -1423,30 +1423,16 @@ enum AppLanguage: String, CaseIterable, Codable, Identifiable {
 
     var followRunningAppsDescription: String {
         self == .english
-            ? "Show a provider in the menu bar and left-click menu only while its app is open: ChatGPT (Codex), ZCode (GLM), Kimi, MiniMax Code. Quota refresh and Settings are unaffected."
-            : "仅在对应应用打开时，于菜单栏和左键菜单显示该供应商：ChatGPT（Codex）、ZCode（GLM）、Kimi、MiniMax Code。不影响后台配额刷新与设置页。"
+            ? "Show a provider in the menu bar only while its app is open, and collapse its left-click menu section when the app quits: ChatGPT (Codex), ZCode (GLM), Kimi, MiniMax Code. Sections can still be expanded or collapsed manually. Quota refresh and Settings are unaffected."
+            : "菜单栏仅在对应应用打开时显示该供应商，应用退出后左键菜单中的对应分区自动收起：ChatGPT（Codex）、ZCode（GLM）、Kimi、MiniMax Code。分区仍可手动展开或收起。不影响后台配额刷新与设置页。"
     }
 
-    func noRunningProviderAppsTitle() -> String {
-        switch self {
-        case .english: return "No provider apps running"
-        case .simplifiedChinese: return "没有正在运行的供应商应用"
-        }
-    }
-
-    func noRunningProviderAppsDescription() -> String {
-        switch self {
-        case .english:
-            return "Open ChatGPT, ZCode, Kimi, or MiniMax Code and its provider appears here automatically."
-        case .simplifiedChinese:
-            return "打开 ChatGPT、ZCode、Kimi 或 MiniMax Code 后，对应供应商会自动显示在这里。"
-        }
-    }
-
-    func noRunningProviderAppsShowAllAction() -> String {
-        switch self {
-        case .english: return "Show all providers"
-        case .simplifiedChinese: return "显示全部供应商"
+    func providerCollapseHint(isCollapsed: Bool) -> String {
+        switch (self, isCollapsed) {
+        case (.english, true): return "Expand"
+        case (.english, false): return "Collapse"
+        case (.simplifiedChinese, true): return "展开"
+        case (.simplifiedChinese, false): return "收起"
         }
     }
 

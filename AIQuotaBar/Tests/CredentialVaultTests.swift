@@ -60,6 +60,40 @@ final class CredentialVaultTests: XCTestCase {
             vault)
     }
 
+    func testKimiDesktopSafeStorageKeyRoundTripsThroughVault() async throws {
+        let backend = FakeCredentialVaultBackend()
+        let store = CredentialVaultStore(backend: backend)
+        let initial = await store.kimiDesktopSafeStorageKey()
+        XCTAssertNil(initial)
+        let rejectedEmpty = await store.saveKimiDesktopSafeStorageKey(Data())
+        XCTAssertFalse(rejectedEmpty)
+
+        let key = Data([0x01, 0x02, 0x03, 0x04])
+        let savedOK = await store.saveKimiDesktopSafeStorageKey(key)
+        XCTAssertTrue(savedOK)
+        let cached = await store.kimiDesktopSafeStorageKey()
+        XCTAssertEqual(cached, key)
+        let saved = try CredentialVaultV1.decodeCompatible(from: XCTUnwrap(backend.lastVaultWrite))
+        XCTAssertEqual(saved.kimiDesktopSafeStorageKey, key.base64EncodedString())
+
+        let reloaded = CredentialVaultStore(backend: backend)
+        let recovered = await reloaded.kimiDesktopSafeStorageKey()
+        XCTAssertEqual(recovered, key)
+        let deleted = await reloaded.deleteKimiDesktopSafeStorageKey()
+        XCTAssertTrue(deleted)
+        let afterDelete = await reloaded.kimiDesktopSafeStorageKey()
+        XCTAssertNil(afterDelete)
+    }
+
+    func testKimiDesktopSafeStorageKeyIsAbsentInOlderVaultPayloads() throws {
+        let vault = CredentialVaultV1(providers: [UsageProvider.miniMax.rawValue: "secret"])
+        let decoded = try CredentialVaultV1.decodeCompatible(from: try vault.encoded())
+        XCTAssertNil(decoded.kimiDesktopSafeStorageKey)
+        let legacy = try CredentialVaultV1.decodeCompatible(
+            from: JSONEncoder().encode([UsageProvider.miniMax.rawValue: "secret"]))
+        XCTAssertNil(legacy.kimiDesktopSafeStorageKey)
+    }
+
     func testConcurrentConsumersCoalesceToOneVaultRead() async throws {
         let backend = FakeCredentialVaultBackend()
         backend.items[backend.vaultKey] = .found(
