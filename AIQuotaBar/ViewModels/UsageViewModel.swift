@@ -273,6 +273,17 @@ final class UsageViewModel {
         }
     }
 
+    /// 菜单栏占位（跟随模式无活动窗口 / 全部暂停）是否显示已启用的
+    /// 供应商数量，而不是默认的品牌字母标。
+    var menuBarPlaceholderShowsCount: Bool {
+        didSet {
+            UserDefaults.standard.set(
+                menuBarPlaceholderShowsCount,
+                forKey: Self.menuBarPlaceholderShowsCountKey)
+            updateStatusBarText()
+        }
+    }
+
     /// 供应商桌面应用运行侦测。StatusBarController 负责 start/stop 与变更回调。
     let appPresenceMonitor: ProviderAppPresenceMonitor
 
@@ -285,6 +296,7 @@ final class UsageViewModel {
     private static let cloudDataRetentionLimitKey = CloudDataRetentionLimit.storageKey
     static let pausedProvidersKey = "pausedUsageProviders"
     static let followRunningAppsKey = "menuFollowsRunningApps"
+    static let menuBarPlaceholderShowsCountKey = "menuBarPlaceholderShowsCount"
 
     // MARK: - Computed Properties
 
@@ -324,15 +336,22 @@ final class UsageViewModel {
         guard let primary = selectedMenuBarModel(from: candidates) else {
             let provider = fallbackMenuBarProvider()
             let failed = providerErrors[provider] != nil || (error != nil && usageData == nil)
-            let state: MenuBarSnapshotState = !hasAnyCredential && !cloudSyncEnabled ? .needsSetup : failed ? .failed : (isLoading || usageData == nil ? .loading : .unavailable)
+            let state = Self.menuBarFallbackState(
+                hasAnyCredential: hasAnyCredential,
+                cloudSyncEnabled: cloudSyncEnabled,
+                hasFailure: failed,
+                isLoading: isLoading,
+                hasUsageData: usageData != nil,
+                isIntentionallyHidden: isMenuBarDisplayIntentionallyHidden)
             let snapshot = makeMenuBarStateSnapshot(
                 provider: provider,
-                state: state)
+                state: state,
+                placeholderProviderCount: configuredProviders.count)
             menuBarSnapshot = snapshot
             menuBarSnapshots = compactMenuBarStateSnapshots(
                 fallback: snapshot,
                 defaultState: state)
-            statusBarText = "\(state == .needsSetup ? "AI Quota Bar" : provider.displayName)\n\(statusBarStateText(state))"
+            statusBarText = "\(state == .needsSetup || state == .placeholder ? "AI Quota Bar" : provider.displayName)\n\(statusBarStateText(state))"
             return
         }
 
@@ -397,8 +416,17 @@ final class UsageViewModel {
         }
         // Preserve access to settings even before any selected provider is configured.
         guard !visible.isEmpty else {
+            let provider = selected.first ?? availableMenuBarRingProviders.first ?? .codex
+            let state: MenuBarSnapshotState
+            if defaultState == .unavailable && isMenuBarDisplayIntentionallyHidden {
+                state = .placeholder
+            } else {
+                state = defaultState
+            }
             return [makeMenuBarStateSnapshot(
-                provider: selected.first ?? availableMenuBarRingProviders.first ?? .codex, state: defaultState)]
+                provider: provider,
+                state: state,
+                placeholderProviderCount: configuredProviders.count)]
         }
         return visible.map { provider in
                 let currentModels = models.filter {
@@ -427,9 +455,18 @@ final class UsageViewModel {
 
     private func makeMenuBarStateSnapshot(
         provider: UsageProvider,
-        state: MenuBarSnapshotState
+        state: MenuBarSnapshotState,
+        placeholderProviderCount: Int? = nil
     ) -> MenuBarSnapshot {
-        MenuBarSnapshot(
+        let tooltip: String
+        if state == .placeholder {
+            tooltip = appLanguage.menuBarPlaceholderTooltip(
+                providerCount: placeholderProviderCount ?? 0,
+                reason: menuBarPlaceholderReason)
+        } else {
+            tooltip = menuBarStateTooltip(provider: provider, state: state)
+        }
+        return MenuBarSnapshot(
             provider: provider,
             modelName: nil,
             remainingPercent: nil,
@@ -438,7 +475,41 @@ final class UsageViewModel {
             resetsAt: nil,
             state: state,
             isLowQuota: false,
-            tooltip: menuBarStateTooltip(provider: provider, state: state))
+            tooltip: tooltip,
+            placeholderProviderCount: placeholderProviderCount)
+    }
+
+    /// 占位的原因：跟随模式下没有活动窗口，或显示被手动全部暂停。
+    private var menuBarPlaceholderReason: MenuBarPlaceholderReason {
+        followRunningApps ? .followMode : .manuallyPaused
+    }
+
+    /// 显示过滤后没有任何可见供应商，且原因是"主动隐藏"
+    /// （跟随模式 / 手动暂停），而不是数据问题。
+    var isMenuBarDisplayIntentionallyHidden: Bool {
+        allConfiguredProvidersPaused
+            || (followRunningApps
+                && !configuredProviders.isEmpty
+                && configuredProviders.allSatisfy {
+                    !appPresenceMonitor.isRunning($0)
+                })
+    }
+
+    /// 无可见供应商时的状态判定，优先级：未配置 → 刷新失败 → 加载中 →
+    /// 主动隐藏（品牌占位）→ 无数据。
+    static func menuBarFallbackState(
+        hasAnyCredential: Bool,
+        cloudSyncEnabled: Bool,
+        hasFailure: Bool,
+        isLoading: Bool,
+        hasUsageData: Bool,
+        isIntentionallyHidden: Bool
+    ) -> MenuBarSnapshotState {
+        if !hasAnyCredential && !cloudSyncEnabled { return .needsSetup }
+        if hasFailure { return .failed }
+        if isLoading || !hasUsageData { return .loading }
+        if isIntentionallyHidden { return .placeholder }
+        return .unavailable
     }
 
     private func makeMenuBarSnapshot(
@@ -976,6 +1047,8 @@ final class UsageViewModel {
                 .compactMap(UsageProvider.init(rawValue:)))
         self.followRunningApps =
             UserDefaults.standard.bool(forKey: Self.followRunningAppsKey)
+        self.menuBarPlaceholderShowsCount = UserDefaults.standard.bool(
+            forKey: Self.menuBarPlaceholderShowsCountKey)
 
         if providerPresence == nil {
             teamObserver = NotificationCenter.default.publisher(for: .teamConnectionChanged).sink { [weak self] _ in

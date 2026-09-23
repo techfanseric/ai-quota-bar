@@ -120,12 +120,23 @@ enum MenuBarCompactLayoutPreferences {
     }
 }
 
+/// 菜单栏占位（`.placeholder`）的原因。
+enum MenuBarPlaceholderReason {
+    /// 跟随模式下没有供应商的应用在运行。
+    case followMode
+    /// 供应商显示被手动全部暂停。
+    case manuallyPaused
+}
+
 enum MenuBarSnapshotState: Equatable {
     case needsSetup
     case loading
     case ready
     case unavailable
     case failed
+    /// 主动隐藏的占位（跟随模式下应用未运行，或供应商显示被手动暂停）。
+    /// 与 `.unavailable`（刷新失败/无数据，红色警示）刻意区分。
+    case placeholder
 }
 
 enum MenuBarPaceDirection: Equatable {
@@ -278,6 +289,8 @@ struct MenuBarSnapshot: Equatable {
     let state: MenuBarSnapshotState
     let isLowQuota: Bool
     let tooltip: String
+    /// 仅 `.placeholder` 状态使用：已启用的供应商数量（计数徽标开关用）。
+    var placeholderProviderCount: Int? = nil
 
     var providerInitial: String {
         switch provider {

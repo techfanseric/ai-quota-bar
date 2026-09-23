@@ -88,4 +88,45 @@ enum QuotaSymbolRenderer {
         color.setStroke()
         path.stroke()
     }
+
+    /// 菜单栏占位：所有供应商都被隐藏时显示。默认画产品字母标（"A"，
+    /// 居中、无环、无警示色）；`count` 非 nil 时画一枚中性细环 + 供应商数。
+    static func drawBrandMark(in rect: NSRect, count: Int? = nil) {
+        let scale = min(rect.width / 367, rect.height / 410)
+        guard scale > 0 else { return }
+        NSGraphicsContext.saveGraphicsState()
+        defer { NSGraphicsContext.restoreGraphicsState() }
+        let transform = NSAffineTransform()
+        transform.translateX(by: rect.midX - 183.5 * scale, yBy: rect.midY - 205 * scale)
+        transform.scale(by: scale)
+        transform.concat()
+        let foreground = NSColor.labelColor
+
+        if let count, count > 0 {
+            arc(from: 0, to: 1, color: foreground.withAlphaComponent(0.22))
+            let text = "\(min(count, 99))" as NSString
+            let attributes: [NSAttributedString.Key: Any] = [
+                .font: NSFont.systemFont(
+                    ofSize: count >= 10 ? 105 : 140, weight: .semibold),
+                .foregroundColor: foreground,
+            ]
+            let size = text.size(withAttributes: attributes)
+            text.draw(
+                at: NSPoint(
+                    x: 183.5 - size.width / 2,
+                    y: 183.5 - size.height / 2),
+                withAttributes: attributes)
+            return
+        }
+
+        let attributes: [NSAttributedString.Key: Any] = [
+            .font: NSFont.systemFont(ofSize: 175, weight: .bold),
+            .foregroundColor: foreground,
+        ]
+        let letter = "A" as NSString
+        let size = letter.size(withAttributes: attributes)
+        letter.draw(
+            at: NSPoint(x: 183.5 - size.width / 2, y: 205 - size.height / 2),
+            withAttributes: attributes)
+    }
 }

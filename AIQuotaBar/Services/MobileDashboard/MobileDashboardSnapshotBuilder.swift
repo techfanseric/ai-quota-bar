@@ -559,6 +559,7 @@ enum MobileDashboardSnapshotBuilder {
         case .ready: state = "ready"
         case .needsSetup, .unavailable: state = "unavailable"
         case .failed: state = "failed"
+        case .placeholder: state = "placeholder"
         }
 
         return MobileMenuBarQuotaSnapshot(

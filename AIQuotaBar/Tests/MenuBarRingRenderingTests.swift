@@ -7,12 +7,14 @@ import XCTest
 final class MenuBarRingRenderingTests: XCTestCase {
     func testRasterCacheIgnoresTooltipButInvalidatesVisibleInputs() {
         func key(tooltip: String = "one", percent: Double = 50, appearance: String = "dark",
-                 scale: CGFloat = 2, tasks: Int = 1, reduceMotion: Bool = false) -> CompactStatusRenderState {
+                 scale: CGFloat = 2, tasks: Int = 1, reduceMotion: Bool = false,
+                 placeholderShowsCount: Bool = false) -> CompactStatusRenderState {
             CompactStatusRenderState(snapshots: [MenuBarSnapshot(provider: .codex, modelName: nil,
                 remainingPercent: percent, ringPercent: percent, paceDeltaPercent: 0,
                 resetsAt: nil, state: .ready, isLowQuota: false, tooltip: tooltip)],
                 connectivity: .reachable, pace: .staged, selfTesting: false, tasks: [.codex: tasks],
-                padding: 4, spacing: 4, appearance: appearance, scale: scale, height: 22, reduceMotion: reduceMotion)
+                padding: 4, spacing: 4, appearance: appearance, scale: scale, height: 22, reduceMotion: reduceMotion,
+                placeholderShowsCount: placeholderShowsCount)
         }
         XCTAssertEqual(key(), key(tooltip: "countdown changed"))
         XCTAssertNotEqual(key(), key(percent: 49))
@@ -20,6 +22,7 @@ final class MenuBarRingRenderingTests: XCTestCase {
         XCTAssertNotEqual(key(), key(scale: 1))
         XCTAssertNotEqual(key(), key(tasks: 2))
         XCTAssertNotEqual(key(), key(reduceMotion: true))
+        XCTAssertNotEqual(key(), key(placeholderShowsCount: true))
     }
 
     func testInteractiveSelfTestAnimationUsesABoundedFrameRate() {
