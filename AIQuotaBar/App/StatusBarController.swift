@@ -155,6 +155,23 @@ final class StatusBarController {
         mobileDashboardService.startIfEnabled()
         synchronizeMobileDashboardModelSelection()
         observeMobileDashboardModelSelection()
+        observeCredentialVaultDidLoad()
+    }
+
+    /// The vault now loads asynchronously after launch; if it answered
+    /// differently from the persisted configured-providers cache (first run
+    /// on a new account, credential revoked elsewhere), refresh immediately.
+    private func observeCredentialVaultDidLoad() {
+        NotificationCenter.default.addObserver(
+            forName: .credentialVaultDidLoad,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            Task { @MainActor [weak self] in
+                guard let self else { return }
+                await self.viewModel.refresh(showIconSelfTest: false)
+            }
+        }
     }
 
     private func setupStatusItem() {
