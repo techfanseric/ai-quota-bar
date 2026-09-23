@@ -691,10 +691,19 @@ final class KeychainService: @unchecked Sendable {
     }
 
     func preloadCredentialVault() {
-        if let loaded = blocking({ [vault] in
-            await vault.preload()
-        }) {
-            cacheConfiguredProviderKeys(from: loaded.providers)
+        // Fire-and-forget: the keychain read can block on a user-facing ACL
+        // authorization (re-signed builds invalidate the item's access
+        // record), and launch must never freeze behind that dialog. Callers
+        // boot from the persisted configured-providers cache, which this
+        // refresh corrects once the vault answers.
+        Task { [weak self] in
+            guard let self,
+                  let loaded = await self.vault.preload() else { return }
+            await MainActor.run { [weak self] in
+                self?.cacheConfiguredProviderKeys(from: loaded.providers)
+            }
+            NotificationCenter.default.post(
+                name: .credentialVaultDidLoad, object: nil)
         }
     }
 
@@ -907,4 +916,12 @@ private final class BlockingResultBox<Value: Sendable>:
         condition.unlock()
         return result
     }
+}
+
+extension Notification.Name {
+    /// Posted once the asynchronous credential-vault preload finishes, so
+    /// components that booted from the persisted configured-providers cache
+    /// can re-sync if the vault answered differently.
+    static let credentialVaultDidLoad = Notification.Name(
+        "credentialVaultDidLoad")
 }
