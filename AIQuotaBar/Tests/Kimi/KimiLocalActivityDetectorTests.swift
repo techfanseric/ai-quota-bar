@@ -3,144 +3,184 @@ import XCTest
 @testable import AIQuotaBar
 
 final class KimiLocalActivityDetectorTests: XCTestCase {
-    func testLatestCompletedSessionKeepsOlderAbandonedTurnIdle() throws {
-        let fixture = try makeFixture(runningProcessCount: 1)
-        try fixture.writeSession(
-            id: "older-open",
-            events: ["turn.prompt"],
-            modifiedAt: Date(timeIntervalSince1970: 100))
-        try fixture.writeSession(
-            id: "latest-completed",
-            events: ["turn.prompt", "turn.ended"],
-            modifiedAt: Date(timeIntervalSince1970: 200))
+    private let now = Date(timeIntervalSince1970: 1_000_000)
 
-        let snapshot = fixture.detector.detectSnapshot()
+    func testFreshDesktopConversationIsActive() throws {
+        let fixture = try makeFixture()
+        try fixture.writeDesktopConversation(
+            conversationID: "conv-running",
+            updatedAtText: Self.isoString(now - 30))
+        try fixture.writeDesktopConversation(
+            conversationID: "conv-done",
+            updatedAtText: Self.isoString(now - 10 * 60))
 
-        XCTAssertTrue(snapshot.activeSessionIDs.isEmpty)
-    }
+        let snapshot = fixture.detector.detectSnapshot(now: now)
 
-    func testOpenSubagentTurnMarksLatestRunningSessionActive() throws {
-        let fixture = try makeFixture(runningProcessCount: 1)
-        try fixture.writeSession(
-            id: "working",
-            agentEvents: [
-                "main": ["turn.prompt"],
-                "agent-0": ["turn.prompt", "turn.ended"],
-                "agent-1": ["turn.prompt"],
-            ],
-            modifiedAt: Date(timeIntervalSince1970: 300))
-
-        let snapshot = fixture.detector.detectSnapshot()
-
-        XCTAssertEqual(snapshot.activeSessionIDs, ["kimi:working"])
+        XCTAssertEqual(snapshot.activeSessionIDs, ["kimi:desktop:conv-running"])
         XCTAssertEqual(
-            try XCTUnwrap(snapshot.lastEventAt).timeIntervalSince1970,
-            300.001,
-            accuracy: 0.0001)
+            try XCTUnwrap(
+                snapshot.lastEventBySession["kimi:desktop:conv-running"]
+            ).timeIntervalSince1970,
+            (now - 30).timeIntervalSince1970,
+            accuracy: 0.001)
     }
 
-    func testTwoProcessesAllowTwoLatestSessionsToParticipate() throws {
-        let fixture = try makeFixture(runningProcessCount: 2)
-        try fixture.writeSession(
-            id: "second-open",
+    func testOpenCLIWireWithFreshActivityIsActive() throws {
+        let fixture = try makeFixture()
+        try fixture.writeWire(
+            workspace: "wd_project_1",
+            session: "session_abc",
+            agent: "main",
             events: ["turn.prompt"],
-            modifiedAt: Date(timeIntervalSince1970: 200))
-        try fixture.writeSession(
-            id: "latest-completed",
+            modifiedAt: now - 30)
+
+        let snapshot = fixture.detector.detectSnapshot(now: now)
+
+        XCTAssertEqual(snapshot.activeSessionIDs, ["kimi:cli:session_abc"])
+    }
+
+    func testEndedTurnAndKilledStaleTurnAreIgnored() throws {
+        let fixture = try makeFixture()
+        try fixture.writeWire(
+            workspace: "wd_project_1",
+            session: "session_completed",
+            agent: "main",
             events: ["turn.prompt", "turn.ended"],
-            modifiedAt: Date(timeIntervalSince1970: 300))
-
-        XCTAssertEqual(
-            fixture.detector.detectSnapshot().activeSessionIDs,
-            ["kimi:second-open"])
-    }
-
-    func testNoRunningKimiProcessReturnsIdle() throws {
-        let fixture = try makeFixture(runningProcessCount: 0)
-        try fixture.writeSession(
-            id: "open",
+            modifiedAt: now - 30)
+        // Killed mid-turn: the lifecycle never closed, but the file went
+        // quiet beyond the freshness window.
+        try fixture.writeWire(
+            workspace: "wd_project_1",
+            session: "session_killed",
+            agent: "main",
             events: ["turn.prompt"],
-            modifiedAt: Date())
+            modifiedAt: now - 10 * 60)
 
-        XCTAssertEqual(fixture.detector.detectSnapshot(), .empty)
+        XCTAssertEqual(fixture.detector.detectSnapshot(now: now), .empty)
     }
 
-    private func makeFixture(
-        runningProcessCount: Int
-    ) throws -> Fixture {
-        let root = FileManager.default.temporaryDirectory
+    func testAgentsInOneSessionCollapseToASingleTask() throws {
+        let fixture = try makeFixture()
+        try fixture.writeWire(
+            workspace: "wd_project_1",
+            session: "session_multi",
+            agent: "main",
+            events: ["turn.prompt", "turn.ended"],
+            modifiedAt: now - 60)
+        try fixture.writeWire(
+            workspace: "wd_project_1",
+            session: "session_multi",
+            agent: "agent-1",
+            events: ["turn.prompt"],
+            modifiedAt: now - 30)
+
+        let snapshot = fixture.detector.detectSnapshot(now: now)
+
+        XCTAssertEqual(snapshot.activeSessionIDs, ["kimi:cli:session_multi"])
+        XCTAssertEqual(snapshot.activeSessionIDs.count, 1)
+    }
+
+    func testMissingRootsReturnIdle() {
+        let missing = FileManager.default.temporaryDirectory
             .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        let detector = KimiLocalActivityDetector(
+            codeHomeURL: missing,
+            agentDataURL: missing)
+
+        XCTAssertEqual(detector.detectSnapshot(now: now), .empty)
+    }
+
+    // MARK: - Fixtures
+
+    private static func isoString(_ date: Date) -> String {
+        let formatter = ISO8601DateFormatter()
+        formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        return formatter.string(from: date)
+    }
+
+    private func makeFixture() throws -> Fixture {
+        let rootURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        let codeHomeURL = rootURL
+            .appendingPathComponent(".kimi-code", isDirectory: true)
+        let agentDataURL = rootURL
+            .appendingPathComponent("kimi-agent", isDirectory: true)
         try FileManager.default.createDirectory(
-            at: root,
+            at: codeHomeURL,
+            withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(
+            at: agentDataURL,
             withIntermediateDirectories: true)
         addTeardownBlock {
-            try? FileManager.default.removeItem(at: root)
+            try? FileManager.default.removeItem(at: rootURL)
         }
-        let workDirectory = "/tmp/kimi-project"
         return Fixture(
-            root: root,
-            workDirectory: workDirectory,
+            codeHomeURL: codeHomeURL,
+            agentDataURL: agentDataURL,
             detector: KimiLocalActivityDetector(
-                codeHomeURL: root,
-                runningWorkDirectoriesProvider: {
-                    runningProcessCount > 0
-                        ? [workDirectory: runningProcessCount]
-                        : [:]
-                }))
-    }
-}
-
-private struct Fixture {
-    let root: URL
-    let workDirectory: String
-    let detector: KimiLocalActivityDetector
-
-    func writeSession(
-        id: String,
-        events: [String],
-        modifiedAt: Date
-    ) throws {
-        try writeSession(
-            id: id,
-            agentEvents: ["main": events],
-            modifiedAt: modifiedAt)
+                codeHomeURL: codeHomeURL,
+                agentDataURL: agentDataURL,
+                freshnessWindow: 120))
     }
 
-    func writeSession(
-        id: String,
-        agentEvents: [String: [String]],
-        modifiedAt: Date
-    ) throws {
-        let sessionDirectory = root
-            .appendingPathComponent("sessions/wd-test/\(id)", isDirectory: true)
-        for (agent, events) in agentEvents {
-            let agentDirectory = sessionDirectory
-                .appendingPathComponent("agents/\(agent)", isDirectory: true)
-            try FileManager.default.createDirectory(
-                at: agentDirectory,
-                withIntermediateDirectories: true)
-            let lines = events.enumerated().map { index, type in
-                let time = Int(modifiedAt.timeIntervalSince1970 * 1_000)
-                    + index
-                return "{\"type\":\"\(type)\",\"time\":\(time)}"
+    private struct Fixture {
+        let codeHomeURL: URL
+        let agentDataURL: URL
+        let detector: KimiLocalActivityDetector
+
+        func writeDesktopConversation(
+            conversationID: String,
+            updatedAtText: String
+        ) throws {
+            let url = agentDataURL
+                .appendingPathComponent("conversation-context-usage.json")
+            var entries: [String: Any] = [:]
+            if let data = try? Data(contentsOf: url),
+               let existing = try? JSONSerialization.jsonObject(
+                    with: data) as? [String: Any] {
+                entries = existing
             }
-            let wireURL = agentDirectory.appendingPathComponent("wire.jsonl")
-            try (lines.joined(separator: "\n") + "\n")
-                .data(using: .utf8)?.write(to: wireURL)
+            entries["agent:main:main:conversation:\(conversationID)"] = [
+                "contextUsage": 0.3,
+                "contextTokens": 80_000,
+                "maxContextTokens": 262_144,
+                "model": "k3-agent",
+                "updatedAt": updatedAtText,
+            ]
+            let data = try JSONSerialization.data(
+                withJSONObject: entries,
+                options: [.sortedKeys])
+            try data.write(to: url)
+        }
+
+        @discardableResult
+        func writeWire(
+            workspace: String,
+            session: String,
+            agent: String,
+            events: [String],
+            modifiedAt: Date
+        ) throws -> URL {
+            let wireURL = codeHomeURL
+                .appendingPathComponent(
+                    "sessions/\(workspace)/\(session)/agents/\(agent)",
+                    isDirectory: true)
+                .appendingPathComponent("wire.jsonl")
+            try FileManager.default.createDirectory(
+                at: wireURL.deletingLastPathComponent(),
+                withIntermediateDirectories: true)
+            let lines = events.map { event -> String in
+                let timestamp = Int(modifiedAt.timeIntervalSince1970 * 1_000)
+                return "{\"type\":\"\(event)\",\"time\":\(timestamp)}"
+            }
+            try lines.joined(separator: "\n").write(
+                to: wireURL,
+                atomically: true,
+                encoding: .utf8)
             try FileManager.default.setAttributes(
                 [.modificationDate: modifiedAt],
                 ofItemAtPath: wireURL.path)
-        }
-
-        let indexURL = root.appendingPathComponent("session_index.jsonl")
-        let record = "{\"sessionId\":\"\(id)\",\"sessionDir\":\"\(sessionDirectory.path)\",\"workDir\":\"\(workDirectory)\"}\n"
-        if FileManager.default.fileExists(atPath: indexURL.path) {
-            let handle = try FileHandle(forWritingTo: indexURL)
-            try handle.seekToEnd()
-            try handle.write(contentsOf: Data(record.utf8))
-            try handle.close()
-        } else {
-            try Data(record.utf8).write(to: indexURL)
+            return wireURL
         }
     }
 }
