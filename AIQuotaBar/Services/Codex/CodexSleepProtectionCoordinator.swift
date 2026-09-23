@@ -555,7 +555,19 @@ final class CodexSleepProtectionCoordinator {
         let source: String
         let modelProvider: String
         let lastActivityAt: Date?
-        if sessionID.hasPrefix("kimi:") {
+        if sessionID.hasPrefix("kimi:cli:") {
+            source = "Kimi CLI"
+            modelProvider = "Kimi"
+            lastActivityAt = kimiActivitySnapshot
+                .lastEventBySession[sessionID]
+                ?? kimiActivitySnapshot.lastEventAt
+        } else if sessionID.hasPrefix("kimi:desktop:") {
+            source = "Kimi Desktop"
+            modelProvider = "Kimi"
+            lastActivityAt = kimiActivitySnapshot
+                .lastEventBySession[sessionID]
+                ?? kimiActivitySnapshot.lastEventAt
+        } else if sessionID.hasPrefix("kimi:") {
             source = "Kimi Code"
             modelProvider = "Kimi"
             lastActivityAt = kimiActivitySnapshot.lastEventAt

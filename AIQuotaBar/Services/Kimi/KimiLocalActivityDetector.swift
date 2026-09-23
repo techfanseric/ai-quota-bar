@@ -3,6 +3,17 @@ import Foundation
 struct KimiLocalActivitySnapshot: Equatable, Sendable {
     var activeSessionIDs: Set<String>
     var lastEventAt: Date?
+    var lastEventBySession: [String: Date]
+
+    init(
+        activeSessionIDs: Set<String>,
+        lastEventAt: Date?,
+        lastEventBySession: [String: Date] = [:]
+    ) {
+        self.activeSessionIDs = activeSessionIDs
+        self.lastEventAt = lastEventAt
+        self.lastEventBySession = lastEventBySession
+    }
 
     static let empty = KimiLocalActivitySnapshot(
         activeSessionIDs: [],
@@ -13,40 +24,77 @@ protocol KimiLocalActivityProviding: Sendable {
     func snapshot() async -> KimiLocalActivitySnapshot
 }
 
-/// Detects active Kimi turns from its persisted Wire lifecycle events. Message
-/// bodies, model output, tool arguments, and command output are never retained.
+/// Detects active Kimi tasks from both local runtimes:
+///
+/// - **Kimi desktop agent**: `kimi-agent/conversation-context-usage.json`
+///   carries one entry per conversation with an `updatedAt` that refreshes
+///   while the agent consumes context. Fresh conversations count as working.
+/// - **Kimi CLI**: `~/.kimi-code/sessions/wd_*/session_*/agents/*/wire.jsonl`
+///   turn lifecycle records. A wire counts while its turn is open
+///   (`turn.prompt` without `turn.ended`) **and** the file was touched inside
+///   the freshness window; the mtime requirement replaces the old
+///   running-process gate, which no longer matched once the desktop runtime
+///   (cwd `/`) took over and `session_index.jsonl` stopped being maintained.
+///
+/// Message bodies, model output, and command output are never retained.
 final class KimiLocalActivityDetector: KimiLocalActivityProviding,
     @unchecked Sendable
 {
-    typealias RunningWorkDirectoriesProvider = @Sendable () -> [String: Int]
+    static let defaultFreshnessWindow: TimeInterval = 120
 
-    private struct SessionCandidate {
-        let id: String
-        let directory: URL
-        let workDirectory: String
-        let updatedAt: Date
-    }
+    let codeHomeURL: URL
+    let agentDataURL: URL
+    let freshnessWindow: TimeInterval
 
     private struct WireState {
         var size: UInt64 = 0
         var isActive = false
-        var lastEventAt: Date?
     }
 
-    let codeHomeURL: URL
-    private let runningWorkDirectoriesProvider: RunningWorkDirectoriesProvider
+    private static let fractionalDateFormatter: ISO8601DateFormatter = {
+        let formatter = ISO8601DateFormatter()
+        formatter.formatOptions = [
+            .withInternetDateTime,
+            .withFractionalSeconds,
+        ]
+        return formatter
+    }()
+
+    private static let internetDateFormatter = ISO8601DateFormatter()
+
     private let lock = NSLock()
     private var wireStates: [String: WireState] = [:]
 
     init(
         codeHomeURL: URL = KimiLocalActivityDetector.defaultCodeHomeURL(),
-        runningWorkDirectoriesProvider: RunningWorkDirectoriesProvider? = nil
+        agentDataURL: URL = KimiLocalActivityDetector.defaultAgentDataURL(),
+        freshnessWindow: TimeInterval = KimiLocalActivityDetector
+            .defaultFreshnessWindow
     ) {
         self.codeHomeURL = codeHomeURL
-        self.runningWorkDirectoriesProvider =
-            runningWorkDirectoriesProvider ?? {
-                KimiLocalActivityDetector.runningKimiWorkDirectories()
-            }
+        self.agentDataURL = agentDataURL
+        self.freshnessWindow = freshnessWindow
+    }
+
+    static func defaultCodeHomeURL(
+        environment: [String: String] = ProcessInfo.processInfo.environment,
+        homeDirectory: URL = FileManager.default.homeDirectoryForCurrentUser
+    ) -> URL {
+        if let configured = environment["KIMI_CODE_HOME"],
+           !configured.isEmpty {
+            return URL(fileURLWithPath: configured, isDirectory: true)
+        }
+        return homeDirectory
+            .appendingPathComponent(".kimi-code", isDirectory: true)
+    }
+
+    static func defaultAgentDataURL(
+        homeDirectory: URL = FileManager.default.homeDirectoryForCurrentUser
+    ) -> URL {
+        homeDirectory
+            .appendingPathComponent(
+                "Library/Application Support/kimi-desktop/kimi-agent",
+                isDirectory: true)
     }
 
     func snapshot() async -> KimiLocalActivitySnapshot {
@@ -55,115 +103,132 @@ final class KimiLocalActivityDetector: KimiLocalActivityProviding,
         }.value
     }
 
-    func detectSnapshot() -> KimiLocalActivitySnapshot {
+    func detectSnapshot(now: Date = Date()) -> KimiLocalActivitySnapshot {
         lock.lock()
         defer { lock.unlock() }
 
-        let running = runningWorkDirectoriesProvider()
-        guard !running.isEmpty else {
-            wireStates.removeAll()
-            return .empty
-        }
-
-        let selectedSessions = selectedSessionCandidates(
-            runningWorkDirectories: running)
+        let cutoff = now.addingTimeInterval(-freshnessWindow)
         var activeSessionIDs = Set<String>()
+        var lastEventBySession: [String: Date] = [:]
         var lastEventAt: Date?
-        var retainedWirePaths = Set<String>()
 
-        for session in selectedSessions {
-            var sessionIsActive = false
-            for wireURL in wireURLs(in: session.directory) {
-                retainedWirePaths.insert(wireURL.path)
-                let wireState = readWireState(at: wireURL)
-                sessionIsActive = sessionIsActive || wireState.isActive
-                if let eventAt = wireState.lastEventAt,
-                   lastEventAt == nil || eventAt > lastEventAt! {
-                    lastEventAt = eventAt
-                }
-            }
-            if sessionIsActive {
-                activeSessionIDs.insert("kimi:\(session.id)")
+        func record(_ prefixedID: String, _ activityAt: Date) {
+            activeSessionIDs.insert(prefixedID)
+            let existing = lastEventBySession[prefixedID] ?? .distantPast
+            lastEventBySession[prefixedID] = max(existing, activityAt)
+            if lastEventAt == nil || activityAt > lastEventAt! {
+                lastEventAt = activityAt
             }
         }
 
+        for conversation in desktopConversationActivity() {
+            guard conversation.updatedAt >= cutoff,
+                  conversation.updatedAt <= now else {
+                continue
+            }
+            record("kimi:desktop:\(conversation.key)", conversation.updatedAt)
+        }
+
+        for wireURL in wireURLs() {
+            let state = readWireState(at: wireURL)
+            guard state.isActive else { continue }
+            // A wire whose turn is open but that has gone quiet for the whole
+            // freshness window was most likely killed mid-turn.
+            guard let touchedAt = fileModificationDate(at: wireURL),
+                  touchedAt >= cutoff, touchedAt <= now else {
+                continue
+            }
+            let sessionID = wireURL
+                .deletingLastPathComponent()  // …/agents/<agent>
+                .deletingLastPathComponent()  // …/agents
+                .deletingLastPathComponent()  // …/session_<uuid>
+                .lastPathComponent
+            record("kimi:cli:\(sessionID)", touchedAt)
+        }
         wireStates = wireStates.filter {
-            retainedWirePaths.contains($0.key)
+            activeSessionIDs.contains("kimi:cli:\($0.key)")
         }
         return KimiLocalActivitySnapshot(
             activeSessionIDs: activeSessionIDs,
-            lastEventAt: lastEventAt)
+            lastEventAt: lastEventAt,
+            lastEventBySession: lastEventBySession)
     }
 
-    private func selectedSessionCandidates(
-        runningWorkDirectories: [String: Int]
-    ) -> [SessionCandidate] {
-        let indexURL = codeHomeURL.appendingPathComponent(
-            "session_index.jsonl",
-            isDirectory: false)
-        guard let data = try? Data(contentsOf: indexURL),
-              let text = String(data: data, encoding: .utf8) else {
+    // MARK: - Desktop agent conversations
+
+    private func desktopConversationActivity()
+        -> [(key: String, updatedAt: Date)] {
+        let contextUsageURL = agentDataURL
+            .appendingPathComponent("conversation-context-usage.json")
+        guard let data = try? Data(contentsOf: contextUsageURL),
+              let entries = try? JSONSerialization.jsonObject(
+                with: data) as? [String: Any] else {
             return []
         }
-
-        var candidatesByWorkDirectory: [String: [SessionCandidate]] = [:]
-        for line in text.split(whereSeparator: \.isNewline) {
-            guard let recordData = String(line).data(using: .utf8),
-                  let record = try? JSONSerialization.jsonObject(
-                    with: recordData) as? [String: Any],
-                  let id = record["sessionId"] as? String,
-                  let directoryPath = record["sessionDir"] as? String,
-                  let workDirectory = record["workDir"] as? String,
-                  runningWorkDirectories[workDirectory] != nil else {
+        var result: [(key: String, updatedAt: Date)] = []
+        for (conversationKey, payload) in entries {
+            guard let details = payload as? [String: Any],
+                  let updatedAtText = details["updatedAt"] as? String,
+                  let updatedAt = Self.parseDate(updatedAtText) else {
                 continue
             }
-            let directory = URL(
-                fileURLWithPath: directoryPath,
-                isDirectory: true)
-            candidatesByWorkDirectory[workDirectory, default: []].append(
-                SessionCandidate(
-                    id: id,
-                    directory: directory,
-                    workDirectory: workDirectory,
-                    updatedAt: sessionUpdatedAt(directory)))
+            let identifier = conversationKey.split(separator: ":").last
+                .map(String.init) ?? conversationKey
+            result.append((identifier, updatedAt))
         }
-
-        return candidatesByWorkDirectory.flatMap { workDirectory, candidates in
-            let processCount = max(1, runningWorkDirectories[workDirectory] ?? 1)
-            return candidates
-                .sorted { $0.updatedAt > $1.updatedAt }
-                .prefix(processCount)
-        }
+        return result
     }
 
-    private func sessionUpdatedAt(_ directory: URL) -> Date {
-        wireURLs(in: directory)
-            .compactMap {
-                try? $0.resourceValues(
-                    forKeys: [.contentModificationDateKey])
-                    .contentModificationDate
-            }
-            .max() ?? .distantPast
+    private static func parseDate(_ text: String) -> Date? {
+        fractionalDateFormatter.date(from: text)
+            ?? internetDateFormatter.date(from: text)
     }
 
-    private func wireURLs(in sessionDirectory: URL) -> [URL] {
-        let agentsURL = sessionDirectory.appendingPathComponent(
-            "agents",
-            isDirectory: true)
-        guard let agentURLs = try? FileManager.default.contentsOfDirectory(
-            at: agentsURL,
-            includingPropertiesForKeys: nil,
+    // MARK: - CLI wire transcripts
+
+    private func wireURLs() -> [URL] {
+        let sessionsRoot = codeHomeURL
+            .appendingPathComponent("sessions", isDirectory: true)
+        guard let workspaces = try? FileManager.default.contentsOfDirectory(
+            at: sessionsRoot,
+            includingPropertiesForKeys: [.isDirectoryKey],
             options: [.skipsHiddenFiles]) else {
             return []
         }
-        return agentURLs.compactMap { agentURL in
-            let wireURL = agentURL.appendingPathComponent(
-                "wire.jsonl",
-                isDirectory: false)
-            return FileManager.default.fileExists(atPath: wireURL.path)
-                ? wireURL
-                : nil
+        var urls: [URL] = []
+        for workspace in workspaces
+        where (try? workspace.resourceValues(forKeys: [.isDirectoryKey]))?
+            .isDirectory == true {
+            guard let sessions = try? FileManager.default
+                .contentsOfDirectory(
+                    at: workspace,
+                    includingPropertiesForKeys: [.isDirectoryKey],
+                    options: [.skipsHiddenFiles]) else {
+                continue
+            }
+            for session in sessions
+            where session.lastPathComponent.hasPrefix("session_")
+                && (try? session.resourceValues(forKeys: [.isDirectoryKey]))?
+                    .isDirectory == true {
+                let agentsURL = session
+                    .appendingPathComponent("agents", isDirectory: true)
+                guard let agents = try? FileManager.default
+                    .contentsOfDirectory(
+                        at: agentsURL,
+                        includingPropertiesForKeys: nil,
+                        options: [.skipsHiddenFiles]) else {
+                    continue
+                }
+                for agent in agents {
+                    let wireURL = agent
+                        .appendingPathComponent("wire.jsonl", isDirectory: false)
+                    if FileManager.default.fileExists(atPath: wireURL.path) {
+                        urls.append(wireURL)
+                    }
+                }
+            }
         }
+        return urls
     }
 
     private func readWireState(at url: URL) -> WireState {
@@ -195,53 +260,13 @@ final class KimiLocalActivityDetector: KimiLocalActivityProviding,
             default:
                 break
             }
-            if let milliseconds = record["time"] as? NSNumber {
-                state.lastEventAt = Date(
-                    timeIntervalSince1970:
-                        milliseconds.doubleValue / 1_000)
-            }
         }
         wireStates[url.path] = state
         return state
     }
 
-    static func defaultCodeHomeURL(
-        environment: [String: String] = ProcessInfo.processInfo.environment
-    ) -> URL {
-        if let configured = environment["KIMI_CODE_HOME"],
-           !configured.isEmpty {
-            return URL(fileURLWithPath: configured, isDirectory: true)
-        }
-        return FileManager.default.homeDirectoryForCurrentUser
-            .appendingPathComponent(".kimi-code", isDirectory: true)
-    }
-
-    static func runningKimiWorkDirectories() -> [String: Int] {
-        let process = Process()
-        let output = Pipe()
-        process.executableURL = URL(fileURLWithPath: "/usr/sbin/lsof")
-        process.arguments = ["-a", "-c", "kimi", "-d", "cwd", "-Fn"]
-        process.standardOutput = output
-        process.standardError = FileHandle.nullDevice
-        do {
-            try process.run()
-            process.waitUntilExit()
-        } catch {
-            return [:]
-        }
-        guard process.terminationStatus == 0,
-              let text = String(
-                data: output.fileHandleForReading.readDataToEndOfFile(),
-                encoding: .utf8) else {
-            return [:]
-        }
-
-        var directories: [String: Int] = [:]
-        for line in text.split(whereSeparator: \.isNewline) {
-            guard line.first == "n" else { continue }
-            let path = String(line.dropFirst())
-            directories[path, default: 0] += 1
-        }
-        return directories
+    private func fileModificationDate(at url: URL) -> Date? {
+        (try? url.resourceValues(forKeys: [.contentModificationDateKey]))?
+            .contentModificationDate
     }
 }
