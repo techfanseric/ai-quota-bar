@@ -70,6 +70,7 @@ final class CodexSleepProtectionCoordinator {
     /// its own, only a last-event freshness signal.
     static let clientSessionPrefixes: Set<String> = [
         "kimi:", "glm:zcode:", "glm:claude:", "minimax:cli:", "minimax:claude:",
+        "minimax:bg:",
     ]
     /// How long power assertions and the closed-lid lease are kept after the
     /// last active turn ends. Bridges gaps between turns and activity
@@ -565,6 +566,12 @@ final class CodexSleepProtectionCoordinator {
                 ?? zcodeActivitySnapshot.lastEventAt
         } else if sessionID.hasPrefix("minimax:cli:") {
             source = "MiniMax CLI"
+            modelProvider = "MiniMax"
+            lastActivityAt = miniMaxActivitySnapshot
+                .lastEventBySession[sessionID]
+                ?? miniMaxActivitySnapshot.lastEventAt
+        } else if sessionID.hasPrefix("minimax:bg:") {
+            source = "MiniMax Code"
             modelProvider = "MiniMax"
             lastActivityAt = miniMaxActivitySnapshot
                 .lastEventBySession[sessionID]
