@@ -14,12 +14,39 @@ using System;
 namespace AIQuotaBar.Core.Quota;
 
 /// <summary>
+/// 节奏分桶（Swift: UsagePace.Stage）。ahead 系列 = 用得比匀速快，behind 系列 = 比匀速慢。
+/// 提升到命名空间级：record 主构造参数列表无法引用其自身嵌套类型（CI CS0246 实证）。
+/// </summary>
+public enum UsagePaceStage
+{
+    /// <summary>|delta| ≤ 2：节奏正常。</summary>
+    OnTrack,
+
+    /// <summary>2 &lt; delta ≤ 6：略快于匀速。</summary>
+    SlightlyAhead,
+
+    /// <summary>6 &lt; delta ≤ 12：快于匀速。</summary>
+    Ahead,
+
+    /// <summary>delta &gt; 12：远快于匀速。</summary>
+    FarAhead,
+
+    /// <summary>-6 &lt; delta ≤ -2：略慢于匀速。</summary>
+    SlightlyBehind,
+
+    /// <summary>-12 &lt; delta ≤ -6：慢于匀速。</summary>
+    Behind,
+
+    /// <summary>delta &lt; -12：远慢于匀速。</summary>
+    FarBehind,
+}
+
+/// <summary>
 /// 消耗节奏快照（Swift/codexbar: UsagePace）。delta = actual - expected，正数 = 用得比匀速快。
 /// </summary>
 /// <param name="PaceStage">
 /// 按 |delta| 分桶：≤2 onTrack，≤6 slightly，≤12 ahead/behind，&gt;12 far。
-/// Swift 成员名 stage；C# 端属性与嵌套枚举类型不能同名（主构造参数/属性名 Stage 与嵌套
-/// enum Stage 在 record 声明中冲突，CI CS0102/CS0246 实证），故映射为 PaceStage。
+/// Swift 成员名 stage；映射为 PaceStage（类型已提升为命名空间级 UsagePaceStage）。
 /// </param>
 /// <param name="DeltaPercent">actualUsedPercent - expectedUsedPercent（钳制后相减）。</param>
 /// <param name="ExpectedUsedPercent">匀速消耗下应有的已用百分比（0-100）。</param>
@@ -31,7 +58,7 @@ namespace AIQuotaBar.Core.Quota;
 /// 剩余容量 / 预计剩余用量（"还能再撑几倍"）；分子分母非正时为 null。
 /// </param>
 public sealed record UsagePace(
-    Stage PaceStage,
+    UsagePaceStage PaceStage,
     double DeltaPercent,
     double ExpectedUsedPercent,
     double ActualUsedPercent,
@@ -40,33 +67,6 @@ public sealed record UsagePace(
     double? RunOutProbability = null,
     double? SpeedMultiplierToReset = null)
 {
-    /// <summary>
-    /// 节奏分桶（Swift: UsagePace.Stage）。ahead 系列 = 用得比匀速快，behind 系列 = 比匀速慢。
-    /// </summary>
-    public enum Stage
-    {
-        /// <summary>|delta| ≤ 2：节奏正常。</summary>
-        OnTrack,
-
-        /// <summary>2 &lt; delta ≤ 6：略快于匀速。</summary>
-        SlightlyAhead,
-
-        /// <summary>6 &lt; delta ≤ 12：快于匀速。</summary>
-        Ahead,
-
-        /// <summary>delta &gt; 12：远快于匀速。</summary>
-        FarAhead,
-
-        /// <summary>-6 &lt; delta ≤ -2：略慢于匀速。</summary>
-        SlightlyBehind,
-
-        /// <summary>-12 &lt; delta ≤ -6：慢于匀速。</summary>
-        Behind,
-
-        /// <summary>delta &lt; -12：远慢于匀速。</summary>
-        FarBehind,
-    }
-
     /// <summary>
     /// 由期望/实际已用百分比构造（Swift: UsagePace.historical(expectedUsedPercent:actualUsedPercent:...)）。
     /// 两端都钳制到 0-100 后再求 delta。
@@ -99,33 +99,33 @@ public sealed record UsagePace(
     /// ahead 系列 → false（红）。注意命名反直觉是 Swift 历史遗留：这里的 "ahead" 指配额
     /// 有余量（burn 得慢），沿用原名保证双端可检索。
     /// </summary>
-    public static bool IsAhead(Stage stage) => stage switch
+    public static bool IsAhead(UsagePaceStage stage) => stage switch
     {
-        Stage.OnTrack or Stage.SlightlyBehind or Stage.Behind or Stage.FarBehind => true,
-        Stage.SlightlyAhead or Stage.Ahead or Stage.FarAhead => false,
+        UsagePaceStage.OnTrack or UsagePaceStage.SlightlyBehind or UsagePaceStage.Behind or UsagePaceStage.FarBehind => true,
+        UsagePaceStage.SlightlyAhead or UsagePaceStage.Ahead or UsagePaceStage.FarAhead => false,
         _ => throw new ArgumentOutOfRangeException(nameof(stage), stage, null),
     };
 
     // Swift private static stage(for:) — 分桶阈值是行为契约，保持私有，经 Historical/Stages 使用。
-    private static Stage StageFor(double delta)
+    private static UsagePaceStage StageFor(double delta)
     {
         var absDelta = Math.Abs(delta);
         if (absDelta <= 2)
         {
-            return Stage.OnTrack;
+            return UsagePaceStage.OnTrack;
         }
 
         if (absDelta <= 6)
         {
-            return delta >= 0 ? Stage.SlightlyAhead : Stage.SlightlyBehind;
+            return delta >= 0 ? UsagePaceStage.SlightlyAhead : UsagePaceStage.SlightlyBehind;
         }
 
         if (absDelta <= 12)
         {
-            return delta >= 0 ? Stage.Ahead : Stage.Behind;
+            return delta >= 0 ? UsagePaceStage.Ahead : UsagePaceStage.Behind;
         }
 
-        return delta >= 0 ? Stage.FarAhead : Stage.FarBehind;
+        return delta >= 0 ? UsagePaceStage.FarAhead : UsagePaceStage.FarBehind;
     }
 
     private static double? SafeSpeedMultiplier(double remainingCapacity, double? projectedRemainingUsage)
