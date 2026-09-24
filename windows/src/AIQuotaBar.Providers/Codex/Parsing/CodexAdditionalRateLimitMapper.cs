@@ -99,7 +99,7 @@ public static class CodexAdditionalRateLimitMapper
     internal static CodexRateWindow MakeWindow(CodexUsageResponse.WindowSnapshot snapshot)
     {
         var resetsAt = snapshot.ResetAt > 0
-            ? DateTimeOffset.FromUnixTimeSeconds(snapshot.ResetAt)
+            ? (DateTimeOffset?)DateTimeOffset.FromUnixTimeSeconds(snapshot.ResetAt)
             : null;
         return new CodexRateWindow(
             UsedPercent: snapshot.UsedPercent,

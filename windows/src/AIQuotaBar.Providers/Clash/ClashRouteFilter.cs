@@ -50,7 +50,7 @@ public static class ClashRouteFilter
         }
 
         var normalizedQuery = Normalize(trimmedQuery);
-        var queryCountries = CountryAliases
+        var queryCountries = CountryAliasTable
             .Where(country => country.Aliases.Any(alias => Normalize(alias) == normalizedQuery))
             .Select(country => country.Code)
             .ToHashSet();
@@ -68,7 +68,7 @@ public static class ClashRouteFilter
                     return false;
                 }
 
-                var routeCountries = CountryAliases
+                var routeCountries = CountryAliasTable
                     .Where(country => country.Aliases.Any(alias => ContainsAlias(alias, route.Name)))
                     .Select(country => country.Code)
                     .ToHashSet();
