@@ -471,7 +471,16 @@ public static class UsageDataCalculations
             return null;
         }
 
-        var elapsed = Math.Clamp(now - window.Start, TimeSpan.Zero, duration);
+        // Math.Clamp 无 TimeSpan 重载，手工钳制到 [0, duration]。
+        var elapsed = now - window.Start;
+        if (elapsed < TimeSpan.Zero)
+        {
+            elapsed = TimeSpan.Zero;
+        }
+        else if (elapsed > duration)
+        {
+            elapsed = duration;
+        }
 
         // codexbar 的 guard：elapsed == 0 且 actual > 0 时不计算（刚开始时已用 > 0 是脏数据）。
         var actual = model.CurrentIntervalPercentageUsed();
