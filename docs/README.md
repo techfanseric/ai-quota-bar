@@ -22,6 +22,7 @@
 
 - [常驻负载与本机用量审查](./performance-audit-2026-09-20.md)：2026-09-20 的现场测量、修复与边界说明。
 
+- [任务检测准确性调研与计划](./task-detection-accuracy-plan.md)：2026-09-24 的全链路审查、ZCode 混合检测实施记录，以及 Codex/Kimi/MiniMax 三项待实验方案与实验工具。
 - [D1 读成本迁移记录](../cloudflare/DEPLOYMENT_NOTES.md)：2026-09-02 的生产迁移和验证结果。
 - [云同步实现沿革](./cloud-sync-implementation-summary.md)：从初版到当前内置服务的变化。
 - [Raycast 扩展调研](./raycast-extension-research.md)：2026-05-07 的替代实现调研，当前没有实施。
