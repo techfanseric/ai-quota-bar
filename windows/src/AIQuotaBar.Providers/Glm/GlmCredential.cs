@@ -65,7 +65,10 @@ public sealed record GlmCredential
     /// <summary>
     /// 钥匙串存储形态（Swift: storageString）：JSON 编码，失败时回退裸 authorization
     /// （Swift `try? ... ?? authorization` 的兜底分支）。
+    /// [JsonIgnore]：线上只有六个数据字段（对齐 Swift Codable 键集）；若不排除，序列化 this 时
+    /// STJ 会访问本计算属性 → getter 再次 Serialize(this) → 无限递归 StackOverflow（不可捕获）。
     /// </summary>
+    [JsonIgnore]
     public string StorageString
     {
         get
@@ -84,7 +87,9 @@ public sealed record GlmCredential
     /// <summary>
     /// 可编辑文本形态（Swift: editableString）：纯 API Key 凭据直接给 token；
     /// 网页凭据渲染回 cURL 命令，把存储 JSON 藏在编辑器外但保留 web 请求上下文。
+    /// [JsonIgnore]：同上，不得进入存储 JSON。
     /// </summary>
+    [JsonIgnore]
     public string EditableString
     {
         get
@@ -127,4 +132,10 @@ public sealed record GlmCredential
             static string Quote(string value) => "'" + value.Replace("'", "'\\''") + "'";
         }
     }
+
+    /// <summary>
+    /// record 合成的 ToString 会打印全部属性（含上面两个计算属性，xUnit/TRX 字符串化对象即触发
+    /// StorageString 递归）——覆写为不触碰计算属性、也不泄露凭据的安全形式。
+    /// </summary>
+    public override string ToString() => $"GlmCredential({ApiUrl})";
 }
