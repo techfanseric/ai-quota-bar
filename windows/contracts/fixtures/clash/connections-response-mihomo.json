@@ -1,0 +1,26 @@
+{
+  "downloadTotal": 1234,
+  "uploadTotal": 567,
+  "memory": 999,
+  "connections": [
+    {
+      "id": "connection-1",
+      "download": 400,
+      "upload": 100,
+      "chains": ["AI group", "JP 01"],
+      "rule": "DomainSuffix",
+      "rulePayload": "openai.com",
+      "start": "2026-07-29T07:00:00.123456Z",
+      "metadata": {
+        "network": "tcp",
+        "type": "HTTP",
+        "destinationIP": "203.0.113.1",
+        "host": "api.openai.com",
+        "process": "Codex",
+        "processPath": "/Applications/Codex.app",
+        "remoteDestination": "api.openai.com:443",
+        "sniffHost": ""
+      }
+    }
+  ]
+}

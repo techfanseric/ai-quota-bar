@@ -1,0 +1,11 @@
+{
+  "code": 200,
+  "success": true,
+  "data": {
+    "limits": [
+      {
+        "type": "CREDIT_LIMIT"
+      }
+    ]
+  }
+}

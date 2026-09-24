@@ -1,0 +1,23 @@
+{
+  "code": 200,
+  "success": true,
+  "data": {
+    "targetType": "PERSONAL",
+    "fiveHourResets": [
+      {
+        "available": false,
+        "expireTime": "2026-09-17 20:04:30"
+      },
+      {
+        "available": true,
+        "expireTime": "2026-10-18 18:48:45"
+      }
+    ],
+    "weekResets": [
+      {
+        "available": true,
+        "expireTime": "2026-10-18 17:48:12"
+      }
+    ]
+  }
+}

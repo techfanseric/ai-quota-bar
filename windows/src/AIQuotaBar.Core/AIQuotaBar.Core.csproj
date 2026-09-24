@@ -1,0 +1,7 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!-- 纯逻辑层（配额计算/预测/历史/契约模型）。
+       公共属性（net8.0、Nullable、TreatWarningsAsErrors 等）继承自 windows/Directory.Build.props。
+       分层铁律：本项目禁止引用任何 Windows / UI / Platform 依赖，见 windows/docs/coding-conventions.md。 -->
+
+</Project>

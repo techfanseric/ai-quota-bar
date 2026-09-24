@@ -1,0 +1,15 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <!-- 覆盖 windows/Directory.Build.props 的默认 TFM（net8.0）：
+         本项目承载 Win32 / 桌面 API（托盘、DPAPI/CredMan、ConPTY、Toast 等），
+         仅可在 Windows 上构建与运行——CI 使用 windows-latest runner（.github/workflows/windows-ci.yml），
+         macOS 本机不要构建本项目（其余 net8.0 项目不受此限制，仍可跨平台测试）。 -->
+    <TargetFramework>net8.0-windows</TargetFramework>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\AIQuotaBar.Core\AIQuotaBar.Core.csproj" />
+  </ItemGroup>
+
+</Project>

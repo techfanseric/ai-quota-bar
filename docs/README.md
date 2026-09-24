@@ -25,5 +25,7 @@
 - [D1 读成本迁移记录](../cloudflare/DEPLOYMENT_NOTES.md)：2026-09-02 的生产迁移和验证结果。
 - [云同步实现沿革](./cloud-sync-implementation-summary.md)：从初版到当前内置服务的变化。
 - [Raycast 扩展调研](./raycast-extension-research.md)：2026-05-07 的替代实现调研，当前没有实施。
+
+- [Windows 端移植计划](./windows-port-plan-2026-09-24.md)：2026-09-24 的跨平台方案（可行性、平台映射、分期与风险），待评审，未实施。
 - [早期运行排查记录](./run-experience-2026-04-09.md)：早期 Debug/Release 验证经验，部分命令和界面已变化。
 - `superpowers/specs` 与 `superpowers/plans`：已执行或被后续实现替代的设计与实施记录。

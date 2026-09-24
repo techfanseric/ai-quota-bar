@@ -1,0 +1,13 @@
+{
+  "account_id": "workspace-fixture",
+  "plan_type": "business",
+  "credits": {
+    "has_credits": true,
+    "unlimited": false,
+    "balance": null
+  },
+  "individual_limit": {
+    "limit": 400,
+    "used": 300
+  }
+}

@@ -1,0 +1,7 @@
+{
+  "subscriptionBalance": {
+    "feature": "FEATURE_OMNI",
+    "type": "SUBSCRIPTION",
+    "amountUsedRatio": 0.2
+  }
+}

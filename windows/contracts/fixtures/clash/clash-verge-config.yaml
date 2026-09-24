@@ -1,0 +1,2 @@
+external-controller: 127.0.0.1:9097
+secret: "test-secret"

@@ -1,0 +1,48 @@
+Microsoft Visual Studio Solution File, Format Version 12.00
+# Visual Studio Version 17
+VisualStudioVersion = 17.8.34330.188
+MinimumVisualStudioVersion = 10.0.40219.1
+# AI Quota Bar Windows 端解决方案（W0 骨架）。
+# 注意：AIQuotaBar.App（UI 框架待 Phase 0 spike S6/S7 定稿）与 AIQuotaBar.MobileServer（待 Phase 2）
+# 目前仅有 README 占位、暂无 csproj，定稿/启动后再加入本解决方案。
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "AIQuotaBar.Core", "src\AIQuotaBar.Core\AIQuotaBar.Core.csproj", "{D6484E48-8B30-4991-8A37-49C440C896FD}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "AIQuotaBar.Providers", "src\AIQuotaBar.Providers\AIQuotaBar.Providers.csproj", "{E4AC1B52-5138-4DFB-A4EE-83C5D9F8E1F4}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "AIQuotaBar.Platform", "src\AIQuotaBar.Platform\AIQuotaBar.Platform.csproj", "{DD1AA367-D146-422B-B777-D912403A8647}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "AIQuotaBar.Core.Tests", "tests\AIQuotaBar.Core.Tests\AIQuotaBar.Core.Tests.csproj", "{62533C58-B466-4696-B4CC-C075D5038BDD}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "AIQuotaBar.Providers.Tests", "tests\AIQuotaBar.Providers.Tests\AIQuotaBar.Providers.Tests.csproj", "{AA4DB3AC-A208-440F-8165-F87FA05E8AE1}"
+EndProject
+Global
+	GlobalSection(SolutionConfigurationPlatforms) = preSolution
+		Debug|Any CPU = Debug|Any CPU
+		Release|Any CPU = Release|Any CPU
+	EndGlobalSection
+	GlobalSection(ProjectConfigurationPlatforms) = postSolution
+		{D6484E48-8B30-4991-8A37-49C440C896FD}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{D6484E48-8B30-4991-8A37-49C440C896FD}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{D6484E48-8B30-4991-8A37-49C440C896FD}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{D6484E48-8B30-4991-8A37-49C440C896FD}.Release|Any CPU.Build.0 = Release|Any CPU
+		{E4AC1B52-5138-4DFB-A4EE-83C5D9F8E1F4}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{E4AC1B52-5138-4DFB-A4EE-83C5D9F8E1F4}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{E4AC1B52-5138-4DFB-A4EE-83C5D9F8E1F4}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{E4AC1B52-5138-4DFB-A4EE-83C5D9F8E1F4}.Release|Any CPU.Build.0 = Release|Any CPU
+		{DD1AA367-D146-422B-B777-D912403A8647}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{DD1AA367-D146-422B-B777-D912403A8647}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{DD1AA367-D146-422B-B777-D912403A8647}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{DD1AA367-D146-422B-B777-D912403A8647}.Release|Any CPU.Build.0 = Release|Any CPU
+		{62533C58-B466-4696-B4CC-C075D5038BDD}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{62533C58-B466-4696-B4CC-C075D5038BDD}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{62533C58-B466-4696-B4CC-C075D5038BDD}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{62533C58-B466-4696-B4CC-C075D5038BDD}.Release|Any CPU.Build.0 = Release|Any CPU
+		{AA4DB3AC-A208-440F-8165-F87FA05E8AE1}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{AA4DB3AC-A208-440F-8165-F87FA05E8AE1}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{AA4DB3AC-A208-440F-8165-F87FA05E8AE1}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{AA4DB3AC-A208-440F-8165-F87FA05E8AE1}.Release|Any CPU.Build.0 = Release|Any CPU
+	EndGlobalSection
+	GlobalSection(SolutionProperties) = preSolution
+		HideSolutionNode = FALSE
+	EndGlobalSection
+EndGlobal

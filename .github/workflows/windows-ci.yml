@@ -1,0 +1,39 @@
+# Windows 端 CI（W0 骨架）。
+# 触发条件：windows/ 子树或本 workflow 文件有变更的 pull_request 与 push。
+# 说明：
+#   - 平台：windows-latest（x64）。架构矩阵（决策 D3）：arm64 后续以矩阵补齐
+#     （GitHub 托管 arm64 runner 或接入用户提供的远程 Windows 物理机为自托管 runner），当前先 x64。
+#   - 构建验证依赖 CI 与远程 Windows 机；本仓库开发者主力机为 macOS，不装 .NET SDK。
+name: windows-ci
+
+on:
+  pull_request:
+    paths:
+      - 'windows/**'
+      - '.github/workflows/windows-ci.yml'
+  push:
+    paths:
+      - 'windows/**'
+      - '.github/workflows/windows-ci.yml'
+
+jobs:
+  build-and-test:
+    name: build-and-test (x64)
+    runs-on: windows-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup .NET SDK 8.0
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 8.0.x
+
+      - name: Restore
+        run: dotnet restore windows/AIQuotaBar.Windows.sln
+
+      - name: Build (Release)
+        run: dotnet build windows/AIQuotaBar.Windows.sln --no-restore -c Release
+
+      - name: Test (Release)
+        run: dotnet test windows/AIQuotaBar.Windows.sln --no-build -c Release --logger trx
