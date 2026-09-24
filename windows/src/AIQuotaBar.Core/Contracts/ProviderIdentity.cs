@@ -123,6 +123,12 @@ public static class QuotaIdentity
     /// <summary>
     /// Swift: ModelUsageData.quotaIdentityKey — "provider:normalizedAccount:normalizedModel"
     /// (account and model trimmed + lowercased). Canonical identity for dedup/grouping.
+    /// ASYMMETRY WITH <see cref="DisplayId"/> (mirrors Swift, do NOT "fix"): the account segment
+    /// is ALWAYS joined even when empty — Swift is
+    ///   [provider.rawValue, normalizedAccountName, model].joined(separator: ":")
+    /// with no empty-guard — so an account-less model yields a DOUBLE COLON
+    /// ("glm::glm-4.6"), exactly like the macOS app's cloud dedup keys. Only Swift `id`
+    /// (our <see cref="DisplayId"/>, the utilization-history store key) drops the empty segment.
     /// </summary>
     public static string Key(UsageProvider provider, string? accountName, string modelName) => string.Join(
         ":",

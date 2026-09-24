@@ -8,11 +8,11 @@
 // predicates, pace/reserve/deficit math, formatting, sorting, window classification) is a
 // later AIQuotaBar.Core task; the semantic notes below document what that logic may assume.
 //
-// WIRE COMPATIBILITY NOTE: the C# property names for the two most misleading Swift fields were
-// renamed to their true meaning, but their JSON keys are pinned with [JsonPropertyName] to the
-// exact Swift Codable keys so payloads stay interchangeable:
+// WIRE COMPATIBILITY NOTE: the C# property names for the three renamed Swift fields carry
+// [JsonPropertyName] pins to the exact Swift Codable keys so payloads stay interchangeable:
 //   Swift currentIntervalUsed  -> C# CurrentIntervalRemaining ("currentIntervalUsed" on the wire)
 //   Swift weeklyUsed           -> C# WeeklyRemaining          ("weeklyUsed" on the wire)
+//   Swift remainsTime          -> C# RemainsTimeMilliseconds  ("remainsTime" on the wire)
 // 命名经编排者确认（2026-09-24 裁决 1）：字段语义为剩余量，线上键保留 MiniMax 原名。
 
 #nullable enable
@@ -96,7 +96,7 @@ public sealed record ModelUsageData(
     [property: JsonPropertyName("currentIntervalUsed")] int CurrentIntervalRemaining,
     int WeeklyTotal,
     [property: JsonPropertyName("weeklyUsed")] int WeeklyRemaining,
-    int RemainsTimeMilliseconds,
+    [property: JsonPropertyName("remainsTime")] int RemainsTimeMilliseconds,
     DateTimeOffset? StartTime,
     DateTimeOffset? EndTime,
     DateTimeOffset? WeeklyStartTime,
