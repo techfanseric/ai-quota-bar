@@ -26,6 +26,6 @@
 - [云同步实现沿革](./cloud-sync-implementation-summary.md)：从初版到当前内置服务的变化。
 - [Raycast 扩展调研](./raycast-extension-research.md)：2026-05-07 的替代实现调研，当前没有实施。
 
-- [Windows 端移植计划](./windows-port-plan-2026-09-24.md)：2026-09-24 的跨平台方案（可行性、平台映射、分期与风险），待评审，未实施。
+- [Windows 端移植计划](./windows-port-plan-2026-09-24.md)：2026-09-24 的跨平台方案与执行进度（§0 持续更新）。已批准执行：W0/Phase 0/W1 落地于 `windows/` 目录（CI 226/226 绿），待远程 Win10 机启动 S2~S6 与 W2。
 - [早期运行排查记录](./run-experience-2026-04-09.md)：早期 Debug/Release 验证经验，部分命令和界面已变化。
 - `superpowers/specs` 与 `superpowers/plans`：已执行或被后续实现替代的设计与实施记录。
