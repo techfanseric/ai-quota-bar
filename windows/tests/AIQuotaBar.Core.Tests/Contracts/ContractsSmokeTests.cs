@@ -10,6 +10,7 @@
 using System;
 using System.Collections.Generic;
 using System.Text.Json;
+using System.Text.RegularExpressions;
 using AIQuotaBar.Core.Contracts;
 using Xunit;
 
@@ -49,7 +50,8 @@ public sealed class ContractsSmokeTests
     [Fact]
     public void UsageProvider_JsonUsesLowercaseSwiftRawValues()
     {
-        Assert.Equal("\"codex\"", JsonSerializer.Serialize(UsageProvider.Codex, Json), "应输出 Swift rawValue 小写形式");
+        // 应然：输出 Swift rawValue 小写形式（实然：C# 枚举名 "Codex" 则为失败）。
+        Assert.Equal("\"codex\"", JsonSerializer.Serialize(UsageProvider.Codex, Json));
         Assert.Equal(UsageProvider.MiniMax, JsonSerializer.Deserialize<UsageProvider>("\"minimax\"", Json));
         Assert.Throws<JsonException>(() => JsonSerializer.Deserialize<UsageProvider>("\"MiniMax\"", Json));
     }
@@ -135,7 +137,7 @@ public sealed class ContractsSmokeTests
         Assert.Equal("user@example.com", root.GetProperty("accountName").GetString());
         Assert.Equal(100, root.GetProperty("currentIntervalTotal").GetInt32());
         // 应然：重命名的 CurrentIntervalRemaining 仍以 Swift 键 currentIntervalUsed 上线（实然：缺失或值错）。
-        Assert.Equal(64, root.GetProperty("currentIntervalUsed").GetInt32(), "应保持 Swift 线上键 currentIntervalUsed");
+        Assert.Equal(64, root.GetProperty("currentIntervalUsed").GetInt32());
         Assert.Equal(64, root.GetProperty("currentIntervalRemainingPercent").GetInt32());
         Assert.Equal(3_600_000, root.GetProperty("remainsTime").GetInt32());
         Assert.Equal("%", root.GetProperty("valueSuffix").GetString());
@@ -399,7 +401,8 @@ public sealed class ContractsSmokeTests
 
         // Swift Dictionary<UsageProvider, T> encodes as [{ "key": "codex", "value": {...} }].
         var providerEntry = root.GetProperty("providerUsageData")[0];
-        Assert.Equal("codex", providerEntry.GetProperty("key").GetString(), "枚举键应编码为 { key, value } 数组元素");
+        // 应然：枚举键应编码为 { key, value } 数组元素（实然：对象键或其他形状则失败）。
+        Assert.Equal("codex", providerEntry.GetProperty("key").GetString());
         Assert.Equal(1, providerEntry.GetProperty("value").GetProperty("remains").GetInt32());
 
         // String-keyed dictionaries stay JSON objects.
@@ -438,7 +441,9 @@ public sealed class ContractsSmokeTests
         // 应然：+08:00 18:30 → "2026-09-24T10:30:00Z"（精确文本，非仅语义等价）。
         Assert.Equal("2026-09-24T10:30:00Z", text);
         // 形状：yyyy-MM-ddTHH:mm:ssZ，无小数秒。
-        Assert.Matches(@"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$", text);
+        Assert.True(
+            Regex.IsMatch(text!, @"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$"),
+            $"日期形状应为 yyyy-MM-ddTHH:mm:ssZ（实然：{text}）");
 
         // 亚秒精度在写入时截断（Swift .iso8601 对 fractional Date 的行为一致）。
         var fractional = sample with { Timestamp = sample.Timestamp.AddMilliseconds(250) };
