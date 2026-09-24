@@ -19,3 +19,6 @@ cloudflare/dist-pages/
 
 # ZCode session-local plans
 .zcode/
+
+# Local console credentials (website /team and /admin access) — never commit
+console-access.local.md

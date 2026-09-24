@@ -1,3 +1,4 @@
+import { TEAM_COOKIE } from './team.js';
 const enc = new TextEncoder();
 const COOKIE = '__Host-aqb_ops';
 const json = (value,status=200,headers={}) => new Response(JSON.stringify(value), {status,headers:{'content-type':'application/json; charset=utf-8','cache-control':'no-store',...headers}});
@@ -50,6 +51,20 @@ export async function operations(request,env,url) {
    return json({ok:true},200,{'set-cookie':COOKIE+'=; Path=/; Secure; HttpOnly; SameSite=Strict; Max-Age=0'});
   }
   if(!await authorized(request,env))return json({error:'unauthorized'},401);
+  // Passwordless team access for the platform admin: swap the browser's team
+  // cookie for one signed with OPS_ADMIN_SECRET (accepted by team.js as a
+  // manager session). The team's own login password is never touched.
+  if(url.pathname==='/v1/admin/team-session') {
+   if(request.method!=='POST')return json({error:'method_not_allowed'},405);
+   if(request.headers.get('origin')!==url.origin)return json({error:'invalid_origin'},403);
+   const p=await readBody(request);
+   const teamID=typeof p.teamID==='string'?p.teamID:'';
+   if(!/^[a-z0-9_-]{1,60}$/.test(teamID))return json({error:'invalid_team'},400);
+   const known=(await env.DB.prepare('SELECT team_id FROM usage_teams WHERE team_id=? UNION ALL SELECT team_id FROM usage_devices WHERE team_id=? LIMIT 1').bind(teamID,teamID).all()).results[0];
+   if(!known)return json({error:'not_found'},404);
+   const value=`admin.${teamID}.${Math.floor(Date.now()/1000)+28800}.${crypto.randomUUID()}`;
+   return json({ok:true,teamID},200,{'set-cookie':TEAM_COOKIE+'='+value+'.'+await sign(value,env.OPS_ADMIN_SECRET)+'; Path=/; Secure; HttpOnly; SameSite=Strict; Max-Age=28800'});
+  }
   if(request.method==='GET'&&url.pathname==='/v1/admin/overview')return await overview(env,url);
   if(request.method==='GET'&&url.pathname==='/v1/admin/feedback')return await feedbackList(env,url);
   if(request.method==='POST'&&url.pathname==='/v1/admin/feedback/status') {

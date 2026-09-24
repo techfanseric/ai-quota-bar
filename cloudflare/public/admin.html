@@ -8,8 +8,8 @@
 <section class="feedback"><div class="section-heading"><h2>反馈留言</h2><span class="muted" id="feedback-counts"></span></div><p class="muted">联系方式仅后台可见，不会公开展示；隐藏后官网反馈墙不再显示，可随时恢复。</p><p id="feedback-error" role="alert" hidden>反馈加载失败，请刷新重试。</p><p id="feedback-empty" class="empty" hidden>还没有收到反馈。</p><div class="table-scroll"><table><thead><tr><th>时间（UTC）</th><th>来源</th><th>昵称</th><th>联系方式</th><th>留言</th><th>版本</th><th>状态</th><th>操作</th></tr></thead><tbody id="feedback-rows"></tbody></table></div></section>
 <section class="feedback"><div class="section-heading"><h2>团队与数据管理</h2><button id="data-refresh">刷新业务数据</button></div>
 <p class="muted">团队数据按团队独立保存。旧版共享数据单独保留，只读展示，不会自动归入任何团队。</p><p id="data-error" role="alert"></p><p id="d1-status" class="muted"></p>
-<div class="table-scroll"><table><thead><tr><th>团队</th><th>ID</th><th>成员</th><th>有效设备</th><th>用量记录</th></tr></thead><tbody id="team-rows"></tbody></table></div>
-<label for="data-team">查看团队账号</label><select id="data-team"><option value="">选择团队</option></select>
+<div class="table-scroll"><table><thead><tr><th>团队</th><th>ID</th><th>成员</th><th>有效设备</th><th>用量记录</th><th>操作</th></tr></thead><tbody id="team-rows"></tbody></table></div>
+<div class="control-row"><label for="data-team">查看团队账号</label><select id="data-team"><option value="">选择团队</option></select></div>
 <div class="table-scroll"><table><thead><tr><th>供应商</th><th>账号</th><th>模型数</th><th>快照数</th><th>最新上报</th><th>操作</th></tr></thead><tbody id="quota-rows"></tbody></table></div>
 <details><summary>历史共享数据（只读）</summary><table><thead><tr><th>供应商</th><th>账号</th><th>模型数</th><th>快照数</th></tr></thead><tbody id="legacy-account-rows"></tbody></table></details>
 <details><summary>数据管理审计（最近 100 条）</summary><table><thead><tr><th>时间</th><th>团队</th><th>执行身份</th><th>操作</th><th>目标</th></tr></thead><tbody id="audit-rows"></tbody></table></details></section>

@@ -73,6 +73,10 @@ See [team rollout notes](../docs/team-isolation.md) for the release checklist.
 - `/v1/admin/data/teams`, `/accounts?team_id=...`, `/audit`, `/legacy/accounts`, `/legacy/samples`, `/legacy/devices`:
   platform-admin session only. Team account deletion uses `DELETE /v1/admin/data/accounts` with explicit team/provider/account.
 - `/v1/admin/d1-usage`: platform-admin D1 analytics. The old `/v1/d1-usage` is closed.
+- `POST /v1/admin/team-session {teamID}`: platform-admin session only. Swaps the browser's
+  team cookie for one signed with `OPS_ADMIN_SECRET`, which team.js accepts as a manager
+  session — the `/admin` console's "Open dashboard" button uses this to enter any team
+  (including device-only teams without a `usage_teams` row) without touching its password.
 - `/v1/admin/feedback`: existing platform feedback moderation.
 - `/v1/app-update`, `GET /v1/feedback`: public read-only content. Feedback and telemetry ingestion do not grant data access.
 
