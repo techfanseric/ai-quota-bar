@@ -1,8 +1,30 @@
 # Windows 端移植计划
 
-日期：2026-09-24。状态：**草案，待评审**——本文档只为决策提供依据，评审通过前不启动任何 Windows 端实施。
+日期：2026-09-24（创建）。状态：**已批准，执行中**——W0、Phase 0 本地部分与 W1 波次已完成（进度见 §0），执行产出在 `windows/` 目录与 `windows/kickoff` 分支。
 
 调研范围：主应用全部源码（128 个 Swift 文件）、AIQuotaBarHook / AIQuotaBarSleepHelper 辅助进程、CodexBarCore 依赖的实际使用面、测试资产、构建与发布链路。基于 v1.28.1 代码快照。
+
+## 0. 执行进度（持续更新）
+
+| 日期 | 事项 | 状态 |
+| --- | --- | --- |
+| 2026-09-24 | 计划评审通过，开始执行；W0 + Phase 0 本地部分四路 Subagent 并行 | ✅ |
+| 2026-09-24 | S1 切割清单完成：直接使用面 25 文件/1.09 万行，传递闭包 263 文件/9.4 万行（含 ProviderDescriptorRegistry 级联陷阱）。**策略修正为契约优先**：以 fixtures 为行为规格实现，不整块翻译闭包（见 `windows/docs/phase0-s1-codexbar-cutlist.md`） | ✅ |
+| 2026-09-24 | W0 骨架完成：sln + Core/Providers/Platform 项目 + CI（windows-latest x64）+ 编码规范 + ADR-001（D1~D7 默认采纳、远程机环境路线） | ✅ |
+| 2026-09-24 | 契约 v0 冻结：8 个共享类型 + 严格 ISO8601 线上形状 + 与 macOS 客户端互读的字典形态；fixtures 种子 41 个样本覆盖五家 provider（全部 test-synthesized，真实流量录制待做） | ✅ |
+| 2026-09-24 | W1 五路并行：Core 数学与存储 / Clash 客户端 / GLM+MiniMax / Platform 基础 / Codex 凭据配额；每路由独立审查 agent 评审（implementer ≠ reviewer） | ✅ |
+| 2026-09-24 | G1 门禁闭环：9 轮 CI 迭代（嵌套类型作用域、Unix 秒 vs .NET ticks、Uri 尾斜杠、GlmCredential 序列化栈溢出等），最终 **226/226 测试全绿**（Core 42 / Platform 37 / Providers 147，commit `7d268e3`） | ✅ |
+| 待定 | S2~S6 spike（实机凭据/cookie 解密/ConPTY/托盘 demo/UI 选型定稿）+ W2（Kimi 全源 / UI / 移动仪表盘） | ⏸ 阻塞：等待远程 Win10 机（SSH） |
+
+执行期裁决记录：
+
+- D1~D7 按本文档建议默认采纳，详见 `windows/docs/adr-001-kickoff-decisions.md`。
+- MiniMax 端点取 `api.minimax.io`（以 codexbar 实现为准；MANIFEST 的 platform.minimax.io 待真实流量录制时核正）。
+- 测试项目局部豁免 xUnit2013/2009 风格规则（`windows/tests/.editorconfig`）：测试刻意镜像 Swift 断言形态；`windows/src` 保持全分析器压力。
+- GitHub Actions runner 上下文无法写 HKCU Run 键：注册表可写测试在 CI 环境守卫跳过（环境限制非断言豁免），真实行为在远程物理机验收（§10.2）。
+- `quotaIdentityKey` 的空账户双冒号是 Swift 线上真实形状（云端去重键），已在 Contracts 中以 ASYMMETRY 注释钉死，禁止"修复"。
+
+W2 待办（下波处理）：UsageError 统一枚举、ProviderLocalActivitySnapshot 上移 Core、ICredentialStore 接口归位 Core、各测试目录 fixtures 加载器去重、NetArchTest 架构依赖门禁补装、真实流量 fixture 录制（macOS 实机抓包）。
 
 ## 1. 结论摘要
 
