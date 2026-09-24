@@ -6,6 +6,8 @@
 // The C# contract mirrors that wire shape explicitly via entry records, so a JSON produced by
 // the macOS app (CloudSyncService.rawJSONString — .iso8601 dates, sorted keys, pretty-printed)
 // parses here unchanged, and vice versa.
+// 形状经编排者确认（2026-09-24 裁决 2）：镜像 Swift [{key,value}] 数组形状——云同步数据报告
+// 必须与 macOS 客户端互读（跨设备团队场景）。
 //
 // Swift reference construction (UsageViewModel.dataReportSnapshot()): generatedAt = now;
 // usageData = the currently selected provider's snapshot (may be null); providerUsageData = the

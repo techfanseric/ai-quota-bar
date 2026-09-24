@@ -13,6 +13,7 @@
 // exact Swift Codable keys so payloads stay interchangeable:
 //   Swift currentIntervalUsed  -> C# CurrentIntervalRemaining ("currentIntervalUsed" on the wire)
 //   Swift weeklyUsed           -> C# WeeklyRemaining          ("weeklyUsed" on the wire)
+// 命名经编排者确认（2026-09-24 裁决 1）：字段语义为剩余量，线上键保留 MiniMax 原名。
 
 #nullable enable
 
