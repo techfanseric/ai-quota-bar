@@ -421,7 +421,7 @@ public static class CodexUsageParser
     // 内部：usage 响应解码。
     // ------------------------------------------------------------------
 
-    private static CodexUsageResponse.RateLimitDetails? ParseRateLimitDetails(JsonElement element)
+    private static RateLimitDetails? ParseRateLimitDetails(JsonElement element)
     {
         var (primaryWindow, primaryFailed) = ParseWindow(element, "primary_window");
         var (secondaryWindow, secondaryFailed) = ParseWindow(element, "secondary_window");
@@ -435,7 +435,7 @@ public static class CodexUsageParser
                 ? ParseSpendControlLimit(individualCamelElement)
                 : null;
 
-        return new CodexUsageResponse.RateLimitDetails(
+        return new RateLimitDetails(
             PrimaryWindow: primaryWindow,
             SecondaryWindow: secondaryWindow,
             IndividualLimit: individualLimit,
@@ -465,20 +465,20 @@ public static class CodexUsageParser
         return (null, true);
     }
 
-    private static CodexUsageResponse.CreditDetails ParseCreditDetails(JsonElement element) =>
+    private static CreditDetails ParseCreditDetails(JsonElement element) =>
         new(
             HasCredits: CodexJson.BoolOrFalse(element, "has_credits"),
             Unlimited: CodexJson.BoolOrFalse(element, "unlimited"),
             Balance: CodexJson.FlexibleDouble(element, "balance"));
 
-    private static CodexUsageResponse.SpendControlLimitSnapshot? ParseSpendControlLimit(JsonElement element) =>
+    private static SpendControlLimitSnapshot? ParseSpendControlLimit(JsonElement element) =>
         new(
             Limit: CodexJson.FlexibleDouble(element, "limit"),
             Used: CodexJson.FlexibleDouble(element, "used"),
             RemainingPercent: CodexJson.FlexibleDouble(element, "remainingPercent", "remaining_percent"),
             ResetsAt: CodexJson.FlexibleInt32(element, "resetsAt", "resets_at", "reset_at"));
 
-    private static CodexUsageResponse.SpendControlLimitSnapshot? ParseSpendControlWrapper(
+    private static SpendControlLimitSnapshot? ParseSpendControlWrapper(
         JsonElement root,
         string key)
     {
@@ -496,7 +496,7 @@ public static class CodexUsageParser
                         : null;
     }
 
-    private static (IReadOnlyList<CodexUsageResponse.AdditionalRateLimit>? Limits, bool DecodeFailed)
+    private static (IReadOnlyList<AdditionalRateLimit>? Limits, bool DecodeFailed)
         ParseAdditionalRateLimits(JsonElement root)
     {
         if (!root.TryGetProperty("additional_rate_limits", out var element) ||
@@ -511,7 +511,7 @@ public static class CodexUsageParser
             return (null, true);
         }
 
-        var limits = new List<CodexUsageResponse.AdditionalRateLimit>();
+        var limits = new List<AdditionalRateLimit>();
         var decodeFailed = false;
         foreach (var item in element.EnumerateArray())
         {
@@ -526,7 +526,7 @@ public static class CodexUsageParser
             var meteredFeature = CodexJson.String(item, "metered_feature");
 
             var rateLimitHadValue = CodexJson.HasNonNull(item, "rate_limit");
-            CodexUsageResponse.RateLimitDetails? rateLimit = null;
+            RateLimitDetails? rateLimit = null;
             var rateLimitFailed = false;
             if (rateLimitHadValue)
             {
@@ -541,7 +541,7 @@ public static class CodexUsageParser
                 }
             }
 
-            var entry = new CodexUsageResponse.AdditionalRateLimit(
+            var entry = new AdditionalRateLimit(
                 LimitName: limitName,
                 MeteredFeature: meteredFeature,
                 RateLimit: rateLimit,
@@ -634,7 +634,7 @@ public static class CodexUsageParser
 
     /// <summary>Swift: CodexSpendControlLimitMapping.codexCreditLimitSnapshot。</summary>
     internal static CodexCreditLimitSnapshot? ToCreditLimit(
-        CodexUsageResponse.SpendControlLimitSnapshot? snapshot,
+        SpendControlLimitSnapshot? snapshot,
         DateTimeOffset updatedAt)
     {
         if (snapshot is null || snapshot.Limit is not { } limit || limit <= 0)
