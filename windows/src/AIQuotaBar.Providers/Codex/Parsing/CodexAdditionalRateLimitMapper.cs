@@ -22,7 +22,7 @@ public static class CodexAdditionalRateLimitMapper
     public const string SparkWeeklyWindowTitle = "Codex Spark Weekly";
 
     public static IReadOnlyList<CodexNamedRateWindow> ExtraRateWindows(
-        IReadOnlyList<CodexUsageResponse.AdditionalRateLimit>? additionalRateLimits)
+        IReadOnlyList<AdditionalRateLimit>? additionalRateLimits)
     {
         var result = new List<CodexNamedRateWindow>();
         if (additionalRateLimits is null || additionalRateLimits.Count == 0)
@@ -47,7 +47,7 @@ public static class CodexAdditionalRateLimitMapper
     }
 
     private static void AppendSparkWindows(
-        CodexUsageResponse.AdditionalRateLimit entry,
+        AdditionalRateLimit entry,
         HashSet<string> usedIds,
         List<CodexNamedRateWindow> result)
     {
@@ -76,7 +76,7 @@ public static class CodexAdditionalRateLimitMapper
     }
 
     private static void AppendGenericWindow(
-        CodexUsageResponse.AdditionalRateLimit entry,
+        AdditionalRateLimit entry,
         HashSet<string> usedIds,
         List<CodexNamedRateWindow> result)
     {
@@ -146,7 +146,7 @@ public static class CodexAdditionalRateLimitMapper
         return fallback;
     }
 
-    private static string? WindowId(CodexUsageResponse.AdditionalRateLimit entry)
+    private static string? WindowId(AdditionalRateLimit entry)
     {
         var source = FirstNonEmpty(entry.MeteredFeature, entry.LimitName);
         if (source is null)
@@ -158,10 +158,10 @@ public static class CodexAdditionalRateLimitMapper
         return slug.Length == 0 ? null : $"codex-{slug}";
     }
 
-    private static string WindowTitle(CodexUsageResponse.AdditionalRateLimit entry) =>
+    private static string WindowTitle(AdditionalRateLimit entry) =>
         FirstNonEmpty(entry.LimitName, entry.MeteredFeature) ?? "Codex extra limit";
 
-    private static bool IsSpark(CodexUsageResponse.AdditionalRateLimit entry) =>
+    private static bool IsSpark(AdditionalRateLimit entry) =>
         Array.Find(
             new[] { entry.LimitName, entry.MeteredFeature },
             value => value is not null && value.IndexOf("spark", StringComparison.OrdinalIgnoreCase) >= 0)
