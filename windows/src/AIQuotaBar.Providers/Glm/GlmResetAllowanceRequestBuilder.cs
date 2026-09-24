@@ -33,17 +33,23 @@ public static class GlmResetAllowanceRequestBuilder
         {
             return null;
         }
-        if (!string.Equals(source.Scheme, "https", StringComparison.Ordinal))
+        // Swift 三个大小写敏感判定：scheme == "https"（URLComponents 自动小写后比较）、
+        // host == "bigmodel.cn"（保留原大小写）、port == nil（显式端口一律拒绝，含 :443）。
+        // .NET Uri 会把 Host 归一化为小写、把显式默认端口藏进 IsDefaultPort，不能反映原文，
+        // 因此授权段（scheme 之后到首个 '/'、'?'、'#'）在原文上做精确比对：
+        // 必须恰好是 "bigmodel.cn"——同时钉死小写 host、无 userinfo、无显式端口。
+        var raw = credential.ApiUrl;
+        if (!raw.StartsWith("https://", StringComparison.OrdinalIgnoreCase))
         {
             return null;
         }
-        // Swift: source.host == "bigmodel.cn"（大小写敏感）；host 需与配额端点完全一致。
-        if (!string.Equals(source.Host, "bigmodel.cn", StringComparison.Ordinal))
+        var authority = raw["https://".Length..];
+        var authorityEnd = authority.IndexOfAny(new[] { '/', '?', '#' });
+        if (authorityEnd >= 0)
         {
-            return null;
+            authority = authority[..authorityEnd];
         }
-        // Swift: source.port == nil（不得显式带非默认端口）。
-        if (!source.IsDefaultPort)
+        if (!string.Equals(authority, "bigmodel.cn", StringComparison.Ordinal))
         {
             return null;
         }
@@ -89,7 +95,7 @@ public static class GlmResetAllowanceRequestBuilder
         {
             return false;
         }
-        var trimmed = query.StartsWith('?', StringComparison.Ordinal) ? query[1..] : query;
+        var trimmed = query.StartsWith("?", StringComparison.Ordinal) ? query[1..] : query;
         if (trimmed.Length == 0)
         {
             return false;

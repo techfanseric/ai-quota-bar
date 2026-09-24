@@ -78,6 +78,40 @@ public sealed class AppMutexTests
     }
 
     [Fact]
+    public void Release_ByAcquiringThread_Succeeds_EvenWhenConstructedElsewhere()
+    {
+        // 回归：所有权线程在 TryAcquire 时记录（构造线程可能不同）。
+        // 修复前 _ownerThreadId 取自构造线程——获得线程 Release 会误抛 InvalidOperationException。
+        var name = NewName();
+        using var guard = new AppMutex(name); // 构造于测试线程
+
+        Exception? caught = null;
+        var acquiredSomewhere = false;
+        var acquirer = new Thread(() =>
+        {
+            try
+            {
+                if (guard.TryAcquire())
+                {
+                    acquiredSomewhere = true;
+                    guard.Release(); // 真正持有者释放：应成功
+                }
+            }
+            catch (Exception ex)
+            {
+                caught = ex;
+            }
+        });
+        acquirer.Start();
+        acquirer.Join();
+
+        Assert.True(acquiredSomewhere, "异线程应能获得全新名称的 mutex。");
+        Assert.True(caught is null,
+            $"获得线程（构造于他线程）Release 应无异常（实然：{caught?.GetType().FullName ?? "无"}）。");
+        Assert.False(guard.IsAcquired, "释放后 IsAcquired 应为 false。");
+    }
+
+    [Fact]
     public void TryAcquire_TakesOverAbandonedMutex()
     {
         // 前持有线程未释放即终止 → mutex 弃用 → 后续实例应接管（AbandonedMutexException 分支）。

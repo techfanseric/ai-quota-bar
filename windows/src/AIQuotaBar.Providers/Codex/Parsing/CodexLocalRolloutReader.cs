@@ -1,8 +1,10 @@
 // Swift 来源：
 //   - .dependencies/codexbar/Sources/CodexBarCore/AgentSession.swift（CodexRolloutFirstLineParser：
 //     只读首行 session_meta；session_id ?? id、cwd、originator、source）
-//   - Sources/CodexLocalUsageCore/UsageParser.swift（State.line 的 token_count 分支：
-//     last 优先 / total 累计差值、签名去重（signatures[source] + previousSignature）、limit_id）
+//   - Sources/CodexLocalUsageCore/UsageParser.swift（仓库根 Sources/ 的 App 自有 target
+//     CodexLocalUsageCore——非 .dependencies/codexbar；State.line 的 token_count 分支：
+//     last 优先 / total 累计差值、签名去重（signatures[source] + previousSignature）、limit_id、
+//     行内 model 覆盖）
 //   契约样本：local-session-rollout.jsonl、local-session-token-usage.jsonl
 // 对应测试：AIQuotaBar.Providers.Tests/Codex/CodexLocalRolloutReaderTests.cs
 //
@@ -277,6 +279,14 @@ public static class CodexLocalRolloutReader
                 info.ValueKind != JsonValueKind.Object)
             {
                 return;
+            }
+
+            // Swift: token_count 行内 model 覆盖（info.model ?? info.model_name ?? payload.model）。
+            var inlineModel = CodexJson.String(info, "model", "model_name") ??
+                CodexJson.String(payload, "model");
+            if (inlineModel is not null)
+            {
+                _model = inlineModel;
             }
 
             var total = ParseCounters(info, "total_token_usage");

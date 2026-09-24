@@ -139,8 +139,10 @@ public sealed class ModelUtilizationHistoryStore
             var json = JsonSerializer.Serialize(payload, QuotaJson.Default);
             await AtomicFileWriter.WriteAsync(FileFor(provider), json, cancellationToken);
         }
-        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        catch (Exception ex) when (ex is not OperationCanceledException)
         {
+            // Swift 为 catch-all（磁盘满 / 权限变更 / 目录被删等任意失败都只发通知不抛出）；
+            // 仅放行取消，避免吞掉宿主的 CancellationToken 协作。
             DidFailToSaveHistory?.Invoke(this, new HistorySaveFailureEventArgs(provider, ex));
         }
     }

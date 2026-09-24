@@ -68,6 +68,11 @@ public static class CodexUsageParser
             individualElement.ValueKind == JsonValueKind.Object
                 ? ParseSpendControlLimit(individualElement)
                 : null;
+        // 根级限额与 rate_limit 层同款 snake → camel 双键回退（Swift: .individualLimit ?? .individualLimitCamel）。
+        individualLimit ??= root.TryGetProperty("individualLimit", out var individualCamelElement) &&
+            individualCamelElement.ValueKind == JsonValueKind.Object
+                ? ParseSpendControlLimit(individualCamelElement)
+                : null;
 
         var spendControlPresent =
             (root.TryGetProperty("spend_control", out var spendControlElement) &&

@@ -1,4 +1,5 @@
-// Swift 来源：Sources/CodexLocalUsageCore/UsageModels.swift（struct UsageTokens：
+// Swift 来源：Sources/CodexLocalUsageCore/UsageModels.swift（仓库根 Sources/ 的 App 自有 target
+//   CodexLocalUsageCore——非 .dependencies/codexbar；struct UsageTokens：
 //   total = input + output；valid 值域与签名格式）
 
 #nullable enable

@@ -86,7 +86,8 @@ public sealed class MinimaxClient
         }
         catch (MinimaxUsageException ex) when (ex.Kind is MinimaxUsageErrorKind.InvalidCredentials
             or MinimaxUsageErrorKind.ApiError
-            or MinimaxUsageErrorKind.InvalidResponse)
+            or MinimaxUsageErrorKind.InvalidResponse
+            or MinimaxUsageErrorKind.NotConfigured)
         {
             return false;
         }
@@ -186,7 +187,17 @@ public sealed class MinimaxClient
             {
                 throw new MinimaxUsageException(MinimaxUsageErrorKind.ApiError, $"HTTP {status}");
             }
-            return MinimaxTokenPlanParser.Parse(body);
+            try
+            {
+                return MinimaxTokenPlanParser.Parse(body);
+            }
+            catch (MinimaxUsageException ex) when (ex.Kind == MinimaxUsageErrorKind.ApiError
+                && ex.Message.Trim().ToLowerInvariant() == "invalid api key")
+            {
+                // codexbar normalizedAPITokenError: HTTP 200 + base_resp 文案 "invalid api key"
+                // 归一为 invalidCredentials——这是触发 Global→ChinaMainland 回退的前提。
+                throw new MinimaxUsageException(MinimaxUsageErrorKind.InvalidCredentials, ex.Message, ex);
+            }
         }
     }
 
@@ -198,7 +209,7 @@ public sealed class MinimaxClient
             return url;
         }
         var builder = new UriBuilder(url);
-        var query = builder.Query.StartsWith('?', StringComparison.Ordinal)
+        var query = builder.Query.StartsWith("?", StringComparison.Ordinal)
             ? builder.Query[1..]
             : builder.Query;
         builder.Query = string.IsNullOrEmpty(query)

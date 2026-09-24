@@ -1,4 +1,5 @@
-// Swift 来源：Sources/CodexLocalUsageCore/UsageParser.swift（struct ParsedUsageFile 的消费子集）
+// Swift 来源：Sources/CodexLocalUsageCore/UsageParser.swift（仓库根 Sources/ 的 App 自有 target
+//   CodexLocalUsageCore——非 .dependencies/codexbar；struct ParsedUsageFile 的消费子集）
 //   —— 最小实现：会话 ID + 去重后事件 + 问题计数；fork/归档合并（resolve）属后续阶段。
 
 #nullable enable

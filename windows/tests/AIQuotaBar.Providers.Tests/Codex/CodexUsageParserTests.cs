@@ -248,7 +248,8 @@ public sealed class CodexUsageParserTests
         Assert.NotNull(credits);
         Assert.Equal(0, credits!.Remaining);
         Assert.True(credits.BalanceReadSucceeded);
-        Assert.False(credits.CreditsAvailable);
+        // CreditsAvailable 为 bool?（xUnit 2.7.0 无可空布尔重载），显式折叠后断言。
+        Assert.False(credits.CreditsAvailable ?? false);
     }
 
     [Fact]
@@ -299,6 +300,26 @@ public sealed class CodexUsageParserTests
         Assert.Equal(300, credits.CreditLimit.Used);
         Assert.Equal(100, credits.CreditLimit.Remaining);
         Assert.Equal(100, credits.DisplayRemaining);
+    }
+
+    [Fact]
+    public void BusinessWorkspaceCredits_RootIndividualLimitAcceptsCamelCaseKey()
+    {
+        // Swift: 根级 individual_limit 有 snake → camel 双键（.individualLimit ?? .individualLimitCamel）。
+        var json = CodexFixtures.Transform("usage-response-business-workspace-credits.json", root =>
+        {
+            var limit = (JsonObject)root["individual_limit"]!;
+            root.Remove("individual_limit");
+            root["individualLimit"] = limit;
+        });
+
+        var response = CodexUsageParser.ParseUsageResponse(json);
+        var credits = CodexUsageParser.MapCredits(response, Now);
+
+        Assert.NotNull(response.IndividualLimit);
+        Assert.Equal(400, credits!.CreditLimit!.Limit);
+        Assert.Equal(300, credits.CreditLimit.Used);
+        Assert.Equal(100, credits.CreditLimit.Remaining);
     }
 
     [Fact]

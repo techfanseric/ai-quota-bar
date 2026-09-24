@@ -49,8 +49,10 @@ internal static class CodexJson
     }
 
     /// <summary>
-    /// 灵活 double（Swift: CodexSpendControlNumber.double）：数字，或可解析为有限 double 的
-    /// 字符串（trim 后）；"NaN"/"Infinity" 及溢出字符串拒绝（Swift Double(String) 同语义）。
+    /// 灵活 double（Swift: CodexSpendControlNumber.double）：数字，或可解析为 double 的字符串
+    /// （trim 后）。比 Swift 更防御：Swift Double(String) 接受 "nan"/"inf"（依赖下游 isFinite
+    /// 过滤兜底），此处直接拒绝非有限值；最终行为已在 workspace-balance 与 Swift 的
+    /// isFinite 过滤处对齐（同样的输入产出同样的 null）。
     /// </summary>
     public static double? FlexibleDouble(JsonElement element, params string[] keys)
     {

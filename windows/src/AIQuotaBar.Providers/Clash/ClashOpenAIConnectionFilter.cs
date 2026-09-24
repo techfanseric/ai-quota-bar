@@ -72,7 +72,7 @@ public static class ClashOpenAIConnectionFilter
         {
             value = value[2..];
         }
-        else if (value.StartsWith('.', StringComparison.Ordinal))
+        else if (value.StartsWith(".", StringComparison.Ordinal))
         {
             value = value[1..];
         }
@@ -87,7 +87,7 @@ public static class ClashOpenAIConnectionFilter
             value = value[..colon];
         }
 
-        while (value.EndsWith('.', StringComparison.Ordinal))
+        while (value.EndsWith(".", StringComparison.Ordinal))
         {
             value = value[..^1];
         }
