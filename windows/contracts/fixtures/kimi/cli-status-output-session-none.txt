@@ -1,0 +1,4 @@
+Session      none
+Context window  0%  (0 / 1M)
+Weekly limit  ██████████████████░░  89% used  resets in 1d 18h 35m
+5h limit      ░░░░░░░░░░░░░░░░░░░░  0% used   resets in 1h 35m

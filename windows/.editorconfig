@@ -1,0 +1,98 @@
+# windows/ 子树专用 EditorConfig（root = true：不继承仓库更上层的 .editorconfig）。
+# C# 常规规范：4 空格缩进、var 适度、命名遵循 .NET 约定；详细说明见 windows/docs/coding-conventions.md。
+
+root = true
+
+# 所有文件通用
+[*]
+charset = utf-8
+end_of_line = lf
+insert_final_newline = true
+trim_trailing_whitespace = true
+
+# Markdown 保留行尾双空格（硬换行）
+[*.{md,markdown}]
+trim_trailing_whitespace = false
+
+# MSBuild / XML
+[*.{xml,csproj,props,targets}]
+indent_style = space
+indent_size = 2
+
+# Visual Studio 解决方案（VS 生成物惯例，本仓库手写文件保持一致即可，不强校验）
+[*.sln]
+indent_size = 4
+
+# YAML（CI 工作流等）
+[*.{yml,yaml}]
+indent_style = space
+indent_size = 2
+
+[*.cs]
+indent_style = space
+indent_size = 4
+
+# --- 命名：遵循 .NET 约定 ---
+# 类型与命名空间：PascalCase
+dotnet_naming_rule.types_should_be_pascal_case.severity = suggestion
+dotnet_naming_rule.types_should_be_pascal_case.symbols = types_and_namespaces
+dotnet_naming_rule.types_should_be_pascal_case.style = pascal_case
+dotnet_naming_symbols.types_and_namespaces.applicable_kinds = namespace, class, struct, interface, enum, delegate
+dotnet_naming_style.pascal_case.capitalization = pascal_case
+
+# 接口：I 前缀 + PascalCase
+dotnet_naming_rule.interfaces_should_be_ipascal.severity = suggestion
+dotnet_naming_rule.interfaces_should_be_ipascal.symbols = interfaces
+dotnet_naming_rule.interfaces_should_be_ipascal.style = i_pascal_case
+dotnet_naming_symbols.interfaces.applicable_kinds = interface
+dotnet_naming_style.i_pascal_case.required_prefix = I
+dotnet_naming_style.i_pascal_case.capitalization = pascal_case
+
+# 方法、属性、事件、非私有字段、常量、枚举成员：PascalCase
+dotnet_naming_rule.members_should_be_pascal_case.severity = suggestion
+dotnet_naming_rule.members_should_be_pascal_case.symbols = pascal_case_members
+dotnet_naming_rule.members_should_be_pascal_case.style = pascal_case
+dotnet_naming_symbols.pascal_case_members.applicable_kinds = method, property, event, field
+dotnet_naming_symbols.pascal_case_members.applicable_accessibilities = public, internal, friend, protected, protected_internal, protected_friend, private_protected
+dotnet_naming_symbols.pascal_case_members.required_modifiers =
+
+# 私有字段：_camelCase
+dotnet_naming_rule.private_fields_should_be_underscore_camel.severity = suggestion
+dotnet_naming_rule.private_fields_should_be_underscore_camel.symbols = private_fields
+dotnet_naming_rule.private_fields_should_be_underscore_camel.style = underscore_camel_case
+dotnet_naming_symbols.private_fields.applicable_kinds = field
+dotnet_naming_symbols.private_fields.applicable_accessibilities = private
+dotnet_naming_style.underscore_camel_case.required_prefix = _
+dotnet_naming_style.underscore_camel_case.capitalization = camel_case
+
+# 参数与局部变量：camelCase
+dotnet_naming_rule.parameters_and_locals_should_be_camel.severity = suggestion
+dotnet_naming_rule.parameters_and_locals_should_be_camel.symbols = parameters_and_locals
+dotnet_naming_rule.parameters_and_locals_should_be_camel.style = camel_case
+dotnet_naming_symbols.parameters_and_locals.applicable_kinds = parameter, local
+dotnet_naming_style.camel_case.capitalization = camel_case
+
+# --- var 使用：适度（类型显然时用 var，其余显式） ---
+csharp_style_var_for_built_in_types = false:suggestion
+csharp_style_var_when_type_is_apparent = true:suggestion
+csharp_style_var_elsewhere = false:suggestion
+
+# --- 代码风格 ---
+csharp_style_namespace_declarations = file_scoped:suggestion
+csharp_new_line_before_open_brace = all
+csharp_new_line_before_else = true
+csharp_new_line_before_catch = true
+csharp_new_line_before_finally = true
+csharp_indent_case_contents = true
+csharp_indent_switch_labels = true
+csharp_preferred_modifier_order = public,private,protected,internal,static,extern,new,virtual,abstract,sealed,override,readonly,unsafe,volatile,async
+dotnet_sort_system_directives_first = true
+dotnet_style_qualification_for_field = false:suggestion
+dotnet_style_qualification_for_property = false:suggestion
+dotnet_style_qualification_for_method = false:suggestion
+dotnet_style_qualification_for_event = false:suggestion
+csharp_style_pattern_matching_over_is_with_cast_check = true:suggestion
+csharp_style_pattern_matching_over_as_with_null_check = true:suggestion
+csharp_style_throw_expression = true:suggestion
+csharp_style_conditional_delegate_call = true:suggestion
+dotnet_style_explicit_tuple_names = true:suggestion

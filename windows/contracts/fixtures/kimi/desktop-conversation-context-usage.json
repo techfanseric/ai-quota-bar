@@ -1,0 +1,16 @@
+{
+  "agent:main:main:conversation:conv-done": {
+    "contextUsage": 0.3,
+    "contextTokens": 80000,
+    "maxContextTokens": 262144,
+    "model": "k3-agent",
+    "updatedAt": "1970-01-12T13:36:40.000Z"
+  },
+  "agent:main:main:conversation:conv-running": {
+    "contextUsage": 0.3,
+    "contextTokens": 80000,
+    "maxContextTokens": 262144,
+    "model": "k3-agent",
+    "updatedAt": "1970-01-12T13:46:10.000Z"
+  }
+}

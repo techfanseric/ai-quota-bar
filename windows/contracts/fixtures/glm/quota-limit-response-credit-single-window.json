@@ -1,0 +1,16 @@
+{
+  "code": 200,
+  "success": true,
+  "data": {
+    "limits": [
+      {
+        "type": "CREDIT_LIMIT",
+        "unit": 3,
+        "number": 5,
+        "usage": 12000,
+        "currentValue": 0,
+        "remaining": 12000
+      }
+    ]
+  }
+}

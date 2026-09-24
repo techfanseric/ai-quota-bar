@@ -1,0 +1,29 @@
+# windows/ 子树专用忽略规则（嵌套 .gitignore，仅作用于 windows/ 之下；根 .gitignore 不动）。
+
+# .NET 构建产物
+[Bb]in/
+[Oo]bj/
+artifacts/
+TestResults/
+*.trx
+*.binlog
+
+# Visual Studio / Rider
+.vs/
+.idea/
+*.user
+*.suo
+*.userosscache/
+*.sln.docstates
+*.DotSettings.user
+
+# VS Code 本地配置
+.vscode/
+
+# NuGet
+*.nupkg
+*.snupkg
+nuget.exe
+
+# 发布与打包产物（Phase 3 Veloppack / ReadyToRun）
+publish/
