@@ -63,7 +63,9 @@ public sealed class ContractsSmokeTests
         Assert.Equal(
             "codex:eric@x.com:5h",
             QuotaIdentity.Key(UsageProvider.Codex, "  Eric@X.COM ", " 5H "));
-        Assert.Equal("glm:glm-4.6", QuotaIdentity.Key(UsageProvider.Glm, null, "GLM-4.6"));
+        // Swift 逐字符镜像：joined(separator: ":") 恒拼三段，空账户段不省略 → 双冒号。
+        // （省略空段的是 id/DisplayId，两者在 Swift 里本就不一致——见 ProviderIdentity.cs 注释。）
+        Assert.Equal("glm::glm-4.6", QuotaIdentity.Key(UsageProvider.Glm, null, "GLM-4.6"));
 
         // id: provider : rawAccount : rawModel; account segment dropped when empty.
         Assert.Equal("codex:5h", QuotaIdentity.DisplayId(UsageProvider.Codex, null, "5h"));
@@ -139,7 +141,9 @@ public sealed class ContractsSmokeTests
         // 应然：重命名的 CurrentIntervalRemaining 仍以 Swift 键 currentIntervalUsed 上线（实然：缺失或值错）。
         Assert.Equal(64, root.GetProperty("currentIntervalUsed").GetInt32());
         Assert.Equal(64, root.GetProperty("currentIntervalRemainingPercent").GetInt32());
+        // 更名的 RemainsTimeMilliseconds 仍以 Swift 键 remainsTime 上线（值类型 0 也恒序列化）。
         Assert.Equal(3_600_000, root.GetProperty("remainsTime").GetInt32());
+        Assert.Equal(0, root.GetProperty("weeklyUsed").GetInt32());
         Assert.Equal("%", root.GetProperty("valueSuffix").GetString());
         Assert.True(root.TryGetProperty("startTime", out _), "应存在 camelCase 键 startTime");
 

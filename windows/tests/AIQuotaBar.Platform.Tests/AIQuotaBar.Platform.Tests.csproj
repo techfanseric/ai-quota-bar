@@ -1,0 +1,25 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!-- Platform 层 xUnit 测试项目。
+       TFM 覆盖为 net8.0-windows（与被测项目 AIQuotaBar.Platform 一致，见其 csproj 注释；
+       仅可在 Windows 上运行——CI 使用 windows-latest runner，macOS 本机不要构建）。
+       公共属性（Nullable、TreatWarningsAsErrors 等）继承自 windows/Directory.Build.props。
+       全部测试打 [Trait("Category", "RequiresWindows")]：依赖 DPAPI / Credential Manager /
+       HKCU / 内核同步对象等真实 Windows 机制。包版本与 AIQuotaBar.Core.Tests / Providers.Tests 对齐。 -->
+
+  <PropertyGroup>
+    <TargetFramework>net8.0-windows</TargetFramework>
+    <IsPackable>false</IsPackable>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.NET.Test.Sdk" Version="17.9.0" />
+    <PackageReference Include="xunit" Version="2.7.0" />
+    <PackageReference Include="xunit.runner.visualstudio" Version="2.5.7" PrivateAssets="all" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\src\AIQuotaBar.Platform\AIQuotaBar.Platform.csproj" />
+  </ItemGroup>
+
+</Project>
