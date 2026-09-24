@@ -48,6 +48,10 @@ final class KimiLocalActivityDetector: KimiLocalActivityProviding,
 
     private struct WireState {
         var size: UInt64 = 0
+        /// Bytes consumed through the last complete newline; the next poll
+        /// resumes turn-lifecycle parsing from here instead of re-reading
+        /// the whole transcript.
+        var parsedOffset: UInt64 = 0
         var isActive = false
     }
 
@@ -129,7 +133,8 @@ final class KimiLocalActivityDetector: KimiLocalActivityProviding,
             record("kimi:desktop:\(conversation.key)", conversation.updatedAt)
         }
 
-        for wireURL in wireURLs() {
+        let currentWireURLs = wireURLs()
+        for wireURL in currentWireURLs {
             let state = readWireState(at: wireURL)
             guard state.isActive else { continue }
             // A wire whose turn is open but that has gone quiet for the whole
@@ -145,8 +150,14 @@ final class KimiLocalActivityDetector: KimiLocalActivityProviding,
                 .lastPathComponent
             record("kimi:cli:\(sessionID)", touchedAt)
         }
+        // Keep parse offsets for every wire still on disk. Pruning down to
+        // active sessions instead would drop the offsets of idle wires and
+        // force a full-history re-parse on every poll — exactly the state an
+        // idle machine sits in, where re-parsing hundreds of transcripts
+        // pegged a core at 100%.
+        let currentWirePaths = Set(currentWireURLs.map(\.path))
         wireStates = wireStates.filter {
-            activeSessionIDs.contains("kimi:cli:\($0.key)")
+            currentWirePaths.contains($0.key)
         }
         return KimiLocalActivitySnapshot(
             activeSessionIDs: activeSessionIDs,
@@ -239,13 +250,36 @@ final class KimiLocalActivityDetector: KimiLocalActivityProviding,
             return cached
         }
 
-        guard let data = try? Data(contentsOf: url) else {
-            let empty = WireState(size: size)
-            wireStates[url.path] = empty
-            return empty
+        // Incremental parse: resume from the last consumed newline so a
+        // growing wire is parsed only for the appended bytes. A shrunk file
+        // (truncation) falls back to a full re-read.
+        var state = WireState(size: size)
+        var offset: UInt64 = 0
+        if let cached = wireStates[url.path],
+           cached.parsedOffset > 0,
+           size >= cached.parsedOffset {
+            state = cached
+            state.size = size
+            offset = cached.parsedOffset
         }
 
-        var state = WireState(size: size)
+        guard let handle = try? FileHandle(forReadingFrom: url) else {
+            wireStates[url.path] = state
+            return state
+        }
+        defer { try? handle.close() }
+        if offset > 0 {
+            try? handle.seek(toOffset: offset)
+        }
+        guard let data = try? handle.readToEnd() else {
+            wireStates[url.path] = state
+            return state
+        }
+
+        // The trailing partial line (a record whose newline has not been
+        // appended yet) is parsed now but not consumed; it is parsed again
+        // once complete, which is harmless because turn lifecycle records
+        // only set a boolean.
         for line in data.split(separator: 0x0A) {
             guard let record = try? JSONSerialization.jsonObject(
                 with: Data(line)) as? [String: Any],
@@ -260,6 +294,9 @@ final class KimiLocalActivityDetector: KimiLocalActivityProviding,
             default:
                 break
             }
+        }
+        if let lastNewline = data.lastIndex(of: 0x0A) {
+            state.parsedOffset = offset + UInt64(data[...lastNewline].count)
         }
         wireStates[url.path] = state
         return state

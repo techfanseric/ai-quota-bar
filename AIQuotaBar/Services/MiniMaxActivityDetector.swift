@@ -110,11 +110,12 @@ final class MiniMaxActivityDetector: ProviderLocalActivityProviding,
 
         for taskDirectory in backgroundTaskDirectories() {
             guard let activityAt = newestBackgroundTaskModification(
-                in: taskDirectory) else {
+                in: taskDirectory.url,
+                directoryModifiedAt: taskDirectory.modifiedAt) else {
                 continue
             }
             guard activityAt >= cutoff, activityAt <= now else { continue }
-            record("minimax:bg:\(taskDirectory.lastPathComponent)", activityAt)
+            record("minimax:bg:\(taskDirectory.url.lastPathComponent)", activityAt)
         }
 
         return ProviderLocalActivitySnapshot(
@@ -204,17 +205,29 @@ final class MiniMaxActivityDetector: ProviderLocalActivityProviding,
 
     // MARK: - Background tasks
 
-    private func backgroundTaskDirectories() -> [URL] {
+    /// `bg_*` directories together with their own mtime, prefetched by the
+    /// same listing call — thousands of finished tasks accumulate under the
+    /// root, so no per-directory round trip is spent here.
+    private func backgroundTaskDirectories() -> [(url: URL, modifiedAt: Date?)] {
         guard let entries = try? FileManager.default.contentsOfDirectory(
             at: backgroundTasksRootURL,
-            includingPropertiesForKeys: [.isDirectoryKey],
+            includingPropertiesForKeys: [
+                .isDirectoryKey,
+                .contentModificationDateKey,
+            ],
             options: [.skipsHiddenFiles]) else {
             return []
         }
-        return entries.filter { entry in
-            entry.lastPathComponent.hasPrefix("bg_")
-                && (try? entry.resourceValues(forKeys: [.isDirectoryKey]))?
-                    .isDirectory == true
+        return entries.compactMap { entry in
+            guard entry.lastPathComponent.hasPrefix("bg_"),
+                  (try? entry.resourceValues(forKeys: [.isDirectoryKey]))?
+                      .isDirectory == true else {
+                return nil
+            }
+            let modifiedAt = (try? entry.resourceValues(
+                forKeys: [.contentModificationDateKey]))?
+                .contentModificationDate
+            return (entry, modifiedAt)
         }
     }
 
@@ -238,21 +251,38 @@ final class MiniMaxActivityDetector: ProviderLocalActivityProviding,
         .max()
     }
 
-    private func newestBackgroundTaskModification(in directory: URL) -> Date? {
+    /// Newest of the directory's own mtime (prefetched with the listing),
+    /// `output.log`, and `summary.txt`. The two probe files are stat'd with
+    /// plain string paths — building `URL`s and resolving per-URL resource
+    /// values costs far more than the stats themselves once the root holds
+    /// thousands of historical task folders.
+    private func newestBackgroundTaskModification(
+        in directory: URL,
+        directoryModifiedAt: Date?
+    ) -> Date? {
         var dates: [Date] = []
-        if let directoryDate = (try? directory.resourceValues(
-            forKeys: [.contentModificationDateKey]))?
-            .contentModificationDate {
-            dates.append(directoryDate)
+        if let directoryModifiedAt {
+            dates.append(directoryModifiedAt)
         }
+        let directoryPath = directory.path
         for fileName in ["output.log", "summary.txt"] {
-            let fileURL = directory.appendingPathComponent(fileName)
-            if let fileDate = (try? fileURL.resourceValues(
-                forKeys: [.contentModificationDateKey]))?
-                .contentModificationDate {
+            if let fileDate = Self.modificationDateIfExists(
+                atPath: directoryPath + "/" + fileName) {
                 dates.append(fileDate)
             }
         }
         return dates.max()
+    }
+
+    /// Direct POSIX stat: most historical task folders hold neither probe
+    /// file, and `FileManager.attributesOfItem` pays an ObjC exception
+    /// raise/catch for each miss — across thousands of folders that alone
+    /// saturated a core. A raw `stat` call is a single microsecond syscall.
+    private static func modificationDateIfExists(atPath path: String) -> Date? {
+        var status = stat()
+        guard stat(path, &status) == 0 else { return nil }
+        return Date(
+            timeIntervalSince1970: TimeInterval(status.st_mtimespec.tv_sec)
+                + TimeInterval(status.st_mtimespec.tv_nsec) / 1_000_000_000)
     }
 }
