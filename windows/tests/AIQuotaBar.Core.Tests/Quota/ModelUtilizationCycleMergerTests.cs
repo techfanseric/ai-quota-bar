@@ -54,7 +54,7 @@ public sealed class ModelUtilizationCycleMergerTests
     [Fact]
     public void HistoryCycles_IgnoreUnusedSamples()
     {
-        var reset = new DateTimeOffset(1_700_000_000, TimeSpan.Zero);
+        var reset = DateTimeOffset.FromUnixTimeSeconds(1_700_000_000);
         var history = new ModelUtilizationHistory(
             ModelId: "codex:user@example.com:5h",
             Entries: new[]
@@ -79,7 +79,7 @@ public sealed class ModelUtilizationCycleMergerTests
     [Fact]
     public void HistoryCycles_MergeNearbyResetBoundaries()
     {
-        var reset = new DateTimeOffset(1_700_000_000, TimeSpan.Zero);
+        var reset = DateTimeOffset.FromUnixTimeSeconds(1_700_000_000);
         var history = new ModelUtilizationHistory(
             ModelId: "codex:user@example.com:5h",
             Entries: new[]
@@ -105,7 +105,7 @@ public sealed class ModelUtilizationCycleMergerTests
     [Fact]
     public void IncludeCurrent_OverwritesStaleHistoricalCycle()
     {
-        var now = new DateTimeOffset(1_700_000_000, TimeSpan.Zero);
+        var now = DateTimeOffset.FromUnixTimeSeconds(1_700_000_000);
         var reset = now.AddHours(1);
         var model = WeeklyModel(
             startTime: reset.AddHours(-7 * 24),
@@ -128,7 +128,7 @@ public sealed class ModelUtilizationCycleMergerTests
     [Fact]
     public void IncludeCurrent_RemovesNearbyStaleResetBoundary()
     {
-        var now = new DateTimeOffset(1_700_000_000, TimeSpan.Zero);
+        var now = DateTimeOffset.FromUnixTimeSeconds(1_700_000_000);
         var reset = now.AddHours(1);
         var staleResetInSameDisplayedMinute = reset.AddSeconds(20);
         var model = WeeklyModel(
@@ -152,7 +152,7 @@ public sealed class ModelUtilizationCycleMergerTests
     [Fact]
     public void CompletedOnly_DoesNotInsertInProgressCycle()
     {
-        var now = new DateTimeOffset(1_700_000_000, TimeSpan.Zero);
+        var now = DateTimeOffset.FromUnixTimeSeconds(1_700_000_000);
         var reset = now.AddHours(1);
         var model = WeeklyModel(
             startTime: reset.AddHours(-7 * 24),
@@ -172,7 +172,7 @@ public sealed class ModelUtilizationCycleMergerTests
     [Fact]
     public void IncludeCurrent_InsertsUnusedCurrentCycle()
     {
-        var now = new DateTimeOffset(1_700_000_000, TimeSpan.Zero);
+        var now = DateTimeOffset.FromUnixTimeSeconds(1_700_000_000);
         var reset = now.AddHours(1);
         var model = WeeklyModel(
             startTime: reset.AddHours(-5),

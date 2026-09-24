@@ -24,7 +24,9 @@ namespace AIQuotaBar.Core.Tests.Quota;
 
 public sealed class QuotaConsumptionForecastTests
 {
-    private static readonly DateTimeOffset Base = new(1_700_000_000, TimeSpan.Zero);
+    // Swift: private let base = Date(timeIntervalSince1970: 1_700_000_000)。
+    // FromUnixTimeSeconds 对应该 Swift 初始化器；DateTimeOffset(long, TimeSpan) 是 ticks 构造，勿混用。
+    private static readonly DateTimeOffset Base = DateTimeOffset.FromUnixTimeSeconds(1_700_000_000);
 
     // Swift: private func sample(minutes:remaining:) — percent 模式下 percent = remaining。
     private static ModelQuotaSample Sample(int minutes, int remaining) =>
