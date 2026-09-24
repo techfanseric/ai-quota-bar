@@ -27,6 +27,8 @@ const T={
  sessionExpired:EN?'Session expired — sign in again.':'登录已过期，请重新登录。',
  dataLoadFailed:EN?'Business data failed to load — confirm the team database migration is complete.':'业务数据加载失败，请确认团队数据库迁移已完成。',
  teamAccountsFailed:EN?'Team accounts failed to load.':'团队账号加载失败。',
+ openTeam:EN?'Open dashboard':'打开面板',
+ openTeamFailed:EN?'Could not open the team dashboard — retry.':'打开团队面板失败，请重试。',
  d1:(r,w)=>EN?`D1 today: ${r} rows read · ${w} rows written`:`D1 今日读取 ${r} 行 · 写入 ${w} 行`,
  d1Unavailable:EN?'D1 monitoring unavailable or not configured.':'D1 监控暂不可用或尚未配置。',
 };
@@ -49,11 +51,28 @@ $('login-form').addEventListener('submit',async event=>{event.preventDefault();c
 $('logout').addEventListener('click',async()=>{try{await api('logout',{method:'POST'});loginView();$('password').value='';}catch{$('error').hidden=false;$('error').textContent=T.logoutFailed;}});
 $('days').addEventListener('change',load);$('refresh').addEventListener('click',()=>{load();loadFeedback();});load();loadFeedback();
 
+function renderTeams(rows){
+ const body=$('team-rows');body.replaceChildren();
+ if(!rows.length){const row=document.createElement('tr'),cell=document.createElement('td');cell.colSpan=6;cell.textContent=T.noData;row.append(cell);body.append(row);return;}
+ for(const team of rows){
+  const row=document.createElement('tr');
+  for(const value of [team.team_name,team.team_id,team.members,team.devices,team.events]){const cell=document.createElement('td');cell.textContent=String(value);row.append(cell);}
+  const cell=document.createElement('td'),button=document.createElement('button');
+  button.type='button';button.textContent=T.openTeam;
+  button.addEventListener('click',async()=>{
+   button.disabled=true;
+   try{await api('team-session',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({teamID:team.team_id})});window.open('/team','_blank');}
+   catch{$('data-error').textContent=T.openTeamFailed;}
+   finally{button.disabled=false;}
+  });
+  cell.append(button);row.append(cell);body.append(row);
+ }
+}
 async function loadBusinessData(){
  try{
   const [teams,legacy,audit]=await Promise.all([api('data/teams'),api('data/legacy/accounts'),api('data/audit')]);
   $('data-error').textContent='';
-  renderTable('team-rows',teams.teams,[r=>r.team_name,r=>r.team_id,r=>r.members,r=>r.devices,r=>r.events]);
+  renderTeams(teams.teams);
   const select=$('data-team'),previous=select.value;select.replaceChildren(new Option(T.selectTeam,''));
   for(const team of teams.teams)select.add(new Option(team.team_name,team.team_id));
   if(teams.teams.some(t=>t.team_id===previous))select.value=previous;
@@ -72,6 +91,7 @@ async function loadTeamAccounts(){
     button.disabled=true;try{await api('data/accounts?'+new URLSearchParams({team_id:team,provider:item.provider,account_name:item.account_name}),{method:'DELETE'});await loadBusinessData();}catch{$('data-error').textContent=T.deleteRetry;button.disabled=false;}
    });td.append(button);row.append(td);rows.append(row);
   }
+  if(!data.accounts.length){const row=document.createElement('tr'),cell=document.createElement('td');cell.colSpan=6;cell.textContent=T.noData;row.append(cell);rows.append(row);}
  }catch{$('data-error').textContent=T.teamAccountsFailed;}
 }
 $('data-refresh').addEventListener('click',loadBusinessData);$('data-team').addEventListener('change',loadTeamAccounts);

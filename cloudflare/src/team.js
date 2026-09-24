@@ -7,7 +7,8 @@ import { digest, teamsEnabled, hitLimit, clearLimit, constantTimeEqual, newTeamI
 import { usageGroups, usageSeries } from './local-usage.js';
 
 const enc = new TextEncoder();
-const COOKIE = '__Host-aqb_team';
+export const TEAM_COOKIE = '__Host-aqb_team';
+const COOKIE = TEAM_COOKIE;
 const SESSION_SECONDS = 28800;
 const MAX_TEAM_MEMBERS = 20;
 
@@ -27,9 +28,25 @@ async function sign(value, key) {
   return [...new Uint8Array(await crypto.subtle.sign('HMAC', imported, enc.encode(value)))].map(x => x.toString(16).padStart(2, '0')).join('');
 }
 
+// Platform admins mint manager sessions signed with OPS_ADMIN_SECRET, so the
+// /admin console can open any team — including device-only teams that predate
+// usage_teams — without touching the team's own login password.
+async function adminSession(cookie, env) {
+  if (typeof env.OPS_ADMIN_SECRET !== 'string' || env.OPS_ADMIN_SECRET.length < 40) return null;
+  const [prefix, teamID, expiry, nonce, signature, ...rest] = cookie.split('.');
+  const now = Math.floor(Date.now() / 1000);
+  if (prefix !== 'admin' || rest.length || !/^[a-z0-9_-]{1,60}$/.test(teamID ?? '')
+    || !/^\d+$/.test(expiry ?? '') || !/^[-a-f0-9]{36}$/.test(nonce ?? '')
+    || !Number.isSafeInteger(+(expiry ?? 0)) || +(expiry ?? 0) <= now || +(expiry ?? 0) > now + SESSION_SECONDS) return null;
+  if (!constantTimeEqual(signature ?? '', await sign(`admin.${teamID}.${expiry}.${nonce}`, env.OPS_ADMIN_SECRET))) return null;
+  const known = (await env.DB.prepare('SELECT team_id FROM usage_teams WHERE team_id=? UNION ALL SELECT team_id FROM usage_devices WHERE team_id=? LIMIT 1').bind(teamID, teamID).all()).results[0];
+  return known ? { teamID, role: 'manager' } : null;
+}
+
 async function sessionTeam(request, env) {
   const cookie = (request.headers.get('cookie') || '').split(';').map(x => x.trim()).find(x => x.startsWith(COOKIE + '='))?.slice(COOKIE.length + 1);
   if (cookie?.startsWith("member.")) return await memberSession(cookie,env);
+  if (cookie?.startsWith("admin.")) return await adminSession(cookie, env);
   if (!cookie || cookie.length > 260) return null;
   const [teamID, expiry, nonce, signature, ...rest] = cookie.split('.');
   const now = Math.floor(Date.now() / 1000);
@@ -118,8 +135,11 @@ export async function teamService(request, env, url) {
     if (request.method === 'POST' && url.pathname === '/v1/team/invite/rotate') {
       if (!sameOrigin(request, url)) return json({ error: 'invalid_origin' }, 403);
       const inviteCode = newInviteCode();
-      await env.DB.prepare('UPDATE usage_teams SET invite_hash=?,invite_rotated_at=? WHERE team_id=?')
+      const result = await env.DB.prepare('UPDATE usage_teams SET invite_hash=?,invite_rotated_at=? WHERE team_id=?')
         .bind(await inviteHash(inviteCode.replace(/-/g, '')), new Date().toISOString(), session.teamID).run();
+      // Device-only teams have no usage_teams row; rotating would silently
+      // return a code that was never persisted.
+      if (!result?.meta || result.meta.changes === 0) return json({ error: 'not_found' }, 404);
       return json({ ok: true, inviteCode });
     }
     if (request.method === 'POST' && url.pathname === '/v1/team/devices/revoke') {
@@ -149,8 +169,9 @@ async function overview(env, teamID, url, session) {
     env.DB.prepare('SELECT device_id,member_id,revoked,created_at FROM usage_devices WHERE team_id=?').bind(teamID),
     env.DB.prepare('SELECT device_id,MAX(occurred_at) lastEventAt FROM usage_events WHERE team_id=? AND occurred_at>=? GROUP BY device_id').bind(teamID, from),
   ]);
-  const team = results[0].results[0];
-  if (!team) return json({ error: 'not_found' }, 404);
+  // Device-only teams (migrated before usage_teams existed) have no row here;
+  // synthesize one so an admin-minted session can still view the dashboard.
+  const team = results[0].results[0] || { team_id: teamID, team_name: teamID, created_at: null, invite_rotated_at: null };
   const lastEvent = new Map(results[3].results.map(x => [x.device_id, x.lastEventAt]));
   const devicesByMember = new Map();
   for (const device of results[2].results) {

@@ -6,7 +6,7 @@ import worker from '../src/worker.js';
 
 function setup(enabled = true) {
   const db = new DatabaseSync(':memory:'); db.exec('PRAGMA foreign_keys=ON');
-  for (const file of ['0002_local_usage.sql', '0003_usage_accounts.sql', '0005_team_selfservice.sql']) db.exec(readFileSync(new URL('../migrations/' + file, import.meta.url), 'utf8'));
+  for (const file of ['0002_local_usage.sql', '0003_usage_accounts.sql', '0004_operations.sql', '0005_team_selfservice.sql']) db.exec(readFileSync(new URL('../migrations/' + file, import.meta.url), 'utf8'));
   const env = { USAGE_ADMIN_TOKEN: 'test-administrator-token-at-least-32-characters', SYNC_TOKEN: 'legacy-token',
     ...(enabled ? { USAGE_TEAMS_ENABLED: 'true' } : {}), DB: {
       prepare(sql) { const statement = db.prepare(sql); let args = [];
@@ -163,3 +163,33 @@ async function loginSession(env, team) {
   assert.equal(response.status, 200);
   return response.headers.get('set-cookie').split(';')[0];
 }
+
+test('platform admin opens any team dashboard without its password, including device-only teams', async () => {
+  const { db, env } = setup();
+  env.OPS_ADMIN_SECRET = 'test-ops-secret-with-more-than-forty-characters!!';
+  const origin = { origin: 'https://test.invalid' };
+  const team = await createTeam(env, 'Managed Team');
+  await join(env, team.inviteCode, 'Alice', 'mac-alice');
+  const adminCookie = (await post(env, '/v1/admin/login', { password: env.OPS_ADMIN_SECRET }, origin)).response.headers.get('set-cookie').split(';')[0];
+  assert.equal((await post(env, '/v1/admin/team-session', { teamID: team.teamID }, origin)).status, 401);
+  assert.equal((await post(env, '/v1/admin/team-session', { teamID: team.teamID }, { cookie: adminCookie, origin: 'https://evil.example' })).status, 403);
+  assert.equal((await post(env, '/v1/admin/team-session', { teamID: 'no-such-team' }, { cookie: adminCookie, ...origin })).status, 404);
+  const minted = await post(env, '/v1/admin/team-session', { teamID: team.teamID }, { cookie: adminCookie, ...origin });
+  assert.equal(minted.status, 200, JSON.stringify(minted.body));
+  const teamCookie = minted.response.headers.get('set-cookie').split(';')[0];
+  assert.match(teamCookie, /^__Host-aqb_team=admin\./);
+  const overview = await call(env, '/v1/team/overview?days=30', { headers: { cookie: teamCookie } });
+  assert.equal(overview.status, 200, JSON.stringify(overview.body));
+  assert.equal(overview.body.access.role, 'manager');
+  assert.equal(overview.body.team.teamName, 'Managed Team');
+  assert.equal((await call(env, '/v1/team/overview?days=30', { headers: { cookie: teamCookie.slice(0, -4) + 'beef' } })).status, 401);
+  db.prepare('DELETE FROM usage_teams WHERE team_id=?').run(team.teamID);
+  const legacy = await post(env, '/v1/admin/team-session', { teamID: team.teamID }, { cookie: adminCookie, ...origin });
+  assert.equal(legacy.status, 200);
+  const legacyOverview = await call(env, '/v1/team/overview?days=30', { headers: { cookie: legacy.response.headers.get('set-cookie').split(';')[0] } });
+  assert.equal(legacyOverview.status, 200, JSON.stringify(legacyOverview.body));
+  assert.equal(legacyOverview.body.team.teamName, team.teamID);
+  assert.equal(legacyOverview.body.members[0].memberName, 'Alice');
+  assert.equal((await post(env, '/v1/team/invite/rotate', {}, { cookie: legacy.response.headers.get('set-cookie').split(';')[0] })).status, 404);
+  db.close();
+});
