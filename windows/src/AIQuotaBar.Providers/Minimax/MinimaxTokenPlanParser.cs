@@ -40,15 +40,26 @@ public static class MinimaxTokenPlanParser
                     ? dataElement
                     : root;
 
-            // codexbar: payload.data.baseResp ?? payload.baseResp。
-            var baseResp = TryPropertyObject(data, "base_resp", out var nested)
-                ? nested
-                : TryPropertyObject(root, "base_resp", out var topLevel) ? topLevel : null;
+            // codexbar: payload.data.baseResp ?? payload.baseResp —— data 上的 base_resp 优先，
+            // 顶层兜底。值类型 JsonElement 与 null 不能落在 var 三元里（CS0173），改为显式语句。
+            JsonElement? baseResp;
+            if (TryPropertyObject(data, "base_resp", out var nested))
+            {
+                baseResp = nested;
+            }
+            else if (TryPropertyObject(root, "base_resp", out var topLevel))
+            {
+                baseResp = topLevel;
+            }
+            else
+            {
+                baseResp = null;
+            }
             if (baseResp is { } response && FlexibleOptionalInt32(response, "status_code") is int statusCode
                 && statusCode != 0)
             {
                 var message = OptionalString(response, "status_msg") ?? $"status_code {statusCode}";
-                var lowered = message.Trim().ToLowerInvariant();
+                var lowered = message.ToLowerInvariant();
                 if (statusCode == 1004
                     || lowered.Contains("cookie", StringComparison.Ordinal)
                     || lowered.Contains("log in", StringComparison.Ordinal)

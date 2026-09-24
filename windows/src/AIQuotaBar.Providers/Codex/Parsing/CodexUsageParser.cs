@@ -149,7 +149,7 @@ public static class CodexUsageParser
         var balance = response.Credits?.Balance;
         var creditLimit = ToCreditLimit(response.ResolvedIndividualLimit, updatedAt);
         var creditsAvailable = response.Credits is { } credits
-            ? credits.HasCredits && !credits.Unlimited
+            ? (bool?)(credits.HasCredits && !credits.Unlimited)
             : null;
 
         if (balance is null && creditLimit is null && creditsAvailable != true)
@@ -649,7 +649,7 @@ public static class CodexUsageParser
         var finalRemainingPercent = snapshot.RemainingPercent ??
             Math.Max(0, Math.Min(100, 100 - used / limit * 100));
         var resetsAt = snapshot.ResetsAt is > 0
-            ? DateTimeOffset.FromUnixTimeSeconds(snapshot.ResetsAt.Value)
+            ? (DateTimeOffset?)DateTimeOffset.FromUnixTimeSeconds(snapshot.ResetsAt.Value)
             : null;
 
         return new CodexCreditLimitSnapshot(

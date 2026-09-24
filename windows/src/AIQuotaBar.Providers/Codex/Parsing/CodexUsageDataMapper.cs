@@ -98,7 +98,7 @@ public static class CodexUsageDataMapper
         var remainingPercent = (int)Math.Round(100 - window.UsedPercent, MidpointRounding.AwayFromZero);
         var endTime = window.ResetsAt;
         var startTime = endTime is { } end
-            ? end.AddMinutes(-(window.WindowMinutes ?? 0))
+            ? (DateTimeOffset?)end.AddMinutes(-(window.WindowMinutes ?? 0))
             : null;
         var detail = MakeDetailText(planType, sourceLabel, endTime);
 
