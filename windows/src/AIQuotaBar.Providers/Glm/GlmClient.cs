@@ -83,9 +83,10 @@ public sealed class GlmClient
                     }
                 }
             }
-            catch (Exception ex) when (ex is HttpRequestException or OperationCanceledException)
+            catch (Exception ex) when (ex is HttpRequestException or OperationCanceledException or GlmUsageException)
             {
-                // Swift try? ... —— reset 权益失败（含超时）不得影响主额度。
+                // Swift try? ... —— reset 权益失败（含 2s 超时，以及 SendWithTimeoutAsync
+                // 已包装出的 GlmUsageException(NetworkError)）不得影响主额度。
             }
         }
 
@@ -299,23 +300,25 @@ public sealed class GlmClient
         {
             request.Headers.TryAddWithoutValidation(name, value);
         }
-        if (!credential.Headers.ContainsKey("accept"))
+        // HTTP 头名大小写不敏感：缺省判断用 OrdinalIgnoreCase，避免凭据头表里存了 "Accept" 之类
+        // 混合大小写键时重复补一份缺省头（Swift 字典下标是精确匹配，此处有意收紧）。
+        if (!HasHeader(credential.Headers, "accept"))
         {
             request.Headers.TryAddWithoutValidation("Accept", "application/json, text/plain, */*");
         }
-        if (!credential.Headers.ContainsKey("content-type"))
+        if (!HasHeader(credential.Headers, "content-type"))
         {
             request.Headers.TryAddWithoutValidation("Content-Type", "application/json");
         }
-        if (!credential.Headers.ContainsKey("authorization"))
+        if (!HasHeader(credential.Headers, "authorization"))
         {
             request.Headers.TryAddWithoutValidation("Authorization", credential.Authorization);
         }
-        if (!credential.Headers.ContainsKey("accept-language"))
+        if (!HasHeader(credential.Headers, "accept-language"))
         {
             request.Headers.TryAddWithoutValidation("Accept-Language", "zh");
         }
-        if (!credential.Headers.ContainsKey("set-language"))
+        if (!HasHeader(credential.Headers, "set-language"))
         {
             request.Headers.TryAddWithoutValidation("Set-Language", "zh");
         }
@@ -332,4 +335,7 @@ public sealed class GlmClient
             request.Headers.TryAddWithoutValidation("Cookie", credential.Cookie);
         }
     }
+
+    private static bool HasHeader(IReadOnlyDictionary<string, string> headers, string name) =>
+        headers.Keys.Any(key => string.Equals(key, name, StringComparison.OrdinalIgnoreCase));
 }

@@ -1,14 +1,15 @@
 // Swift 来源：
 //   - .dependencies/codexbar/Tests/CodexBarTests/AgentSessionParserTests.swift（session_meta 首行语义）
-//   - Sources/CodexLocalUsageCore 的 Tests/CodexLocalUsageCoreTests/UsageTests.swift
-//     （testRepeatedQuotaSnapshotsAndIdenticalRealRequests：相同时间戳不同 limit_id 不去重、
-//      相同 limit_id 或相同签名去重）
+//   - Tests/CodexLocalUsageCoreTests/UsageTests.swift（仓库根 Tests/，App 自有 target 测试——
+//     非 .dependencies/codexbar；testRepeatedQuotaSnapshotsAndIdenticalRealRequests：
+//     相同时间戳不同 limit_id 不去重、相同 limit_id 或相同签名去重）
 // fixtures：local-session-rollout.jsonl、local-session-token-usage.jsonl。
 
 #nullable enable
 
 using System;
 using System.Linq;
+using System.Text.Json.Nodes;
 using System.Threading.Tasks;
 using AIQuotaBar.Providers.Codex.Parsing;
 using Xunit;
@@ -87,6 +88,22 @@ public sealed class CodexLocalRolloutReaderTests
         // Swift UsageSummary 断言口径：tokens.total = Σ(input+output) = 220；缓存命中率 0.5。
         Assert.Equal(220, result.Events.Sum(e => e.Tokens.Total));
         Assert.Equal(0.5, (double)result.Events.Sum(e => e.Tokens.Cached) / result.Events.Sum(e => e.Tokens.Input));
+    }
+
+    [Fact]
+    public void ReadTokenUsage_InlineModelOverridesTurnContextModel()
+    {
+        // Swift（Sources/CodexLocalUsageCore/UsageParser.swift）: token_count 行内 model
+        // （info.model ?? info.model_name ?? payload.model）覆盖 turn_context 的模型。
+        var lines = CodexFixtures.ReadLines("local-session-token-usage.jsonl").ToList();
+        var tokenLine = JsonNode.Parse(lines[2]) as JsonObject;
+        ((JsonObject)tokenLine!["payload"]!["info"]!)["model"] = "gpt-inline";
+
+        var result = CodexLocalRolloutReader.ReadTokenUsage(
+            lines.Take(2).Append(tokenLine!.ToJsonString()));
+
+        var single = Assert.Single(result.Events);
+        Assert.Equal("gpt-inline", single.Model);
     }
 
     [Fact]

@@ -256,7 +256,7 @@ public sealed class MiniMaxActivityDetector
         }
         foreach (var entry in entries)
         {
-            if (!Path.GetFileName(entry).StartsWith('.', StringComparison.Ordinal))
+            if (!Path.GetFileName(entry).StartsWith(".", StringComparison.Ordinal))
             {
                 yield return entry;
             }
@@ -276,7 +276,7 @@ public sealed class MiniMaxActivityDetector
         }
         foreach (var entry in entries)
         {
-            if (!Path.GetFileName(entry).StartsWith('.', StringComparison.Ordinal))
+            if (!Path.GetFileName(entry).StartsWith(".", StringComparison.Ordinal))
             {
                 yield return entry;
             }

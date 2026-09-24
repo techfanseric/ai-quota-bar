@@ -33,7 +33,7 @@ public sealed class AppMutex : IDisposable
 {
     private readonly Mutex _mutex;
     private readonly EventWaitHandle _secondInstanceSignal;
-    private readonly int _ownerThreadId;   // 获得所有权的线程（Release 所有权校验）
+    private int _ownerThreadId;   // 获得所有权的线程（0 = 尚未获得；TryAcquire 成功时记录，构造线程无关）
     private bool _acquired;
     private bool _disposed;
 
@@ -57,7 +57,6 @@ public sealed class AppMutex : IDisposable
             mode: EventResetMode.AutoReset,
             name: $@"Local\{applicationName}.SecondInstanceSignal",
             createdNew: out _);
-        _ownerThreadId = Environment.CurrentManagedThreadId;
     }
 
     /// <summary>本实例当前是否持有单实例 mutex。</summary>
@@ -76,6 +75,8 @@ public sealed class AppMutex : IDisposable
     /// 已获得时重复调用幂等返回 <see langword="true"/>（注意：受 mutex 线程所有权影响，
     /// 同线程再次 WaitOne 也会成功——单实例语义由跨进程探测保证，本方法不做同进程区分）。
     /// 前一持有进程崩溃遗留的弃用 mutex 会被接管（AbandonedMutexException 分支）。
+    /// 获得成功时把所有权线程记录为**实际执行获得的线程**（构造线程可能不同），
+    /// 供 <see cref="Release"/> / <see cref="Dispose"/> 的线程校验使用。
     /// </remarks>
     public bool TryAcquire()
     {
@@ -95,6 +96,12 @@ public sealed class AppMutex : IDisposable
             _acquired = true;
         }
 
+        if (_acquired)
+        {
+            // 所有权线程 = 实际获得线程，而非构造线程
+            _ownerThreadId = Environment.CurrentManagedThreadId;
+        }
+
         return _acquired;
     }
 
@@ -102,7 +109,11 @@ public sealed class AppMutex : IDisposable
     /// 释放单实例 mutex（须由获得它的同一线程调用；真实使用中即首实例主线程）。
     /// 未获得时调用为无害幂等操作。
     /// </summary>
-    /// <exception cref="InvalidOperationException">跨线程释放（mutex 线程所有权）。</exception>
+    /// <remarks>
+    /// 与 <see cref="Dispose"/> 一致地容忍所有权丢失（如弃用后被其他实例接管并释放）：
+    /// 此时原生 ReleaseMutex 抛 <see cref="ApplicationException"/>，本方法按「已释放」静默完成。
+    /// </remarks>
+    /// <exception cref="InvalidOperationException">由非获得线程调用（mutex 线程所有权）。</exception>
     public void Release()
     {
         ThrowIfDisposed();
@@ -117,7 +128,15 @@ public sealed class AppMutex : IDisposable
                 $"Release 须在获得 mutex 的线程调用（获得线程 {_ownerThreadId}，实然线程 {Environment.CurrentManagedThreadId}）。");
         }
 
-        _mutex.ReleaseMutex();
+        try
+        {
+            _mutex.ReleaseMutex();
+        }
+        catch (ApplicationException)
+        {
+            // 所有权已不在本线程/本句柄（弃用后被接管释放等）：视为已释放，与 Dispose 行为一致
+        }
+
         _acquired = false;
     }
 

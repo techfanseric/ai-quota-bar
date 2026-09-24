@@ -90,7 +90,10 @@ public static class GlmResetAllowanceParser
             }
             if (!available.GetBoolean())
             {
-                continue; // 只统计 available == true
+                // 跳过 available == false 的条目，且其 expireTime 一概不读——对齐 Swift 的
+                // items.filter(\.available).map { ... }（先过滤后解码），所以 {"available": false}
+                // 缺 expireTime 不会让整体解码失败。
+                continue;
             }
             var expireTime = RequiredString(item, "expireTime");
             expirations.Add(ParseShanghaiTime(expireTime));

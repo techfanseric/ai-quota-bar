@@ -497,10 +497,10 @@ public static class UsageDataCalculations
 
     /// <summary>
     /// 把 CodexUsageDataMapper 写入的 detailText（"Pro 20x · OAuth · resets 04/08 00:00"）
-    /// 拆成三段：plan（"Pro 20x"）/ source（"OAuth"）/ rest（"resets ..." 等）。
-    /// Swift: parsedDetail。
+    /// 拆成三段：plan（"Pro 20x"）/ source（"OAuth"）/ restText（"resets ..." 等）。
+    /// Swift: parsedDetail（Swift 元组成员 rest；"Rest" 是 C# ValueTuple 保留名，改名 RestText）。
     /// </summary>
-    public static (string? Plan, string? Source, string? Rest) ParsedDetail(this ModelUsageData model)
+    public static (string? Plan, string? Source, string? RestText) ParsedDetail(this ModelUsageData model)
     {
         if (string.IsNullOrEmpty(model.DetailText))
         {

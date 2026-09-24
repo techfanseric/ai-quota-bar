@@ -22,13 +22,15 @@ public sealed record CodexRateLimitResetCreditsSnapshot(
 {
     /// <summary>
     /// Swift: availableInventory(at:) —— available 状态且未过期（无过期时间视为可用），
-    /// 有限过期时间升序在前、无过期时间在后。
+    /// 有限过期时间升序在前、无过期时间在后；同过期时间以稳定 Id 升序决胜
+    /// （Swift: sorted 的 fallthrough `lhs.id &lt; rhs.id`，CreditsModels.swift）。
     /// </summary>
     public IReadOnlyList<CodexRateLimitResetCredit> AvailableCredits(DateTimeOffset at) =>
         Credits
             .Where(credit => credit.IsAvailable && (credit.ExpiresAt is null || credit.ExpiresAt > at))
             .OrderBy(credit => credit.ExpiresAt is null ? 1 : 0)
             .ThenBy(credit => credit.ExpiresAt)
+            .ThenBy(credit => credit.Id, StringComparer.Ordinal)
             .ToList();
 
     /// <summary>Swift: nextExpiringAvailableCredit。</summary>

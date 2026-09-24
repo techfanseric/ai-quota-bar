@@ -16,9 +16,10 @@ namespace AIQuotaBar.Core.Quota;
 /// <summary>
 /// 消耗节奏快照（Swift/codexbar: UsagePace）。delta = actual - expected，正数 = 用得比匀速快。
 /// </summary>
-/// <param name="Stage">
+/// <param name="PaceStage">
 /// 按 |delta| 分桶：≤2 onTrack，≤6 slightly，≤12 ahead/behind，&gt;12 far。
-/// 属性名与嵌套枚举同名（Swift: stage；C# "Color Color" 模式，合法且保持双端可检索）。
+/// Swift 成员名 stage；C# 端属性与嵌套枚举类型不能同名（主构造参数/属性名 Stage 与嵌套
+/// enum Stage 在 record 声明中冲突，CI CS0102/CS0246 实证），故映射为 PaceStage。
 /// </param>
 /// <param name="DeltaPercent">actualUsedPercent - expectedUsedPercent（钳制后相减）。</param>
 /// <param name="ExpectedUsedPercent">匀速消耗下应有的已用百分比（0-100）。</param>
@@ -30,7 +31,7 @@ namespace AIQuotaBar.Core.Quota;
 /// 剩余容量 / 预计剩余用量（"还能再撑几倍"）；分子分母非正时为 null。
 /// </param>
 public sealed record UsagePace(
-    Stage Stage,
+    Stage PaceStage,
     double DeltaPercent,
     double ExpectedUsedPercent,
     double ActualUsedPercent,
@@ -82,7 +83,7 @@ public sealed record UsagePace(
         var actual = Math.Clamp(actualUsedPercent, 0, 100);
         var delta = actual - expected;
         return new UsagePace(
-            Stage: StageFor(delta),
+            PaceStage: StageFor(delta),
             DeltaPercent: delta,
             ExpectedUsedPercent: expected,
             ActualUsedPercent: actual,

@@ -94,9 +94,12 @@ public sealed class ClashApiClientTests
         Assert.Equal(HttpMethod.Put, request.Method);
         Assert.Equal("/proxies/AI%20group", request.RequestUri!.AbsolutePath);
         Assert.Equal("application/json", request.Content!.Headers.ContentType!.MediaType);
-        Assert.Equal(
-            "{\"name\":\"🇯🇵 Japan Tokyo 03\"}",
-            await request.Content.ReadAsStringAsync());
+        // QuotaJson.Default 沿用 JavaScriptEncoder.Default，非 ASCII（emoji）会被转义为 \ud83c… 形式，
+        // 逐字断言原始 emoji 不可行；改为语义断言——同 options 反序列化后核对字段值。
+        var body = await request.Content.ReadAsStringAsync();
+        var selection = JsonSerializer.Deserialize<RouteSelectionBody>(body, QuotaJson.Default);
+        Assert.NotNull(selection);
+        Assert.Equal("🇯🇵 Japan Tokyo 03", selection!.Name);
     }
 
     [Fact]
@@ -224,6 +227,9 @@ public sealed class ClashApiClientTests
     }
 
     // ---------------------------------------------------------------- helpers
+
+    /// <summary>ClashApiClient 内部 RouteSelection 的测试侧镜像（原 record 为 private，无法直接反序列化）。</summary>
+    private sealed record RouteSelectionBody(string Name);
 
     private static HttpResponseMessage Ok(string json) => new(HttpStatusCode.OK)
     {

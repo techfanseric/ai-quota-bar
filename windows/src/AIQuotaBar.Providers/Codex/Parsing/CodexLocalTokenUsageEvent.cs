@@ -1,4 +1,5 @@
-// Swift 来源：Sources/CodexLocalUsageCore/UsageModels.swift（struct LocalUsageEvent；
+// Swift 来源：Sources/CodexLocalUsageCore/UsageModels.swift（仓库根 Sources/ 的 App 自有 target
+//   CodexLocalUsageCore——非 .dependencies/codexbar；struct LocalUsageEvent；
 //   id 的 SHA-256 摘要与 accountID 哈希裁剪——W1-E 只需关键字段，去重签名由
 //   CodexLocalTokenUsageResult 层保留）
 
