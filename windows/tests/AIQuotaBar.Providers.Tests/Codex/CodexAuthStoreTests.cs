@@ -235,6 +235,12 @@ public sealed class CodexAuthStoreTests
     {
         public string CodexHomeDirectory { get; }
 
+        /// <summary>空 home（目录存在但无 auth.json），供“文件缺失”用例。</summary>
+        public TempCodexHome()
+            : this(Path.Combine(Path.GetTempPath(), "aiquotabar-codex-tests-" + Guid.NewGuid().ToString("N")))
+        {
+        }
+
         private TempCodexHome(string directory)
         {
             CodexHomeDirectory = directory;

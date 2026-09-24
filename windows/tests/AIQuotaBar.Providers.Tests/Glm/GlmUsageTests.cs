@@ -45,10 +45,12 @@ public sealed class GlmUsageTests
 
         // weekly：endTime = 毫秒时间戳 1789647732997（Swift 断言 epoch 1789647732.997 ±0.001），
         // 周窗口起点 = 重置时间 - 7 天（Swift: endTime - startTime == 7 * 24 * 3600）。
+        // Nullable 值类型的 "!" 不解包（仍是 DateTimeOffset?），须用模式匹配先确认非空再取毫秒。
         var weekly = usage.Models[1];
         var expectedReset = DateTimeOffset.FromUnixTimeMilliseconds(1789647732997);
         Assert.True(
-            Math.Abs((weekly.EndTime!.ToUnixTimeMilliseconds() - expectedReset.ToUnixTimeMilliseconds())) <= 1,
+            weekly.EndTime is { } weeklyEnd
+                && Math.Abs(weeklyEnd.ToUnixTimeMilliseconds() - expectedReset.ToUnixTimeMilliseconds()) <= 1,
             $"weekly endTime 应为 {expectedReset}（应然），实然 {weekly.EndTime}。");
         Assert.Equal(TimeSpan.FromDays(7), weekly.EndTime - weekly.StartTime);
     }
