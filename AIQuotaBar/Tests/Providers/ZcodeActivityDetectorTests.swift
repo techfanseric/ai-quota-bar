@@ -91,6 +91,141 @@ final class ZcodeActivityDetectorTests: XCTestCase {
         XCTAssertEqual(detector.detectSnapshot(now: now), .empty)
     }
 
+    // MARK: - Terminal-turn end events (hybrid lifecycle)
+
+    func testFirstPollSkipsHistoricalCompletionLedger() throws {
+        // A long-finished turn must not read as a fresh end event at launch:
+        // the session's stale-but-windowed write predates the turn end, yet
+        // the first poll initializes the cursor past the historical ledger.
+        let fixture = try makeFixture(sessions: [
+            Session(
+                id: "sess-historical",
+                taskType: "interactive",
+                timeUpdatedMs: milliseconds(now) - 30 * 1_000,
+                archived: false),
+        ], turns: [
+            Turn(
+                sessionID: "sess-historical",
+                status: "completed",
+                startedAtMs: milliseconds(now) - 60 * 1_000,
+                completedAtMs: milliseconds(now) - 5 * 1_000),
+        ])
+
+        XCTAssertEqual(
+            fixture.detector.detectSnapshot(now: now).activeSessionIDs,
+            ["glm:zcode:sess-historical"])
+    }
+
+    func testTerminalTurnRowEndsSessionDespiteFreshTimestamp() throws {
+        let fixture = try makeFixture(sessions: [
+            Session(
+                id: "sess-running",
+                taskType: "interactive",
+                timeUpdatedMs: milliseconds(now) - 3 * 1_000,
+                archived: false),
+            Session(
+                id: "sess-ended",
+                taskType: "interactive",
+                timeUpdatedMs: milliseconds(now) - 30 * 1_000,
+                archived: false),
+        ])
+
+        // Before the terminal row lands, freshness alone keeps both active.
+        XCTAssertEqual(
+            fixture.detector.detectSnapshot(now: now).activeSessionIDs,
+            ["glm:zcode:sess-running", "glm:zcode:sess-ended"])
+
+        // The turn ends now: its terminal row lands after the detector has
+        // already been polling, and the session's freshest write is still the
+        // turn's own last write (30s ago, inside the window).
+        let connection = try Self.openDatabase(at: fixture.databaseURL)
+        defer { sqlite3_close(connection) }
+        try Self.execute(
+            """
+            INSERT INTO turn_usage
+                (session_id, turn_id, status, started_at, completed_at)
+            VALUES ('sess-ended', 'turn-1', 'completed',
+                    \(milliseconds(now) - 60 * 1_000), \(milliseconds(now) - 1 * 1_000));
+            """,
+            on: connection)
+
+        XCTAssertEqual(
+            fixture.detector.detectSnapshot(now: now).activeSessionIDs,
+            ["glm:zcode:sess-running"])
+    }
+
+    func testWritesAfterTurnEndKeepSessionActive() throws {
+        // Cancel-then-continue: the newest write postdates the ended turn,
+        // so the immediately continued turn must not be cut off.
+        let fixture = try makeFixture(sessions: [
+            Session(
+                id: "sess-continued",
+                taskType: "interactive",
+                timeUpdatedMs: milliseconds(now) - 2 * 1_000,
+                archived: false),
+        ])
+        XCTAssertFalse(
+            fixture.detector.detectSnapshot(now: now).activeSessionIDs.isEmpty)
+
+        let connection = try Self.openDatabase(at: fixture.databaseURL)
+        defer { sqlite3_close(connection) }
+        try Self.execute(
+            """
+            INSERT INTO turn_usage
+                (session_id, turn_id, status, started_at, completed_at)
+            VALUES ('sess-continued', 'turn-1', 'cancelled',
+                    \(milliseconds(now) - 60 * 1_000), \(milliseconds(now) - 10 * 1_000));
+            """,
+            on: connection)
+
+        XCTAssertEqual(
+            fixture.detector.detectSnapshot(now: now).activeSessionIDs,
+            ["glm:zcode:sess-continued"])
+    }
+
+    func testRunningTurnRowsDoNotEndSessions() throws {
+        // Future-proofing: if a ZCode update starts inserting 'running' rows
+        // at turn start, those rows must be ignored, not read as end events.
+        let fixture = try makeFixture(sessions: [
+            Session(
+                id: "sess-live",
+                taskType: "interactive",
+                timeUpdatedMs: milliseconds(now) - 3 * 1_000,
+                archived: false),
+        ])
+        XCTAssertFalse(
+            fixture.detector.detectSnapshot(now: now).activeSessionIDs.isEmpty)
+
+        let connection = try Self.openDatabase(at: fixture.databaseURL)
+        defer { sqlite3_close(connection) }
+        try Self.execute(
+            """
+            INSERT INTO turn_usage
+                (session_id, turn_id, status, started_at, completed_at)
+            VALUES ('sess-live', 'turn-1', 'running',
+                    \(milliseconds(now) - 5 * 1_000), NULL);
+            """,
+            on: connection)
+
+        XCTAssertEqual(
+            fixture.detector.detectSnapshot(now: now).activeSessionIDs,
+            ["glm:zcode:sess-live"])
+    }
+
+    func testMissingTurnUsageTableFallsBackToFreshnessOnly() throws {
+        let fixture = try makeFixture(sessions: [
+            Session(
+                id: "sess-fresh",
+                taskType: "interactive",
+                timeUpdatedMs: milliseconds(now) - 5 * 1_000,
+                archived: false),
+        ], withTurnUsage: false)
+
+        XCTAssertEqual(
+            fixture.detector.detectSnapshot(now: now).activeSessionIDs,
+            ["glm:zcode:sess-fresh"])
+    }
+
     // MARK: - Fixtures
 
     private struct Session {
@@ -100,12 +235,21 @@ final class ZcodeActivityDetectorTests: XCTestCase {
         let archived: Bool
     }
 
+    private struct Turn {
+        let sessionID: String
+        let status: String
+        let startedAtMs: Int64
+        let completedAtMs: Int64?
+    }
+
     private func milliseconds(_ date: Date) -> Int64 {
         Int64(date.timeIntervalSince1970 * 1_000)
     }
 
     private func makeFixture(
-        sessions: [Session]
+        sessions: [Session],
+        turns: [Turn] = [],
+        withTurnUsage: Bool = true
     ) throws -> (detector: ZcodeActivityDetector, databaseURL: URL) {
         let databaseURL = FileManager.default.temporaryDirectory
             .appendingPathComponent("\(UUID().uuidString).sqlite")
@@ -132,6 +276,31 @@ final class ZcodeActivityDetectorTests: XCTestCase {
                 VALUES ('\(session.id)', '\(session.taskType)', \(session.timeUpdatedMs), \(archivedValue));
                 """,
                 on: connection)
+        }
+        if withTurnUsage {
+            try Self.execute(
+                """
+                CREATE TABLE turn_usage (
+                    session_id text not null,
+                    turn_id text not null,
+                    status text not null,
+                    started_at integer not null,
+                    completed_at integer,
+                    primary key(session_id, turn_id)
+                );
+                """,
+                on: connection)
+            for turn in turns {
+                let completedValue = turn.completedAtMs.map { "\($0)" } ?? "NULL"
+                try Self.execute(
+                    """
+                    INSERT INTO turn_usage
+                        (session_id, turn_id, status, started_at, completed_at)
+                    VALUES ('\(turn.sessionID)', 'turn-\(UUID().uuidString)',
+                            '\(turn.status)', \(turn.startedAtMs), \(completedValue));
+                    """,
+                    on: connection)
+            }
         }
         return (
             ZcodeActivityDetector(
