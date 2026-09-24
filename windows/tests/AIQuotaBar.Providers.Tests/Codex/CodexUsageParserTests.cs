@@ -56,16 +56,16 @@ public sealed class CodexUsageParserTests
         Assert.Equal("pro", response.PlanType);
         Assert.Null(response.AccountId);
         Assert.Equal(22, response.RateLimit!.PrimaryWindow!.UsedPercent);
-        Assert.Equal(1766948068, response.RateLimit.PrimaryWindow.ResetAt);
-        Assert.Equal(18000, response.RateLimit.PrimaryWindow.LimitWindowSeconds);
-        Assert.Equal(43, response.RateLimit.SecondaryWindow!.UsedPercent);
-        Assert.Equal(604800, response.RateLimit.SecondaryWindow.LimitWindowSeconds);
+        Assert.Equal(1766948068, response.RateLimit!.PrimaryWindow!.ResetAt);
+        Assert.Equal(18000, response.RateLimit!.PrimaryWindow!.LimitWindowSeconds);
+        Assert.Equal(43, response.RateLimit!.SecondaryWindow!.UsedPercent);
+        Assert.Equal(604800, response.RateLimit!.SecondaryWindow!.LimitWindowSeconds);
         Assert.Null(response.Credits);
         var additional = Assert.Single(response.AdditionalRateLimits!);
         Assert.Equal("GPT-5.3-Codex-Spark", additional.LimitName);
         Assert.Equal("gpt_5_3_codex_spark", additional.MeteredFeature);
         Assert.Equal(30, additional.RateLimit!.PrimaryWindow!.UsedPercent);
-        Assert.Equal(100, additional.RateLimit.SecondaryWindow!.UsedPercent);
+        Assert.Equal(100, additional.RateLimit!.SecondaryWindow!.UsedPercent);
         Assert.False(response.AdditionalRateLimitsDecodeFailed);
     }
 
@@ -78,12 +78,12 @@ public sealed class CodexUsageParserTests
 
         Assert.NotNull(snapshot);
         Assert.Equal(22, snapshot!.Primary!.UsedPercent);
-        Assert.Equal(300, snapshot.Primary.WindowMinutes);
+        Assert.Equal(300, snapshot.Primary!.WindowMinutes);
         Assert.Equal(43, snapshot.Secondary!.UsedPercent);
-        Assert.Equal(10080, snapshot.Secondary.WindowMinutes);
+        Assert.Equal(10080, snapshot.Secondary!.WindowMinutes);
         Assert.Equal(
             new DateTimeOffset(2025, 12, 28, 18, 54, 28, TimeSpan.Zero),
-            snapshot.Primary.ResetsAt);
+            snapshot.Primary!.ResetsAt);
 
         var extras = snapshot.ExtraRateWindows!;
         Assert.Equal(2, extras.Count);
@@ -148,11 +148,11 @@ public sealed class CodexUsageParserTests
 
         Assert.NotNull(snapshot);
         Assert.Equal(22, snapshot!.Primary!.UsedPercent);
-        Assert.Equal(300, snapshot.Primary.WindowMinutes);
+        Assert.Equal(300, snapshot.Primary!.WindowMinutes);
         Assert.Equal(43, snapshot.Secondary!.UsedPercent);
-        Assert.Equal(10080, snapshot.Secondary.WindowMinutes);
-        Assert.NotNull(snapshot.Primary.ResetsAt);
-        Assert.NotNull(snapshot.Secondary.ResetsAt);
+        Assert.Equal(10080, snapshot.Secondary!.WindowMinutes);
+        Assert.NotNull(snapshot.Primary!.ResetsAt);
+        Assert.NotNull(snapshot.Secondary!.ResetsAt);
         Assert.Equal(CodexDataConfidence.Exact, snapshot.DataConfidence);
     }
 
@@ -171,7 +171,7 @@ public sealed class CodexUsageParserTests
         Assert.NotNull(snapshot);
         Assert.Null(snapshot!.Primary);
         Assert.Equal(0, snapshot.Secondary!.UsedPercent);
-        Assert.Equal(10080, snapshot.Secondary.WindowMinutes);
+        Assert.Equal(10080, snapshot.Secondary!.WindowMinutes);
 
         var data = CodexUsageParser.MapToUsageData(
             response, OAuthCredentials(), whoami: null, sourceLabel: "oauth", now: Now);
@@ -195,7 +195,7 @@ public sealed class CodexUsageParserTests
         Assert.NotNull(snapshot);
         Assert.Null(snapshot!.Secondary);
         Assert.Equal(17, snapshot.Primary!.UsedPercent);
-        Assert.Equal(540, snapshot.Primary.WindowMinutes);
+        Assert.Equal(540, snapshot.Primary!.WindowMinutes);
     }
 
     // ------------------------------------------------------------------
@@ -241,8 +241,8 @@ public sealed class CodexUsageParserTests
 
         Assert.Equal("pro", response.PlanType);
         Assert.Equal(0, response.Credits!.Balance);
-        Assert.False(response.Credits.HasCredits);
-        Assert.False(response.Credits.Unlimited);
+        Assert.False(response.Credits!.HasCredits);
+        Assert.False(response.Credits!.Unlimited);
 
         var credits = CodexUsageParser.MapCredits(response, Now);
         Assert.NotNull(credits);
@@ -290,15 +290,15 @@ public sealed class CodexUsageParserTests
         Assert.Equal("workspace-fixture", response.AccountId);
         Assert.Equal("business", response.PlanType);
         Assert.Null(response.Credits!.Balance);
-        Assert.True(response.Credits.HasCredits);
+        Assert.True(response.Credits!.HasCredits);
 
         var credits = CodexUsageParser.MapCredits(response, Now);
         Assert.NotNull(credits);
         Assert.False(credits!.BalanceReadSucceeded);
         Assert.Equal(0, credits.Remaining);
         Assert.Equal(400, credits.CreditLimit!.Limit);
-        Assert.Equal(300, credits.CreditLimit.Used);
-        Assert.Equal(100, credits.CreditLimit.Remaining);
+        Assert.Equal(300, credits.CreditLimit!.Used);
+        Assert.Equal(100, credits.CreditLimit!.Remaining);
         Assert.Equal(100, credits.DisplayRemaining);
     }
 
@@ -318,8 +318,8 @@ public sealed class CodexUsageParserTests
 
         Assert.NotNull(response.IndividualLimit);
         Assert.Equal(400, credits!.CreditLimit!.Limit);
-        Assert.Equal(300, credits.CreditLimit.Used);
-        Assert.Equal(100, credits.CreditLimit.Remaining);
+        Assert.Equal(300, credits.CreditLimit!.Used);
+        Assert.Equal(100, credits.CreditLimit!.Remaining);
     }
 
     [Fact]
@@ -421,7 +421,7 @@ public sealed class CodexUsageParserTests
         Assert.NotNull(snapshot);
         Assert.Null(snapshot!.Primary);
         Assert.Equal(43, snapshot.Secondary!.UsedPercent);
-        Assert.Equal(10080, snapshot.Secondary.WindowMinutes);
+        Assert.Equal(10080, snapshot.Secondary!.WindowMinutes);
         Assert.Equal(CodexDataConfidence.Unknown, snapshot.DataConfidence);
     }
 
@@ -453,7 +453,7 @@ public sealed class CodexUsageParserTests
 
         var response = CodexUsageParser.ParseUsageResponse(json);
         Assert.Null(response.Credits!.Balance);
-        Assert.False(response.Credits.HasCredits);
+        Assert.False(response.Credits!.HasCredits);
 
         var snapshot = CodexUsageParser.MapUsageSnapshot(response, OAuthCredentials(), now: Now);
         Assert.Equal(12, snapshot!.Primary!.UsedPercent);
@@ -543,11 +543,14 @@ public sealed class CodexUsageParserTests
         var snapshot = CodexUsageParser.MapUsageSnapshot(
             CodexUsageParser.ParseUsageResponse(json), OAuthCredentials(), now: Now);
 
+        Assert.NotNull(snapshot);
+        // 提升为局部变量：属性空态不跨语句跟踪（`!` 只影响当次表达式）。
+        var extras = snapshot!.ExtraRateWindows!;
         Assert.Equal(
             new[] { "codex-spark", "codex-spark-weekly" },
-            snapshot!.ExtraRateWindows!.Select(extra => extra.Id).ToArray());
-        Assert.Equal(30, snapshot.ExtraRateWindows[0].Window.UsedPercent);
-        Assert.Equal(80, snapshot.ExtraRateWindows[1].Window.UsedPercent);
+            extras.Select(extra => extra.Id).ToArray());
+        Assert.Equal(30, extras[0].Window.UsedPercent);
+        Assert.Equal(80, extras[1].Window.UsedPercent);
     }
 
     // ------------------------------------------------------------------
@@ -674,9 +677,9 @@ public sealed class CodexUsageParserTests
             CodexFixtures.Read("usage-snapshot-current.json"));
 
         Assert.Equal(42, snapshot.Primary!.UsedPercent);
-        Assert.Equal(300, snapshot.Primary.WindowMinutes);
-        Assert.Equal(new DateTimeOffset(2026, 8, 2, 17, 0, 0, TimeSpan.Zero), snapshot.Primary.ResetsAt);
-        Assert.Null(snapshot.Primary.ResetDescription);
+        Assert.Equal(300, snapshot.Primary!.WindowMinutes);
+        Assert.Equal(new DateTimeOffset(2026, 8, 2, 17, 0, 0, TimeSpan.Zero), snapshot.Primary!.ResetsAt);
+        Assert.Null(snapshot.Primary!.ResetDescription);
         Assert.Null(snapshot.Secondary);
         Assert.Null(snapshot.Tertiary);
 
@@ -688,10 +691,10 @@ public sealed class CodexUsageParserTests
         Assert.Equal(new DateTimeOffset(2026, 8, 2, 12, 0, 0, TimeSpan.Zero), cost.UpdatedAt);
 
         Assert.Equal("synthetic", snapshot.Identity!.ProviderId);
-        Assert.Equal("fixture@example.com", snapshot.Identity.AccountEmail);
-        Assert.Equal("Fixture Org", snapshot.Identity.AccountOrganization);
-        Assert.Equal("API key", snapshot.Identity.LoginMethod);
-        Assert.Equal("acct_fixture", snapshot.Identity.AccountId);
+        Assert.Equal("fixture@example.com", snapshot.Identity!.AccountEmail);
+        Assert.Equal("Fixture Org", snapshot.Identity!.AccountOrganization);
+        Assert.Equal("API key", snapshot.Identity!.LoginMethod);
+        Assert.Equal("acct_fixture", snapshot.Identity!.AccountId);
         Assert.Equal(CodexDataConfidence.Exact, snapshot.DataConfidence);
         Assert.Equal(new DateTimeOffset(2026, 8, 2, 12, 0, 0, TimeSpan.Zero), snapshot.UpdatedAt);
     }

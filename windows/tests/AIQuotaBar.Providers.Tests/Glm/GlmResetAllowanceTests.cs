@@ -78,9 +78,8 @@ public sealed class GlmResetAllowanceTests
                      GlmCredentialParser.DefaultApiUrl + "?type=2", // 非默认查询参数
                  })
         {
-            Assert.Null(
-                GlmResetAllowanceRequestBuilder.TryBuild(Credential(url)),
-                $"不应为 {url} 构建 reset 请求（应然：null）。");
+            // 不应为该 url 构建 reset 请求（应然：null）——xUnit Assert.Null 无消息重载，说明转注释。
+            Assert.Null(GlmResetAllowanceRequestBuilder.TryBuild(Credential(url)));
         }
 
         // 组织作用域（团队）拒绝。

@@ -1,0 +1,11 @@
+# Test-project analyzer overrides.
+#
+# Windows tests deliberately mirror the Swift test suite's assertion shapes
+# (XCTAssertEqual(count, ...) etc.) so both sides stay line-comparable.
+# The xUnit style analyzers flag those shapes; downgrading them here keeps
+# TreatWarningsAsErrors meaningful for real compile warnings without
+# rewriting 28 mirrored call sites. Scoped to windows/tests/ only —
+# production code under windows/src keeps full analyzer pressure.
+[*.cs]
+dotnet_diagnostic.xUnit2013.severity = none   # Equal(n, Count) mirrors Swift count asserts
+dotnet_diagnostic.xUnit2009.severity = none   # False(Contains) mirrors XCTAssertFalse(contains)
