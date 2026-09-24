@@ -87,6 +87,18 @@ struct GeneralPane: View {
             .disabled(viewModel.menuBarAppearance != .compactRing)
 
             PreferencePickerRow(
+                title: language.menuBarTaskWaveLayoutLabel(),
+                subtitle: language.menuBarTaskWaveLayoutDescription(),
+                selection: $viewModel.menuBarTaskWaveLayout,
+                maxWidth: 180
+            ) {
+                ForEach(MenuBarTaskWaveLayout.allCases) { layout in
+                    Text(language.menuBarTaskWaveLayoutDisplayName(layout)).tag(layout)
+                }
+            }
+            .disabled(viewModel.menuBarAppearance != .compactRing)
+
+            PreferencePickerRow(
                 title: language.menuBarRingQuotaWindowLabel(),
                 subtitle: language.menuBarRingQuotaWindowDescription(),
                 selection: $viewModel.menuBarRingQuotaWindow,

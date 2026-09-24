@@ -147,6 +147,14 @@ final class UsageViewModel {
         }
     }
 
+    var menuBarTaskWaveLayout: MenuBarTaskWaveLayout {
+        didSet {
+            UserDefaults.standard.set(
+                menuBarTaskWaveLayout.rawValue,
+                forKey: MenuBarTaskWaveLayout.storageKey)
+        }
+    }
+
     var menuBarRingQuotaWindow: MenuBarRingQuotaWindow {
         didSet {
             UserDefaults.standard.set(
@@ -1001,6 +1009,9 @@ final class UsageViewModel {
         self.menuBarPaceDisplayMode = UserDefaults.standard.string(forKey: MenuBarPaceDisplayMode.storageKey)
             .flatMap(MenuBarPaceDisplayMode.init(rawValue:))
             ?? .continuous
+        self.menuBarTaskWaveLayout = UserDefaults.standard.string(forKey: MenuBarTaskWaveLayout.storageKey)
+            .flatMap(MenuBarTaskWaveLayout.init(rawValue:))
+            ?? .chaseQueue
         self.menuBarRingQuotaWindow = UserDefaults.standard.string(
             forKey: MenuBarRingQuotaWindow.storageKey)
             .flatMap(MenuBarRingQuotaWindow.init(rawValue:))
