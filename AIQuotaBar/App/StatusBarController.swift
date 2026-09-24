@@ -6,6 +6,7 @@ struct CompactStatusRenderState: Equatable {
     let snapshots: [MenuBarSnapshot]
     let connectivity: CodexConnectivityState
     let pace: MenuBarPaceDisplayMode
+    let taskWaveLayout: MenuBarTaskWaveLayout
     let selfTesting: Bool
     let tasks: [UsageProvider: Int]
     let padding: Double
@@ -24,6 +25,7 @@ struct CompactStatusRenderState: Equatable {
                     && a.isLowQuota == b.isLowQuota
             }
             && lhs.connectivity == rhs.connectivity && lhs.pace == rhs.pace
+            && lhs.taskWaveLayout == rhs.taskWaveLayout
             && lhs.selfTesting == rhs.selfTesting && lhs.tasks == rhs.tasks
             && lhs.padding == rhs.padding && lhs.spacing == rhs.spacing
             && lhs.appearance == rhs.appearance && lhs.scale == rhs.scale
@@ -233,6 +235,7 @@ final class StatusBarController {
             _ = viewModel.menuBarSnapshots
             _ = viewModel.menuBarAppearance
             _ = viewModel.menuBarPaceDisplayMode
+            _ = viewModel.menuBarTaskWaveLayout
             _ = viewModel.menuBarCompactHorizontalPadding
             _ = viewModel.menuBarCompactRingSpacing
             _ = viewModel.isMenuBarSelfTesting
@@ -588,6 +591,7 @@ final class StatusBarController {
                 snapshots: displayedCompactSnapshots,
                 codexConnectivity: connectivityMonitor.state,
                 paceDisplayMode: viewModel.menuBarPaceDisplayMode,
+                taskWaveLayout: viewModel.menuBarTaskWaveLayout,
                 isSelfTesting: viewModel.isMenuBarSelfTesting,
                 activeTaskCounts: sleepProtectionCoordinator.activeTaskCounts,
                 placeholderShowsCount: viewModel.menuBarPlaceholderShowsCount,
@@ -615,7 +619,9 @@ final class StatusBarController {
         let scale = button.window?.backingScaleFactor ?? NSScreen.main?.backingScaleFactor ?? 2
         return CompactStatusRenderState(
             snapshots: displayedCompactSnapshots, connectivity: connectivityMonitor.state,
-            pace: viewModel.menuBarPaceDisplayMode, selfTesting: viewModel.isMenuBarSelfTesting,
+            pace: viewModel.menuBarPaceDisplayMode,
+            taskWaveLayout: viewModel.menuBarTaskWaveLayout,
+            selfTesting: viewModel.isMenuBarSelfTesting,
             tasks: sleepProtectionCoordinator.activeTaskCounts,
             padding: viewModel.menuBarCompactHorizontalPadding, spacing: viewModel.menuBarCompactRingSpacing,
             appearance: button.effectiveAppearance.bestMatch(from: [.accessibilityHighContrastDarkAqua, .accessibilityHighContrastAqua, .darkAqua, .aqua])?.rawValue ?? "",
@@ -806,6 +812,7 @@ private final class StatusBarContentView: NSView {
         snapshots: [MenuBarSnapshot],
         codexConnectivity: CodexConnectivityState,
         paceDisplayMode: MenuBarPaceDisplayMode,
+        taskWaveLayout: MenuBarTaskWaveLayout = .evenlySpaced,
         isSelfTesting: Bool,
         activeTaskCounts: [UsageProvider: Int],
         placeholderShowsCount: Bool,
@@ -818,6 +825,7 @@ private final class StatusBarContentView: NSView {
             snapshots,
             codexConnectivity: codexConnectivity,
             paceDisplayMode: paceDisplayMode,
+            taskWaveLayout: taskWaveLayout,
             isSelfTesting: isSelfTesting,
             activeTaskCounts: activeTaskCounts,
             placeholderShowsCount: placeholderShowsCount,
@@ -879,6 +887,7 @@ final class StatusBarCompactRingsView: NSView {
         _ snapshots: [MenuBarSnapshot],
         codexConnectivity: CodexConnectivityState,
         paceDisplayMode: MenuBarPaceDisplayMode,
+        taskWaveLayout: MenuBarTaskWaveLayout = .evenlySpaced,
         isSelfTesting: Bool,
         activeTaskCounts: [UsageProvider: Int],
         placeholderShowsCount: Bool = false,
@@ -913,6 +922,7 @@ final class StatusBarCompactRingsView: NSView {
                         ? codexConnectivity
                         : .unknown,
                 paceDisplayMode: paceDisplayMode,
+                taskWaveLayout: taskWaveLayout,
                 isSelfTesting: isSelfTesting,
                 activeTaskCount: activeTaskCounts[snapshot.provider] ?? 0,
                 placeholderShowsCount: placeholderShowsCount,
@@ -1151,8 +1161,79 @@ enum StatusBarAnimationCadence {
     static let selfTestNanoseconds: UInt64 = 66_000_000
     static let taskWaveFramesPerSecond = 30
     static let taskWaveDuration: TimeInterval = 1.8
-    static let continuousNanoseconds: UInt64 = 33_333_333
+    // Every tick marks the status view dirty, and AppKit answers each dirty
+    // status item with a full CPU-side replicant bitmap re-render. Ambient
+    // loops (task wave, offline pulse) therefore redraw at 12fps — slow orbit
+    // and opacity motions stay visually smooth while cutting the render storm
+    // by more than half. Short-lived self-test keeps its own faster cadence.
+    static let continuousNanoseconds: UInt64 = 83_333_333
     static let taskWaveSegmentCount = 16
+}
+
+/// 追逐队列布局的几何与节拍。仅被 `MenuBarTaskWaveLayout.chaseQueue` 使用；
+/// 移除该模式时本枚举可与对应绘制分支一并删除，`.evenlySpaced` 路径不受影响。
+///
+/// 所有比例均以可见弧（256°，即 `drawArcSegment` 的 0...1 分数）为坐标系：
+/// 波到弧端点从另一侧接续，波头永不被顶部缺口遮挡，任意任务数下全部波同时可数。
+/// 防贴靠三重保障：绝对空隙下限 + 尾迹提前归零留空 + 头部恒亮珠点。
+enum MenuBarTaskChaseQueueMotion {
+    /// 队列总长目标（可见弧度数）：约占 256° 可见弧的一半，两侧留呼吸空间。
+    static let convoyTargetDegrees: CGFloat = 127
+    /// 相邻波之间的绝对空隙下限（可见弧度数，约 1.6pt @22pt 环）。
+    /// 可分辨性由绝对弧长决定，因此用度数而非相对比例表达。
+    static let minimumGapDegrees: CGFloat = 12
+    /// 单波最大长度，与均匀分布模式的 16% 圆周（57.6°）保持一致。
+    static let maximumSpanDegrees: CGFloat = 57.6
+    /// 尾迹占全波长的比例：亮度在 70% 处归零，后 30% 留空参与构成接头亮度谷。
+    static let visibleTailFraction: CGFloat = 0.7
+    /// 头部珠点占可见尾迹的比例：恒亮加粗，且不受剩余/消耗段压暗影响。
+    static let beadFraction: CGFloat = 0.3
+    /// 尾迹衰减指数：陡于均匀分布的 0.65，避免长亮尾在队列里糊成一条。
+    static let fadeExponent: CGFloat = 1.6
+    static let beadLineWidth: CGFloat = 1.45
+    static let tailLineWidth: CGFloat = 1.15
+
+    /// 第 N 道波的波长（可见弧度数）：队列装不下时按任务数收缩，单波不放大。
+    static func spanDegrees(waveCount: Int) -> CGFloat {
+        guard waveCount > 1 else { return maximumSpanDegrees }
+        let budget = convoyTargetDegrees
+            - CGFloat(waveCount - 1) * minimumGapDegrees
+        return min(maximumSpanDegrees, max(0, budget / CGFloat(waveCount)))
+    }
+
+    /// 波长与相邻空隙（可见弧 0...1 分数）。
+    static func layoutFractions(waveCount: Int) -> (span: CGFloat, gap: CGFloat) {
+        let sweep = CGFloat(QuotaSymbolRenderer.ringSweepAngle)
+        return (
+            spanDegrees(waveCount: waveCount) / sweep,
+            waveCount > 1 ? minimumGapDegrees / sweep : 0
+        )
+    }
+
+    /// 头到头间距（可见弧分数）：波长 + 绝对空隙。
+    static func slot(waveCount: Int) -> CGFloat {
+        let layout = layoutFractions(waveCount: waveCount)
+        return layout.span + layout.gap
+    }
+
+    /// 尾迹亮度。d∈[0,1] 为沿可见尾迹距波头的比例：珠点区恒 1，
+    /// 之后按 `fadeExponent` 陡降到 1 处归零。
+    static func tailOpacity(distanceFromHead: CGFloat) -> CGFloat {
+        let distance = min(1, max(0, distanceFromHead))
+        guard distance > beadFraction else { return 1 }
+        let fade = (distance - beadFraction) / (1 - beadFraction)
+        return pow(1 - fade, fadeExponent)
+    }
+
+    /// 减弱动态时的定帧相位：队列以可见弧底部（0.5）为中心整体摆放，
+    /// 不跨过 0/1 接缝，静止姿态也能数清波数。
+    static func staticPhase(waveCount: Int) -> CGFloat {
+        let layout = layoutFractions(waveCount: waveCount)
+        let convoy = CGFloat(max(0, waveCount - 1)) * slot(waveCount: waveCount)
+            + layout.span * visibleTailFraction
+        let leader = 0.5 - convoy / 2
+        return (1 - leader).truncatingRemainder(dividingBy: 1)
+    }
 }
 
 @MainActor
@@ -1174,6 +1255,7 @@ final class StatusBarCompactRingView: NSView {
         tooltip: "")
     private var connectivity: CodexConnectivityState = .unknown
     private var paceDisplayMode: MenuBarPaceDisplayMode = .staged
+    private var taskWaveLayout: MenuBarTaskWaveLayout = .evenlySpaced
     private var isSelfTesting = false
     private var activeTaskCount = 0
     private var selfTestFrame: MenuBarSelfTestFrame?
@@ -1209,6 +1291,7 @@ final class StatusBarCompactRingView: NSView {
         _ snapshot: MenuBarSnapshot,
         connectivity: CodexConnectivityState,
         paceDisplayMode: MenuBarPaceDisplayMode = .staged,
+        taskWaveLayout: MenuBarTaskWaveLayout = .evenlySpaced,
         isSelfTesting: Bool = false,
         activeTaskCount: Int = 0,
         placeholderShowsCount: Bool = false,
@@ -1219,6 +1302,7 @@ final class StatusBarCompactRingView: NSView {
         let stateChanged = self.snapshot != snapshot
             || self.connectivity != connectivity
             || self.paceDisplayMode != paceDisplayMode
+            || self.taskWaveLayout != taskWaveLayout
             || self.isSelfTesting != normalizedSelfTesting
             || self.activeTaskCount != normalizedTaskCount
             || self.placeholderShowsCount != placeholderShowsCount
@@ -1229,6 +1313,7 @@ final class StatusBarCompactRingView: NSView {
         self.snapshot = snapshot
         self.connectivity = connectivity
         self.paceDisplayMode = paceDisplayMode
+        self.taskWaveLayout = taskWaveLayout
         self.isSelfTesting = normalizedSelfTesting
         self.activeTaskCount = normalizedTaskCount
         self.placeholderShowsCount = placeholderShowsCount
@@ -1276,11 +1361,20 @@ final class StatusBarCompactRingView: NSView {
             liveOpacity: showsTaskEnergy ? Self.activeLiveRingOpacity : 1)
         if showsTaskEnergy {
             let scale = min(symbolRect.width / 367, symbolRect.height / 410)
-            drawTaskEnergyWave(
-                center: NSPoint(x: bounds.midX, y: bounds.midY - 21.5 * scale),
-                radius: 155.975 * scale,
-                originFraction: (percent ?? 0) / 100,
-                alpha: 1)
+            switch taskWaveLayout {
+            case .evenlySpaced:
+                drawTaskEnergyWave(
+                    center: NSPoint(x: bounds.midX, y: bounds.midY - 21.5 * scale),
+                    radius: 155.975 * scale,
+                    originFraction: (percent ?? 0) / 100,
+                    alpha: 1)
+            case .chaseQueue:
+                drawChaseQueueWave(
+                    center: NSPoint(x: bounds.midX, y: bounds.midY - 21.5 * scale),
+                    radius: 155.975 * scale,
+                    originFraction: (percent ?? 0) / 100,
+                    alpha: 1)
+            }
         }
     }
 
@@ -1290,6 +1384,19 @@ final class StatusBarCompactRingView: NSView {
 
     private var showsTaskEnergy: Bool {
         activeTaskCount > 0 && snapshot.state == .ready && !isOffline && !isSelfTesting
+    }
+
+    /// 减弱动态时的静止相位：均匀分布沿用历史取值，追逐队列改为
+    /// 以可见弧底部为中心的定帧姿态。
+    private var staticOrbitPhase: CGFloat {
+        switch taskWaveLayout {
+        case .evenlySpaced:
+            return 0.12
+        case .chaseQueue:
+            return MenuBarTaskChaseQueueMotion.staticPhase(
+                waveCount: MenuBarTaskEnergyMotion.waveCount(
+                    activeTaskCount: activeTaskCount))
+        }
     }
 
     var isSelfTestingForRendering: Bool { isSelfTesting }
@@ -1377,7 +1484,7 @@ final class StatusBarCompactRingView: NSView {
         guard !NSWorkspace.shared.accessibilityDisplayShouldReduceMotion else {
             taskEnergyTask?.cancel()
             taskEnergyTask = nil
-            taskOrbitPhase = 0.12
+            taskOrbitPhase = staticOrbitPhase
             return
         }
         guard taskEnergyTask == nil else { return }
@@ -1388,7 +1495,7 @@ final class StatusBarCompactRingView: NSView {
             while !Task.isCancelled {
                 guard let self else { return }
                 if NSWorkspace.shared.accessibilityDisplayShouldReduceMotion {
-                    taskOrbitPhase = 0.12
+                    taskOrbitPhase = staticOrbitPhase
                     taskEnergyTask = nil
                     needsDisplay = true
                     return
@@ -1535,6 +1642,97 @@ final class StatusBarCompactRingView: NSView {
                                 * waveOpacity
                                 * 0.78)))
             }
+        }
+    }
+
+    /// 追逐队列：全部任务波在可见弧坐标系（0...1）里首尾相接成一列，
+    /// 沿环逆时针行进（与均匀分布同向）。队首领先，后续波按 slot 间距跟随；
+    /// 波头为恒亮珠点，尾迹在可见段末端归零，接头处必有亮度谷。
+    private func drawChaseQueueWave(
+        center: NSPoint,
+        radius: CGFloat,
+        originFraction: Double,
+        alpha: CGFloat
+    ) {
+        let waveCount = MenuBarTaskEnergyMotion.waveCount(
+            activeTaskCount: activeTaskCount)
+        guard waveCount > 0 else { return }
+
+        let layout = MenuBarTaskChaseQueueMotion.layoutFractions(waveCount: waveCount)
+        let tailSpan = layout.span * MenuBarTaskChaseQueueMotion.visibleTailFraction
+        let slot = layout.span + layout.gap
+        let remainingFraction = min(
+            1,
+            max(0, CGFloat(originFraction)))
+        let segmentCount = StatusBarAnimationCadence.taskWaveSegmentCount
+
+        for waveIndex in 0 ..< waveCount {
+            // 尾迹位于波头之后（分数增大一侧）；允许跨过 1.0 接缝，
+            // 由分段绘制拆开折回弧起点。
+            let head = MenuBarTaskEnergyMotion.orbitPosition(phase: taskOrbitPhase)
+                + CGFloat(waveIndex) * slot
+            let segmentWidth = tailSpan / CGFloat(segmentCount)
+            for segmentIndex in 0 ..< segmentCount {
+                let start = head + CGFloat(segmentIndex) * segmentWidth
+                let distance = (CGFloat(segmentIndex) + 0.5) / CGFloat(segmentCount)
+                drawChaseArcSegment(
+                    center: center,
+                    radius: radius,
+                    start: start,
+                    end: start + segmentWidth,
+                    remainingFraction: remainingFraction,
+                    isBead: distance < MenuBarTaskChaseQueueMotion.beadFraction,
+                    opacity: MenuBarTaskChaseQueueMotion.tailOpacity(
+                        distanceFromHead: distance),
+                    alpha: alpha)
+            }
+        }
+    }
+
+    /// 追逐队列的单段绘制：拆 1.0 接缝与剩余/消耗分界。
+    /// 珠点不随消耗段压暗（恒亮可数），尾迹保留剩余/消耗的明暗语境。
+    private func drawChaseArcSegment(
+        center: NSPoint,
+        radius: CGFloat,
+        start: CGFloat,
+        end: CGFloat,
+        remainingFraction: CGFloat,
+        isBead: Bool,
+        opacity: CGFloat,
+        alpha: CGFloat
+    ) {
+        guard opacity > 0.001 else { return }
+        var cursor = start
+        while cursor < end - 0.000_001 {
+            let revolution = floor(cursor)
+            let pieceEnd = min(end, revolution + 1)
+            let pieceStart = cursor - revolution
+            let pieceFinish = pieceEnd - revolution
+
+            var boundaries = [pieceStart, pieceFinish]
+            if remainingFraction > pieceStart + 0.000_001,
+               remainingFraction < pieceFinish - 0.000_001 {
+                boundaries.insert(remainingFraction, at: 1)
+            }
+            for (start, end) in zip(boundaries, boundaries.dropFirst()) {
+                let midpoint = (start + end) / 2
+                let consumed = midpoint >= remainingFraction
+                let base = consumed ? NSColor.labelColor : NSColor.windowBackgroundColor
+                let dimming: CGFloat = consumed && !isBead
+                    ? MenuBarTaskEnergyMotion.thinWaveOpacityScale
+                    : 1
+                drawArcSegment(
+                    center: center,
+                    radius: radius,
+                    startFraction: start,
+                    endFraction: end,
+                    color: base.withAlphaComponent(
+                        min(1, alpha * opacity * dimming * 0.78)),
+                    lineWidth: isBead
+                        ? MenuBarTaskChaseQueueMotion.beadLineWidth
+                        : MenuBarTaskChaseQueueMotion.tailLineWidth)
+            }
+            cursor = pieceEnd
         }
     }
 

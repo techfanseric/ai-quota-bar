@@ -1531,6 +1531,31 @@ enum AppLanguage: String, CaseIterable, Codable, Identifiable {
         }
     }
 
+    func menuBarTaskWaveLayoutLabel() -> String {
+        switch self {
+        case .english: return "Task wave layout"
+        case .simplifiedChinese: return "任务波布局"
+        }
+    }
+
+    func menuBarTaskWaveLayoutDescription() -> String {
+        switch self {
+        case .english:
+            return "How active-task waves travel around the compact ring: evenly spaced on the full orbit, or as a queue on the visible arc where every wave stays countable."
+        case .simplifiedChinese:
+            return "任务波在紧凑环上的行进方式：沿完整轨道均匀分布，或在可见弧上排成追逐队列，任意时刻每道波都可见可数。"
+        }
+    }
+
+    func menuBarTaskWaveLayoutDisplayName(_ layout: MenuBarTaskWaveLayout) -> String {
+        switch (self, layout) {
+        case (.english, .evenlySpaced): return "Evenly spaced"
+        case (.english, .chaseQueue): return "Chase queue"
+        case (.simplifiedChinese, .evenlySpaced): return "均匀分布"
+        case (.simplifiedChinese, .chaseQueue): return "追逐队列"
+        }
+    }
+
     func menuBarRingQuotaWindowLabel() -> String {
         switch self {
         case .english: return "Outer ring quota"

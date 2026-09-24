@@ -8,11 +8,13 @@ final class MenuBarRingRenderingTests: XCTestCase {
     func testRasterCacheIgnoresTooltipButInvalidatesVisibleInputs() {
         func key(tooltip: String = "one", percent: Double = 50, appearance: String = "dark",
                  scale: CGFloat = 2, tasks: Int = 1, reduceMotion: Bool = false,
-                 placeholderShowsCount: Bool = false) -> CompactStatusRenderState {
+                 placeholderShowsCount: Bool = false,
+                 taskWaveLayout: MenuBarTaskWaveLayout = .evenlySpaced) -> CompactStatusRenderState {
             CompactStatusRenderState(snapshots: [MenuBarSnapshot(provider: .codex, modelName: nil,
                 remainingPercent: percent, ringPercent: percent, paceDeltaPercent: 0,
                 resetsAt: nil, state: .ready, isLowQuota: false, tooltip: tooltip)],
-                connectivity: .reachable, pace: .staged, selfTesting: false, tasks: [.codex: tasks],
+                connectivity: .reachable, pace: .staged, taskWaveLayout: taskWaveLayout,
+                selfTesting: false, tasks: [.codex: tasks],
                 padding: 4, spacing: 4, appearance: appearance, scale: scale, height: 22, reduceMotion: reduceMotion,
                 placeholderShowsCount: placeholderShowsCount)
         }
@@ -23,6 +25,7 @@ final class MenuBarRingRenderingTests: XCTestCase {
         XCTAssertNotEqual(key(), key(tasks: 2))
         XCTAssertNotEqual(key(), key(reduceMotion: true))
         XCTAssertNotEqual(key(), key(placeholderShowsCount: true))
+        XCTAssertNotEqual(key(), key(taskWaveLayout: .chaseQueue))
     }
 
     func testInteractiveSelfTestAnimationUsesABoundedFrameRate() {
@@ -241,6 +244,89 @@ final class MenuBarRingRenderingTests: XCTestCase {
         XCTAssertEqual(phases[2], 0.5, accuracy: 0.0001)
         XCTAssertEqual(phases[3], 0.7, accuracy: 0.0001)
         XCTAssertEqual(phases[4], 0.9, accuracy: 0.0001)
+    }
+
+    // MARK: - Chase queue layout (MenuBarTaskWaveLayout.chaseQueue)
+
+    func testChaseQueueSpanShrinksOnlyWhenConvoyWouldOverflow() {
+        // 单波与双波保持与均匀分布一致的 57.6° 上限。
+        XCTAssertEqual(
+            MenuBarTaskChaseQueueMotion.spanDegrees(waveCount: 1),
+            57.6,
+            accuracy: 0.0001)
+        XCTAssertEqual(
+            MenuBarTaskChaseQueueMotion.spanDegrees(waveCount: 2),
+            (127 - 12) / 2,
+            accuracy: 0.0001)
+        // 队列装不下时按任务数收缩：127° 预算均摊，扣除绝对空隙。
+        XCTAssertEqual(
+            MenuBarTaskChaseQueueMotion.spanDegrees(waveCount: 3),
+            (127 - 2 * 12) / 3,
+            accuracy: 0.0001)
+        XCTAssertEqual(
+            MenuBarTaskChaseQueueMotion.spanDegrees(waveCount: 5),
+            (127 - 4 * 12) / 5,
+            accuracy: 0.0001)
+        XCTAssertGreaterThan(
+            MenuBarTaskChaseQueueMotion.spanDegrees(waveCount: 5),
+            0)
+    }
+
+    func testChaseQueueConvoyAlwaysFitsInsideVisibleArcWithClearGaps() {
+        let sweep = CGFloat(QuotaSymbolRenderer.ringSweepAngle)
+        for waveCount in 1 ... 5 {
+            let layout = MenuBarTaskChaseQueueMotion.layoutFractions(
+                waveCount: waveCount)
+            let slot = MenuBarTaskChaseQueueMotion.slot(waveCount: waveCount)
+            let tail = layout.span * MenuBarTaskChaseQueueMotion.visibleTailFraction
+            let convoy = CGFloat(waveCount - 1) * slot + tail
+            // 队列整体落在可见弧内，静态姿态不跨接缝。
+            XCTAssertLessThanOrEqual(convoy, 0.55)
+            if waveCount > 1 {
+                // 相邻波之间保留绝对空隙下限（12°），波与波永不接触。
+                let gapDegrees = layout.gap * sweep
+                XCTAssertEqual(gapDegrees, 12, accuracy: 0.0001)
+                // 头到头间距必须大于波长，尾迹不会延伸进下一道波。
+                XCTAssertGreaterThan(slot, layout.span)
+            }
+        }
+    }
+
+    func testChaseQueueTailFadesToZeroBeforeJunctionAndBeadStaysFull() {
+        let motion = MenuBarTaskChaseQueueMotion.self
+        // 头部珠点恒亮。
+        XCTAssertEqual(motion.tailOpacity(distanceFromHead: 0), 1, accuracy: 0.0001)
+        XCTAssertEqual(
+            motion.tailOpacity(distanceFromHead: motion.beadFraction / 2),
+            1,
+            accuracy: 0.0001)
+        // 珠点之后单调递减，且中途已明显变暗（陡于均匀分布的 0.65 指数）。
+        let mid = motion.tailOpacity(
+            distanceFromHead: motion.beadFraction + (1 - motion.beadFraction) / 2)
+        XCTAssertLessThan(mid, 0.5)
+        XCTAssertGreaterThan(
+            motion.tailOpacity(distanceFromHead: 0.5),
+            motion.tailOpacity(distanceFromHead: 0.7))
+        // 可见尾迹末端归零：接头处必有亮度谷，随后是绝对空隙。
+        XCTAssertEqual(motion.tailOpacity(distanceFromHead: 1), 0, accuracy: 0.0001)
+        XCTAssertEqual(motion.tailOpacity(distanceFromHead: 1.2), 0, accuracy: 0.0001)
+    }
+
+    func testChaseQueueStaticPhaseCentersConvoyBelowTheSeam() {
+        for waveCount in 1 ... 5 {
+            let phase = MenuBarTaskChaseQueueMotion.staticPhase(waveCount: waveCount)
+            XCTAssertGreaterThanOrEqual(phase, 0)
+            XCTAssertLessThan(phase, 1)
+            let layout = MenuBarTaskChaseQueueMotion.layoutFractions(waveCount: waveCount)
+            let slot = MenuBarTaskChaseQueueMotion.slot(waveCount: waveCount)
+            let tail = layout.span * MenuBarTaskChaseQueueMotion.visibleTailFraction
+            // 队首位置 = 1 - phase（与 orbitPosition 一致）。
+            let leader = 1 - phase
+            let convoyEnd = leader + CGFloat(waveCount - 1) * slot + tail
+            // 静止队列整体在可见弧内，不跨 0/1 接缝。
+            XCTAssertGreaterThanOrEqual(leader, 0)
+            XCTAssertLessThanOrEqual(convoyEnd, 1.0001)
+        }
     }
 
     @MainActor

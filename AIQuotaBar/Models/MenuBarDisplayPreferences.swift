@@ -71,6 +71,20 @@ enum MenuBarPaceDisplayMode: String, CaseIterable, Codable, Identifiable {
     var id: String { rawValue }
 }
 
+/// 任务能量波在紧凑环上的排布模式。`.chaseQueue` 是可整体摘除的实验布局：
+/// 移除时删除本枚举、各渲染层的 `taskWaveLayout` 参数、
+/// `MenuBarTaskChaseQueueMotion` 与设置项即可完整回落到 `.evenlySpaced` 行为。
+enum MenuBarTaskWaveLayout: String, CaseIterable, Codable, Identifiable {
+    /// 波头沿完整圆周均匀分布（历史行为；部分时刻会被顶部缺口遮挡）。
+    case evenlySpaced
+    /// 追逐队列：波在可见弧上首尾相接成队行进，波头永不被缺口遮挡。
+    case chaseQueue
+
+    static let storageKey = "menuBarTaskWaveLayout"
+
+    var id: String { rawValue }
+}
+
 /// Which quota window supplies the compact ring's outer arc. Providers without
 /// a weekly window keep using their current window.
 enum MenuBarRingQuotaWindow: String, CaseIterable, Codable, Identifiable {
