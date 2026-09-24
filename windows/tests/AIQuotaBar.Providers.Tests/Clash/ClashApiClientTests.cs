@@ -23,7 +23,7 @@ namespace AIQuotaBar.Providers.Tests.Clash;
 public sealed class ClashApiClientTests
 {
     private static readonly ClashControllerConfiguration Configuration = new(
-        BaseUrl: new Uri("http://127.0.0.1:9097"),
+        BaseUrl: "http://127.0.0.1:9097",
         Secret: "fixture-secret",
         ClientName: "Mihomo",
         ConfigUrl: new Uri("http://127.0.0.1:9097/config"));
