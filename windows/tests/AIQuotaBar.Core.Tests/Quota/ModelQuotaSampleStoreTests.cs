@@ -55,11 +55,11 @@ public sealed class ModelQuotaSampleStoreTests : IDisposable
             ["codex:user@example.com:Codex Spark 5-hour"] = new[]
             {
                 new ModelQuotaSample(
-                    Timestamp: new DateTimeOffset(1_700_000_000, TimeSpan.Zero),
+                    Timestamp: DateTimeOffset.FromUnixTimeSeconds(1_700_000_000),
                     Remaining: 72,
                     Percent: 72),
                 new ModelQuotaSample(
-                    Timestamp: new DateTimeOffset(1_700_000_060, TimeSpan.Zero),
+                    Timestamp: DateTimeOffset.FromUnixTimeSeconds(1_700_000_060),
                     Remaining: 70,
                     Percent: 70),
             },
@@ -83,11 +83,11 @@ public sealed class ModelQuotaSampleStoreTests : IDisposable
         {
             ["codex:user@example.com:Codex Spark 5-hour"] = new[]
             {
-                new ModelQuotaSample(new DateTimeOffset(1, TimeSpan.Zero), 80, 80),
+                new ModelQuotaSample(DateTimeOffset.FromUnixTimeSeconds(1), 80, 80),
             },
             ["minimax:MiniMax"] = new[]
             {
-                new ModelQuotaSample(new DateTimeOffset(2, TimeSpan.Zero), 5, null),
+                new ModelQuotaSample(DateTimeOffset.FromUnixTimeSeconds(2), 5, null),
             },
         };
 
@@ -110,7 +110,7 @@ public sealed class ModelQuotaSampleStoreTests : IDisposable
             {
                 ["codex:user@example.com:Codex Spark 5-hour"] = new[]
                 {
-                    new ModelQuotaSample(new DateTimeOffset(1, TimeSpan.Zero), 80, 80),
+                    new ModelQuotaSample(DateTimeOffset.FromUnixTimeSeconds(1), 80, 80),
                 },
             },
             UsageProvider.Codex);
@@ -123,7 +123,7 @@ public sealed class ModelQuotaSampleStoreTests : IDisposable
     [Fact]
     public void PrunedQuotaSamples_DropsSamplesOlderThanRetention()
     {
-        var now = new DateTimeOffset(1_700_000_000, TimeSpan.Zero);
+        var now = DateTimeOffset.FromUnixTimeSeconds(1_700_000_000);
         var inside = now - ModelQuotaSampleStore.QuotaSampleRetention + TimeSpan.FromSeconds(60);
         var outside = now - ModelQuotaSampleStore.QuotaSampleRetention - TimeSpan.FromSeconds(60);
         var samples = new[]
@@ -141,7 +141,7 @@ public sealed class ModelQuotaSampleStoreTests : IDisposable
     [Fact]
     public void PrunedQuotaSamples_CapsCountDroppingOldest()
     {
-        var now = new DateTimeOffset(1_700_000_000, TimeSpan.Zero);
+        var now = DateTimeOffset.FromUnixTimeSeconds(1_700_000_000);
         var samples = Enumerable
             .Range(0, ModelQuotaSampleStore.MaxSamplesPerModel + 5)
             .Select(index => new ModelQuotaSample(

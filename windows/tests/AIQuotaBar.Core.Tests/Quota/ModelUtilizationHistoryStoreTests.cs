@@ -122,9 +122,9 @@ public sealed class ModelUtilizationHistoryStoreTests : IDisposable
             Entries: new[]
             {
                 new UtilizationHistoryEntry(
-                    CapturedAt: new DateTimeOffset(1_700_000_000, TimeSpan.Zero),
+                    CapturedAt: DateTimeOffset.FromUnixTimeSeconds(1_700_000_000),
                     UsedPercent: 50,
-                    ResetsAt: new DateTimeOffset(1_700_500_000, TimeSpan.Zero)),
+                    ResetsAt: DateTimeOffset.FromUnixTimeSeconds(1_700_500_000)),
             });
         var payload = new ModelUtilizationStoreData(
             Histories: new Dictionary<string, ModelUtilizationHistory> { ["test:single"] = history });
@@ -148,16 +148,16 @@ public sealed class ModelUtilizationHistoryStoreTests : IDisposable
             Entries: new[]
             {
                 new UtilizationHistoryEntry(
-                    CapturedAt: new DateTimeOffset(1_700_000_000, TimeSpan.Zero),
+                    CapturedAt: DateTimeOffset.FromUnixTimeSeconds(1_700_000_000),
                     UsedPercent: 30,
-                    ResetsAt: new DateTimeOffset(1_700_500_000, TimeSpan.Zero)),
+                    ResetsAt: DateTimeOffset.FromUnixTimeSeconds(1_700_500_000)),
             });
         var modelB = new ModelUtilizationHistory(
             ModelId: "codex:b",
             Entries: new[]
             {
                 new UtilizationHistoryEntry(
-                    CapturedAt: new DateTimeOffset(1_700_000_100, TimeSpan.Zero),
+                    CapturedAt: DateTimeOffset.FromUnixTimeSeconds(1_700_000_100),
                     UsedPercent: 70,
                     ResetsAt: null),
             });
