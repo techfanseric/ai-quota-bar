@@ -159,7 +159,7 @@ public sealed class ClashApiClient : IDisposable
     {
         var requestUrl = BuildRequestUri(pathComponents, queryItems)
             ?? throw new ClashIntegrationException(
-                new ClashIntegrationError.InvalidControllerAddress(_configuration.BaseUrl.ToString()));
+                new ClashIntegrationError.InvalidControllerAddress(_configuration.BaseUrl));
 
         var request = new HttpRequestMessage(method, requestUrl);
         request.Headers.TryAddWithoutValidation("User-Agent", UserAgentHeaderValue);
@@ -173,7 +173,9 @@ public sealed class ClashApiClient : IDisposable
 
     private Uri? BuildRequestUri(string[] pathComponents, KeyValuePair<string, string>[]? queryItems)
     {
-        var builder = new StringBuilder(_configuration.BaseUrl.AbsoluteUri.TrimEnd('/'));
+        // BaseUrl 为 Swift absoluteString 形态（无尾斜杠）；TrimEnd 仅作防御，
+        // 兼容手工构造 Configuration 时带尾斜杠/路径前缀的输入。
+        var builder = new StringBuilder(_configuration.BaseUrl.TrimEnd('/'));
         foreach (var component in pathComponents)
         {
             builder.Append('/').Append(Uri.EscapeDataString(component));

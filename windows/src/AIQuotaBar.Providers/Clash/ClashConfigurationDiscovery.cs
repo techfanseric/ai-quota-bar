@@ -98,8 +98,10 @@ public sealed class ClashConfigurationDiscovery
     /// ":9097" / "*:9097" / "0.0.0.0:9097" / "[::]:9097" 统一归一为 127.0.0.1，
     /// 无 scheme 时补 http://；主机必须是 127.0.0.1 / localhost / ::1 且端口显式存在，
     /// 否则抛 UnsafeControllerHost / InvalidControllerAddress。
+    /// 产出为 Swift URL.absoluteString 字符串形态（scheme://host:port，无尾斜杠；
+    /// .NET Uri 对 authority-only URI 会规范出尾斜杠，故不走 ToString/AbsoluteUri）。
     /// </summary>
-    public static Uri ControllerUrl(string rawAddress)
+    public static string ControllerUrl(string rawAddress)
     {
         var address = rawAddress.Trim();
         if (address.StartsWith(":", StringComparison.Ordinal))
@@ -138,7 +140,11 @@ public sealed class ClashConfigurationDiscovery
             throw new ClashIntegrationException(new ClashIntegrationError.UnsafeControllerHost(host));
         }
 
-        return uri;
+        // SchemeAndServer 恒不携带路径 → authority-only 地址无尾斜杠（与 Swift absoluteString 一致）；
+        // 显式携带路径前缀的控制器地址保留路径（GetComponents 的 Path 分量为转义后的原始形态）。
+        var server = uri.GetComponents(UriComponents.SchemeAndServer, UriFormat.UriEscaped);
+        var path = uri.AbsolutePath;
+        return path is "/" or "" ? server : server + path;
     }
 
     private sealed record CandidateConfiguration(string Path, string ClientName);

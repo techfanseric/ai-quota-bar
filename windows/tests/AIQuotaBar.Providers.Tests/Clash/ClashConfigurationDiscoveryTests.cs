@@ -40,7 +40,8 @@ public sealed class ClashConfigurationDiscoveryTests
     {
         var url = ClashConfigurationDiscovery.ControllerUrl("0.0.0.0:9097");
 
-        Assert.Equal("http://127.0.0.1:9097", url.ToString());
+        // 应然：Swift absoluteString 形态，无 .NET Uri 的规范尾斜杠。
+        Assert.Equal("http://127.0.0.1:9097", url);
     }
 
     [Fact]
@@ -73,8 +74,9 @@ public sealed class ClashConfigurationDiscoveryTests
             var discovery = new ClashConfigurationDiscovery(environment);
             var configuration = await discovery.DiscoverAsync();
 
-            // 应然：命中 %APPDATA% 下的 Verge Rev 配置，解析出回环控制器与 secret。
-            Assert.Equal("http://127.0.0.1:9097", configuration.BaseUrl.ToString());
+            // 应然：命中 %APPDATA% 下的 Verge Rev 配置，解析出回环控制器与 secret；
+            // BaseUrl 为 Swift absoluteString 形态（无尾斜杠）。
+            Assert.Equal("http://127.0.0.1:9097", configuration.BaseUrl);
             Assert.Equal("test-secret", configuration.Secret);
             Assert.Equal("Clash Verge Rev", configuration.ClientName);
             Assert.Equal(configPath, configuration.ConfigUrl.LocalPath);
