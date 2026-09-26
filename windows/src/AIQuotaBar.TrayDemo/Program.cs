@@ -167,7 +167,7 @@ internal static class Program
     private static IntPtr CreateRingIcon(int percent)
     {
         var dpi = GetDpiForSystem();
-        var size = Math.Max(16, 16 * dpi / 96);
+        var size = Math.Max(16, (int)(16L * dpi / 96));
         using var bitmap = new System.Drawing.Bitmap(size, size);
         using var g = System.Drawing.Graphics.FromImage(bitmap);
         g.SmoothingMode = System.Drawing.Drawing2D.SmoothingMode.AntiAlias;
