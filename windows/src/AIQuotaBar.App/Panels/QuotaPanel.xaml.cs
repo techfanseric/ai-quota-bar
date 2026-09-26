@@ -47,52 +47,68 @@ public partial class QuotaPanel : PopupWindow
         RenderProvider(AppHost.Quota.Glm);
         RenderProvider(AppHost.Quota.Minimax);
         RenderProvider(AppHost.Quota.Codex);
-        // 视觉装饰层（并行边界约定）：provider 节包卡片 + 头部环形图，不动 RenderProvider 逻辑。
-        ProviderSectionChrome.DecorateAll(
-            ProvidersHost, new[] { AppHost.Quota.Glm, AppHost.Quota.Minimax, AppHost.Quota.Codex });
-        UpdatedText.Text = $"更新于 {DateTime.Now:HH:mm:ss}";
+        UpdatedText.Text = DateTime.Now.ToString("HH:mm:ss");
         RefreshButton.IsEnabled = !_refreshing;
     }
 
     private void RenderProvider(ProviderState state)
     {
-        var section = new StackPanel { Margin = new Thickness(12, 6, 12, 6) };
+        var remaining = state.Status == ProviderStatus.Ok && state.Usage is { } okUsage
+            ? okUsage.PercentageRemaining()
+            : (double?)null;
+        var section = new Grid { Margin = new Thickness(16, 12, 16, 12) };
+        section.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(44) });
+        section.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+        section.Children.Add(new QuotaGauge
+        {
+            Percent = remaining,
+            Width = 38,
+            Height = 38,
+            VerticalAlignment = VerticalAlignment.Top,
+            Margin = new Thickness(0, 1, 0, 0),
+        });
 
-        var header = new DockPanel();
+        var details = new StackPanel();
+        Grid.SetColumn(details, 1);
+        var header = new Grid();
+        header.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+        header.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
         header.Children.Add(new TextBlock
         {
             Text = state.Name,
             Foreground = FindResource("TextPrimary") as Brush,
-            FontSize = 13,
+            FontSize = 12.5,
             FontWeight = FontWeights.SemiBold,
         });
         var statusText = new TextBlock
         {
             HorizontalAlignment = HorizontalAlignment.Right,
-            FontSize = 12,
+            VerticalAlignment = VerticalAlignment.Center,
+            FontSize = 11.5,
             Foreground = FindResource("TextSecondary") as Brush,
         };
+        Grid.SetColumn(statusText, 1);
         header.Children.Add(statusText);
-        section.Children.Add(header);
+        details.Children.Add(header);
 
         switch (state.Status)
         {
             case ProviderStatus.Ok when state.Usage is { } usage:
-                statusText.Text = $"{usage.PercentageRemaining():F1}% 剩余";
+                statusText.Text = $"剩余 {usage.PercentageRemaining():F0}%";
                 statusText.Foreground = PercentBrush(usage.PercentageRemaining());
                 foreach (var model in usage.Models)
                 {
-                    section.Children.Add(BuildModelRow(model));
+                    details.Children.Add(BuildModelRow(model));
                 }
 
                 if (usage.Models.Count == 0)
                 {
-                    section.Children.Add(new TextBlock
+                    details.Children.Add(new TextBlock
                     {
                         Text = $"整体 {usage.Remains}/{usage.Total}",
                         Foreground = FindResource("TextSecondary") as Brush,
-                        FontSize = 12,
-                        Margin = new Thickness(0, 4, 0, 0),
+                        FontSize = 11,
+                        Margin = new Thickness(0, 5, 0, 0),
                     });
                 }
 
@@ -102,13 +118,13 @@ public partial class QuotaPanel : PopupWindow
                 statusText.Text = "未配置";
                 var configure = new Button
                 {
-                    Style = FindResource("PanelButton") as Style,
+                    Style = FindResource("InlineActionButton") as Style,
                     Content = "前往配置凭据 →",
                     HorizontalAlignment = HorizontalAlignment.Left,
-                    Margin = new Thickness(0, 4, 0, 0),
+                    Margin = new Thickness(0, 5, 0, 0),
                 };
                 configure.Click += (_, _) => SettingsWindow.OpenOwned(this);
-                section.Children.Add(configure);
+                details.Children.Add(configure);
                 break;
 
             case ProviderStatus.Loading:
@@ -118,29 +134,41 @@ public partial class QuotaPanel : PopupWindow
             case ProviderStatus.Error:
                 statusText.Text = "失败";
                 statusText.Foreground = FindResource("AccentRed") as Brush;
-                section.Children.Add(new TextBlock
+                details.Children.Add(new TextBlock
                 {
                     Text = state.Error,
                     Foreground = FindResource("AccentRed") as Brush,
-                    FontSize = 11,
+                    FontSize = 10.5,
                     TextWrapping = TextWrapping.Wrap,
-                    Margin = new Thickness(0, 4, 0, 0),
+                    MaxHeight = 34,
+                    TextTrimming = TextTrimming.CharacterEllipsis,
+                    Margin = new Thickness(0, 5, 0, 0),
                 });
                 break;
         }
 
-        ProvidersHost.Children.Add(section);
+        section.Children.Add(details);
+        ProvidersHost.Children.Add(new Border
+        {
+            BorderBrush = FindResource("SeparatorBrush") as Brush,
+            BorderThickness = new Thickness(0, 1, 0, 0),
+            Child = section,
+        });
     }
 
     private UIElement BuildModelRow(Core.Contracts.ModelUsageData model)
     {
-        var row = new DockPanel { Margin = new Thickness(0, 5, 0, 0) };
+        var block = new StackPanel { Margin = new Thickness(0, 7, 0, 0) };
+        var row = new Grid();
+        row.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+        row.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
         var account = string.IsNullOrEmpty(model.AccountName) ? null : $"{model.AccountName} · ";
         row.Children.Add(new TextBlock
         {
             Text = $"{account}{model.ModelName}",
             Foreground = FindResource("TextPrimary") as Brush,
-            FontSize = 12,
+            FontSize = 11,
+            TextTrimming = TextTrimming.CharacterEllipsis,
         });
 
         var value = $"{model.CurrentIntervalRemaining}/{model.CurrentIntervalTotal}{model.ValueSuffix ?? string.Empty}";
@@ -153,14 +181,20 @@ public partial class QuotaPanel : PopupWindow
         {
             Text = value,
             HorizontalAlignment = HorizontalAlignment.Right,
-            FontSize = 12,
+            FontSize = 11,
             Foreground = model.CurrentIntervalRemainingPercent is { } p
                 ? PercentBrush(p)
                 : FindResource("TextSecondary") as Brush,
+            Margin = new Thickness(8, 0, 0, 0),
         };
+        Grid.SetColumn(right, 1);
         row.Children.Add(right);
-        // 图表化接入点（并行边界约定：仅此一行改调用）：文本行 + 模型行进度条（UsageBar）。
-        return UsageBar.WrapModelRow(row, model);
+        block.Children.Add(row);
+        var bar = UsageBar.ForModel(model);
+        bar.Height = 4;
+        bar.Margin = new Thickness(0, 4, 0, 0);
+        block.Children.Add(bar);
+        return block;
     }
 
     private Brush PercentBrush(double percent) => percent switch
@@ -193,5 +227,9 @@ public partial class QuotaPanel : PopupWindow
 
     private void OnSettings(object sender, RoutedEventArgs e) => SettingsWindow.OpenOwned(this);
 
-    private void OnExit(object sender, RoutedEventArgs e) => AppHost.ExitApplication();
+    private void OnRoutes(object sender, RoutedEventArgs e)
+    {
+        Hide();
+        App.ShowPanel(RoutePanel.Instance);
+    }
 }

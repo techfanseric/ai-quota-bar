@@ -68,7 +68,7 @@ public sealed class TrayIconService : IDisposable
         _percent = percent;
         _tooltip = tooltip.Length > 127 ? tooltip[..127] : tooltip;
         FreeIcon();
-        _hIcon = RingIconFactory.Create(_percent);
+        _hIcon = RingIconFactory.Create(_percent, ThemeService.Instance.Current == EffectiveTheme.Dark);
         _nid.hIcon = _hIcon;
         _nid.uFlags = NifIcon | NifTip;
         _nid.szTip = _tooltip;
@@ -101,6 +101,11 @@ public sealed class TrayIconService : IDisposable
             ? new Rect(rc.Left, rc.Top, rc.Right - rc.Left, rc.Bottom - rc.Top)
             : null;
     }
+
+    /// <summary>在鼠标位置显示 Win32 原生命令菜单；必须由托盘窗口线程调用。</summary>
+    public TrayMenuCommand ShowContextMenu(TrayMenuState state) => _hwnd == IntPtr.Zero
+        ? TrayMenuCommand.None
+        : NativeTrayMenu.Show(_hwnd, state);
 
     public void RemoveIcon()
     {
@@ -143,7 +148,7 @@ public sealed class TrayIconService : IDisposable
     private void AddIcon()
     {
         FreeIcon();
-        _hIcon = RingIconFactory.Create(_percent);
+        _hIcon = RingIconFactory.Create(_percent, ThemeService.Instance.Current == EffectiveTheme.Dark);
         _nid = default;
         _nid.cbSize = (uint)Marshal.SizeOf<NOTIFYICONDATA>();
         _nid.hWnd = _hwnd;

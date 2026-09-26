@@ -30,6 +30,28 @@
         </Setter>
     </Style>
 
+    <!-- Flyout 底部 command bar：密度贴近 Windows 菜单，不制造一排高权重主按钮。 -->
+    <Style x:Key="CommandBarButton" TargetType="Button" BasedOn="{StaticResource PanelButton}">
+        <Setter Property="BorderBrush" Value="Transparent" />
+        <Setter Property="Padding" Value="8,4" />
+        <Setter Property="Margin" Value="1,0" />
+        <Setter Property="FontSize" Value="11" />
+        <Style.Triggers>
+            <Trigger Property="IsEnabled" Value="False">
+                <Setter Property="Opacity" Value="0.45" />
+            </Trigger>
+        </Style.Triggers>
+    </Style>
+
+    <!-- 行内动作表现为链接式命令；用于未配置 provider，避免在数据面板中抢视觉焦点。 -->
+    <Style x:Key="InlineActionButton" TargetType="Button" BasedOn="{StaticResource PanelButton}">
+        <Setter Property="Foreground" Value="{DynamicResource AccentBrush}" />
+        <Setter Property="BorderBrush" Value="Transparent" />
+        <Setter Property="Padding" Value="0" />
+        <Setter Property="Margin" Value="0" />
+        <Setter Property="FontSize" Value="11" />
+    </Style>
+
     <!-- 输入框：默认模板 + 主题属性注入（焦点态描边转强调色；方形圆角待 Fluent 模板化，见调参清单）。 -->
     <Style x:Key="PanelTextBox" TargetType="TextBox">
         <Setter Property="Background" Value="{DynamicResource InputBackgroundBrush}" />

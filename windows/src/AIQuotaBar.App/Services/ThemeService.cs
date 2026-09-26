@@ -47,9 +47,6 @@ public sealed class ThemeService : IDisposable
     /// <summary>本程序集名（App csproj AssemblyName=AIQuotaBar，主题字典 pack URI 用）。</summary>
     private const string ThemeAssemblyName = "AIQuotaBar";
 
-    private const uint DarkAcrylicGradient = 0xCC202020; // AARRGGBB，W2 暗色基线
-    private const uint LightAcrylicGradient = 0xCCF3F3F3;
-
     /// <summary>跟随模式下系统亮暗切换的即时通知（UI 线程回调；字典已换完）。</summary>
     public event Action? ThemeChanged;
 
@@ -58,10 +55,6 @@ public sealed class ThemeService : IDisposable
     public ThemePreference Preference { get; private set; } = ThemePreference.FollowSystem;
 
     public EffectiveTheme Current { get; private set; } = EffectiveTheme.Dark;
-
-    /// <summary>弹层亚克力底色（AARRGGBB）：PopupWindow.ApplyAcrylic 取值，主题切换后已开窗口由
-    /// ThemeChanged 回调重刷（即便不刷，窗口下次 Show 也会重新取值生效）。</summary>
-    public uint PopupAcrylicGradient => Current == EffectiveTheme.Dark ? DarkAcrylicGradient : LightAcrylicGradient;
 
     private RegistryKey? _personalizeKey;
     private AutoResetEvent? _changeSignal;

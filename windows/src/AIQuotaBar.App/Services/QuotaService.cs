@@ -44,6 +44,8 @@ public sealed class QuotaService
 
     public event Action? StateChanged;
 
+    public bool IsRefreshing => _refreshGate.CurrentCount == 0;
+
     public ProviderState Glm { get; private set; } = new() { Name = "GLM" };
 
     public ProviderState Minimax { get; private set; } = new() { Name = "MiniMax" };
