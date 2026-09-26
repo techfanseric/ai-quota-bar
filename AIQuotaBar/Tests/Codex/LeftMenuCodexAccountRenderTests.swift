@@ -58,6 +58,27 @@ final class LeftMenuCodexAccountRenderTests: XCTestCase {
             onOpenSettings: {},
             onLayoutChange: {})
 
+        // 回归覆盖：非 Codex 供应商（GLM）的分组必须始终渲染模型行，
+        // 不受「当前账号展开、其余收起」规则影响。
+        let glmNow = Date()
+        viewModel.providerUsageData[.glm] = UsageData(
+            provider: .glm,
+            remains: 2,
+            total: 2,
+            timestamp: glmNow,
+            models: [
+                makeGLMModel(
+                    account: nil, name: "GLM-4.7", remainingPercent: 61,
+                    windowStart: glmNow.addingTimeInterval(-3_600),
+                    windowEnd: glmNow.addingTimeInterval(1_800)),
+                makeGLMModel(
+                    account: nil, name: "GLM-4.7 Weekly", remainingPercent: 88,
+                    windowStart: glmNow.addingTimeInterval(-5 * 86_400),
+                    windowEnd: glmNow.addingTimeInterval(2 * 86_400)),
+            ],
+            subscribeTitle: nil,
+            subscribeEndTime: nil)
+
         let outputDirectory = FileManager.default.temporaryDirectory
             .appendingPathComponent("ai-quota-bar-leftmenu-render")
         try FileManager.default.createDirectory(
@@ -106,6 +127,35 @@ final class LeftMenuCodexAccountRenderTests: XCTestCase {
         try render(
             staleMenu, width: MenuBarPanelLayout.width, height: 900,
             name: "leftmenu-stale-snapshot", to: outputDirectory)
+    }
+
+    private func makeGLMModel(
+        account: String?,
+        name: String,
+        remainingPercent: Int,
+        windowStart: Date,
+        windowEnd: Date
+    ) -> ModelUsageData {
+        ModelUsageData(
+            provider: .glm,
+            accountName: account,
+            modelName: name,
+            currentIntervalTotal: 100,
+            currentIntervalUsed: remainingPercent,
+            weeklyTotal: 0,
+            weeklyUsed: 0,
+            remainsTime: Int(windowEnd.timeIntervalSinceNow * 1_000),
+            startTime: windowStart,
+            endTime: windowEnd,
+            weeklyStartTime: nil,
+            weeklyEndTime: nil,
+            valueSuffix: "%",
+            detailText: nil,
+            currentIntervalRemainingPercent: remainingPercent,
+            weeklyRemainingPercent: nil,
+            progressBarPercentOverride: nil,
+            progressBarRightText: nil,
+            sampledAt: nil)
     }
 
     private func makeModel(
