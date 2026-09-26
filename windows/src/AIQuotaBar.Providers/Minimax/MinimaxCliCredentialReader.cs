@@ -11,6 +11,7 @@
 // 出数——凭据优先级：Credential Manager 手动配置（设置窗）→ 本读取器（先例：FetchGlmAsync 的
 // ZcodeCredentialStore 回退）。
 
+using System.Text.Json;
 using System.Text.Json.Nodes;
 
 namespace AIQuotaBar.Providers.Minimax;
