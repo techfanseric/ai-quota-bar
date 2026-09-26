@@ -24,6 +24,7 @@ public partial class App : Application
     private const string ShowRouteEventName = @"Local\AIQuotaBar.ShowRoutePanel";
 
     private Mutex? _singleInstance;
+    private bool _ownsSingleInstance;
     private TrayIconService? _tray;
     private QuotaService? _quota;
     private ClashService? _clash;
@@ -79,6 +80,7 @@ public partial class App : Application
 
         var wantPanel = ParsePanelArg(e.Args);
         _singleInstance = new Mutex(true, SingleInstanceMutexName, out var isFirst);
+        _ownsSingleInstance = isFirst;
         Log($"mutex acquired first={isFirst} wantPanel={wantPanel}");
         if (!isFirst)
         {
@@ -119,7 +121,12 @@ public partial class App : Application
     {
         Log($"exit code={e.ApplicationExitCode}");
         _tray?.Dispose();
-        _singleInstance?.ReleaseMutex();
+        // 只有首实例拥有互斥锁；第二实例在这里释放会抛 ApplicationException（日志已证实）。
+        if (_ownsSingleInstance)
+        {
+            _singleInstance?.ReleaseMutex();
+        }
+
         _singleInstance?.Dispose();
         base.OnExit(e);
     }
