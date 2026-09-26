@@ -223,7 +223,7 @@ public sealed class ThemeService : IDisposable
         {
             _changeSignal.Reset();
             // 异步形态：立即返回，注册表值变化时置位事件；每次触发后需重新布防。
-            var result = RegNotifyChangeKeyValue(keyHandle, watchSubtree: false, RegNotifyChangeLastSet, eventHandle, asynchronous: true);
+            var result = RegNotifyChangeKeyValue(keyHandle, watchSubtree: false, RegNotifyChangeLastSet, eventHandle, fAsynchronous: true);
             if (result != 0)
             {
                 App.Log($"theme: RegNotifyChangeKeyValue failed={result}, watcher stopped");
