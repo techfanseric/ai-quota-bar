@@ -44,6 +44,9 @@ public sealed class ThemeService : IDisposable
     private const string ColorizationColorValue = "ColorizationColor";
     private const int RegNotifyChangeLastSet = 0x00000001;
 
+    /// <summary>本程序集名（App csproj AssemblyName=AIQuotaBar，主题字典 pack URI 用）。</summary>
+    private const string ThemeAssemblyName = "AIQuotaBar";
+
     private const uint DarkAcrylicGradient = 0xCC202020; // AARRGGBB，W2 暗色基线
     private const uint LightAcrylicGradient = 0xCCF3F3F3;
 
@@ -132,11 +135,13 @@ public sealed class ThemeService : IDisposable
     }
 
     /// <summary>主题字典互换：MergedDictionaries[0] 是主题字典位（App.xaml 注释锁定该契约）。
-    /// 面板/控件一律 DynamicResource 取键，替换字典即全 UI 生效。</summary>
+    /// 面板/控件一律 DynamicResource 取键，替换字典即全 UI 生效。
+    /// Source 用「程序集名 + ;component」全限定 pack URI（App 的 AssemblyName=AIQuotaBar，
+    /// 无限定的 application origin 形式在非入口程序集上下文解析不到资源）。</summary>
     private static void SwapThemeDictionary(EffectiveTheme theme)
     {
         var merged = Application.Current.Resources.MergedDictionaries;
-        var source = new Uri($"pack://application:,,,/Panels/Themes/{theme}.xaml");
+        var source = new Uri($"pack://application:,,,/{ThemeAssemblyName};component/Panels/Themes/{theme}.xaml");
         if (merged.Count == 0)
         {
             merged.Add(new ResourceDictionary { Source = source });
