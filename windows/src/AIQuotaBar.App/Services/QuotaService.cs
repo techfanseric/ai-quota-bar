@@ -139,10 +139,24 @@ public sealed class QuotaService
 
     private async Task<ProviderState> FetchMinimaxAsync()
     {
+        // 凭据来源优先级（零配置链路，对齐上方 FetchGlmAsync 的 ZCode 回退；路径结论来自
+        // Win-CodexBar minimax provider）：
+        // 1. Credential Manager 手动配置（设置窗）；
+        // 2. mcode CLI 登录凭据（%APPDATA%\minimax\config.json，次选 %USERPROFILE%\.minimax\
+        //    config.json，MinimaxCliCredentialReader 读取）——mcode 已登录的机器上用户零配置
+        //    即出数；coding-plan remains 端点只需 Bearer api_key（见 MinimaxClient）。
         var token = _credentials.Read(MinimaxService, string.Empty);
+        string? groupId = null;
         if (string.IsNullOrEmpty(token))
         {
-            return new ProviderState { Name = "MiniMax", Status = ProviderStatus.NotConfigured };
+            var cliCredentials = new MinimaxCliCredentialReader().TryLoad();
+            if (cliCredentials is null)
+            {
+                return new ProviderState { Name = "MiniMax", Status = ProviderStatus.NotConfigured };
+            }
+
+            token = cliCredentials.ApiKey;
+            groupId = cliCredentials.GroupId;
         }
 
         try
@@ -151,7 +165,7 @@ public sealed class QuotaService
             {
                 Timeout = TimeSpan.FromSeconds(30),
             };
-            var usage = await new MinimaxClient(http).FetchUsageAsync(token).ConfigureAwait(false);
+            var usage = await new MinimaxClient(http).FetchUsageAsync(token, groupId).ConfigureAwait(false);
             return new ProviderState { Name = "MiniMax", Status = ProviderStatus.Ok, Usage = usage };
         }
         catch (Exception ex)
