@@ -338,6 +338,8 @@ private struct ProviderModelsSection: View {
 
     @State private var showsFullQuotaModels = false
     @State private var showsExhaustedModels = false
+    /// 账号分组折叠状态的用户覆盖；未覆盖时默认「当前账号展开、其余收起」。
+    @State private var accountCollapseOverrides: [String: Bool] = [:]
 
     private var visibleModels: [ModelUsageData] {
         return sortedMenuModels(data.models).filter {
@@ -504,11 +506,16 @@ private struct ProviderModelsSection: View {
                 .padding(.horizontal, 10).padding(.vertical, 6)
             }
             if data.provider == .codex {
-                if currentIndex != nil, let first = groups.first { accountHeader(first) }
-                else { accountHeader(AccountModelGroup(accountName: currentName, models: [])) }
-                CodexLocalUsageMenuCard(model: .shared, language: language)
-                    .padding(.horizontal, 8)
-                    .padding(.vertical, 6)
+                if currentIndex != nil, let first = groups.first {
+                    accountHeader(first, isCurrent: true)
+                } else {
+                    accountHeader(AccountModelGroup(accountName: currentName, models: []), isCurrent: true)
+                }
+                if !(currentIndex != nil && isAccountCollapsed(groups[0], isCurrent: true)) {
+                    CodexLocalUsageMenuCard(model: .shared, language: language)
+                        .padding(.horizontal, 8)
+                        .padding(.vertical, 6)
+                }
                 if data.models.isEmpty {
                     Text(language == .simplifiedChinese ? "账号额度尚未就绪，可在设置中连接账号。" : "Account quota unavailable. Connect an account in Settings.")
                         .font(.caption2).foregroundStyle(.secondary).padding(.horizontal, 8)
@@ -517,21 +524,25 @@ private struct ProviderModelsSection: View {
 
             ForEach(Array(groups.enumerated()), id: \.offset) { groupIndex, group in
                 let rows = group.models
-                if data.provider != .codex || currentIndex == nil || groupIndex != 0 { accountHeader(group) }
+                let isCurrentGroup = data.provider == .codex && currentIndex != nil && groupIndex == 0
+                if data.provider != .codex || currentIndex == nil || groupIndex != 0 {
+                    accountHeader(group, isCurrent: false)
+                }
+                if !isAccountCollapsed(group, isCurrent: isCurrentGroup) {
+                    ForEach(Array(rows.enumerated()), id: \.element.id) { index, model in
+                        ModelRow(
+                            model: model,
+                            language: language,
+                            warningThreshold: warningThreshold,
+                            samples: samples(model),
+                            rendersAreaChart: curveModelIDs.contains(model.id),
+                            viewModel: viewModel
+                        )
 
-                ForEach(Array(rows.enumerated()), id: \.element.id) { index, model in
-                    ModelRow(
-                        model: model,
-                        language: language,
-                        warningThreshold: warningThreshold,
-                        samples: samples(model),
-                        rendersAreaChart: curveModelIDs.contains(model.id),
-                        viewModel: viewModel
-                    )
-
-                    if !(index == rows.count - 1 && groupIndex == groups.count - 1) {
-                        Spacer()
-                            .frame(height: 1)
+                        if !(index == rows.count - 1 && groupIndex == groups.count - 1) {
+                            Spacer()
+                                .frame(height: 1)
+                        }
                     }
                 }
             }
@@ -630,15 +641,33 @@ private struct ProviderModelsSection: View {
     }
 
     @ViewBuilder
-    private func accountHeader(_ group: AccountModelGroup) -> some View {
-        if data.provider == .codex || group.accountName != nil {
-            HStack(alignment: .firstTextBaseline, spacing: 6) {
-                if data.provider == .codex {
+    private func accountHeader(_ group: AccountModelGroup, isCurrent: Bool) -> some View {
+        if data.provider == .codex {
+            Button {
+                toggleAccountCollapsed(group)
+            } label: {
+                HStack(alignment: .firstTextBaseline, spacing: 6) {
                     HStack(spacing: 4) {
+                        Image(systemName: isAccountCollapsed(group, isCurrent: isCurrent)
+                            ? "chevron.right" : "chevron.down")
+                            .font(.system(size: 7, weight: .bold))
+                            .foregroundStyle(.tertiary)
+                            .frame(width: 8)
+
                         Text(group.accountName ?? "Unknown account")
                             .font(.system(size: 10, weight: .medium, design: .rounded))
                             .foregroundStyle(.secondary)
                             .lineLimit(1)
+                            .minimumScaleFactor(0.8)
+
+                        if isCurrent {
+                            Text(language == .simplifiedChinese ? "当前" : "Current")
+                                .font(.system(size: 8, weight: .semibold, design: .rounded))
+                                .foregroundStyle(.green)
+                                .padding(.horizontal, 4)
+                                .padding(.vertical, 1)
+                                .background(Capsule().fill(Color.green.opacity(0.12)))
+                        }
 
                         if let plan = accountPlanSummary(group.models) {
                             Text("·")
@@ -649,34 +678,41 @@ private struct ProviderModelsSection: View {
                                 .lineLimit(1)
                         }
                     }
-                } else {
-                    Text(accountSourceSummary(group.models))
-                        .font(.system(size: 10, weight: .semibold))
-                        .foregroundStyle(.tertiary)
-                }
 
-                Spacer()
+                    Spacer()
 
-                if data.provider == .codex {
-                    Text(accountSourceSummary(group.models))
+                    Text(nonCurrentAccountTrailingSummary(group, isCurrent: isCurrent))
                         .font(.system(size: 10, weight: .semibold))
                         .foregroundStyle(.tertiary)
                         .lineLimit(1)
-                } else {
-                    HStack(spacing: 4) {
-                        Text(group.accountName ?? "Unknown account")
-                            .font(.system(size: 10, weight: .medium, design: .rounded))
-                            .foregroundStyle(.secondary)
-                            .lineLimit(1)
+                }
+                .padding(.horizontal, 8)
+                .padding(.top, 8)
+                .padding(.bottom, 2)
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+        } else {
+            HStack(alignment: .firstTextBaseline, spacing: 6) {
+                Text(accountSourceSummary(group.models))
+                    .font(.system(size: 10, weight: .semibold))
+                    .foregroundStyle(.tertiary)
 
-                        if let plan = accountPlanSummary(group.models) {
-                            Text("·")
-                                .foregroundStyle(.tertiary)
-                            Text(plan)
-                                .font(.system(size: 10, weight: .medium, design: .rounded))
-                                .foregroundStyle(.tertiary)
-                                .lineLimit(1)
-                        }
+                Spacer()
+
+                HStack(spacing: 4) {
+                    Text(group.accountName ?? "Unknown account")
+                        .font(.system(size: 10, weight: .medium, design: .rounded))
+                        .foregroundStyle(.secondary)
+                        .lineLimit(1)
+
+                    if let plan = accountPlanSummary(group.models) {
+                        Text("·")
+                            .foregroundStyle(.tertiary)
+                        Text(plan)
+                            .font(.system(size: 10, weight: .medium, design: .rounded))
+                            .foregroundStyle(.tertiary)
+                            .lineLimit(1)
                     }
                 }
             }
@@ -684,6 +720,42 @@ private struct ProviderModelsSection: View {
             .padding(.top, 8)
             .padding(.bottom, 2)
         }
+    }
+
+    /// 右侧摘要：当前账号显示来源；其余账号补「最后更新时间」，
+    /// 提示这是它上次活跃期间的数据快照。
+    private func nonCurrentAccountTrailingSummary(
+        _ group: AccountModelGroup,
+        isCurrent: Bool
+    ) -> String {
+        let source = accountSourceSummary(group.models)
+        guard !isCurrent else { return source }
+        guard let updated = group.models.compactMap(\.sampledAt).max() else {
+            return source
+        }
+        return source + " · " + shortClockText(from: updated)
+    }
+
+    private func accountCollapseKey(_ group: AccountModelGroup) -> String {
+        group.accountName ?? "__unknown__"
+    }
+
+    private func isAccountCollapsed(_ group: AccountModelGroup, isCurrent: Bool) -> Bool {
+        accountCollapseOverrides[accountCollapseKey(group)] ?? !isCurrent
+    }
+
+    private func toggleAccountCollapsed(_ group: AccountModelGroup) {
+        let wasCollapsed = isAccountCollapsed(group, isCurrent: isCurrentAccountGroup(group))
+        accountCollapseOverrides[accountCollapseKey(group)] = !wasCollapsed
+        notifyLayoutChange()
+    }
+
+    private func isCurrentAccountGroup(_ group: AccountModelGroup) -> Bool {
+        guard data.provider == .codex,
+              let currentName = CodexLocalUsageModel.shared.currentAccountID
+                  .flatMap({ CodexLocalUsageModel.shared.accountLabels[$0] }),
+              let account = group.accountName else { return false }
+        return currentName.caseInsensitiveCompare(account) == .orderedSame
     }
 
     /// providerHeader 右侧用的副标题（当前只对 MiniMax 显示套餐 + 到期日）。
