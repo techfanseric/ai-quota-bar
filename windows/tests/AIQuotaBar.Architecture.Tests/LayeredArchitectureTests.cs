@@ -2,7 +2,8 @@
 // 规则依据：windows/docs/coding-conventions.md §4、移植计划 §7（依赖单向：
 // App → Platform → Core、App → Providers → Core、Providers → Core）。
 //
-// NetArchTest 依赖匹配语义（v1.3.2 NamespaceTree，Mono.Cecil 只读元数据）：按被检查类型的
+// NetArchTest 依赖匹配语义（NuGet 包 NetArchTest.Rules 1.3.2，NamespaceTree + Mono.Cecil
+// 只读元数据）：按被检查类型的
 // 全部类型引用（基类/接口/字段/属性/方法签名与方法体 IL 操作数）做"点分段前缀匹配"
 //（等价 StartsWith，以命名空间段为粒度）。因此本文件里的依赖名均为命名空间前缀：
 // - "AIQuotaBar.App" 拦截对 App 工程类型的引用。注意 App 工程 AssemblyName=AIQuotaBar
