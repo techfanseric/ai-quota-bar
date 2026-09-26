@@ -10,6 +10,9 @@ internal static class ProgramRunner
 {
     public static async Task<int> RunAsync(string[] args)
     {
+        // SSH 管道捕获时 PowerShell 侧代码页可能不是 UTF-8：强制控制台输出 UTF-8，中文不糊。
+        Console.OutputEncoding = System.Text.Encoding.UTF8;
+
         // 全局旗标从参数中抽取（可出现在任意位置），剩余按“动词 + 子命令 + 位置参数”解析。
         var rest = new List<string>(args);
         var verbose = rest.RemoveAll(a => a == "--verbose") > 0;

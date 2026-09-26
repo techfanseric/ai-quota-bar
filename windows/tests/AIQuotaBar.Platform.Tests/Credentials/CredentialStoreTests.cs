@@ -108,9 +108,11 @@ public sealed class CredentialStoreTests : IDisposable
         var entries = _store.Enumerate(_service);
 
         // 应然：服务前缀过滤恰好命中本测试写入的两条（GUID service 隔离，他例不入）。
-        Assert.Equal(
-            new[] { (Account, $"AIQuotaBar:{_service}:{Account}"), (string.Empty, $"AIQuotaBar:{_service}:") },
-            entries.Select(e => (e.Account, $"AIQuotaBar:{e.Service}:{e.Account}")).OrderBy(t => t.Item1.Length).ToArray());
+        // 保险库返回顺序无契约：两侧按 account 排序后比较。
+        var expected = new[] { string.Empty, Account }.OrderBy(a => a, StringComparer.Ordinal).ToArray();
+        var actual = entries.Select(e => e.Account).OrderBy(a => a, StringComparer.Ordinal).ToArray();
+        Assert.Equal(expected, actual);
+        Assert.All(entries, e => Assert.Equal(_service, e.Service));
     }
 
     [Fact]
