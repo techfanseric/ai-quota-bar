@@ -4,6 +4,8 @@
 // 订阅条目 DTO（GLMSubscriptionListResponse / GLMSubscriptionItem）见 AIQuotaBar/Models/UsageData.swift:759-770。
 // 对应测试：AIQuotaBar/Tests/GLM/GLMUsageTests.swift:107-116（网络路径无 fixtures 样本；解析逻辑已由
 // GlmQuotaParser / GlmResetAllowanceParser 的 fixtures 测试覆盖，/api/biz/subscription/list 亦无契约样本）。
+// FetchCodingPlanBalanceAsync：Swift 来源：无（Windows 端新增）——ZCode 桌面客户端 coding-plan 余额端点
+// 无 Swift 对应实现；形状契约见 GlmCodingPlanParser.cs 头注与 contracts/fixtures/glm/coding-plan-balance.synthetic.json。
 
 using System.Globalization;
 using System.Text.Json;
@@ -19,6 +21,10 @@ public sealed class GlmClient
 {
     private static readonly TimeSpan QuotaTimeout = TimeSpan.FromSeconds(30);
     private static readonly TimeSpan SubscriptionTimeout = TimeSpan.FromSeconds(15);
+
+    /// <summary>ZCode 桌面客户端 coding-plan 余额端点（Windows 端新增；URL 来自 ZCode 客户端日志，契约待真实抓包校准）。</summary>
+    public const string CodingPlanBalanceUrl = "https://zcode.z.ai/api/v1/zcode-plan/billing/balance";
+
     private static readonly string[] ShanghaiDateFormats =
     {
         "yyyy-MM-dd HH:mm:ss",
@@ -98,6 +104,43 @@ public sealed class GlmClient
     {
         _ = await FetchUsageAsync(credentialInput, cancellationToken).ConfigureAwait(false);
         return true;
+    }
+
+    /// <summary>
+    /// ZCode 桌面客户端 coding-plan 余额（Windows 端新增，无 Swift 对应）：GET
+    /// https://zcode.z.ai/api/v1/zcode-plan/billing/balance，Bearer JWT（凭据存 ~/.zcode/v2/credentials.json）。
+    /// 复用 GetJsonAsync / 超时 / 错误映射风格；解析见 <see cref="GlmCodingPlanParser"/>。
+    /// </summary>
+    /// <param name="jwt">coding-plan JWT。裸 token 与已带 Bearer 前缀都归一为恰好一次 Bearer
+    /// （对齐 GlmCredentialParser 对裸 API Key 的归一语义）。</param>
+    /// <exception cref="GlmUsageException">NotConfigured：空 JWT；ApiError：非 2xx 或信封 code != 200；NetworkError：传输失败 / 超时。</exception>
+    public async Task<UsageData> FetchCodingPlanBalanceAsync(
+        string jwt,
+        CancellationToken cancellationToken = default)
+    {
+        var trimmed = jwt.Trim();
+        if (trimmed.Length == 0)
+        {
+            throw new GlmUsageException(
+                GlmUsageErrorKind.NotConfigured, "GLM coding-plan JWT 为空（未配置）。");
+        }
+
+        var lowercased = trimmed.ToLowerInvariant();
+        var bearer = lowercased.StartsWith("bearer ", StringComparison.Ordinal)
+            ? trimmed
+            : $"Bearer {trimmed}";
+
+        var json = await GetJsonAsync(
+            new Uri(CodingPlanBalanceUrl),
+            request =>
+            {
+                request.Headers.TryAddWithoutValidation("Authorization", bearer);
+                request.Headers.TryAddWithoutValidation("Accept", "application/json");
+            },
+            QuotaTimeout,
+            cancellationToken).ConfigureAwait(false);
+
+        return GlmCodingPlanParser.Parse(json);
     }
 
     private async Task<string> GetJsonAsync(
