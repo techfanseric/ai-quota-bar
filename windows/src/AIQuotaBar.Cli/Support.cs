@@ -38,11 +38,11 @@ internal static class Support
         var pct = data.PercentageRemaining();
         Console.WriteLine($"provider     : {data.Provider.DisplayName()}");
         Console.WriteLine($"remains      : {data.Remains} / {data.Total} ({pct:F1}%)");
-        Console.WriteLine($"timestamp    : {QuotaJson.FormatStrictSwiftIso8601(data.Timestamp)}");
+        Console.WriteLine($"timestamp    : {SwiftIso8601DateTimeOffsetConverter.FormatStrictSwiftIso8601(data.Timestamp)}");
         if (data.SubscribeTitle is not null)
         {
             Console.WriteLine($"subscribe    : {data.SubscribeTitle}"
-                + (data.SubscribeEndTime is { } end ? $"（至 {QuotaJson.FormatStrictSwiftIso8601(end)}）" : null));
+                + (data.SubscribeEndTime is { } end ? $"（至 {SwiftIso8601DateTimeOffsetConverter.FormatStrictSwiftIso8601(end)}）" : null));
         }
 
         Console.WriteLine($"models       : {data.Models.Count}");
@@ -50,7 +50,7 @@ internal static class Support
         {
             var account = string.IsNullOrEmpty(m.AccountName) ? "-" : m.AccountName;
             var suffix = m.ValueSuffix ?? string.Empty;
-            var reset = m.EndTime is { } e ? $" resets={QuotaJson.FormatStrictSwiftIso8601(e)}" : null;
+            var reset = m.EndTime is { } e ? $" resets={SwiftIso8601DateTimeOffsetConverter.FormatStrictSwiftIso8601(e)}" : null;
             var detail = string.IsNullOrEmpty(m.DetailText) ? null : $" detail={m.DetailText}";
             Console.WriteLine($"  [{account}] {m.ModelName}: {m.CurrentIntervalRemaining}/{m.CurrentIntervalTotal}{suffix}"
                 + (m.CurrentIntervalRemainingPercent is { } p ? $" ({p}%)" : null) + reset + detail);
