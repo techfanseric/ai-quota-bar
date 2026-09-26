@@ -129,11 +129,13 @@ final class StatusBarController {
                 await self.clashRouteViewModel.testRoutes()
             })
     private let clashPanelDisplayStore = ClashPanelDisplayStore()
+    private let codexAuthAccountStore = CodexAuthAccountStore()
     private lazy var clashRoutePopoverController = ClashRoutePopoverController(
         routeViewModel: clashRouteViewModel,
         connectionViewModel: clashConnectionViewModel,
         sleepProtectionCoordinator: sleepProtectionCoordinator,
-        displayStore: clashPanelDisplayStore)
+        displayStore: clashPanelDisplayStore,
+        accountStore: codexAuthAccountStore)
     private let initialStatusItemLength: CGFloat = 110
     private var screenObserverTokens: [NSObjectProtocol] = []
     private var accessibilityDisplayObserver: NSObjectProtocol?

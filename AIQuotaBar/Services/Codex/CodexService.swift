@@ -48,6 +48,20 @@ final class CodexService {
             let accountAfter = UsageAccountObservation.read(root: authRoot)
             await CodexSubscriptionStatus.shared.receive(snapshot: result.usage, source: result.sourceLabel,
                                                         before: accountBefore, after: accountAfter)
+            // 抓取期间账号没有切换时，把长短周期剩余记到该账号名下，
+            // 供账号切换面板展示每个账号「上次获取到的配额」。
+            if let digest = accountBefore.accountID, digest == accountAfter.accountID {
+                let primary = result.usage.primary
+                let secondary = result.usage.secondary
+                await MainActor.run {
+                    CodexAccountQuotaStore.shared.record(
+                        accountDigest: digest,
+                        primaryUsedPercent: primary?.usedPercent,
+                        primaryResetsAt: primary?.resetsAt,
+                        secondaryUsedPercent: secondary?.usedPercent,
+                        secondaryResetsAt: secondary?.resetsAt)
+                }
+            }
             return CodexUsageDataMapper.mapToUsageData(
                 snapshot: result.usage,
                 credits: result.credits,

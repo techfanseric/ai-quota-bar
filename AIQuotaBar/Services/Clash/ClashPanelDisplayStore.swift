@@ -1,8 +1,9 @@
 import Foundation
 import Observation
 
-/// 右键 Clash 面板中的 OpenAI 分区。
+/// 右键 Clash 面板中的分区。
 enum ClashPanelSection: String, Codable, CaseIterable, Sendable {
+    case accounts
     case routes
     case connections
 }
@@ -34,6 +35,10 @@ final class ClashPanelDisplayStore {
 
     var isRoutesCollapsed: Bool {
         collapsedSections.contains(.routes)
+    }
+
+    var isAccountsCollapsed: Bool {
+        collapsedSections.contains(.accounts)
     }
 
     var isConnectionsCollapsed: Bool {
