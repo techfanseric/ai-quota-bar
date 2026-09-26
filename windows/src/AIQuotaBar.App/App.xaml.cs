@@ -7,6 +7,7 @@
 //  - 生命周期：托盘删除图标后 ShutdownMode=OnExplicitShutdown 退出。
 
 using System.IO;
+using System.Net.Http;
 using System.Text.Json;
 using System.Threading;
 using System.Windows;
