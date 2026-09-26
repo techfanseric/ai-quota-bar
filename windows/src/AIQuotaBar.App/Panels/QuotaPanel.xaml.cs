@@ -2,6 +2,9 @@
 // 内容按 QuotaService 实时状态构建：每个 provider 一节（未配置/错误/配额行三态）。
 
 using System.Windows;
+using Brushes = System.Windows.Media.Brushes;
+using Brush = System.Windows.Media.Brush;
+using Application = System.Windows.Application;
 using System.Windows.Controls;
 using System.Windows.Media;
 using AIQuotaBar.App.Services;
