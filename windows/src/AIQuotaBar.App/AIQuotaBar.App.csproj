@@ -9,11 +9,16 @@
     <OutputType>WinExe</OutputType>
     <RootNamespace>AIQuotaBar.App</RootNamespace>
     <UseWPF>true</UseWPF>
-    <!-- 仅为引用 System.Drawing（托盘环形图标的 GDI+ 绘制）；不使用 WinForms 控件 -->
-    <UseWindowsForms>true</UseWindowsForms>
     <ApplicationManifest>app.manifest</ApplicationManifest>
     <AssemblyName>AIQuotaBar</AssemblyName>
   </PropertyGroup>
+
+  <ItemGroup>
+    <!-- 托盘环形图标的 GDI+ 绘制（System.Drawing）。刻意用 NuGet 包而非 UseWindowsForms：
+         后者会引入 WinForms 隐式 using 与 WPF 类型全面撞名（Button/Brushes/Cursors/
+         HorizontalApplication…），且禁止清单声明 PerMonitorV2 DPI（WFAC010）。 -->
+    <PackageReference Include="System.Drawing.Common" Version="8.0.11" />
+  </ItemGroup>
 
   <ItemGroup>
     <ProjectReference Include="..\AIQuotaBar.Core\AIQuotaBar.Core.csproj" />
