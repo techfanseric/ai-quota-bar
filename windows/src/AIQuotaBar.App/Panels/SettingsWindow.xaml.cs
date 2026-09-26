@@ -1,6 +1,7 @@
 // Swift 来源：Settings/Panes 凭据与显示偏好的最小等价面（完整设置窗随 W2 设置页扩展）。
 
 using System.Windows;
+using Application = System.Windows.Application;
 using System.Windows.Controls;
 using System.Windows.Input;
 using AIQuotaBar.Platform.Credentials;

@@ -4,6 +4,7 @@
 // 任务栏四向对齐：v1 处理底部任务栏（左右对齐图标矩形）；其余方向待多显示器验收阶段补。
 
 using System.Runtime.InteropServices;
+using Application = System.Windows.Application;
 using System.Windows;
 using System.Windows.Input;
 using System.Windows.Interop;

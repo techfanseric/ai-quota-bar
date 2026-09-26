@@ -3,6 +3,8 @@
 // 行为：点击路由即切换（SelectRouteAsync），测速回填延迟（TestGroupAsync）。
 
 using System.Windows;
+using Brush = System.Windows.Media.Brush;
+using Application = System.Windows.Application;
 using System.Windows.Controls;
 using System.Windows.Input;
 using System.Windows.Media;
