@@ -1,0 +1,22 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <!-- 正式应用（W2 托盘与弹层，计划 §7 架构图的最上层）。
+         UI 技术定稿（Phase 0 S7 裁决，走计划 §6 兜底分支）：WPF ——
+         WinAppSDK 运行时在目标 Win10 22H2 远程机上不可部署，WPF 是 .NET 8
+         内建的原生 Windows 呈现框架，Core/Providers/Platform 分层不受影响。 -->
+    <TargetFramework>net8.0-windows</TargetFramework>
+    <OutputType>WinExe</OutputType>
+    <RootNamespace>AIQuotaBar.App</RootNamespace>
+    <UseWPF>true</UseWPF>
+    <ApplicationManifest>app.manifest</ApplicationManifest>
+    <AssemblyName>AIQuotaBar</AssemblyName>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\AIQuotaBar.Core\AIQuotaBar.Core.csproj" />
+    <ProjectReference Include="..\AIQuotaBar.Providers\AIQuotaBar.Providers.csproj" />
+    <ProjectReference Include="..\AIQuotaBar.Platform\AIQuotaBar.Platform.csproj" />
+  </ItemGroup>
+
+</Project>
