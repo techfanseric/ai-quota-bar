@@ -1,0 +1,48 @@
+<Window x:Class="AIQuotaBar.App.Panels.SettingsWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="AI Quota Bar — 设置" Height="480" Width="440"
+        WindowStartupLocation="CenterScreen"
+        Background="#F0202020">
+    <Grid Margin="20">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="*" />
+            <RowDefinition Height="Auto" />
+        </Grid.RowDefinitions>
+
+        <StackPanel Grid.Row="0">
+            <TextBlock Text="Provider 凭据" Foreground="#F2F2F2" FontSize="15" FontWeight="SemiBold" Margin="0,0,0,4" />
+            <TextBlock Foreground="#A8A8B0" FontSize="11" TextWrapping="Wrap"
+                       Text="凭据保存到 Windows 凭据管理器（Credential Manager），不明文落盘。GLM 支持 API key 或 cURL 导入串；MiniMax 填 API token。" />
+        </StackPanel>
+
+        <ScrollViewer Grid.Row="1" Margin="0,12" VerticalScrollBarVisibility="Auto">
+            <StackPanel>
+                <TextBlock Text="GLM 凭据" Foreground="#F2F2F2" FontSize="12" Margin="0,8,0,4" />
+                <TextBox x:Name="GlmBox" Height="60" TextWrapping="Wrap" AcceptsReturn="False"
+                         Background="#33FFFFFF" Foreground="#F2F2F2" BorderBrush="#40FFFFFF" FontSize="12"
+                         VerticalScrollBarVisibility="Auto" />
+
+                <TextBlock Text="MiniMax token" Foreground="#F2F2F2" FontSize="12" Margin="0,12,0,4" />
+                <PasswordBox x:Name="MinimaxBox" Height="28" Background="#33FFFFFF" Foreground="#F2F2F2"
+                             BorderBrush="#40FFFFFF" FontSize="12" />
+
+                <TextBlock Text="网络代理（可选，如 http://10.0.0.181:7897）" Foreground="#F2F2F2" FontSize="12" Margin="0,12,0,4" />
+                <TextBox x:Name="ProxyBox" Height="28" Background="#33FFFFFF" Foreground="#F2F2F2"
+                         BorderBrush="#40FFFFFF" FontSize="12" />
+
+                <TextBlock Text="刷新间隔（秒）" Foreground="#F2F2F2" FontSize="12" Margin="0,12,0,4" />
+                <TextBox x:Name="RefreshBox" Height="28" Background="#33FFFFFF" Foreground="#F2F2F2"
+                         BorderBrush="#40FFFFFF" FontSize="12" PreviewTextInput="OnNumericOnly" />
+
+                <TextBlock x:Name="StatusText" Foreground="#4CAF50" FontSize="11" Margin="0,14,0,0" TextWrapping="Wrap" />
+            </StackPanel>
+        </ScrollViewer>
+
+        <StackPanel Grid.Row="2" Orientation="Horizontal" HorizontalAlignment="Right">
+            <Button x:Name="SaveButton" Content="保存" Style="{StaticResource PanelButton}" Click="OnSave" MinWidth="72" />
+            <Button Content="关闭" Style="{StaticResource PanelButton}" Click="OnClose" MinWidth="72" />
+        </StackPanel>
+    </Grid>
+</Window>
