@@ -312,14 +312,15 @@ public sealed class KimiDesktopCookieStoreTests : IDisposable
     /// <summary>开一个可写连接并建好 Chromium cookies 表的最小 schema（含被读的 5 列及其近邻）。</summary>
     private SqliteConnection OpenCookiesDatabase()
     {
+        // Pooling=false：Dispose 即关闭原生句柄，tearDown 的目录删除不会被池化连接锁住。
         var connection = new SqliteConnection(
-            new SqliteConnectionStringBuilder { DataSource = CookiesPath }.ToString());
+            new SqliteConnectionStringBuilder { DataSource = CookiesPath, Pooling = false }.ToString());
         connection.Open();
 
         using var command = connection.CreateCommand();
         command.CommandText = """
             CREATE TABLE cookies (
-                creation_utc     INTEGER NOT NULL,
+                creation_utc     INTEGER NOT NULL DEFAULT 0,
                 host_key         TEXT    NOT NULL,
                 name             TEXT    NOT NULL,
                 value            TEXT    NOT NULL,
