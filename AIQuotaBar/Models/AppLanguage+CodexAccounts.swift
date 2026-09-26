@@ -190,15 +190,15 @@ extension AppLanguage {
         }
     }
 
-    /// 等待用户自行退出时的横幅文案；不代劳退出，只提示自动接力的条件。
-    func codexAccountsPendingBanner(desktopAppRunning: Bool, cliRunning: Bool) -> String {
+    /// 手动模式横幅：指引必须明确「菜单 Quit（⌘Q）」且不是登出（Log out）。
+    func codexAccountsPendingManualBanner(desktopAppRunning: Bool, cliRunning: Bool) -> String {
         switch self {
         case .english:
             switch (desktopAppRunning, cliRunning) {
             case (true, true):
-                return "Quit ChatGPT and the codex CLI — the switch finishes automatically."
+                return "Choose Quit (⌘Q) in the ChatGPT menu — not Log out — and quit the codex CLI. The switch finishes automatically."
             case (true, false):
-                return "Quit ChatGPT — the switch finishes automatically."
+                return "Choose Quit (⌘Q) in the ChatGPT menu — not Log out. The switch finishes automatically after the quit."
             case (false, true):
                 return "Quit the running codex CLI — the switch finishes automatically."
             case (false, false):
@@ -207,13 +207,82 @@ extension AppLanguage {
         case .simplifiedChinese:
             switch (desktopAppRunning, cliRunning) {
             case (true, true):
-                return "退出 ChatGPT 和 codex 命令行后将自动完成切换"
+                return "请在 ChatGPT 菜单选择「退出」（⌘Q）——不是「登出」，再退出 codex 命令行；之后自动完成切换"
             case (true, false):
-                return "退出 ChatGPT 后将自动完成切换"
+                return "请在 ChatGPT 菜单选择「退出」（⌘Q）——注意不是「登出」；正常退出后将自动完成切换"
             case (false, true):
                 return "退出正在运行的 codex 命令行后将自动完成切换"
             case (false, false):
                 return "正在自动完成切换…"
+            }
+        }
+    }
+
+    /// 自动模式横幅：桌面版由应用代为正常退出，CLI 仍需手动。
+    func codexAccountsPendingAutoBanner(desktopAppRunning: Bool, cliRunning: Bool) -> String {
+        switch self {
+        case .english:
+            switch (desktopAppRunning, cliRunning) {
+            case (true, true):
+                return "Quitting ChatGPT automatically… quit the codex CLI by hand; the switch then finishes automatically."
+            case (true, false):
+                return "Quitting ChatGPT automatically (normal ⌘Q-style quit)… the switch finishes right after."
+            case (false, true):
+                return "Quit the running codex CLI — the switch finishes automatically."
+            case (false, false):
+                return "Finishing automatically…"
+            }
+        case .simplifiedChinese:
+            switch (desktopAppRunning, cliRunning) {
+            case (true, true):
+                return "正在自动正常退出 ChatGPT…codex 命令行请手动退出，之后自动完成切换"
+            case (true, false):
+                return "正在自动正常退出 ChatGPT（等同 ⌘Q）…完全退出后自动完成切换"
+            case (false, true):
+                return "退出正在运行的 codex 命令行后将自动完成切换"
+            case (false, false):
+                return "正在自动完成切换…"
+            }
+        }
+    }
+
+    /// 横幅内的一键切换入口。
+    func codexAccountsSwitchToAutoAction() -> String {
+        switch self {
+        case .english: return "Switch to auto mode"
+        case .simplifiedChinese: return "切换至自动模式"
+        }
+    }
+
+    // MARK: - 设置：退出方式
+
+    func codexAccountSwitchExitModeLabel() -> String {
+        switch self {
+        case .english: return "Quitting ChatGPT during account switches"
+        case .simplifiedChinese: return "账号切换时退出 ChatGPT 的方式"
+        }
+    }
+
+    func codexAccountSwitchExitModeHelp() -> String {
+        switch self {
+        case .english:
+            return "Manual: the panel guides you to choose Quit (⌘Q) — not Log out — and finishes the switch once the app quits. Automatic: the app brings ChatGPT forward and performs the same normal quit for you, then relaunches it after a random 1–2 s pause so the rhythm stays unremarkable. The codex CLI always needs a manual quit."
+        case .simplifiedChinese:
+            return "手动：面板指引你用菜单「退出」（⌘Q）正常退出（不是「登出」），退出后自动完成切换。自动：应用会把 ChatGPT 激活到前台并执行同样的正常退出（等同 ⌘Q，不产生异常退出记录），完全退出后随机等待 1–2 秒再重启，尽量拟人。codex 命令行始终需要手动退出。"
+        }
+    }
+
+    func codexAccountSwitchExitModeDisplayName(_ mode: CodexAccountSwitchExitMode) -> String {
+        switch self {
+        case .english:
+            switch mode {
+            case .manual: return "Manual (default)"
+            case .automatic: return "Automatic quit"
+            }
+        case .simplifiedChinese:
+            switch mode {
+            case .manual: return "手动（默认）"
+            case .automatic: return "自动退出"
             }
         }
     }

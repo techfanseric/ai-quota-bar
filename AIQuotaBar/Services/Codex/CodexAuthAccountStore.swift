@@ -42,6 +42,14 @@ struct CodexAccountSwitchBlockers: OptionSet, Equatable {
     static let cliProcess = CodexAccountSwitchBlockers(rawValue: 1 << 1)
 }
 
+/// 切换时 ChatGPT/Codex 桌面版的退出方式。手动（默认）由用户自己在菜单里
+/// Quit；自动由应用代替用户执行「激活到前台 + 正常退出」（等同 ⌘Q 的
+/// 正常终止路径，不产生异常退出记录）。codex CLI 两种模式下都需手动退出。
+enum CodexAccountSwitchExitMode: String, CaseIterable, Codable {
+    case manual
+    case automatic
+}
+
 /// 切换完成后面板底部的一行反馈。
 struct CodexAccountSwitchStatusMessage: Equatable {
     let text: String
@@ -54,6 +62,9 @@ struct CodexAccountSwitchStatusMessage: Equatable {
 @MainActor
 @Observable
 final class CodexAuthAccountStore {
+    /// 面板与设置面板共用的实例。
+    static let shared = CodexAuthAccountStore()
+
     private(set) var currentStatus: CodexAuthFileStatus = .unreadable
     private(set) var currentQuotaSnapshot: CodexAccountQuotaSnapshot?
     private(set) var stashedAccounts: [CodexStashedAccount] = []
@@ -65,11 +76,25 @@ final class CodexAuthAccountStore {
 
     private let fileManager: FileManager
     private let codexHome: URL
+    private let defaults: UserDefaults
     private let companionAppsProvider: () -> [RunningAppSnapshot]
     private let cliProcessChecker: () -> Bool
     private let notify: (_ title: String, _ body: String) -> Void
     private let openCompanionApp: () -> Void
     private let quotaSnapshotProvider: @MainActor (String) -> CodexAccountQuotaSnapshot?
+    private let autoQuitPerformer: () -> Bool
+    private let relaunchDelayProvider: () -> TimeInterval?
+
+    /// 切换时的桌面版退出方式；横幅与设置面板都会改它。
+    var exitMode: CodexAccountSwitchExitMode {
+        didSet {
+            defaults.set(exitMode.rawValue, forKey: Self.exitModeStorageKey)
+        }
+    }
+
+    static let exitModeStorageKey = "codexAccountSwitchExitMode"
+    /// 本轮挂起请求是否已执行过自动退出（避免反复 terminate）。
+    private var hasAttemptedAutoQuit = false
 
     private var pendingObserverTokens: [NSObjectProtocol] = []
     private var pendingTimer: Timer?
@@ -78,6 +103,7 @@ final class CodexAuthAccountStore {
     init(
         codexHome: URL = CodexAuthAccountStore.defaultCodexHome(),
         fileManager: FileManager = .default,
+        defaults: UserDefaults = .standard,
         companionAppsProvider: @escaping () -> [RunningAppSnapshot] =
             CodexAuthAccountStore.liveCompanionApps,
         cliProcessChecker: @escaping () -> Bool =
@@ -87,15 +113,24 @@ final class CodexAuthAccountStore {
         openCompanionApp: @escaping () -> Void =
             CodexAuthAccountStore.liveOpenCompanionApp,
         quotaSnapshotProvider: @escaping @MainActor (String) -> CodexAccountQuotaSnapshot? =
-            { CodexAccountQuotaStore.shared.snapshot(for: $0) }
+            { CodexAccountQuotaStore.shared.snapshot(for: $0) },
+        autoQuitPerformer: @escaping () -> Bool =
+            CodexAuthAccountStore.liveAutoQuitDesktopApp,
+        relaunchDelayProvider: @escaping () -> TimeInterval? =
+            CodexAuthAccountStore.randomRelaunchDelay
     ) {
         self.codexHome = codexHome
         self.fileManager = fileManager
+        self.defaults = defaults
         self.companionAppsProvider = companionAppsProvider
         self.cliProcessChecker = cliProcessChecker
         self.notify = notify
         self.openCompanionApp = openCompanionApp
         self.quotaSnapshotProvider = quotaSnapshotProvider
+        self.autoQuitPerformer = autoQuitPerformer
+        self.relaunchDelayProvider = relaunchDelayProvider
+        self.exitMode = defaults.string(forKey: Self.exitModeStorageKey)
+            .flatMap(CodexAccountSwitchExitMode.init(rawValue:)) ?? .manual
     }
 
     deinit {
@@ -209,16 +244,18 @@ final class CodexAuthAccountStore {
         guard pendingRequest != nil else { return }
         pendingRequest = nil
         pendingBlockers = []
+        hasAttemptedAutoQuit = false
         stopPendingMonitoring()
         setStatus(AppLanguage.current.codexAccountsStatusPendingCancelled(), isError: false)
     }
 
     /// 切换前的守卫：ChatGPT/Codex 桌面版或 codex CLI 任一在运行就不执行，
-    /// 只挂起等待；用户自行退出后自动接力。已有挂起请求时，最新一次选择
-    /// 覆盖旧意图。
+    /// 只挂起等待；用户自行退出（或自动模式代为退出）后自动接力。
+    /// 已有挂起请求时，最新一次选择覆盖旧意图。
     private func beginOrPerform(_ request: CodexAccountSwitchRequest) {
         if pendingRequest != nil {
             pendingRequest = request
+            hasAttemptedAutoQuit = false
             let blockers = currentBlockers()
             pendingBlockers = blockers
             if blockers.isEmpty {
@@ -232,6 +269,7 @@ final class CodexAuthAccountStore {
             pendingRequest = request
             pendingBlockers = blockers
             startPendingMonitoring()
+            evaluatePendingRequest()
             return
         }
         perform(request)
@@ -256,7 +294,16 @@ final class CodexAuthAccountStore {
     /// 定时器 / 工作区通知 / 测试共同调用的接力检查点。
     func evaluatePendingRequest() {
         guard let request = pendingRequest else { return }
-        let blockers = currentBlockers()
+        var blockers = currentBlockers()
+        // 自动模式：应用代替用户退出桌面版（激活 + 正常终止，等同 ⌘Q）。
+        // 只在首次评估时执行一次；codex CLI 始终需要用户手动退出。
+        if exitMode == .automatic,
+           blockers.contains(.desktopApp),
+           !hasAttemptedAutoQuit {
+            hasAttemptedAutoQuit = true
+            _ = autoQuitPerformer()
+            blockers = currentBlockers()
+        }
         guard blockers.isEmpty else {
             pendingBlockers = blockers
             return
@@ -275,6 +322,7 @@ final class CodexAuthAccountStore {
         }
         pendingRequest = nil
         pendingBlockers = []
+        hasAttemptedAutoQuit = false
         stopPendingMonitoring()
         let language = AppLanguage.current
         do {
@@ -331,7 +379,7 @@ final class CodexAuthAccountStore {
         notify(
             language.codexAccountsSwitchNotificationTitle(),
             language.codexAccountsSwitchNotificationBody(display))
-        openCompanionApp()
+        scheduleRelaunch()
     }
 
     private func performLoginNewAccount() throws {
@@ -343,7 +391,7 @@ final class CodexAuthAccountStore {
         notify(
             language.codexAccountsLoginNewNotificationTitle(),
             language.codexAccountsLoginNewNotificationBody(previousLabel: previousLabel))
-        openCompanionApp()
+        scheduleRelaunch()
         if let previousLabel {
             setStatus(language.codexAccountsStatusStashed(previousLabel), isError: false)
         }
@@ -515,6 +563,37 @@ final class CodexAuthAccountStore {
     }
 
     // MARK: - 默认注入实现
+
+    /// 检测到完全退出后不立即重启：随机延迟 1–2 秒再打开 ChatGPT，
+    /// 让退出-重启节奏尽量拟人。
+    nonisolated static func randomRelaunchDelay() -> TimeInterval {
+        Double.random(in: 1...2)
+    }
+
+    private func scheduleRelaunch() {
+        guard let delay = relaunchDelayProvider() else {
+            openCompanionApp()
+            return
+        }
+        Task { [openCompanionApp] in
+            try? await Task.sleep(for: .seconds(delay))
+            openCompanionApp()
+        }
+    }
+
+    /// 自动模式的退出执行：把 ChatGPT/Codex 激活到前台后请求正常终止。
+    /// terminate() 走应用自己的正常退出路径（与菜单 Quit / ⌘Q 一致），
+    /// 不产生强制结束类异常记录；若应用弹出保存确认等对话框则不再重试，
+    /// 交给用户处理。
+    nonisolated static func liveAutoQuitDesktopApp() -> Bool {
+        let matcher = UsageProvider.codex.companionAppMatcher
+        guard let app = NSWorkspace.shared.runningApplications.first(where: {
+            $0.activationPolicy == .regular && matcher.matches($0)
+        }) else { return false }
+        app.activate(options: [])
+        app.terminate()
+        return true
+    }
 
     /// 只统计常规 GUI 应用：插件宿主等后台可执行文件（如
     /// ~/.codex/plugins/.../ChatGPT）不算「桌面版在运行」。

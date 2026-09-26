@@ -129,7 +129,7 @@ final class StatusBarController {
                 await self.clashRouteViewModel.testRoutes()
             })
     private let clashPanelDisplayStore = ClashPanelDisplayStore()
-    private let codexAuthAccountStore = CodexAuthAccountStore()
+    private let codexAuthAccountStore = CodexAuthAccountStore.shared
     private lazy var clashRoutePopoverController = ClashRoutePopoverController(
         routeViewModel: clashRouteViewModel,
         connectionViewModel: clashConnectionViewModel,

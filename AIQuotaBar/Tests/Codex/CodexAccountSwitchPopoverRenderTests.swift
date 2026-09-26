@@ -26,12 +26,18 @@ final class CodexAccountSwitchPopoverRenderTests: XCTestCase {
             name: "accounts-normal",
             to: outputDirectory)
 
-        // 状态二：切换被守卫挂起（桌面版 + CLI 都在运行）。
+        // 状态二：切换被守卫挂起（桌面版 + CLI 都在运行，手动模式）。
+        let pendingDefaultsSuite = "CodexAccountRenderManual.\(UUID())"
+        let pendingDefaults = try XCTUnwrap(UserDefaults(suiteName: pendingDefaultsSuite))
+        addTeardownBlock { [pendingDefaultsSuite] in
+            UserDefaults().removePersistentDomain(forName: pendingDefaultsSuite)
+        }
         let pendingStore = try makeStore(
             stashEmails: ["bob@example.com"],
             legacy: false,
             desktopRunning: true,
-            cliRunning: true)
+            cliRunning: true,
+            defaults: pendingDefaults)
         pendingStore.requestSwitch(to: "bob")
         try render(
             CodexAccountSwitchPopoverView(
@@ -39,6 +45,28 @@ final class CodexAccountSwitchPopoverRenderTests: XCTestCase {
                 isCollapsed: false,
                 onToggleCollapse: {}),
             name: "accounts-pending",
+            to: outputDirectory)
+
+        // 状态三：只有桌面版在运行 + 已切自动模式（应用代为正常退出中）。
+        let autoDefaultsSuite = "CodexAccountRenderAuto.\(UUID())"
+        let autoDefaults = try XCTUnwrap(UserDefaults(suiteName: autoDefaultsSuite))
+        addTeardownBlock { [autoDefaultsSuite] in
+            UserDefaults().removePersistentDomain(forName: autoDefaultsSuite)
+        }
+        let autoStore = try makeStore(
+            stashEmails: ["bob@example.com"],
+            legacy: false,
+            desktopRunning: true,
+            cliRunning: false,
+            defaults: autoDefaults)
+        autoStore.exitMode = .automatic
+        autoStore.requestSwitch(to: "bob")
+        try render(
+            CodexAccountSwitchPopoverView(
+                store: autoStore,
+                isCollapsed: false,
+                onToggleCollapse: {}),
+            name: "accounts-pending-auto",
             to: outputDirectory)
     }
 
@@ -48,7 +76,8 @@ final class CodexAccountSwitchPopoverRenderTests: XCTestCase {
         stashEmails: [String],
         legacy: Bool,
         desktopRunning: Bool = false,
-        cliRunning: Bool = false
+        cliRunning: Bool = false,
+        defaults: UserDefaults = .standard
     ) throws -> CodexAuthAccountStore {
         let root = FileManager.default.temporaryDirectory
             .appendingPathComponent("codex-home-\(UUID().uuidString)")
@@ -76,6 +105,7 @@ final class CodexAccountSwitchPopoverRenderTests: XCTestCase {
         let cliFlag = cliRunning
         let store = CodexAuthAccountStore(
             codexHome: root,
+            defaults: defaults,
             companionAppsProvider: { [desktopFlag, cliFlag] in
                 (desktopFlag || cliFlag)
                     ? [RunningAppSnapshot(

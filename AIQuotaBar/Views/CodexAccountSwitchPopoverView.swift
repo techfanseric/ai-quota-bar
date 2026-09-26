@@ -198,13 +198,30 @@ struct CodexAccountSwitchPopoverView: View {
                 .buttonStyle(.plain)
             } else {
                 VStack(alignment: .leading, spacing: 1) {
-                    Text(stash.label)
-                        .font(.system(size: 11, weight: .medium))
-                        .lineLimit(1)
+                    // 重命名按钮直接跟在名称后面，示意更明确；
+                    // 切换 / 删除保持在行尾。
+                    HStack(spacing: 4) {
+                        Text(stash.label)
+                            .font(.system(size: 11, weight: .medium))
+                            .lineLimit(1)
+
+                        Button {
+                            beginRename(stash)
+                        } label: {
+                            Image(systemName: "pencil")
+                                .font(.system(size: 9, weight: .semibold))
+                        }
+                        .buttonStyle(.plain)
+                        .foregroundStyle(.secondary)
+                        .accessibilityLabel(
+                            Text(language.codexAccountsRenameAccessibilityLabel()))
+                    }
+
                     Text(subtitle(for: stash))
                         .font(.system(size: 9))
                         .foregroundStyle(.tertiary)
                         .lineLimit(1)
+
                     if let quota = stash.quota {
                         quotaText(quota)
                     }
@@ -219,17 +236,6 @@ struct CodexAccountSwitchPopoverView: View {
                     .controlSize(.mini)
                     .buttonStyle(.borderless)
                 }
-
-                Button {
-                    beginRename(stash)
-                } label: {
-                    Image(systemName: "pencil")
-                        .font(.system(size: 9, weight: .semibold))
-                }
-                .buttonStyle(.plain)
-                .foregroundStyle(.secondary)
-                .accessibilityLabel(
-                    Text(language.codexAccountsRenameAccessibilityLabel()))
 
                 Button {
                     deleteCandidate = stash
@@ -335,9 +341,19 @@ struct CodexAccountSwitchPopoverView: View {
             Text(pendingBannerText)
                 .font(.system(size: 9))
                 .foregroundStyle(.orange)
-                .lineLimit(2)
+                .fixedSize(horizontal: false, vertical: true)
 
             Spacer(minLength: 8)
+
+            // 手动模式下提供就地切换：改完立即重估，自动退出马上接管。
+            if store.exitMode == .manual,
+               store.pendingBlockers.contains(.desktopApp) {
+                Button(language.codexAccountsSwitchToAutoAction()) {
+                    store.exitMode = .automatic
+                }
+                .controlSize(.mini)
+                .buttonStyle(.borderless)
+            }
 
             Button(language.codexAccountsCancelButtonTitle()) {
                 store.cancelPendingRequest()
@@ -351,9 +367,11 @@ struct CodexAccountSwitchPopoverView: View {
     }
 
     private var pendingBannerText: String {
-        language.codexAccountsPendingBanner(
-            desktopAppRunning: store.pendingBlockers.contains(.desktopApp),
-            cliRunning: store.pendingBlockers.contains(.cliProcess))
+        let desktop = store.pendingBlockers.contains(.desktopApp)
+        let cli = store.pendingBlockers.contains(.cliProcess)
+        return store.exitMode == .manual
+            ? language.codexAccountsPendingManualBanner(desktopAppRunning: desktop, cliRunning: cli)
+            : language.codexAccountsPendingAutoBanner(desktopAppRunning: desktop, cliRunning: cli)
     }
 
     // MARK: - 旧备份导入行
