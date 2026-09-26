@@ -9,6 +9,8 @@
     <OutputType>WinExe</OutputType>
     <RootNamespace>AIQuotaBar.App</RootNamespace>
     <UseWPF>true</UseWPF>
+    <!-- 仅为引用 System.Drawing（托盘环形图标的 GDI+ 绘制）；不使用 WinForms 控件 -->
+    <UseWindowsForms>true</UseWindowsForms>
     <ApplicationManifest>app.manifest</ApplicationManifest>
     <AssemblyName>AIQuotaBar</AssemblyName>
   </PropertyGroup>

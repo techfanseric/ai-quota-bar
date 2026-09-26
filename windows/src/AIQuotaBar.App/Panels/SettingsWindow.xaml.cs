@@ -31,8 +31,8 @@ public partial class SettingsWindow : Window
         var credentials = new CredentialStore();
         GlmBox.Text = credentials.Read("glm", string.Empty) ?? string.Empty;
         MinimaxBox.Password = credentials.Read("minimax", string.Empty) ?? string.Empty;
-        ProxyBox.Text = app.Settings.ProxyUrl ?? string.Empty;
-        RefreshBox.Text = app.Settings.RefreshSeconds.ToString();
+        ProxyBox.Text = App.Settings.ProxyUrl ?? string.Empty;
+        RefreshBox.Text = App.Settings.RefreshSeconds.ToString();
     }
 
     private void OnNumericOnly(object sender, TextCompositionEventArgs e) =>
@@ -63,11 +63,11 @@ public partial class SettingsWindow : Window
                 credentials.Delete("minimax", string.Empty);
             }
 
-            app.Settings.ProxyUrl = string.IsNullOrWhiteSpace(ProxyBox.Text) ? null : ProxyBox.Text.Trim();
-            app.Settings.RefreshSeconds = int.TryParse(RefreshBox.Text, out var seconds) && seconds >= 15
+            App.Settings.ProxyUrl = string.IsNullOrWhiteSpace(ProxyBox.Text) ? null : ProxyBox.Text.Trim();
+            App.Settings.RefreshSeconds = int.TryParse(RefreshBox.Text, out var seconds) && seconds >= 15
                 ? seconds
                 : 60;
-            app.Settings.Save();
+            App.Settings.Save();
 
             StatusText.Text = $"已保存（{DateTime.Now:HH:mm:ss}）。切换到控制中心点「刷新」立即生效。";
             _ = app.Quota.RefreshAsync();
