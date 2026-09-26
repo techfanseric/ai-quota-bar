@@ -1,0 +1,47 @@
+<!-- Swift 来源：无（Windows 端新增；亮/暗双主题字典 —— 亮色，Fluent 浅色基线）。
+     键位清单与 Dark.xaml 严格一致（ThemeService 运行时整本互换，缺键即破相）。
+     亮色对比度取舍：状态色弃用暗色基线的亮绿/亮黄（在 #F3F3F3 上对比不足），
+     改用 Fluent 浅色语义色（success #0F7B0F / caution #9D5D00 / critical #C42B1C）；
+     分档规则（>50 绿 / >20 黄 / 其余红）与托盘环一致，仅色值随主题派生。 -->
+<ResourceDictionary xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+                    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+                    xmlns:sys="clr-namespace:System;assembly=mscorlib">
+    <sys:Double x:Key="GaugeSize">60</sys:Double>
+    <sys:Double x:Key="GaugeStrokeThickness">6</sys:Double>
+    <sys:Double x:Key="UsageBarHeight">6</sys:Double>
+
+    <CornerRadius x:Key="CardCornerRadius">8</CornerRadius>
+    <Thickness x:Key="CardPadding">12,8</Thickness>
+    <Thickness x:Key="CardMargin">0,4</Thickness>
+    <Thickness x:Key="CardBorderThickness">1</Thickness>
+
+    <FontFamily x:Key="PanelFontFamily">Segoe UI Variable Display, Segoe UI</FontFamily>
+
+    <SolidColorBrush x:Key="PanelBackground" Color="#F2F3F3F3" />
+    <SolidColorBrush x:Key="PanelBorder" Color="#1F000000" />
+    <SolidColorBrush x:Key="WindowBackgroundBrush" Color="#F3F3F3" />
+
+    <SolidColorBrush x:Key="TextPrimary" Color="#1B1B1B" />
+    <SolidColorBrush x:Key="TextSecondary" Color="#5C5C66" />
+
+    <SolidColorBrush x:Key="AccentGreen" Color="#0F7B0F" />
+    <SolidColorBrush x:Key="AccentYellow" Color="#9D5D00" />
+    <SolidColorBrush x:Key="AccentRed" Color="#C42B1C" />
+    <SolidColorBrush x:Key="AccentBlue" Color="#005FB8" />
+
+    <SolidColorBrush x:Key="AccentBrush" Color="#005FB8" />
+    <SolidColorBrush x:Key="AccentHoverBrush" Color="#004A93" />
+
+    <SolidColorBrush x:Key="HoverBrush" Color="#17000000" />
+    <SolidColorBrush x:Key="CardBrush" Color="#FFFFFF" />
+    <SolidColorBrush x:Key="ChartTrackBrush" Color="#D5D5DB" />
+    <SolidColorBrush x:Key="SeparatorBrush" Color="#1F000000" />
+
+    <SolidColorBrush x:Key="InputBackgroundBrush" Color="#FFFFFF" />
+    <SolidColorBrush x:Key="InputBorderBrush" Color="#30000000" />
+
+    <SolidColorBrush x:Key="BadgeGreenBrush" Color="#170F7B0F" />
+    <SolidColorBrush x:Key="BadgeYellowBrush" Color="#179D5D00" />
+    <SolidColorBrush x:Key="BadgeRedBrush" Color="#17C42B1C" />
+    <SolidColorBrush x:Key="BadgeMutedBrush" Color="#14000000" />
+</ResourceDictionary>

@@ -6,6 +6,7 @@ using System.Windows;
 using Application = System.Windows.Application;
 using System.Windows.Controls;
 using System.Windows.Input;
+using AIQuotaBar.App.Services;
 using AIQuotaBar.Platform.Credentials;
 using AIQuotaBar.Platform.Startup;
 
@@ -37,8 +38,26 @@ public partial class SettingsWindow : Window
         MinimaxBox.Password = credentials.Read("minimax", string.Empty) ?? string.Empty;
         ProxyBox.Text = App.Settings.ProxyUrl ?? string.Empty;
         RefreshBox.Text = App.Settings.RefreshSeconds.ToString();
+        // 初始勾选态从持久化偏好恢复；Checked 事件（XAML 已挂）随之触发一次
+        // ApplyPreference——同值幂等（ThemeService.ApplyEffective 短路），无副作用。
+        var preference = ThemeService.ParsePreference(App.Settings.Theme);
+        (preference switch
+        {
+            ThemePreference.Light => ThemeLightRadio,
+            ThemePreference.Dark => ThemeDarkRadio,
+            _ => ThemeFollowRadio,
+        }).IsChecked = true;
         InitializeAutostart();
     }
+
+    /// <summary>当前三选选中态 → 偏好（未选中任何项按跟随系统，防御半初始化态）。</summary>
+    private ThemePreference SelectedThemePreference() => ThemeLightRadio.IsChecked == true
+        ? ThemePreference.Light
+        : ThemeDarkRadio.IsChecked == true ? ThemePreference.Dark : ThemePreference.FollowSystem;
+
+    /// <summary>主题三选即时生效（规格 §3）；持久化随保存按钮统一落盘（OnSave）。</summary>
+    private void OnThemePreferenceChecked(object sender, RoutedEventArgs e) =>
+        ThemeService.Instance.ApplyPreference(SelectedThemePreference());
 
     /// <summary>
     /// 开机自启勾选态初始化：以 HKCU Run 键现值为准（RegistryAutostart 只读探测，无副作用）。
@@ -130,6 +149,7 @@ public partial class SettingsWindow : Window
             App.Settings.RefreshSeconds = int.TryParse(RefreshBox.Text, out var seconds) && seconds >= 15
                 ? seconds
                 : 60;
+            App.Settings.Theme = SelectedThemePreference().ToString();
             App.Settings.Save();
 
             StatusText.Text = $"已保存（{DateTime.Now:HH:mm:ss}）。切换到控制中心点「刷新」立即生效。";

@@ -4,24 +4,37 @@
                     xmlns:panels="clr-namespace:AIQuotaBar.App.Panels"
                     Title="AI Quota Bar — 路由"
                     SizeToContent="Height"
-                    Width="340">
+                    Width="340"
+                    FontFamily="{DynamicResource PanelFontFamily}">
+    <panels:PopupWindow.Resources>
+        <!-- 路由行：未选中行底色透明 + hover 高亮（选中行的底色由代码本地值覆盖，优先级高于触发器）。 -->
+        <Style x:Key="RouteRowStyle" TargetType="Border">
+            <Setter Property="Background" Value="Transparent" />
+            <Style.Triggers>
+                <Trigger Property="IsMouseOver" Value="True">
+                    <Setter Property="Background" Value="{DynamicResource HoverBrush}" />
+                </Trigger>
+            </Style.Triggers>
+        </Style>
+    </panels:PopupWindow.Resources>
     <Border Background="{DynamicResource PanelBackground}"
             BorderBrush="{DynamicResource PanelBorder}"
-            BorderThickness="1" CornerRadius="10" Margin="8" Padding="0,4">
+            BorderThickness="1" CornerRadius="10" Margin="8" Padding="0,6">
         <StackPanel>
-            <DockPanel Margin="16,10,16,6">
+            <!-- 主标题 16px（规格 §2 标题层级）。 -->
+            <DockPanel Margin="16,10,16,8">
                 <TextBlock Text="Clash 路由" Foreground="{DynamicResource TextPrimary}"
-                           FontSize="15" FontWeight="SemiBold" />
+                           FontSize="16" FontWeight="SemiBold" />
                 <TextBlock x:Name="GroupText" Foreground="{DynamicResource TextSecondary}"
                            FontSize="12" HorizontalAlignment="Right" VerticalAlignment="Bottom" />
             </DockPanel>
-            <Separator Background="#22FFFFFF" Height="1" Margin="10,2" />
+            <Separator Background="{DynamicResource SeparatorBrush}" Height="1" Margin="10,2" />
             <TextBlock x:Name="ErrorText" Foreground="{DynamicResource AccentRed}" FontSize="11"
                        TextWrapping="Wrap" Margin="16,8" Visibility="Collapsed" />
             <ScrollViewer MaxHeight="420" VerticalScrollBarVisibility="Auto" Margin="4,4">
                 <StackPanel x:Name="RoutesHost" />
             </ScrollViewer>
-            <Separator Background="#22FFFFFF" Height="1" Margin="10,4" />
+            <Separator Background="{DynamicResource SeparatorBrush}" Height="1" Margin="10,4" />
             <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" Margin="12,8">
                 <Button x:Name="TestButton" Content="测速" Style="{StaticResource PanelButton}" Click="OnTest" />
                 <Button x:Name="ReloadButton" Content="刷新" Style="{StaticResource PanelButton}" Click="OnReload" />

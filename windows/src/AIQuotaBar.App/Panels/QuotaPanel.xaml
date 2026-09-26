@@ -4,18 +4,22 @@
                     xmlns:panels="clr-namespace:AIQuotaBar.App.Panels"
                     Title="AI Quota Bar — 控制中心"
                     SizeToContent="Height"
-                    Width="340">
+                    Width="340"
+                    FontFamily="{DynamicResource PanelFontFamily}">
     <Border Background="{DynamicResource PanelBackground}"
             BorderBrush="{DynamicResource PanelBorder}"
-            BorderThickness="1" CornerRadius="10" Margin="8" Padding="0,4">
+            BorderThickness="1" CornerRadius="10" Margin="8" Padding="0,6">
         <StackPanel>
+            <!-- 主标题 16px（规格 §2 标题层级）。 -->
             <TextBlock Text="AI Quota Bar"
                        Foreground="{DynamicResource TextPrimary}"
-                       FontSize="15" FontWeight="SemiBold"
-                       Margin="16,10,16,6" />
-            <Separator Background="#22FFFFFF" Height="1" Margin="10,2" />
-            <StackPanel x:Name="ProvidersHost" Margin="4,6,4,2" />
-            <Separator Background="#22FFFFFF" Height="1" Margin="10,4" />
+                       FontSize="16" FontWeight="SemiBold"
+                       Margin="16,10,16,8" />
+            <Separator Background="{DynamicResource SeparatorBrush}" Height="1" Margin="10,2" />
+            <!-- provider 节宿主：节由 RenderProvider 产出，Rebuild 后经
+                 ProviderSectionChrome.DecorateAll 统一包卡片 + 头部环形图（视觉层，不动渲染逻辑）。 -->
+            <StackPanel x:Name="ProvidersHost" Margin="8,6,8,2" />
+            <Separator Background="{DynamicResource SeparatorBrush}" Height="1" Margin="10,4" />
             <DockPanel Margin="12,8">
                 <TextBlock x:Name="UpdatedText" Foreground="{DynamicResource TextSecondary}"
                            FontSize="11" VerticalAlignment="Center" />
