@@ -36,6 +36,10 @@
                 <TextBox x:Name="RefreshBox" Height="28" Background="#33FFFFFF" Foreground="#F2F2F2"
                          BorderBrush="#40FFFFFF" FontSize="12" PreviewTextInput="OnNumericOnly" />
 
+                <CheckBox x:Name="AutostartCheck" Margin="0,16,0,0"
+                          Content="开机自启（登录后静默启动，仅托盘图标，不弹面板）"
+                          Foreground="#F2F2F2" FontSize="12" />
+
                 <TextBlock x:Name="StatusText" Foreground="#4CAF50" FontSize="11" Margin="0,14,0,0" TextWrapping="Wrap" />
             </StackPanel>
         </ScrollViewer>
