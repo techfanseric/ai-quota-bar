@@ -110,7 +110,10 @@ public sealed class GlmCodingPlanTests
         };
         yield return new object[]
         {
-            Transform(root => ((JsonObject)root["data"]!)["resetTime"] = "2026-09-26 13:00:00"),
+            // 注意不能用 "2026-09-26 13:00:00" 这类变体当坏样本：DateTimeOffset.TryParse 与 Core 的
+            // SwiftIso8601DateTimeOffsetConverter 一样是宽松读取（空格分隔 / 无偏移都接受），这里
+            // 钉的是"完全不是时间文本"的拒绝路径。
+            Transform(root => ((JsonObject)root["data"]!)["resetTime"] = "reset-in-5h"),
             GlmUsageErrorKind.InvalidResponse, "'resetTime'",
         };
         yield return new object[]
