@@ -63,6 +63,7 @@ public sealed class KimiDesktopCookieStoreTests : IDisposable
     [Fact]
     public void ReadsNewestPlaintextKimiAuthTokenAcrossHosts()
     {
+        WriteLocalState(TestAesKey);
         using var database = OpenCookiesDatabase();
         InsertCookie(database, "www.kimi.com", "older-token", lastAccessUtc: MinutesAgo(10));
         InsertCookie(database, ".kimi.com", "newer-token", lastAccessUtc: MinutesAgo(5));
@@ -76,6 +77,7 @@ public sealed class KimiDesktopCookieStoreTests : IDisposable
     [Fact]
     public void PrefersPlaintextColumnOverEncryptedValue()
     {
+        WriteLocalState(TestAesKey);
         using var database = OpenCookiesDatabase();
         // 同一行两列都有值：Chromium 在 Windows 写密文列，但 value 列有值时上游语义即用它。
         InsertCookie(database, "www.kimi.com", "plain-wins", EncryptV10("encrypted-should-be-ignored"), MinutesAgo(1));
