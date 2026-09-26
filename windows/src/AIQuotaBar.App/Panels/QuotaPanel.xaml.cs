@@ -37,6 +37,7 @@ public partial class QuotaPanel : PopupWindow
         ProvidersHost.Children.Clear();
         RenderProvider(AppHost.Quota.Glm);
         RenderProvider(AppHost.Quota.Minimax);
+        RenderProvider(AppHost.Quota.Codex);
         UpdatedText.Text = $"更新于 {DateTime.Now:HH:mm:ss}";
         RefreshButton.IsEnabled = !_refreshing;
     }
