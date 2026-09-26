@@ -660,15 +660,6 @@ private struct ProviderModelsSection: View {
                             .lineLimit(1)
                             .minimumScaleFactor(0.8)
 
-                        if isCurrent {
-                            Text(language == .simplifiedChinese ? "当前" : "Current")
-                                .font(.system(size: 8, weight: .semibold, design: .rounded))
-                                .foregroundStyle(.green)
-                                .padding(.horizontal, 4)
-                                .padding(.vertical, 1)
-                                .background(Capsule().fill(Color.green.opacity(0.12)))
-                        }
-
                         if let plan = accountPlanSummary(group.models) {
                             Text("·")
                                 .foregroundStyle(.tertiary)
@@ -960,7 +951,8 @@ private struct ModelRow: View {
         Group {
             if model.isFullQuotaUnused
                 && !isFullQuotaExpanded
-                && !isPromotedWeeklyCurve {
+                && !isPromotedWeeklyCurve
+                && !showsSnapshotLayout {
                 collapsedFullQuotaRow
             } else {
                 expandedContent
@@ -984,7 +976,7 @@ private struct ModelRow: View {
                 headerRow
             }
 
-            if isCurrentWindow {
+            if isCurrentWindow || showsSnapshotLayout {
                 // 样本为空时不渲染 84pt 曲线图容器，落到下方紧凑胶囊条兜底。
                 if rendersAreaChart && !chartSamples.isEmpty {
                     QuotaAreaChart(
@@ -1108,7 +1100,7 @@ private struct ModelRow: View {
 
             Spacer()
 
-            if isCurrentWindow {
+            if isCurrentWindow || showsSnapshotLayout {
                 Text(model.currentIntervalRemainingText)
                     .font(.system(size: 13, weight: .semibold, design: .rounded))
                     .foregroundStyle(tint)
@@ -1214,8 +1206,15 @@ private struct ModelRow: View {
         return startTime <= now && now <= endTime
     }
 
+    /// 云端账号的过期快照仍按完整行渲染（行头 + 胶囊条 + 元数据），
+    /// 不退化成「只剩周期行」；新旧程度由账号头的「Cloud · HH:mm」表达。
+    private var showsSnapshotLayout: Bool {
+        isCloudModel && !isCurrentWindow
+    }
+
     private var isCyclesOnly: Bool {
-        !isCurrentWindow && !cycles.isEmpty
+        guard !isCurrentWindow, !cycles.isEmpty else { return false }
+        return !showsSnapshotLayout
     }
 
     private var isPromotedWeeklyCurve: Bool {
