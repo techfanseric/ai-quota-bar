@@ -107,10 +107,19 @@ public sealed class QuotaService
 
     private async Task<ProviderState> FetchGlmAsync()
     {
+        // 凭据来源优先级（实测验证的零配置链路，参考 Win-CodexBar 的 z.ai 成功经验）：
+        // 1. Credential Manager 手动配置（设置窗）；
+        // 2. ZCode 客户端凭据（~/.zcode/v2/credentials.json 的 coding-plan api-key，
+        //    ZcodeCredentialStore 解密）——ZCode 已登录的机器上用户零配置即出数。
         var credential = _credentials.Read(GlmService, string.Empty);
         if (string.IsNullOrEmpty(credential))
         {
-            return new ProviderState { Name = "GLM", Status = ProviderStatus.NotConfigured };
+            var zcode = new ZcodeCredentialStore().TryLoad();
+            credential = zcode?.ApiKeys.Values.FirstOrDefault(v => !string.IsNullOrWhiteSpace(v));
+            if (string.IsNullOrEmpty(credential))
+            {
+                return new ProviderState { Name = "GLM", Status = ProviderStatus.NotConfigured };
+            }
         }
 
         try
