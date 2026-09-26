@@ -1,11 +1,13 @@
 // Swift 来源：Services 各 provider UsageViewModel 聚合面（Windows 端收敛为单服务）。
-// 职责：从 Credential Manager 取 provider 凭据 → 调 W1 的 GlmClient / MinimaxClient
-// 拉真实配额 → 维护面板/托盘所需状态。Codex/Kimi 待 Phase 0 spike 结论（计划 §9）。
+// 职责：从 Credential Manager 取 provider 凭据 → 调 W1 的 GlmClient / MinimaxClient /
+// CodexQuotaService 拉真实配额 → 维护面板/托盘所需状态。Kimi 待 Phase 0 spike 结论（计划 §9）。
 
 using System.Net.Http;
 using AIQuotaBar.Core.Contracts;
 using AIQuotaBar.Core.Quota;
 using AIQuotaBar.Platform.Credentials;
+using AIQuotaBar.Providers.Codex;
+using AIQuotaBar.Providers.Codex.Credentials;
 using AIQuotaBar.Providers.Glm;
 using AIQuotaBar.Providers.Minimax;
 
@@ -35,6 +37,7 @@ public sealed class QuotaService
 {
     private const string GlmService = "glm";
     private const string MinimaxService = "minimax";
+    private const string CodexService = "codex";
     private readonly AppSettings _settings;
     private readonly CredentialStore _credentials = new();
     private readonly SemaphoreSlim _refreshGate = new(1, 1);
@@ -45,12 +48,14 @@ public sealed class QuotaService
 
     public ProviderState Minimax { get; private set; } = new() { Name = "MiniMax" };
 
+    public ProviderState Codex { get; private set; } = new() { Name = "Codex" };
+
     /// <summary>托盘环百分比：首个成功 provider 的整体剩余比例；无数据时 null（灰色环）。</summary>
     public int? RingPercent
     {
         get
         {
-            foreach (var state in new[] { Glm, Minimax })
+            foreach (var state in new[] { Glm, Minimax, Codex })
             {
                 if (state.Status == ProviderStatus.Ok && state.Usage is { } usage)
                 {
@@ -68,7 +73,7 @@ public sealed class QuotaService
         get
         {
             var parts = new List<string>();
-            foreach (var state in new[] { Glm, Minimax })
+            foreach (var state in new[] { Glm, Minimax, Codex })
             {
                 if (state.Status == ProviderStatus.Ok && state.Usage is { } usage)
                 {
@@ -97,6 +102,7 @@ public sealed class QuotaService
         {
             Glm = await FetchGlmAsync().ConfigureAwait(false);
             Minimax = await FetchMinimaxAsync().ConfigureAwait(false);
+            Codex = await FetchCodexAsync().ConfigureAwait(false);
             StateChanged?.Invoke();
         }
         finally
@@ -171,6 +177,34 @@ public sealed class QuotaService
         catch (Exception ex)
         {
             return new ProviderState { Name = "MiniMax", Status = ProviderStatus.Error, Error = ex.Message };
+        }
+    }
+
+    private async Task<ProviderState> FetchCodexAsync()
+    {
+        // 凭据来源优先级（对齐 FetchGlmAsync 的零配置链路）：
+        // 1. Credential Manager 手动配置（设置窗，API key 形态，直接拉取）；
+        // 2. Codex CLI 登录凭据（%CODEX_HOME%\auth.json，默认 ~/.codex）——`codex login`
+        //    之后零配置即出数；token 过期自动 OAuth 刷新并回写（CodexQuotaService 编排）。
+        var apiKey = _credentials.Read(CodexService, string.Empty);
+
+        try
+        {
+            using var http = new HttpClient(_settings.CreateHttpHandler(), disposeHandler: true)
+            {
+                Timeout = TimeSpan.FromSeconds(30),
+            };
+            var service = new CodexQuotaService(CodexEnvironment.Instance, http);
+            var usage = string.IsNullOrWhiteSpace(apiKey)
+                ? await service.FetchFromCodexHomeAsync().ConfigureAwait(false)
+                : await service.FetchWithApiKeyAsync(apiKey).ConfigureAwait(false);
+            return new ProviderState { Name = "Codex", Status = ProviderStatus.Ok, Usage = usage };
+        }
+        catch (Exception ex)
+        {
+            // 未登录（auth.json 缺失）也走此分支：CodexCredentialException 文案自带
+            // "Run `codex login`" 指引（Win-CodexBar 同先例），面板直接展示。
+            return new ProviderState { Name = "Codex", Status = ProviderStatus.Error, Error = ex.Message };
         }
     }
 }
