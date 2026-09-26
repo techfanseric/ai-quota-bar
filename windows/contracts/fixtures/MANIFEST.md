@@ -4,6 +4,7 @@
 
 - 来源标签 `[test-synthesized]`：样本提取自 Swift 测试中的内嵌 JSON / fixture 文件，字段结构可信、数值为测试合成值。
 - 来源标签 `[real-traffic-pending]`：尚无真实流量样本，等待 macOS 实机抓包录制（见 README.md）。
+- 来源标签 `[synthesized-pending-capture]`：契约优先合成的全新端点形状——仓库内无任何 Swift / codexbar 来源，仅端点 URL 与鉴权方式来自线上观察（客户端日志），字段名与数值均为本仓库设计。真实抓包录制后必须逐字段校准或整体替换（见 README.md 政策 1）。
 - 所有样本中的 token / 邮箱 / 账号 ID 均为测试占位值（如 `at-test-token`、`fixture-token`、`pat@example.com`），原样保留；本次未发现需要脱敏的真实凭据。
 
 ## codex/
@@ -59,8 +60,9 @@ Codex 端点/路径依据：`.dependencies/codexbar/Sources/CodexBarCore/Provide
 | quota-limit-response-out-of-range.json | GLM | 同上（remaining 越界） | AIQuotaBar/Tests/GLM/GLMUsageTests.swift:102 | [test-synthesized] | `remaining:-20`/`currentValue:120` → 剩余量钳制到 0，不抛错 |
 | reset-allowances-response-personal.json | GLM | `GET https://bigmodel.cn/api/biz/customer-package-reset/list?targetType=PERSONAL`（仅 web 会话凭据、无组织） | AIQuotaBar/Tests/GLM/GLMResetAllowanceTests.swift:6-16 | [test-synthesized] | `data.targetType=="PERSONAL"`（TEAM 拒绝）；`fiveHourResets[]/weekResets[]{available,expireTime}`，expireTime 格式 `"yyyy-MM-dd HH:mm:ss"`（按 UTC+8 解析）；只统计 available=true |
 | reset-allowances-response-error-401.json | GLM | 同上（错误体） | AIQuotaBar/Tests/GLM/GLMResetAllowanceTests.swift:14 | [test-synthesized] | `{"code":401,"success":false}` 与缺 resets 数组都拒绝 |
+| coding-plan-balance.synthetic.json | GLM | `GET https://zcode.z.ai/api/v1/zcode-plan/billing/balance`（ZCode 桌面客户端 coding-plan 余额；`Authorization: Bearer {JWT}`，凭据存 `~/.zcode/v2/credentials.json`） | 无仓库来源——契约优先合成（端点 URL 来自 ZCode 桌面客户端日志，响应形状未录制，字段为 Windows 端设计） | [synthesized-pending-capture] | `code/msg` 信封（无 `success` 字段，与大 model.cn 端点不同）；`data.total/remaining` 为**计数**（正值，数字形态）；`data.startTime`（可选）、`data.resetTime`（必填）为 ISO8601 文本；归一为百分比制单行 "Coding Plan"（GlmCodingPlanParser）。校准点：信封字段、数字/字符串形态、时间戳精度与时区（Z 或 +08:00）——待 Windows 实机登录 ZCode 抓包后以真实样本替换 |
 
-GLM 端点依据：`AIQuotaBar/Tests/GLM/GLMUsageTests.swift:110,121`、`AIQuotaBar/Models/GLMResetAllowances.swift:55`、`AIQuotaBar/Services/UsageService.swift:429`（旧版辅助 `/api/biz/subscription/list`，无样本）。
+GLM 端点依据：`AIQuotaBar/Tests/GLM/GLMUsageTests.swift:110,121`、`AIQuotaBar/Models/GLMResetAllowances.swift:55`、`AIQuotaBar/Services/UsageService.swift:429`（旧版辅助 `/api/biz/subscription/list`，无样本）。coding-plan 端点无 Swift 依据（ZCode 桌面客户端为 Electron 应用，Windows 端新增），URL 见上表。
 
 ## minimax/
 
