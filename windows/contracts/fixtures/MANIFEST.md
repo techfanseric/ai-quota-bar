@@ -5,6 +5,7 @@
 - 来源标签 `[test-synthesized]`：样本提取自 Swift 测试中的内嵌 JSON / fixture 文件，字段结构可信、数值为测试合成值。
 - 来源标签 `[real-traffic-pending]`：尚无真实流量样本，等待 macOS 实机抓包录制（见 README.md）。
 - 来源标签 `[synthesized-pending-capture]`：契约优先合成的全新端点形状——仓库内无任何 Swift / codexbar 来源，仅端点 URL 与鉴权方式来自线上观察（客户端日志），字段名与数值均为本仓库设计。真实抓包录制后必须逐字段校准或整体替换（见 README.md 政策 1）。
+- 来源标签 `[real-captured]`：真实流量录制样本（客户端日志 / 抓包），字段形状与数值均为服务端真实输出（脱敏字段除外），是该端点契约的权威来源；与既有合成样本冲突时以本类样本为准（README.md 政策 1）。
 - 所有样本中的 token / 邮箱 / 账号 ID 均为测试占位值（如 `at-test-token`、`fixture-token`、`pat@example.com`），原样保留；本次未发现需要脱敏的真实凭据。
 
 ## codex/
@@ -60,9 +61,9 @@ Codex 端点/路径依据：`.dependencies/codexbar/Sources/CodexBarCore/Provide
 | quota-limit-response-out-of-range.json | GLM | 同上（remaining 越界） | AIQuotaBar/Tests/GLM/GLMUsageTests.swift:102 | [test-synthesized] | `remaining:-20`/`currentValue:120` → 剩余量钳制到 0，不抛错 |
 | reset-allowances-response-personal.json | GLM | `GET https://bigmodel.cn/api/biz/customer-package-reset/list?targetType=PERSONAL`（仅 web 会话凭据、无组织） | AIQuotaBar/Tests/GLM/GLMResetAllowanceTests.swift:6-16 | [test-synthesized] | `data.targetType=="PERSONAL"`（TEAM 拒绝）；`fiveHourResets[]/weekResets[]{available,expireTime}`，expireTime 格式 `"yyyy-MM-dd HH:mm:ss"`（按 UTC+8 解析）；只统计 available=true |
 | reset-allowances-response-error-401.json | GLM | 同上（错误体） | AIQuotaBar/Tests/GLM/GLMResetAllowanceTests.swift:14 | [test-synthesized] | `{"code":401,"success":false}` 与缺 resets 数组都拒绝 |
-| coding-plan-balance.synthetic.json | GLM | `GET https://zcode.z.ai/api/v1/zcode-plan/billing/balance`（ZCode 桌面客户端 coding-plan 余额；`Authorization: Bearer {JWT}`，凭据存 `~/.zcode/v2/credentials.json`） | 无仓库来源——契约优先合成（端点 URL 来自 ZCode 桌面客户端日志，响应形状未录制，字段为 Windows 端设计） | [synthesized-pending-capture] | `code/msg` 信封（无 `success` 字段，与大 model.cn 端点不同）；`data.total/remaining` 为**计数**（正值，数字形态）；`data.startTime`（可选）、`data.resetTime`（必填）为 ISO8601 文本；归一为百分比制单行 "Coding Plan"（GlmCodingPlanParser）。校准点：信封字段、数字/字符串形态、时间戳精度与时区（Z 或 +08:00）——待 Windows 实机登录 ZCode 抓包后以真实样本替换 |
+| coding-plan-balance.real.json | GLM | `GET https://zcode.z.ai/api/v1/zcode-plan/billing/balance?app_version=3.14.3`（ZCode 桌面客户端 coding-plan 余额；`Authorization: Bearer {JWT}`，凭据存 `~/.zcode/v2/credentials.json`） | ZCode 3.14.3 Windows 客户端日志录制（2026-09-27，用户实测流量）；账号唯一 ID 与 logid 已脱敏为同形占位（`upl_REDENCED_ACCOUNT_ID`、`bucket_REDANCED_BUCKET_ID`、`REDACTED_LOG_ID`），数值保持真实 | [real-captured] | 信封成功码 `code=0`（非 bigmodel.cn 端点的 200，无 `success` 字段），错误详情在 `msg`；`data.balances[]` 每桶一行（`show_name`=模型行名、`total_units/remaining_units` 计数、`unit_type:"token"`）；`data.plans[]`（`status:"active"`）承载订阅标题（`priority` 最高者的 `name`）与 `SubscribeEndTime`（active plan 的 `ends_at` 最大值）；时间字段（`period_start/period_end/starts_at/ends_at/server_time`）一律 **Unix 秒**（非毫秒、非 ISO8601 文本）；计数归一为百分比制（GlmCodingPlanParser）。此前按假设形状合成的 `coding-plan-balance.synthetic.json` 已按政策 1 删除 |
 
-GLM 端点依据：`AIQuotaBar/Tests/GLM/GLMUsageTests.swift:110,121`、`AIQuotaBar/Models/GLMResetAllowances.swift:55`、`AIQuotaBar/Services/UsageService.swift:429`（旧版辅助 `/api/biz/subscription/list`，无样本）。coding-plan 端点无 Swift 依据（ZCode 桌面客户端为 Electron 应用，Windows 端新增），URL 见上表。
+GLM 端点依据：`AIQuotaBar/Tests/GLM/GLMUsageTests.swift:110,121`、`AIQuotaBar/Models/GLMResetAllowances.swift:55`、`AIQuotaBar/Services/UsageService.swift:429`（旧版辅助 `/api/biz/subscription/list`，无样本）。coding-plan 端点无 Swift 依据（ZCode 桌面客户端为 Electron 应用，Windows 端新增），契约由上表 real-captured 样本钉死。
 
 ## minimax/
 
@@ -87,4 +88,4 @@ Clash 端点依据：`AIQuotaBar/Services/Clash/ClashAPIClient.swift:40,45,114,1
 - 逐一核对了全部来源样本，未发现真实 token、真实邮箱或真实会话 ID：测试内嵌 JSON 的凭据均为占位值（`at-test-token`、`fixture-token`、`access-token`、`sk-test` 等），邮箱均为 `*@example.com` 或测试账户名。
 - `desktop-token-store.json` 的 base64 密文为测试合成（用 `test-password` 加密 `fixture-token` 生成），非真实会话。
 - codexbar 的 `codex-plan-utilization-real-migration.json` 含真实本机用量历史（SHA-256 哈希与账号键），因其属于本地历史存储格式而非 API 契约，未纳入本库，避免引入真实遥测数据。
-- 因此本库未执行任何 `<REDACTED-*>` 替换；后续录制真实流量时必须执行（政策见 README.md）。
+- 2026-09-24 采录时未发现真实凭据，故未执行替换；2026-09-27 首个真实流量样本入库（`glm/coding-plan-balance.real.json`）时执行了首次脱敏：账号唯一 ID（`user_plan_id`）、余额桶 ID（`bucket_id`）与 `logid` 替换为同形占位（见 glm 表该行），数值字段保持真实。
