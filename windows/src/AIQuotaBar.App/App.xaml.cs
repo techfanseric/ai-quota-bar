@@ -5,6 +5,8 @@
 // 计划 §8 验收项在入口落地：
 //  - 单实例：named mutex；二次启动通过激活事件唤起既有实例（--panel=quota|route）。
 //  - 生命周期：托盘删除图标后 ShutdownMode=OnExplicitShutdown 退出。
+//  - 开机自启：--hidden 静默启动（RegistryAutostart 写入 HKCU Run 键的命令行即本程序 + --hidden）；
+//    hidden 指不自动弹面板，托盘图标照常显示（左/右键与二次启动激活均不受影响）。
 
 using System.IO;
 using Application = System.Windows.Application;
@@ -60,7 +62,8 @@ public partial class App : Application
     protected override void OnStartup(StartupEventArgs e)
     {
         base.OnStartup(e);
-        Log($"startup args=[{string.Join(" ", e.Args)}] user={Environment.UserName} interactive={Environment.UserInteractive}");
+        var hidden = HasHiddenArg(e.Args);
+        Log($"startup args=[{string.Join(" ", e.Args)}] hidden={hidden} user={Environment.UserName} interactive={Environment.UserInteractive}");
         AppDomain.CurrentDomain.UnhandledException += (_, ex) =>
             Log($"FATAL AppDomain {ex.ExceptionObject}");
         TaskScheduler.UnobservedTaskException += (_, ex) =>
@@ -81,11 +84,16 @@ public partial class App : Application
         var wantPanel = ParsePanelArg(e.Args);
         _singleInstance = new Mutex(true, SingleInstanceMutexName, out var isFirst);
         _ownsSingleInstance = isFirst;
-        Log($"mutex acquired first={isFirst} wantPanel={wantPanel}");
+        Log($"mutex acquired first={isFirst} wantPanel={wantPanel} hidden={hidden}");
         if (!isFirst)
         {
-            ActivateRunningInstance(wantPanel);
-            Log("second instance: activated primary, exiting");
+            // --hidden 的二次实例同样不唤起既有实例的任何面板（自启场景静默让位）。
+            if (!hidden)
+            {
+                ActivateRunningInstance(wantPanel);
+            }
+
+            Log(hidden ? "second instance: hidden, exiting" : "second instance: activated primary, exiting");
             Shutdown();
             return;
         }
@@ -111,7 +119,8 @@ public partial class App : Application
         timer.Tick += async (_, _) => await _quota.RefreshAsync();
         timer.Start();
 
-        if (wantPanel is { } panel)
+        // hidden（开机自启）忽略 wantPanel 的自动弹出；正常快捷方式启动（含 --panel=）行为不变。
+        if (!hidden && wantPanel is { } panel)
         {
             ShowPanel(panel == "route" ? RoutePanel.Instance : QuotaPanel.Instance);
         }
@@ -175,6 +184,12 @@ public partial class App : Application
 
         return null;
     }
+
+    /// <summary>
+    /// <c>--hidden</c>：开机自启（RegistryAutostart 写入的 Run 命令行）专用静默标记——
+    /// 首实例不自动弹面板、二次实例不唤起既有实例面板；托盘图标与激活监听照常。
+    /// </summary>
+    private static bool HasHiddenArg(string[] args) => Array.Exists(args, static arg => arg == "--hidden");
 
     private static void ActivateRunningInstance(string? wantPanel)
     {
