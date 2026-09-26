@@ -15,6 +15,8 @@ Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "AIQuotaBar.Core.Tests", "te
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "AIQuotaBar.Providers.Tests", "tests\AIQuotaBar.Providers.Tests\AIQuotaBar.Providers.Tests.csproj", "{AA4DB3AC-A208-440F-8165-F87FA05E8AE1}"
 EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "AIQuotaBar.Cli", "src\AIQuotaBar.Cli\AIQuotaBar.Cli.csproj", "{7c59745f-4e79-4620-9c18-a50e94774246}"
+EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "AIQuotaBar.Platform.Tests", "tests\AIQuotaBar.Platform.Tests\AIQuotaBar.Platform.Tests.csproj", "{B664D5AE-B365-48B0-9058-FEE221BD82D8}"
 EndProject
 Global
@@ -47,6 +49,10 @@ Global
 		{B664D5AE-B365-48B0-9058-FEE221BD82D8}.Debug|Any CPU.Build.0 = Debug|Any CPU
 		{B664D5AE-B365-48B0-9058-FEE221BD82D8}.Release|Any CPU.ActiveCfg = Release|Any CPU
 		{B664D5AE-B365-48B0-9058-FEE221BD82D8}.Release|Any CPU.Build.0 = Release|Any CPU
+		{7c59745f-4e79-4620-9c18-a50e94774246}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{7c59745f-4e79-4620-9c18-a50e94774246}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{7c59745f-4e79-4620-9c18-a50e94774246}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{7c59745f-4e79-4620-9c18-a50e94774246}.Release|Any CPU.Build.0 = Release|Any CPU
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE

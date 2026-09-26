@@ -98,4 +98,38 @@ public sealed class CredentialStoreTests : IDisposable
         Assert.Throws<ArgumentException>(() => _store.Write("bad:service", Account, "sk"));
         Assert.Throws<ArgumentException>(() => _store.Write(_service, "bad:account", "sk"));
     }
+
+    [Fact]
+    public void Enumerate_AfterWrite_FindsBothAccountsUnderService()
+    {
+        _store.Write(_service, Account, "sk-1");
+        _store.Write(_service, string.Empty, "sk-2");
+
+        var entries = _store.Enumerate(_service);
+
+        // 应然：服务前缀过滤恰好命中本测试写入的两条（GUID service 隔离，他例不入）。
+        Assert.Equal(
+            new[] { (Account, $"AIQuotaBar:{_service}:{Account}"), (string.Empty, $"AIQuotaBar:{_service}:") },
+            entries.Select(e => (e.Account, $"AIQuotaBar:{e.Service}:{e.Account}")).OrderBy(t => t.Item1.Length).ToArray());
+    }
+
+    [Fact]
+    public void Enumerate_EmptyServicePrefix_ReturnsEmpty()
+    {
+        // GUID service 无写入即无匹配：空列表（非异常、非 null）。
+        var entries = _store.Enumerate($"no-such-{Guid.NewGuid():N}");
+
+        Assert.Empty(entries);
+    }
+
+    [Fact]
+    public void Enumerate_All_ReturnsOnlyAppNamespaceEntries()
+    {
+        _store.Write(_service, Account, "sk");
+
+        var entries = _store.Enumerate();
+
+        Assert.All(entries, e => Assert.StartsWith("quota-svc-test-", e.Service, StringComparison.Ordinal));
+        Assert.Contains(entries, e => e.Service == _service && e.Account == Account);
+    }
 }

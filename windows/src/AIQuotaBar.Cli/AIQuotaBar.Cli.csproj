@@ -1,0 +1,19 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <!-- 覆盖 windows/Directory.Build.props 的默认 TFM（net8.0）：
+         依赖 AIQuotaBar.Platform（Win32 / Credential Manager / DPAPI），仅可在 Windows 构建运行。
+         定位：远程物理机（§10.4）的完整控制与测试入口——SSH 会话下的环境诊断、
+         凭据库操作、provider 配额直查、Clash 控制，全部带文件日志。 -->
+    <TargetFramework>net8.0-windows</TargetFramework>
+    <OutputType>Exe</OutputType>
+    <RootNamespace>AIQuotaBar.Cli</RootNamespace>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\AIQuotaBar.Core\AIQuotaBar.Core.csproj" />
+    <ProjectReference Include="..\AIQuotaBar.Providers\AIQuotaBar.Providers.csproj" />
+    <ProjectReference Include="..\AIQuotaBar.Platform\AIQuotaBar.Platform.csproj" />
+  </ItemGroup>
+
+</Project>
