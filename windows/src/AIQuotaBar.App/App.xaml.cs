@@ -33,22 +33,57 @@ public partial class App : Application
     public QuotaService Quota => _quota ?? throw new InvalidOperationException("QuotaService 未初始化");
     public ClashService Clash => _clash ?? throw new InvalidOperationException("ClashService 未初始化");
 
+    // ---- 文件日志（与 CLI 同级要求：完整留痕，异常必须落盘）----
+    private static readonly string LogFilePath = Path.Combine(
+        Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+        "AIQuotaBar", "logs", "app.log");
+
+    public static void Log(string message)
+    {
+        try
+        {
+            var dir = Path.GetDirectoryName(LogFilePath);
+            if (!string.IsNullOrEmpty(dir))
+            {
+                Directory.CreateDirectory(dir);
+            }
+
+            File.AppendAllText(LogFilePath, $"{DateTime.Now:yyyy-MM-dd HH:mm:ss.fff} {message}{Environment.NewLine}");
+        }
+        catch (Exception)
+        {
+            // 日志失败不影响主流程
+        }
+    }
+
     protected override void OnStartup(StartupEventArgs e)
     {
         base.OnStartup(e);
+        Log($"startup args=[{string.Join(" ", e.Args)}] user={Environment.UserName} interactive={Environment.UserInteractive}");
+        AppDomain.CurrentDomain.UnhandledException += (_, ex) =>
+            Log($"FATAL AppDomain {ex.ExceptionObject}");
+        TaskScheduler.UnobservedTaskException += (_, ex) =>
+        {
+            Log($"UNOBSERVED task {ex.Exception}");
+            ex.SetObserved();
+        };
         Settings = AppSettings.Load();
+        Log("settings loaded");
         DispatcherUnhandledException += (_, args) =>
         {
             // 顶层兜底：任何 UI 线程异常不允许闪退（托盘常驻应用的可用性底线）。
+            Log($"UI exception: {args.Exception}");
             _tray?.ShowBalloon("AI Quota Bar", $"发生异常：{args.Exception.Message}");
             args.Handled = true;
         };
 
         var wantPanel = ParsePanelArg(e.Args);
         _singleInstance = new Mutex(true, SingleInstanceMutexName, out var isFirst);
+        Log($"mutex acquired first={isFirst} wantPanel={wantPanel}");
         if (!isFirst)
         {
             ActivateRunningInstance(wantPanel);
+            Log("second instance: activated primary, exiting");
             Shutdown();
             return;
         }
@@ -58,11 +93,12 @@ public partial class App : Application
         _quota.StateChanged += OnQuotaStateChanged;
 
         _tray = new TrayIconService();
-        _tray.LeftClick += () => ShowPanel(QuotaPanel.Instance);
-        _tray.RightClick += () => ShowPanel(RoutePanel.Instance);
+        _tray.LeftClick += () => { Log("tray left-click"); ShowPanel(QuotaPanel.Instance); };
+        _tray.RightClick += () => { Log("tray right-click"); ShowPanel(RoutePanel.Instance); };
         _tray.RunIconLoop();
 
         StartActivationListener();
+        Log("tray icon running, starting first refresh");
         _ = _quota.RefreshAsync();
 
         // 配额轮询（计划 §11：间隔可设，默认 60s；请求在 QuotaService 内合并）。
@@ -81,6 +117,7 @@ public partial class App : Application
 
     protected override void OnExit(ExitEventArgs e)
     {
+        Log($"exit code={e.ApplicationExitCode}");
         _tray?.Dispose();
         _singleInstance?.ReleaseMutex();
         _singleInstance?.Dispose();
@@ -100,6 +137,7 @@ public partial class App : Application
 
     public void ExitApplication()
     {
+        Log("exit requested (quota panel)");
         _tray?.RemoveIcon();
         Shutdown();
     }
@@ -107,6 +145,7 @@ public partial class App : Application
     private void OnQuotaStateChanged()
     {
         var summary = _quota?.TraySummary ?? "AI Quota Bar";
+        Log($"quota state changed: {summary}");
         var percent = _quota?.RingPercent;
         _tray?.UpdateState(percent, summary);
     }
