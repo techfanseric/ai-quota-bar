@@ -19,21 +19,9 @@ public struct UsageAccountObservation: Codable, Sendable {
               let after = try? url.resourceValues(forKeys: [.contentModificationDateKey, .fileSizeKey]),
               before.contentModificationDate == after.contentModificationDate, before.fileSize == after.fileSize,
               let obj = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any],
-              (obj["auth_mode"] as? String == nil || obj["auth_mode"] as? String == "chatgpt"),
-              (obj["OPENAI_API_KEY"] as? String ?? "").isEmpty,
-              let tokens = obj["tokens"] as? [String: Any],
-              let id = tokens["account_id"] as? String, !id.isEmpty,
               let modified = before.contentModificationDate else { return unknown() }
-        var email: String?
-        if let jwt = tokens["id_token"] as? String {
-            let parts = jwt.split(separator: ".")
-            if parts.count == 3 {
-                var raw = String(parts[1]).replacingOccurrences(of: "-", with: "+").replacingOccurrences(of: "_", with: "/")
-                raw += String(repeating: "=", count: (4 - raw.count % 4) % 4)
-                if let claims = Data(base64Encoded: raw), let object = (try? JSONSerialization.jsonObject(with: claims)) as? [String: Any] { email = object["email"] as? String }
-            }
-        }
-        return .init(at: now, accountID: usageDigest("codex-account|" + id), label: email,
+        guard case let .chatgptLogin(login) = CodexAuthFileReader.interpret(obj) else { return unknown() }
+        return .init(at: now, accountID: login.accountDigest, label: login.email,
                      generation: "\(modified.timeIntervalSince1970):\(size)")
     }
 }
