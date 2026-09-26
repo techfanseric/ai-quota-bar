@@ -21,6 +21,7 @@ using System.Threading;
 using System.Threading.Tasks;
 using AIQuotaBar.Core.Contracts;
 using AIQuotaBar.Providers.Codex.Credentials;
+using AIQuotaBar.Providers.Codex.Parsing;
 
 namespace AIQuotaBar.Providers.Codex;
 
