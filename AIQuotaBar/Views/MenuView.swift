@@ -732,7 +732,9 @@ private struct ProviderModelsSection: View {
     }
 
     private func isAccountCollapsed(_ group: AccountModelGroup, isCurrent: Bool) -> Bool {
-        accountCollapseOverrides[accountCollapseKey(group)] ?? !isCurrent
+        // 折叠语义只属于 Codex 的账号分组；其他供应商的分组始终展开。
+        guard data.provider == .codex else { return false }
+        return accountCollapseOverrides[accountCollapseKey(group)] ?? !isCurrent
     }
 
     private func toggleAccountCollapsed(_ group: AccountModelGroup) {
