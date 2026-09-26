@@ -73,6 +73,9 @@ public partial class App : Application
         };
         Settings = AppSettings.Load();
         Log("settings loaded");
+        // 双主题初始化（计划视觉层：亮/暗 + 跟随系统 + 手动；详见 ThemeService 头注释）。
+        // 弃用 Dispose 交给进程退出（常驻应用，与 _tray 同生命周期）。
+        ThemeService.Initialize(ThemeService.ParsePreference(Settings.Theme));
         DispatcherUnhandledException += (_, args) =>
         {
             // 顶层兜底：任何 UI 线程异常不允许闪退（托盘常驻应用的可用性底线）。
@@ -241,6 +244,9 @@ public sealed class AppSettings
     public string? ProxyUrl { get; set; }
 
     public int RefreshSeconds { get; set; } = 60;
+
+    /// <summary>主题偏好（ThemePreference 枚举名字符串；null/未知值 = 跟随系统，旧 settings.json 天然兼容）。</summary>
+    public string? Theme { get; set; }
 
     public static AppSettings Load()
     {

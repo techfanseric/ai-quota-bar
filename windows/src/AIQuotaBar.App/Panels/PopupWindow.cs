@@ -8,12 +8,14 @@ using Application = System.Windows.Application;
 using System.Windows;
 using System.Windows.Input;
 using System.Windows.Interop;
+using AIQuotaBar.App.Services;
 
 namespace AIQuotaBar.App.Panels;
 
 public abstract class PopupWindow : Window
 {
     private const int AccentEnableAcrylicBlurBehind = 4;
+    private IntPtr _hwnd;
 
     protected PopupWindow()
     {
@@ -35,12 +37,24 @@ public abstract class PopupWindow : Window
                 e.Handled = true;
             }
         };
+        // 亚克力底色随主题即时刷新（面板为常驻单例、订阅量有界，无需退订）。
+        ThemeService.Instance.ThemeChanged += RefreshAcrylicForTheme;
     }
 
     protected override void OnSourceInitialized(EventArgs e)
     {
         base.OnSourceInitialized(e);
+        _hwnd = new WindowInteropHelper(this).Handle;
         ApplyAcrylic();
+    }
+
+    /// <summary>主题切换回调：已开窗口即时重刷亚克力底色；未开窗口下次打开自然生效。</summary>
+    private void RefreshAcrylicForTheme()
+    {
+        if (_hwnd != IntPtr.Zero)
+        {
+            ApplyAcrylic();
+        }
     }
 
     /// <summary>按托盘图标矩形定位弹层（底部任务栏：弹层左下角对齐图标左上角）。</summary>
@@ -64,11 +78,11 @@ public abstract class PopupWindow : Window
 
     private void ApplyAcrylic()
     {
-        var hwnd = new WindowInteropHelper(this).Handle;
         var accent = new AccentPolicy
         {
             AccentState = AccentEnableAcrylicBlurBehind,
-            GradientColor = 0xCC202020, // AARRGGBB：底色叠加在亚克力模糊之上
+            // AARRGGBB：底色随主题（暗 0xCC202020 / 亮 0xCCF3F3F3，ThemeService 维护）。
+            GradientColor = ThemeService.Instance.PopupAcrylicGradient,
         };
         var accentSize = Marshal.SizeOf<AccentPolicy>();
         var accentPtr = Marshal.AllocHGlobal(accentSize);
@@ -81,7 +95,7 @@ public abstract class PopupWindow : Window
                 DataPointer = accentPtr,
                 DataSize = accentSize,
             };
-            _ = SetWindowCompositionAttribute(hwnd, ref data);
+            _ = SetWindowCompositionAttribute(_hwnd, ref data);
         }
         finally
         {
