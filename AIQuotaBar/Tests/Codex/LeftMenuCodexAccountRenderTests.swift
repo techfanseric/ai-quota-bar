@@ -35,16 +35,16 @@ final class LeftMenuCodexAccountRenderTests: XCTestCase {
                         detail: "Pro · Cloud · resets 09/26 18:00",
                         remainingPercent: 100,
                         weeklyRemainingPercent: nil,
-                        sampledAt: now.addingTimeInterval(-40 * 60),
-                        windowStart: now.addingTimeInterval(-3_600),
-                        windowEnd: now.addingTimeInterval(1_800)),
+                        sampledAt: now.addingTimeInterval(-2 * 3_600),
+                        windowStart: now.addingTimeInterval(-5 * 3_600),
+                        windowEnd: now.addingTimeInterval(-30 * 60)),
                     makeModel(
                         account: "marvaggarrett@gmail.com",
                         name: "Weekly",
                         detail: "Cloud · resets 09/28 09:00",
                         remainingPercent: 79,
                         weeklyRemainingPercent: 79,
-                        sampledAt: now.addingTimeInterval(-40 * 60),
+                        sampledAt: now.addingTimeInterval(-2 * 3_600),
                         windowStart: now.addingTimeInterval(-5 * 86_400),
                         windowEnd: now.addingTimeInterval(2 * 86_400)),
                 ],
@@ -65,6 +65,47 @@ final class LeftMenuCodexAccountRenderTests: XCTestCase {
         try render(
             menu, width: MenuBarPanelLayout.width, height: 1_200,
             name: "leftmenu-default", to: outputDirectory)
+
+        // 变体：当前账号组也是过期云端数据，验证展开态的快照行布局
+        // （行头 + 胶囊条 + 元数据，不退化成只剩周期行）。
+        let staleViewModel = UsageViewModel()
+        staleViewModel.providerUsageData = [
+            .codex: UsageData(
+                provider: .codex,
+                remains: 2,
+                total: 2,
+                timestamp: now,
+                models: [
+                    makeModel(
+                        account: "wangyang815@gmail.com",
+                        name: "5h",
+                        detail: "Pro · Cloud · resets 09/26 18:00",
+                        remainingPercent: 100,
+                        weeklyRemainingPercent: nil,
+                        sampledAt: now.addingTimeInterval(-3 * 3_600),
+                        windowStart: now.addingTimeInterval(-6 * 3_600),
+                        windowEnd: now.addingTimeInterval(-60 * 60)),
+                    makeModel(
+                        account: "wangyang815@gmail.com",
+                        name: "Weekly",
+                        detail: "Cloud · resets 10/01 20:36",
+                        remainingPercent: 84,
+                        weeklyRemainingPercent: 84,
+                        sampledAt: now.addingTimeInterval(-3 * 3_600),
+                        windowStart: now.addingTimeInterval(-5 * 86_400),
+                        windowEnd: now.addingTimeInterval(2 * 86_400)),
+                ],
+                subscribeTitle: nil,
+                subscribeEndTime: nil)
+        ]
+        let staleMenu = MenuView(
+            viewModel: staleViewModel,
+            presentationSizing: MenuPresentationSizing(maximumScrollableHeight: 1_200),
+            onOpenSettings: {},
+            onLayoutChange: {})
+        try render(
+            staleMenu, width: MenuBarPanelLayout.width, height: 900,
+            name: "leftmenu-stale-snapshot", to: outputDirectory)
     }
 
     private func makeModel(
