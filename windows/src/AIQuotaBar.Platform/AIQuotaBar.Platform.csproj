@@ -12,4 +12,11 @@
     <ProjectReference Include="..\AIQuotaBar.Core\AIQuotaBar.Core.csproj" />
   </ItemGroup>
 
+  <ItemGroup>
+    <!-- Kimi Desktop（Chromium/Electron）Cookies 库只读访问：Credentials/KimiDesktopCookieStore.cs。
+         8.0.31 = 8.x 最新稳定（与 Platform.Tests 对齐）；该元包自带 Microsoft.Data.Sqlite.Core
+         + SQLitePCLRaw.bundle_e_sqlite3（含 win-x64 原生 e_sqlite3，NuGet 还原需代理）。 -->
+    <PackageReference Include="Microsoft.Data.Sqlite" Version="8.0.31" />
+  </ItemGroup>
+
 </Project>

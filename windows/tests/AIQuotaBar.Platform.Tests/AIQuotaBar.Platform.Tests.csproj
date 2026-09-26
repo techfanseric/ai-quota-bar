@@ -16,6 +16,8 @@
     <PackageReference Include="Microsoft.NET.Test.Sdk" Version="17.9.0" />
     <PackageReference Include="xunit" Version="2.7.0" />
     <PackageReference Include="xunit.runner.visualstudio" Version="2.5.7" PrivateAssets="all" />
+    <!-- KimiDesktopCookieStoreTests 用 Microsoft.Data.Sqlite 现造合成 Cookies 库（版本与被测项目对齐）。 -->
+    <PackageReference Include="Microsoft.Data.Sqlite" Version="8.0.31" />
   </ItemGroup>
 
   <ItemGroup>
