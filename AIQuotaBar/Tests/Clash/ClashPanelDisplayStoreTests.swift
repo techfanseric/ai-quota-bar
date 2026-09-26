@@ -65,36 +65,87 @@ final class ClashPanelDisplayStoreTests: XCTestCase {
     }
 
     func testPanelHeightCollapsesAndRestores() {
+        let collapsedHeight = ClashPopoverLayout.collapsedSectionHeight
+        let protection = ClashPopoverLayout.protectionSectionHeight
+        let routes = ClashPopoverLayout.routeSectionHeight
+        let dividers = ClashPopoverLayout.dividerAllowance * 3
+        let defaultAccountsHeight: CGFloat = 100
+
+        // 全部展开：connections 吃掉 850 总高的剩余空间。
         XCTAssertEqual(
             ClashPopoverLayout.panelHeight(
                 routesCollapsed: false,
                 connectionsCollapsed: false),
             ClashPopoverLayout.height)
+        // connections 是弹性区：其余分区展开到上限时面板仍保持 850。
+        XCTAssertEqual(
+            ClashPopoverLayout.panelHeight(
+                routesCollapsed: false,
+                connectionsCollapsed: false,
+                accountsCollapsed: false,
+                accountsContentHeight: 250),
+            ClashPopoverLayout.height)
 
-        let collapsedHeight = ClashPopoverLayout.collapsedSectionHeight
         XCTAssertEqual(
             ClashPopoverLayout.panelHeight(
                 routesCollapsed: true,
                 connectionsCollapsed: false),
-            ClashPopoverLayout.protectionSectionHeight
-                + ClashPopoverLayout.dividerAllowance
-                + collapsedHeight
-                + ClashPopoverLayout.connectionSectionHeight)
+            ClashPopoverLayout.height)
+
+        let expectedConnectionsCollapsed = protection
+            + defaultAccountsHeight
+            + routes
+            + collapsedHeight
+            + dividers
         XCTAssertEqual(
             ClashPopoverLayout.panelHeight(
                 routesCollapsed: false,
                 connectionsCollapsed: true),
-            ClashPopoverLayout.protectionSectionHeight
-                + ClashPopoverLayout.dividerAllowance
-                + ClashPopoverLayout.routeSectionHeight
-                + collapsedHeight)
+            expectedConnectionsCollapsed)
+
+        let expectedBothCollapsed = protection
+            + defaultAccountsHeight
+            + collapsedHeight * 2
+            + dividers
         XCTAssertEqual(
             ClashPopoverLayout.panelHeight(
                 routesCollapsed: true,
                 connectionsCollapsed: true),
-            ClashPopoverLayout.protectionSectionHeight
-                + ClashPopoverLayout.dividerAllowance
-                + collapsedHeight * 2)
+            expectedBothCollapsed)
+
+        // 账号分区收起后回到与旧两分区布局等价的高度。
+        XCTAssertEqual(
+            ClashPopoverLayout.panelHeight(
+                routesCollapsed: false,
+                connectionsCollapsed: false,
+                accountsCollapsed: true),
+            ClashPopoverLayout.height)
+    }
+
+    func testAccountsContentHeightCountsRowsAndClamps() {
+        // 空状态：chrome + 当前账号行 + 登录入口。
+        XCTAssertEqual(
+            ClashPopoverLayout.accountsContentHeight(
+                stashCount: 0, legacyCount: 0, hasPending: false, hasStatus: false),
+            ClashPopoverLayout.accountsSectionChromeHeight
+                + ClashPopoverLayout.accountRowHeight + 32)
+        // chrome + 当前行 + 备份行×2 + 旧备份 30 + 横幅 28 + 登录 32 + 状态 20，
+        // 超出上限时收敛到最大高度（内部滚动）。
+        let naturalHeight: CGFloat = ClashPopoverLayout.accountsSectionChromeHeight
+            + ClashPopoverLayout.accountRowHeight * 3 + 30 + 28 + 32 + 20
+        XCTAssertEqual(
+            ClashPopoverLayout.accountsContentHeight(
+                stashCount: 2, legacyCount: 1, hasPending: true, hasStatus: true),
+            min(naturalHeight, ClashPopoverLayout.accountsSectionMaximumHeight))
+        // 上限抬高到 280 后，四个账号的常规现场无需滚动即可完整显示。
+        XCTAssertGreaterThanOrEqual(
+            ClashPopoverLayout.accountsSectionMaximumHeight,
+            ClashPopoverLayout.accountsSectionChromeHeight
+                + ClashPopoverLayout.accountRowHeight * 4 + 30 + 32)
+        XCTAssertLessThanOrEqual(
+            ClashPopoverLayout.accountsContentHeight(
+                stashCount: 20, legacyCount: 0, hasPending: false, hasStatus: false),
+            ClashPopoverLayout.accountsSectionMaximumHeight)
     }
 
     // MARK: - Fixtures

@@ -96,7 +96,12 @@ final class ClashConnectionTests: XCTestCase {
                 connectionViewModel: connectionViewModel,
                 sleepProtectionCoordinator: sleepProtectionCoordinator,
                 displayStore: ClashPanelDisplayStore(
-                    defaults: panelDefaults))
+                    defaults: panelDefaults),
+                accountStore: CodexAuthAccountStore(
+                    companionAppsProvider: { [] },
+                    cliProcessChecker: { false },
+                    notify: { _, _ in },
+                    openCompanionApp: {}))
                 .frame(width: size.width, height: size.height))
         hostingView.frame = NSRect(origin: .zero, size: size)
         hostingView.layoutSubtreeIfNeeded()

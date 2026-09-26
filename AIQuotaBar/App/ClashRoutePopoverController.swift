@@ -7,6 +7,7 @@ final class ClashRoutePopoverController: NSObject {
     private let connectionViewModel: ClashConnectionViewModel
     private let sleepProtectionCoordinator: CodexSleepProtectionCoordinator
     private let displayStore: ClashPanelDisplayStore
+    private let accountStore: CodexAuthAccountStore
     private let panel: MenuBarPanel
     private let hostingView:
         NSHostingView<MenuBarPanelSurface<ClashPopoverView>>
@@ -16,12 +17,14 @@ final class ClashRoutePopoverController: NSObject {
         routeViewModel: ClashRouteViewModel,
         connectionViewModel: ClashConnectionViewModel,
         sleepProtectionCoordinator: CodexSleepProtectionCoordinator,
-        displayStore: ClashPanelDisplayStore
+        displayStore: ClashPanelDisplayStore,
+        accountStore: CodexAuthAccountStore
     ) {
         self.routeViewModel = routeViewModel
         self.connectionViewModel = connectionViewModel
         self.sleepProtectionCoordinator = sleepProtectionCoordinator
         self.displayStore = displayStore
+        self.accountStore = accountStore
         panel = MenuBarPanel()
         hostingView = NSHostingView(
             rootView: MenuBarPanelSurface {
@@ -30,7 +33,8 @@ final class ClashRoutePopoverController: NSObject {
                     connectionViewModel: connectionViewModel,
                     sleepProtectionCoordinator:
                         sleepProtectionCoordinator,
-                    displayStore: displayStore)
+                    displayStore: displayStore,
+                    accountStore: accountStore)
             })
         super.init()
 
@@ -38,7 +42,8 @@ final class ClashRoutePopoverController: NSObject {
             width: ClashPopoverLayout.width,
             height: ClashPopoverLayout.panelHeight(
                 routesCollapsed: displayStore.isRoutesCollapsed,
-                connectionsCollapsed: displayStore.isConnectionsCollapsed))
+                connectionsCollapsed: displayStore.isConnectionsCollapsed,
+                accountsCollapsed: displayStore.isAccountsCollapsed))
         hostingView.frame = NSRect(
             origin: .zero,
             size: contentSize)
@@ -48,6 +53,7 @@ final class ClashRoutePopoverController: NSObject {
         panel.onDismiss = { [weak self] in
             self?.connectionViewModel.endLiveUpdates()
             self?.routeViewModel.endFilterEditing()
+            self?.accountStore.endDisplayRefresh()
         }
         observeSectionChanges()
     }
@@ -81,6 +87,7 @@ final class ClashRoutePopoverController: NSObject {
         anchoredButton = button
         panel.appearance = appearance
         hostingView.appearance = appearance
+        accountStore.beginDisplayRefresh()
         panel.present(
             relativeTo: button,
             placement: placement,
@@ -105,7 +112,13 @@ final class ClashRoutePopoverController: NSObject {
             width: ClashPopoverLayout.width,
             height: ClashPopoverLayout.panelHeight(
                 routesCollapsed: displayStore.isRoutesCollapsed,
-                connectionsCollapsed: displayStore.isConnectionsCollapsed))
+                connectionsCollapsed: displayStore.isConnectionsCollapsed,
+                accountsCollapsed: displayStore.isAccountsCollapsed,
+                accountsContentHeight: ClashPopoverLayout.accountsContentHeight(
+                    stashCount: accountStore.stashedAccounts.count,
+                    legacyCount: accountStore.legacyBackupFileNames.count,
+                    hasPending: accountStore.pendingRequest != nil,
+                    hasStatus: accountStore.statusMessage != nil)))
     }
 
     /// 展开收起变化时：重算面板高度；收起/展开 connections 增删 live 轮询；
