@@ -1,7 +1,7 @@
 // Swift 来源：无（Windows 端新增；provider 节头部环形图 —— 60px Donut，WPF 自绘）。
 // 自绘路线：FrameworkElement.OnRender + DrawingContext（Arc 用 StreamGeometry.ArcTo，
 // 等价于 Path+StreamGeometry；零第三方依赖）。禁 System.Drawing（那是托盘环 GDI+ 的地盘）。
-// 视觉参数集中在主题字典：GaugeSize / GaugeStrokeThickness（sys:Double），
+// 视觉参数集中在主题字典：GaugeStrokeThickness（sys:Double），
 // 本类常量仅为资源缺失时的兜底；分档色 QuotaTier（与托盘环同规则）。
 // 主题切换：不自行订阅（避免每次 Rebuild 泄漏订阅），由宿主面板（QuotaPanel 单例）
 // 在 ThemeChanged 时整体 Rebuild。

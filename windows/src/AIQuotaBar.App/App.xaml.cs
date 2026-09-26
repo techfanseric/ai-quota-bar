@@ -16,6 +16,7 @@ using System.Threading;
 using System.Windows;
 using AIQuotaBar.App.Panels;
 using AIQuotaBar.App.Services;
+using AIQuotaBar.Platform.Startup;
 
 namespace AIQuotaBar.App;
 
@@ -107,8 +108,9 @@ public partial class App : Application
 
         _tray = new TrayIconService();
         _tray.LeftClick += () => { Log("tray left-click"); ShowPanel(QuotaPanel.Instance); };
-        _tray.RightClick += () => { Log("tray right-click"); ShowPanel(RoutePanel.Instance); };
+        _tray.RightClick += ShowTrayMenu;
         _tray.RunIconLoop();
+        ThemeService.Instance.ThemeChanged += RefreshTrayIconForTheme;
 
         StartActivationListener();
         Log("tray icon running, starting first refresh");
@@ -159,6 +161,98 @@ public partial class App : Application
         Log("exit requested (quota panel)");
         _tray?.RemoveIcon();
         Shutdown();
+    }
+
+    private void ShowTrayMenu()
+    {
+        if (_tray is null || _quota is null)
+        {
+            return;
+        }
+
+        Log("tray right-click: native menu");
+        var autostart = new RegistryAutostart();
+        var autostartEnabled = autostart.TryGetEnabledCommand(out _);
+        var command = _tray.ShowContextMenu(new TrayMenuState(
+            _quota.IsRefreshing,
+            autostartEnabled,
+            ThemeService.Instance.Preference));
+
+        switch (command)
+        {
+            case TrayMenuCommand.OpenQuota:
+                ShowPanel(QuotaPanel.Instance);
+                break;
+            case TrayMenuCommand.OpenRoutes:
+                ShowPanel(RoutePanel.Instance);
+                break;
+            case TrayMenuCommand.Refresh:
+                _ = _quota.RefreshAsync();
+                break;
+            case TrayMenuCommand.Settings:
+                SettingsWindow.OpenOwned(null);
+                break;
+            case TrayMenuCommand.ToggleAutostart:
+                ToggleAutostart(autostart, autostartEnabled);
+                break;
+            case TrayMenuCommand.ThemeFollowSystem:
+                ApplyThemePreference(ThemePreference.FollowSystem);
+                break;
+            case TrayMenuCommand.ThemeLight:
+                ApplyThemePreference(ThemePreference.Light);
+                break;
+            case TrayMenuCommand.ThemeDark:
+                ApplyThemePreference(ThemePreference.Dark);
+                break;
+            case TrayMenuCommand.Exit:
+                ExitApplication();
+                break;
+        }
+    }
+
+    private void ToggleAutostart(RegistryAutostart autostart, bool currentlyEnabled)
+    {
+        try
+        {
+            if (currentlyEnabled)
+            {
+                autostart.Disable();
+            }
+            else if (Environment.ProcessPath is { } processPath)
+            {
+                autostart.Enable($"\"{processPath}\" --hidden");
+            }
+            else
+            {
+                _tray?.ShowBalloon("AI Quota Bar", "无法确定安装路径，未能启用开机启动。");
+            }
+        }
+        catch (Exception ex)
+        {
+            Log($"toggle autostart failed: {ex}");
+            _tray?.ShowBalloon("AI Quota Bar", $"开机启动设置失败：{ex.Message}");
+        }
+    }
+
+    private void ApplyThemePreference(ThemePreference preference)
+    {
+        ThemeService.Instance.ApplyPreference(preference);
+        Settings.Theme = preference.ToString();
+        try
+        {
+            Settings.Save();
+        }
+        catch (Exception ex)
+        {
+            Log($"save theme preference failed: {ex}");
+            _tray?.ShowBalloon("AI Quota Bar", $"主题偏好保存失败：{ex.Message}");
+        }
+    }
+
+    private void RefreshTrayIconForTheme()
+    {
+        var summary = _quota?.TraySummary ?? "AI Quota Bar";
+        _tray?.UpdateState(_quota?.RingPercent, summary);
     }
 
     private void OnQuotaStateChanged()
