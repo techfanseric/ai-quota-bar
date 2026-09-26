@@ -51,8 +51,15 @@ internal static class SelfTestCommand
         var parsed = JsonSerializer.Deserialize<UsageData>(json, QuotaJson.Default);
         var roundtripped = JsonSerializer.Deserialize<UsageData>(
             JsonSerializer.Serialize(parsed, QuotaJson.Default), QuotaJson.Default);
-        return (parsed is not null && parsed == roundtripped,
-            parsed is null ? "解析为 null" : $"remains={parsed.Remains} total={parsed.Total}");
+        // 注：UsageData 是 record，但 Models 为 IReadOnlyList（引用相等），全 record == 在此处恒 false；
+        // 冒烟只钉标量字段与时间戳形状（完整契约等价性由 xUnit 差分金标测试覆盖）。
+        var ok = parsed is not null && roundtripped is not null
+            && parsed.Provider == roundtripped.Provider
+            && parsed.Remains == roundtripped.Remains
+            && parsed.Total == roundtripped.Total
+            && parsed.Models.Count == roundtripped.Models.Count
+            && parsed.Timestamp == roundtripped.Timestamp;
+        return (ok, parsed is null ? "解析为 null" : $"remains={parsed.Remains} total={parsed.Total} ts={parsed.Timestamp:O}");
     }
 
     private static (bool, string) ProviderRoundtrip()
