@@ -8,6 +8,7 @@
 // 视觉参数：UsageBarHeight（主题字典 sys:Double，默认 6）；分档色 QuotaTier（同托盘环规则）。
 
 using System.Windows;
+using System.Windows.Controls;
 using System.Windows.Media;
 using AIQuotaBar.Core.Contracts;
 using Brush = System.Windows.Media.Brush;

@@ -24,6 +24,17 @@ public sealed class QuotaGauge : FrameworkElement
     private const double DefaultStrokeThickness = 6;
     private const double CenterLabelFontSize = 12;
 
+    // FrameworkElement 不带 FontFamily（那是 Control/TextElement 的属性）；AddOwner
+    // TextElement.FontFamilyProperty（Inherits 元数据）让中心文字跟随宿主面板字体。
+    public static readonly DependencyProperty FontFamilyProperty =
+        TextElement.FontFamilyProperty.AddOwner(typeof(QuotaGauge));
+
+    public System.Windows.Media.FontFamily FontFamily
+    {
+        get => (System.Windows.Media.FontFamily)GetValue(FontFamilyProperty);
+        set => SetValue(FontFamilyProperty, value);
+    }
+
     private double? _percent;
 
     /// <summary>剩余百分比（0-100）；null = 无数据（仅灰轨道）。</summary>
@@ -81,11 +92,16 @@ public sealed class QuotaGauge : FrameworkElement
 
     private void DrawCenterLabel(DrawingContext drawingContext, Point center, double percent)
     {
+        var typeface = new Typeface(
+            FontFamily ?? SystemFonts.MessageFontFamily,
+            FontStyles.Normal,
+            FontWeights.SemiBold,
+            FontStretches.Normal);
         var text = new FormattedText(
             $"{Math.Round(percent):F0}%",
             CultureInfo.CurrentCulture,
             FlowDirection,
-            new Typeface(FontFamily, FontStyle, FontWeights.SemiBold, FontStretch),
+            typeface,
             CenterLabelFontSize,
             QuotaTier.ResolveBrush(this, percent),
             VisualTreeHelper.GetDpi(this).PixelsPerDip);
