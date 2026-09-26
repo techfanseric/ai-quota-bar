@@ -5,7 +5,8 @@
 // 对应测试：AIQuotaBar/Tests/GLM/GLMUsageTests.swift:107-116（网络路径无 fixtures 样本；解析逻辑已由
 // GlmQuotaParser / GlmResetAllowanceParser 的 fixtures 测试覆盖，/api/biz/subscription/list 亦无契约样本）。
 // FetchCodingPlanBalanceAsync：Swift 来源：无（Windows 端新增）——ZCode 桌面客户端 coding-plan 余额端点
-// 无 Swift 对应实现；形状契约见 GlmCodingPlanParser.cs 头注与 contracts/fixtures/glm/coding-plan-balance.synthetic.json。
+// 无 Swift 对应实现；形状契约见 GlmCodingPlanParser.cs 头注与 contracts/fixtures/glm/coding-plan-balance.real.json
+// （[real-captured]，2026-09-27 ZCode 3.14.3 Windows 客户端日志录制，账号唯一 ID/logid 已脱敏）。
 
 using System.Globalization;
 using System.Text.Json;
@@ -22,7 +23,12 @@ public sealed class GlmClient
     private static readonly TimeSpan QuotaTimeout = TimeSpan.FromSeconds(30);
     private static readonly TimeSpan SubscriptionTimeout = TimeSpan.FromSeconds(15);
 
-    /// <summary>ZCode 桌面客户端 coding-plan 余额端点（Windows 端新增；URL 来自 ZCode 客户端日志，契约待真实抓包校准）。</summary>
+    /// <summary>
+    /// ZCode 桌面客户端 coding-plan 余额端点（Windows 端新增）。响应契约已按 real fixture 校准
+    /// （contracts/fixtures/glm/coding-plan-balance.real.json，[real-captured]）；直接调用的鉴权细节
+    /// （Bearer 形态）待 mitm 抓包专项确认，当前以 authorization 原样透传。已知实证（2026-09-27）：
+    /// 同一 JWT 认证可过（返回 400 参数错而非 401），api-key 则 401——服务端按 JWT 而非 API key 鉴权。
+    /// </summary>
     public const string CodingPlanBalanceUrl = "https://zcode.z.ai/api/v1/zcode-plan/billing/balance";
 
     private static readonly string[] ShanghaiDateFormats =
@@ -110,10 +116,13 @@ public sealed class GlmClient
     /// ZCode 桌面客户端 coding-plan 余额（Windows 端新增，无 Swift 对应）：GET
     /// https://zcode.z.ai/api/v1/zcode-plan/billing/balance，Bearer JWT（凭据存 ~/.zcode/v2/credentials.json）。
     /// 复用 GetJsonAsync / 超时 / 错误映射风格；解析见 <see cref="GlmCodingPlanParser"/>。
+    /// 鉴权形态：契约已按 real fixture 校准；直接调用的鉴权细节（Bearer 形态）待 mitm 抓包专项确认，
+    /// 当前以 authorization 原样透传（裸 JWT 归一为恰好一次 Bearer 前缀）。已知实证（2026-09-27）：
+    /// 同一 JWT 认证可过（返回 400 参数错而非 401），api-key 则 401。
     /// </summary>
     /// <param name="jwt">coding-plan JWT。裸 token 与已带 Bearer 前缀都归一为恰好一次 Bearer
     /// （对齐 GlmCredentialParser 对裸 API Key 的归一语义）。</param>
-    /// <exception cref="GlmUsageException">NotConfigured：空 JWT；ApiError：非 2xx 或信封 code != 200；NetworkError：传输失败 / 超时。</exception>
+    /// <exception cref="GlmUsageException">NotConfigured：空 JWT；ApiError：非 2xx 或信封 code != 0；NetworkError：传输失败 / 超时。</exception>
     public async Task<UsageData> FetchCodingPlanBalanceAsync(
         string jwt,
         CancellationToken cancellationToken = default)

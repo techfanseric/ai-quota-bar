@@ -9,7 +9,7 @@
 3. **真实流量录制为 TODO（最高优先级缺口）。** 在 macOS 实机上运行原生 AIQuotaBar / codexbar，通过 mitmproxy（或 Charles/Proxyman）抓取下列端点，脱敏后以 `[real-traffic]` 标签入库，与合成样本并列或替换：
    - Codex：`chatgpt.com/backend-api/wham/usage`、`/wham/rate-limit-reset-credits`、`/remaining_balance`、PAT `whoami`；本机 `~/.codex/auth.json`、`sessions/*.jsonl` 直接脱敏拷贝。
    - Kimi：`www.kimi.com(/.ai)/apiv2/kimi.gateway.billing.v1.BillingService/GetUsages`、`MembershipService/GetSubscriptionStats`；CLI `/status` 输出、Desktop `token-store.json`。
-   - GLM：`bigmodel.cn/api/monitor/usage/quota/limit`（web 会话与 open.bigmodel.cn API Key 两种）、`/api/biz/customer-package-reset/list`；ZCode 桌面客户端 `zcode.z.ai/api/v1/zcode-plan/billing/balance`（Bearer JWT，凭据 `~/.zcode/v2/credentials.json`，Windows 实机登录 ZCode 后录制）。
+   - GLM：`bigmodel.cn/api/monitor/usage/quota/limit`（web 会话与 open.bigmodel.cn API Key 两种）、`/api/biz/customer-package-reset/list`；~~ZCode 桌面客户端 `zcode.z.ai/api/v1/zcode-plan/billing/balance`~~（已录：`glm/coding-plan-balance.real.json`，[real-captured]，2026-09-27 ZCode 3.14.3 Windows 客户端日志录制，账号唯一 ID/logid 已脱敏；直接调用的鉴权细节（Bearer 形态）待 mitm 抓包专项确认）。
    - MiniMax：`platform.minimax.io(/i.com)/v1/token_plan/remains` 与 `v1/api/openplatform/coding_plan/remains`。
    - Clash：本机 `127.0.0.1:9097` 的 `/connections`（REST 与 WebSocket 帧）、`/version`、`/proxies`、`/rules`。
 4. **不新增来源不明的样本。** 每个样本必须在 MANIFEST.md 登记来源路径与行号；无法溯源的字段值一律不得入库。
@@ -19,7 +19,7 @@
 
 - 测试占位值（`fixture-token`、`pat@example.com` 等）原样保留。
 - 真实流量录制中出现的 token / Cookie / 邮箱 / 会话 ID / 账号 ID，入库前替换为 `<REDACTED-token>`、`<REDACTED-email>`、`<REDACTED-session-id>`、`<REDACTED-account-id>` 等占位，并在 MANIFEST.md 对应行标注脱敏字段。加密信封（如 Kimi safeStorage blob）整段替换为 `<REDACTED-encrypted-blob>` 并保留结构说明。
-- 采录时已核查现存样本，未发现真实凭据，故未执行替换（详见 MANIFEST.md 末尾核查记录）。
+- 采录时已核查现存样本，未发现真实凭据，故未执行替换（详见 MANIFEST.md 末尾核查记录）；2026-09-27 入库首个真实流量样本（`glm/coding-plan-balance.real.json`）时已按本政策执行脱敏：账号唯一 ID、余额桶 ID 与 logid 替换为同形占位，数值保持真实（脱敏记录见 MANIFEST.md）。
 
 ## 仍缺真实流量样本的 Provider（当前全部待录）
 
@@ -27,7 +27,7 @@
 | --- | --- | --- | --- |
 | Codex | 16 | 0 — 待录 | OAuth 刷新（token refresh）响应无任何样本；OpenAI 网页 dashboard HTML（openai-web 来源）未采 |
 | Kimi | 12 | 0 — 待录 | 401/429 错误响应体被 Swift 端刻意不落盘（防泄漏），录制时只需记录状态码契约 |
-| GLM | 10 | 0 — 待录 | 旧版辅助端点 `/api/biz/subscription/list` 无样本；TEAM scope 的 reset-allowances 拒绝形态仅由 PERSONAL 改写测试覆盖；coding-plan 余额端点只有契约优先合成样本（`coding-plan-balance.synthetic.json`，[synthesized-pending-capture]），形状待真实抓包校准 |
+| GLM | 9 | 1 — coding-plan balance 已录（`coding-plan-balance.real.json`，[real-captured]，2026-09-27 客户端日志录制；原合成样本已按政策 1 删除） | 旧版辅助端点 `/api/biz/subscription/list` 无样本；TEAM scope 的 reset-allowances 拒绝形态仅由 PERSONAL 改写测试覆盖；`bigmodel.cn` 的 quota/limit 与 reset-allowances 端点仍待实机录制；coding-plan 端点直接调用的鉴权细节（Bearer 形态）待 mitm 抓包专项确认 |
 | MiniMax | 2 | 0 — 待录 | AIQuotaBar 本体无 MiniMax 用量拉取实现；HTML coding-plan 页面解析（codexbar 有 `pro-normal.html` 同类先例）未采；`remains_time` 字段仅见于 docs/api-field-mapping.md 文档，两个 JSON 样本中均未出现该字段 |
 | Clash | 2 | 0 — 待录 | `/version`、`/proxies`、`/rules` 三个端点连 test-synthesized 样本都没有（Swift 测试用结构体构造，无 JSON）；Windows 端对应解析器必须先补样本或等待实机录制 |
 
