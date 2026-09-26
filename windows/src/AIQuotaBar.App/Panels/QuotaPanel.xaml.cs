@@ -8,6 +8,7 @@ using Brush = System.Windows.Media.Brush;
 using Application = System.Windows.Application;
 using System.Windows.Controls;
 using System.Windows.Media;
+using AIQuotaBar.App.Controls;
 using AIQuotaBar.App.Services;
 
 namespace AIQuotaBar.App.Panels;
@@ -28,6 +29,14 @@ public partial class QuotaPanel : PopupWindow
                 Rebuild();
             }
         };
+        // 主题切换（含跟随系统的注册表即时回调）时重建内容：图表控件画刷在重建时重新解析。
+        ThemeService.Instance.ThemeChanged += () =>
+        {
+            if (IsVisible)
+            {
+                Rebuild();
+            }
+        };
     }
 
     private App AppHost => (App)Application.Current;
@@ -37,6 +46,10 @@ public partial class QuotaPanel : PopupWindow
         ProvidersHost.Children.Clear();
         RenderProvider(AppHost.Quota.Glm);
         RenderProvider(AppHost.Quota.Minimax);
+        // 视觉装饰层（并行边界约定）：provider 节包卡片 + 头部环形图，不动 RenderProvider 逻辑。
+        // 新增 provider（如 Codex）合并时，在此调用处补传其 ProviderState 即可获得同款外观。
+        ProviderSectionChrome.DecorateAll(
+            ProvidersHost, new[] { AppHost.Quota.Glm, AppHost.Quota.Minimax });
         UpdatedText.Text = $"更新于 {DateTime.Now:HH:mm:ss}";
         RefreshButton.IsEnabled = !_refreshing;
     }
@@ -146,7 +159,8 @@ public partial class QuotaPanel : PopupWindow
                 : FindResource("TextSecondary") as Brush,
         };
         row.Children.Add(right);
-        return row;
+        // 图表化接入点（并行边界约定：仅此一行改调用）：文本行 + 模型行进度条（UsageBar）。
+        return UsageBar.WrapModelRow(row, model);
     }
 
     private Brush PercentBrush(double percent) => percent switch
