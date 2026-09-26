@@ -13,6 +13,8 @@ final class CodexAuthAccountStoreTests: XCTestCase {
         let setDesktopAppRunning: (Bool) -> Void
         let setCLIRunning: (Bool) -> Void
         let expectedQuotaSnapshot: CodexAccountQuotaSnapshot
+        let autoQuitCount: () -> Int
+        let defaults: UserDefaults
     }
 
     /// 构造带注入点的服务与一份「A 登录中 + B 已入池」的标准现场。
@@ -28,11 +30,18 @@ final class CodexAuthAccountStoreTests: XCTestCase {
         addTeardownBlock { [root] in
             try? FileManager.default.removeItem(at: root)
         }
+        let suiteName = "CodexAuthAccountStoreTests.\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suiteName))
+        defaults.removePersistentDomain(forName: suiteName)
+        addTeardownBlock {
+            defaults.removePersistentDomain(forName: suiteName)
+        }
 
         let openedCount = LockedCounter()
         let capturedNotifications = LockedNotifications()
         let desktopRunning = LockedFlag()
         let cliRunning = LockedFlag()
+        let autoQuitCount = LockedCounter()
         let quotaSnapshot = CodexAccountQuotaSnapshot(
             shortRemainingPercent: 73,
             shortResetsAt: Date(timeIntervalSince1970: 1_800_000_000),
@@ -42,6 +51,7 @@ final class CodexAuthAccountStoreTests: XCTestCase {
 
         let store = CodexAuthAccountStore(
             codexHome: root,
+            defaults: defaults,
             companionAppsProvider: { [desktopRunning] in
                 desktopRunning.value
                     ? [RunningAppSnapshot(
@@ -54,7 +64,12 @@ final class CodexAuthAccountStoreTests: XCTestCase {
                 capturedNotifications.append(title: title, body: body)
             },
             openCompanionApp: { [openedCount] in openedCount.increment() },
-            quotaSnapshotProvider: { _ in quotaSnapshot })
+            quotaSnapshotProvider: { _ in quotaSnapshot },
+            autoQuitPerformer: { [autoQuitCount] in
+                autoQuitCount.increment()
+                return true
+            },
+            relaunchDelayProvider: { nil })
 
         try Self.writeLoginFixture(
             accountEmail: currentAccount,
@@ -72,7 +87,9 @@ final class CodexAuthAccountStoreTests: XCTestCase {
             notifications: { capturedNotifications.all },
             setDesktopAppRunning: { desktopRunning.value = $0 },
             setCLIRunning: { cliRunning.value = $0 },
-            expectedQuotaSnapshot: quotaSnapshot)
+            expectedQuotaSnapshot: quotaSnapshot,
+            autoQuitCount: { autoQuitCount.value },
+            defaults: defaults)
     }
 
     private static func loginFixturePayload(
@@ -428,6 +445,80 @@ final class CodexAuthAccountStoreTests: XCTestCase {
             FileManager.default.fileExists(
                 atPath: fixture.root
                     .appendingPathComponent("auth broken.json").path))
+    }
+
+    // MARK: - 退出方式（手动 / 自动）
+
+    func testExitModeDefaultsToManualAndPersists() throws {
+        let fixture = try makeFixture()
+
+        XCTAssertEqual(fixture.store.exitMode, .manual)
+        fixture.store.exitMode = .automatic
+        XCTAssertEqual(fixture.store.exitMode, .automatic)
+
+        // didSet 已写入隔离 defaults；新实例按同样的 key 读回。
+        let reloaded = CodexAuthAccountStore(
+            codexHome: fixture.root, defaults: fixture.defaults)
+        XCTAssertEqual(reloaded.exitMode, .automatic)
+    }
+
+    func testManualModeNeverQuitsDesktopAppAutomatically() throws {
+        let fixture = try makeFixture()
+        fixture.setDesktopAppRunning(true)
+
+        fixture.store.requestSwitch(to: "bob")
+
+        XCTAssertEqual(fixture.store.pendingRequest, .switchTo(label: "bob"))
+        XCTAssertEqual(fixture.autoQuitCount(), 0)
+    }
+
+    func testAutomaticModeQuitsDesktopAppOnceThenRelays() throws {
+        let fixture = try makeFixture()
+        fixture.store.exitMode = .automatic
+        fixture.setDesktopAppRunning(true)
+
+        fixture.store.requestSwitch(to: "bob")
+
+        // 自动退出在首次评估即触发，且只触发一次。
+        XCTAssertEqual(fixture.autoQuitCount(), 1)
+        XCTAssertEqual(fixture.store.pendingRequest, .switchTo(label: "bob"))
+
+        // 应用还没退：不重复 terminate，继续等待。
+        fixture.store.evaluatePendingRequest()
+        XCTAssertEqual(fixture.autoQuitCount(), 1)
+
+        // 检测到完全退出后接力完成；重启走注入的零延迟立即打开。
+        fixture.setDesktopAppRunning(false)
+        fixture.store.evaluatePendingRequest()
+
+        XCTAssertEqual(fixture.store.pendingRequest, nil)
+        let auth = try readJSON(
+            at: fixture.root.appendingPathComponent("auth.json"))
+        let tokens = try XCTUnwrap(auth["tokens"] as? [String: Any])
+        XCTAssertEqual(try XCTUnwrap(tokens["account_id"] as? String), "account-b")
+        XCTAssertEqual(fixture.openedAppsCount(), 1)
+    }
+
+    func testSwitchingToAutoFromPendingBannerTriggersQuit() throws {
+        let fixture = try makeFixture()
+        fixture.setDesktopAppRunning(true)
+        fixture.store.requestSwitch(to: "bob")
+        XCTAssertEqual(fixture.autoQuitCount(), 0)
+
+        // 用户在横幅点「切换至自动模式」：下一轮评估即代为正常退出。
+        fixture.store.exitMode = .automatic
+        fixture.store.evaluatePendingRequest()
+
+        XCTAssertEqual(fixture.autoQuitCount(), 1)
+    }
+
+    func testRandomRelaunchDelayStaysWithinHumanBounds() {
+        for _ in 0..<32 {
+            let delay = CodexAuthAccountStore.randomRelaunchDelay()
+            XCTAssertTrue(
+                (1...2).contains(delay),
+                "Relaunch delay \(delay) s is outside the 1–2 s human window")
+        }
     }
 }
 

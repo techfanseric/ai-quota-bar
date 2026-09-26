@@ -30,6 +30,25 @@ struct CodexSettingsSection: View {
                 onSourceModeChange(newMode)
             }
 
+            PreferencePickerRow(
+                title: language.codexAccountSwitchExitModeLabel(),
+                subtitle: nil,
+                selection: Binding(
+                    get: { CodexAuthAccountStore.shared.exitMode },
+                    set: { CodexAuthAccountStore.shared.exitMode = $0 }),
+                maxWidth: 200
+            ) {
+                ForEach(CodexAccountSwitchExitMode.allCases, id: \.self) { mode in
+                    Text(language.codexAccountSwitchExitModeDisplayName(mode))
+                        .tag(mode)
+                }
+            }
+
+            Text(language.codexAccountSwitchExitModeHelp())
+                .font(.footnote)
+                .foregroundStyle(.tertiary)
+                .fixedSize(horizontal: false, vertical: true)
+
             Text(language.codexAccountsHelpText())
                 .font(.footnote)
                 .foregroundStyle(.tertiary)
