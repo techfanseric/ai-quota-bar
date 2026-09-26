@@ -1,0 +1,141 @@
+import SwiftUI
+import XCTest
+@testable import AIQuotaBar
+
+/// 离屏渲染左键菜单的 Codex 账号分区（当前账号徽标 / 默认折叠 /
+/// 非当前账号最后更新时间），供视觉验收。
+/// 运行：swift test --filter LeftMenuCodexAccountRenderTests
+@MainActor
+final class LeftMenuCodexAccountRenderTests: XCTestCase {
+    func testRenderCodexAccountSectionToPNG() throws {
+        // 与本机 auth.json 对齐当前账号，命中「当前账号」判定。
+        CodexLocalUsageModel.shared.refreshCurrentAccount()
+
+        let viewModel = UsageViewModel()
+        let now = Date()
+        viewModel.providerUsageData = [
+            .codex: UsageData(
+                provider: .codex,
+                remains: 2,
+                total: 2,
+                timestamp: now,
+                models: [
+                    makeModel(
+                        account: "wangyang815@gmail.com",
+                        name: "Weekly",
+                        detail: "Pro 20x · Mix · resets 10/01 20:36",
+                        remainingPercent: 84,
+                        weeklyRemainingPercent: 84,
+                        sampledAt: now.addingTimeInterval(-120),
+                        windowStart: now.addingTimeInterval(-5 * 86_400),
+                        windowEnd: now.addingTimeInterval(2 * 86_400)),
+                    makeModel(
+                        account: "marvaggarrett@gmail.com",
+                        name: "5h",
+                        detail: "Pro · Cloud · resets 09/26 18:00",
+                        remainingPercent: 100,
+                        weeklyRemainingPercent: nil,
+                        sampledAt: now.addingTimeInterval(-40 * 60),
+                        windowStart: now.addingTimeInterval(-3_600),
+                        windowEnd: now.addingTimeInterval(1_800)),
+                    makeModel(
+                        account: "marvaggarrett@gmail.com",
+                        name: "Weekly",
+                        detail: "Cloud · resets 09/28 09:00",
+                        remainingPercent: 79,
+                        weeklyRemainingPercent: 79,
+                        sampledAt: now.addingTimeInterval(-40 * 60),
+                        windowStart: now.addingTimeInterval(-5 * 86_400),
+                        windowEnd: now.addingTimeInterval(2 * 86_400)),
+                ],
+                subscribeTitle: nil,
+                subscribeEndTime: nil),
+        ]
+
+        let menu = MenuView(
+            viewModel: viewModel,
+            presentationSizing: MenuPresentationSizing(maximumScrollableHeight: 1_200),
+            onOpenSettings: {},
+            onLayoutChange: {})
+
+        let outputDirectory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("ai-quota-bar-leftmenu-render")
+        try FileManager.default.createDirectory(
+            at: outputDirectory, withIntermediateDirectories: true)
+        try render(
+            menu, width: MenuBarPanelLayout.width, height: 1_200,
+            name: "leftmenu-default", to: outputDirectory)
+    }
+
+    private func makeModel(
+        account: String,
+        name: String,
+        detail: String,
+        remainingPercent: Int,
+        weeklyRemainingPercent: Int?,
+        sampledAt: Date?,
+        windowStart: Date,
+        windowEnd: Date
+    ) -> ModelUsageData {
+        ModelUsageData(
+            provider: .codex,
+            accountName: account,
+            modelName: name,
+            currentIntervalTotal: 100,
+            currentIntervalUsed: remainingPercent,
+            weeklyTotal: 0,
+            weeklyUsed: 0,
+            remainsTime: Int(windowEnd.timeIntervalSinceNow * 1_000),
+            startTime: windowStart,
+            endTime: windowEnd,
+            weeklyStartTime: name == "Weekly" ? windowStart : nil,
+            weeklyEndTime: name == "Weekly" ? windowEnd : nil,
+            valueSuffix: "%",
+            detailText: detail,
+            currentIntervalRemainingPercent: remainingPercent,
+            weeklyRemainingPercent: weeklyRemainingPercent,
+            progressBarPercentOverride: nil,
+            progressBarRightText: nil,
+            sampledAt: sampledAt)
+    }
+
+    private func render(
+        _ view: some View,
+        width: CGFloat,
+        height: CGFloat,
+        name: String,
+        to directory: URL
+    ) throws {
+        let hostingView = NSHostingView(
+            rootView: view
+                .background(Color(nsColor: .controlBackgroundColor))
+                .environment(\.colorScheme, .light)
+                .frame(width: width, height: height))
+        hostingView.appearance = NSAppearance(named: .aqua)
+        hostingView.frame = NSRect(origin: .zero, size: NSSize(width: width, height: height))
+        hostingView.layoutSubtreeIfNeeded()
+
+        // 在真实窗口里布局一帧，让动态颜色按浅色外观解析。
+        let window = NSWindow(
+            contentRect: NSRect(origin: .zero, size: NSSize(width: width, height: height)),
+            styleMask: [.borderless],
+            backing: .buffered, defer: false)
+        window.contentView = hostingView
+        window.layoutIfNeeded()
+
+        guard let bitmap = hostingView.bitmapImageRepForCachingDisplay(
+            in: hostingView.bounds) else {
+            XCTFail("Could not create a view bitmap for \(name).")
+            return
+        }
+        hostingView.cacheDisplay(in: hostingView.bounds, to: bitmap)
+        guard let png = bitmap.representation(using: .png, properties: [:]) else {
+            XCTFail("Could not encode the view bitmap for \(name).")
+            return
+        }
+        let url = directory.appendingPathComponent("\(name).png")
+        try png.write(to: url)
+        print("[render] \(url.path)")
+        window.orderOut(nil)
+    }
+}
