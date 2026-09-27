@@ -87,7 +87,7 @@ public sealed class QuotaService
                 }
             }
 
-            return parts.Count > 0 ? string.Join(" · ", parts) : "AI Quota Bar（未配置 — 左键打开设置）";
+            return parts.Count > 0 ? string.Join(" · ", parts) : Lang.Get(AppStrings.TrayNotConfiguredSummary);
         }
     }
 

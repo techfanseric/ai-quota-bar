@@ -16,7 +16,7 @@
                     <ColumnDefinition Width="Auto" />
                 </Grid.ColumnDefinitions>
                 <StackPanel>
-                    <TextBlock Text="配额概览" Foreground="{DynamicResource TextPrimary}"
+                    <TextBlock x:Name="HeaderTitle" Foreground="{DynamicResource TextPrimary}"
                                FontSize="16" FontWeight="SemiBold" />
                     <TextBlock Text="AI Quota Bar" Foreground="{DynamicResource TextSecondary}"
                                FontSize="11" Margin="0,2,0,0" />
@@ -34,14 +34,14 @@
                     <ColumnDefinition Width="*" />
                     <ColumnDefinition Width="Auto" />
                 </Grid.ColumnDefinitions>
-                <TextBlock Text="左键快速查看 · 右键更多命令"
+                <TextBlock x:Name="FooterHint"
                            Foreground="{DynamicResource TextSecondary}"
                            FontSize="10.5" VerticalAlignment="Center" Margin="16,0" />
                 <StackPanel Grid.Column="1" Orientation="Horizontal" Margin="8">
-                    <Button x:Name="RefreshButton" Content="刷新" Style="{StaticResource CommandBarButton}"
+                    <Button x:Name="RefreshButton" Style="{StaticResource CommandBarButton}"
                             Click="OnRefresh" />
-                    <Button Content="路由" Style="{StaticResource CommandBarButton}" Click="OnRoutes" />
-                    <Button x:Name="SettingsButton" Content="设置" Style="{StaticResource CommandBarButton}"
+                    <Button x:Name="RoutesButton" Style="{StaticResource CommandBarButton}" Click="OnRoutes" />
+                    <Button x:Name="SettingsButton" Style="{StaticResource CommandBarButton}"
                             Click="OnSettings" />
                 </StackPanel>
             </Grid>
