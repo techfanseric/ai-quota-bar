@@ -68,9 +68,7 @@ public partial class QuotaPanel : PopupWindow
         RenderProvider(AppHost.Quota.Glm);
         RenderProvider(AppHost.Quota.Minimax);
         RenderProvider(AppHost.Quota.Codex);
-        // 视觉装饰层（并行边界约定）：provider 节包卡片 + 头部环形图，不动 RenderProvider 逻辑。
-        ProviderSectionChrome.DecorateAll(
-            ProvidersHost, new[] { AppHost.Quota.Glm, AppHost.Quota.Minimax, AppHost.Quota.Codex });
+        // 扁平重设计（a9302e6）后视觉内联在 RenderProvider（QuotaGauge 直挂节首），无后置装饰层。
         UpdatedText.Text = Lang.Format(AppStrings.UpdatedAtFormat, $"{DateTime.Now:HH:mm:ss}");
         RefreshButton.IsEnabled = !_refreshing;
     }
