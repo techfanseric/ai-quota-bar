@@ -33,7 +33,7 @@ public static class AppStrings
 
     // ---- QuotaPanel（控制中心）----
 
-    public static readonly AppText QuotaPanelTitle = new("AI Quota Bar — 控制中心", "AI Quota Bar — Control Center");
+    public static readonly AppText QuotaPanelTitle = new("AI Quota Bar — 配额概览", "AI Quota Bar — Quota overview");
 
     /// <summary>面板头部标题（主题终稿布局）。</summary>
     public static readonly AppText OverviewTitle = new("配额概览", "Overview");
@@ -201,6 +201,22 @@ public static class AppStrings
         "Autostart is unavailable: the install path cannot be resolved.");
 
     // ---- 托盘 ----
+
+    public static readonly AppText TrayOpenQuota = new("配额概览", "Quota overview");
+
+    public static readonly AppText TrayOpenRoutes = new("Clash 路由…", "Clash routes…");
+
+    public static readonly AppText TrayRefreshNow = new("立即刷新", "Refresh now");
+
+    public static readonly AppText TrayLaunchAtLogin = new("登录 Windows 时启动", "Launch at login");
+
+    public static readonly AppText TraySettings = new("设置…", "Settings…");
+
+    public static readonly AppText TrayExit = new("退出 AI Quota Bar", "Exit AI Quota Bar");
+
+    public static readonly AppText ThemeSaveFailedFormat = new(
+        "主题偏好保存失败：{0}",
+        "Failed to save the theme preference: {0}");
 
     /// <summary>未配置任何 provider 时的 tooltip 摘要。</summary>
     public static readonly AppText TrayNotConfiguredSummary = new(

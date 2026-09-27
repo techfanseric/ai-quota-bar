@@ -3,6 +3,7 @@
 // CodexQuotaService 拉真实配额 → 维护面板/托盘所需状态。Kimi 待 Phase 0 spike 结论（计划 §9）。
 
 using System.Net.Http;
+using System.IO;
 using AIQuotaBar.Core.Contracts;
 using AIQuotaBar.Core.Quota;
 using AIQuotaBar.Platform.Credentials;
@@ -27,6 +28,7 @@ public sealed class ProviderState
 
 public enum ProviderStatus
 {
+    Hidden,
     NotConfigured,
     Loading,
     Ok,
@@ -50,7 +52,7 @@ public sealed class QuotaService
 
     public ProviderState Minimax { get; private set; } = new() { Name = "MiniMax" };
 
-    public ProviderState Codex { get; private set; } = new() { Name = "Codex" };
+    public ProviderState Codex { get; private set; } = new() { Name = "Codex", Status = ProviderStatus.Hidden };
 
     /// <summary>托盘环百分比：首个成功 provider 的整体剩余比例；无数据时 null（灰色环）。</summary>
     public int? RingPercent
@@ -61,7 +63,7 @@ public sealed class QuotaService
             {
                 if (state.Status == ProviderStatus.Ok && state.Usage is { } usage)
                 {
-                    return (int)Math.Round(usage.PercentageRemaining());
+                    return (int)Math.Round(usage.HeadlineRemainingPercentage());
                 }
             }
 
@@ -79,7 +81,7 @@ public sealed class QuotaService
             {
                 if (state.Status == ProviderStatus.Ok && state.Usage is { } usage)
                 {
-                    parts.Add($"{state.Name} {usage.PercentageRemaining():F0}%");
+                    parts.Add($"{state.Name} {usage.HeadlineRemainingPercentage():F0}%");
                 }
                 else if (state.Status == ProviderStatus.Error)
                 {
@@ -189,6 +191,13 @@ public sealed class QuotaService
         // 2. Codex CLI 登录凭据（%CODEX_HOME%\auth.json，默认 ~/.codex）——`codex login`
         //    之后零配置即出数；token 过期自动 OAuth 刷新并回写（CodexQuotaService 编排）。
         var apiKey = _credentials.Read(CodexService, string.Empty);
+        var authStore = new CodexAuthStore(CodexEnvironment.Instance);
+        if (string.IsNullOrWhiteSpace(apiKey) && !File.Exists(authStore.AuthFilePath))
+        {
+            // Codex 是可选 provider。用户从未安装/登录时不显示常驻“未配置”或错误提示；
+            // 只有 auth.json 确实存在但不可读、过期或请求失败时才进入 Error。
+            return new ProviderState { Name = "Codex", Status = ProviderStatus.Hidden };
+        }
 
         try
         {
@@ -204,8 +213,6 @@ public sealed class QuotaService
         }
         catch (Exception ex)
         {
-            // 未登录（auth.json 缺失）也走此分支：CodexCredentialException 文案自带
-            // "Run `codex login`" 指引（Win-CodexBar 同先例），面板直接展示。
             return new ProviderState { Name = "Codex", Status = ProviderStatus.Error, Error = ex.Message };
         }
     }
