@@ -24,9 +24,10 @@
                 <TextBlock x:Name="UpdatedText" Foreground="{DynamicResource TextSecondary}"
                            FontSize="11" VerticalAlignment="Center" />
                 <StackPanel DockPanel.Dock="Right" Orientation="Horizontal" HorizontalAlignment="Right">
-                    <Button x:Name="RefreshButton" Content="刷新" Click="OnRefresh" />
-                    <Button x:Name="SettingsButton" Content="设置" Click="OnSettings" />
-                    <Button x:Name="ExitButton" Content="退出" Click="OnExit" />
+                    <!-- 按钮文案经 ApplyStrings 按当前语言填充（AppStrings 唯一来源）。 -->
+                    <Button x:Name="RefreshButton" Click="OnRefresh" />
+                    <Button x:Name="SettingsButton" Click="OnSettings" />
+                    <Button x:Name="ExitButton" Click="OnExit" />
                 </StackPanel>
             </DockPanel>
         </StackPanel>

@@ -1,0 +1,28 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!-- App 层 xUnit 测试项目（语言基础设施的最小验证：AppStrings 键完整性 / LanguageService
+       三态偏好与切换 / ClashErrorText 错误映射表完整性）。
+       TFM net8.0-windows + UseWPF：被测 AIQuotaBar.App 是 WPF 工程（net8.0-windows），
+       引用它需要同一框架曲线；测试只覆盖无 UI 依赖的纯逻辑类型，不实例化 WPF 控件、
+       无需 STA 线程（与 AIQuotaBar.Platform.Tests 的 net8.0-windows 先例一致，
+       仅可在 Windows 上运行）。包版本与其余测试项目对齐。
+       测试类共享 LanguageServices 串行集合：被测 LanguageService 是进程级单例，
+       避免并行测试互相改写当前语言。 -->
+
+  <PropertyGroup>
+    <TargetFramework>net8.0-windows</TargetFramework>
+    <IsPackable>false</IsPackable>
+    <UseWPF>true</UseWPF>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.NET.Test.Sdk" Version="17.9.0" />
+    <PackageReference Include="xunit" Version="2.7.0" />
+    <PackageReference Include="xunit.runner.visualstudio" Version="2.5.7" PrivateAssets="all" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\src\AIQuotaBar.App\AIQuotaBar.App.csproj" />
+  </ItemGroup>
+
+</Project>
