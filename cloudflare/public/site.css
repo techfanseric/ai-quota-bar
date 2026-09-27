@@ -260,3 +260,53 @@
 .win-card .download-meta{margin-top:14px}
 .win-card .download-meta a{color:var(--green)}
 #windows .mobile-benefits{border-top:0;padding-top:0;margin-top:0;gap:38px}
+
+/* Windows 11 tray flyout recreation (light + dark, per Themes/Light|Dark.xaml) */
+.win-stage{display:grid;grid-template-columns:1fr 1fr;gap:26px;align-items:end}
+.win-shot{display:flex;flex-direction:column}
+.win-light{--wf-primary:#1b1b1b;--wf-secondary:#5c5c66;--wf-green:#0f7b0f;--wf-yellow:#9d5d00;--wf-red:#c42b1c;--wf-track:#d5d5db;--wf-sep:rgba(0,0,0,.12);--wf-cmd:rgba(0,0,0,.035);--wf-surface:#f3f3f3;--wf-line:rgba(0,0,0,.12)}
+.win-dark{--wf-primary:#f2f2f2;--wf-secondary:#a8a8b0;--wf-green:#4caf50;--wf-yellow:#f5b428;--wf-red:#dc3c3c;--wf-track:#3a3a40;--wf-sep:rgba(255,255,255,.13);--wf-cmd:rgba(255,255,255,.07);--wf-surface:#202020;--wf-line:rgba(255,255,255,.25)}
+.win-flyout{width:93%;margin-left:auto;border:1px solid var(--wf-line);border-radius:8px;background:var(--wf-surface);color:var(--wf-primary);box-shadow:0 14px 34px rgba(0,0,0,.16);font-family:"Segoe UI Variable Display","Segoe UI",-apple-system,"PingFang SC","Hiragino Sans GB",sans-serif}
+.wf-head{display:flex;justify-content:space-between;align-items:center;padding:13px 15px 10px}
+.wf-title strong{display:block;font-size:14px;font-weight:600}
+.wf-title span{font-size:10px;color:var(--wf-secondary)}
+.wf-updated{font-size:10px;color:var(--wf-secondary)}
+.wf-section{display:grid;grid-template-columns:44px 1fr;gap:6px;padding:11px 15px;border-top:1px solid var(--wf-sep)}
+.wf-gauge{position:relative;width:38px;height:38px}
+.wf-gauge svg,.tb-ring svg{display:block;width:100%;height:100%}
+.wf-gauge .trk,.tb-ring .trk{fill:none;stroke:var(--wf-track)}
+.wf-gauge .arc,.tb-ring .arc{fill:none;stroke-linecap:round}
+.wf-gauge .arc.ok,.tb-ring .arc.ok{stroke:var(--wf-green)}
+.wf-gauge .arc.warn{stroke:var(--wf-yellow)}
+.wf-gauge b{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;font-size:9.5px;font-weight:600;color:var(--wf-primary)}
+.wf-detail{min-width:0}
+.wf-row-head{display:flex;justify-content:space-between;align-items:baseline;gap:8px}
+.wf-row-head strong{font-size:11.5px;font-weight:600}
+.wf-status{font-size:10.5px;white-space:nowrap}
+.ok{color:var(--wf-green)}.warn{color:var(--wf-yellow)}.crit{color:var(--wf-red)}
+.wf-model{display:flex;justify-content:space-between;gap:8px;margin-top:5px;font-size:10px}
+.wf-model span:first-child{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.wf-model span:last-child{white-space:nowrap}
+.wf-bar{height:4px;border-radius:2px;background:var(--wf-track);margin-top:3px;overflow:hidden}
+.wf-bar i{display:block;height:100%;border-radius:2px}
+.wf-bar .ok{background:var(--wf-green)}.wf-bar .warn{background:var(--wf-yellow)}
+.wf-cmd{display:flex;justify-content:space-between;align-items:center;gap:8px;background:var(--wf-cmd);border-top:1px solid var(--wf-sep);padding:6px 8px 6px 15px;margin-top:3px;border-radius:0 0 7px 7px}
+.wf-cmd>span{font-size:9.5px;color:var(--wf-secondary)}
+.wf-cmd div{display:flex;gap:2px}
+.wf-cmd b{font-size:10px;font-weight:400;color:var(--wf-secondary);padding:3px 8px;border-radius:4px}
+.win-taskbar{display:flex;align-items:center;height:40px;margin-top:10px;padding:0 12px;border:1px solid var(--wf-line);border-radius:10px;background:var(--wf-surface)}
+.win-taskbar.win-light{background:rgba(243,243,243,.94)}
+.win-taskbar.win-dark{background:#1c1c1c}
+.tb-center{display:flex;align-items:center;gap:10px;margin:0 auto}
+.tb-start{display:grid;grid-template-columns:1fr 1fr;gap:2px;width:16px;height:16px}
+.tb-start i{background:#0078d4;border-radius:1px}
+.win-dark .tb-start i{background:#4cc2ff}
+.tb-icon{width:16px;height:16px;border-radius:4px;background:var(--wf-track);opacity:.75}
+.tb-ring{width:17px;height:17px}
+.tb-right{display:flex;align-items:center;gap:9px;color:var(--wf-secondary);font-size:9.5px}
+.tb-chev{font-size:8px}
+.tb-eng{font-size:8.5px}
+.tb-clock{text-align:right;line-height:1.3}
+.tb-clock b{display:block;font-size:9.5px;font-weight:400;color:var(--wf-primary)}
+.tb-clock span{font-size:8.5px}
+@media(max-width:760px){.win-stage{grid-template-columns:1fr}}
