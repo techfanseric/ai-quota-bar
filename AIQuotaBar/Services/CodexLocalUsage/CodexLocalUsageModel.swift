@@ -9,6 +9,13 @@ struct LocalUsageConnection: Codable {
     var binding: String { usageDigest(endpoint + "|" + identity.bindingID) }
 }
 
+/// Menu usage card data source: local scans by default; the team view reads
+/// server-aggregated reports from every member.
+enum UsageMenuSource: String {
+    case local
+    case team
+}
+
 /// Independent of quota polling, OAuth and Codex app presence.
 @MainActor @Observable
 final class CodexLocalUsageModel {
@@ -41,6 +48,16 @@ final class CodexLocalUsageModel {
     var teamDevices: [TeamUsageRow] = []
     var teamAccounts: [TeamUsageRow] = []
     var connection: LocalUsageConnection?
+    var menuUsageSource: UsageMenuSource = .local
+    var menuTeamMemberID: String?
+    var teamMenuDaily: [UsageHistoryBucket] = []
+    var teamMenuHourly: [UsageHistoryBucket] = []
+    var teamMenuLoading = false
+    var teamMenuError: String?
+    var teamMenuUpdatedAt: Date?
+    var teamMenuCacheBinding: String?
+    var teamMenuCacheMember: String?
+    private var teamMenuRequest = UUID()
     var createdTeam: UsageTeamCreated?
     var connectingTeam = false
     var teamLoading = false
@@ -193,7 +210,7 @@ final class CodexLocalUsageModel {
             let value = LocalUsageConnection(endpoint: endpoint, identity: result.identity, since: since)
             try await Self.saveToken(token.trimmingCharacters(in: .whitespacesAndNewlines), account: value.binding)
             defaults.set(try JSONEncoder().encode(value), forKey: "localUsage.connection")
-            if !same { reportingEnabled = false; clearTeamSummary(); canManageTeam = false; syncStatus = "" }
+            if !same { reportingEnabled = false; clearTeamSummary(); canManageTeam = false; syncStatus = ""; menuUsageSource = .local; menuTeamMemberID = nil }
             connection = value; self.client = client; try savePrices(result.prices)
             NotificationCenter.default.post(name: .teamConnectionChanged, object: nil)
             failures = 0; nextAttempt = .distantPast; error = nil
@@ -241,6 +258,7 @@ final class CodexLocalUsageModel {
             connection = nil; self.client = nil; createdTeam = nil
             defaults.removeObject(forKey: "localUsage.connection")
             clearTeamSummary(); canManageTeam = false; delivery = [:]; rejectionReasons = [:]; syncStatus = ""; error = nil
+            menuUsageSource = .local; menuTeamMemberID = nil
             NotificationCenter.default.post(name: .teamConnectionChanged, object: nil)
         } catch { self.error = error.localizedDescription }
     }
@@ -389,6 +407,9 @@ final class CodexLocalUsageModel {
     func clearTeamSummary() {
         teamRequest = UUID(); teamLoading = false; teamLoadError = nil; teamUpdatedAt = nil
         teamRows = []; teamDevices = []; teamAccounts = []
+        teamMenuRequest = UUID(); teamMenuLoading = false; teamMenuError = nil; teamMenuUpdatedAt = nil
+        teamMenuDaily = []; teamMenuHourly = []
+        teamMenuCacheBinding = nil; teamMenuCacheMember = nil
     }
     private func managerBinding(endpoint: String, teamID: String) -> String {
         "team-manager:" + usageDigest(endpoint + "|" + teamID)
@@ -442,6 +463,7 @@ final class CodexLocalUsageModel {
             let result = try await (members, devices, accounts)
             guard teamRequest == requestID, requestedDays == days, requestedBinding == self.connection?.binding else { return }
             teamRows = result.0; teamDevices = result.1; teamAccounts = result.2; teamUpdatedAt = Date()
+            pruneMenuMemberSelection(result.0)
         } catch {
             guard !Task.isCancelled, teamRequest == requestID, requestedDays == days, requestedBinding == self.connection?.binding else { return }
             if (error as? URLError)?.code == .cancelled { return }
@@ -461,6 +483,45 @@ final class CodexLocalUsageModel {
         guard connection?.binding == binding else { throw CancellationError() }
         return (result.0.buckets, result.1.buckets)
     }
+
+    /// Menu-side team usage (current month + rolling 24h). The panel re-renders
+    /// every minute while server aggregates move much slower, so a result is
+    /// reused for five minutes unless the member or team binding changed.
+    func refreshTeamMenuUsage(now: Date = Date(), force: Bool = false) async {
+        guard let connection else { return }
+        let binding = connection.binding
+        guard force || shouldFetchTeamMenuUsage(now: now, binding: binding, member: menuTeamMemberID) else { return }
+        let requestID = UUID()
+        teamMenuRequest = requestID
+        teamMenuLoading = true
+        teamMenuError = nil
+        defer { if teamMenuRequest == requestID { teamMenuLoading = false } }
+        do {
+            let result = try await teamActivity(member: menuTeamMemberID, device: nil, account: nil, date: nil, now: now)
+            guard teamMenuRequest == requestID, self.connection?.binding == binding else { return }
+            teamMenuDaily = result.daily
+            teamMenuHourly = result.hourly
+            teamMenuCacheBinding = binding
+            teamMenuCacheMember = menuTeamMemberID
+            teamMenuUpdatedAt = Date()
+        } catch is CancellationError {
+            return
+        } catch {
+            guard !Task.isCancelled, teamMenuRequest == requestID, self.connection?.binding == binding else { return }
+            if (error as? URLError)?.code == .cancelled { return }
+            teamMenuError = error.localizedDescription
+        }
+    }
+
+    func shouldFetchTeamMenuUsage(now: Date, binding: String, member: String?) -> Bool {
+        guard teamMenuCacheBinding == binding, teamMenuCacheMember == member, let fetched = teamMenuUpdatedAt else { return true }
+        return now.timeIntervalSince(fetched) >= 300
+    }
+
+    func pruneMenuMemberSelection(_ rows: [TeamUsageRow]) {
+        if let member = menuTeamMemberID, !rows.contains(where: { $0.id == member }) { menuTeamMemberID = nil }
+    }
+
     private static func saveToken(_ token: String, account: String) async throws {
         guard await KeychainService.shared.saveDeviceCredential(token, binding: account) else {
             throw UsageFailure.invalid("Could not save device credential to Keychain")

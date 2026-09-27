@@ -6,10 +6,12 @@ struct CodexLocalUsageMenuCard: View {
     @Bindable var model: CodexLocalUsageModel
     let language: AppLanguage
     private var chinese: Bool { language == .simplifiedChinese }
+    /// Team view works without a local Codex sign-in; it reads reported usage.
+    private var showsTeamView: Bool { model.menuUsageSource == .team && model.connection != nil }
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
-            if model.currentAccountID != nil {
-                CodexUsageTrend(model: model, language: language, currentAccount: true)
+            if model.currentAccountID != nil || showsTeamView {
+                CodexUsageTrend(model: model, language: language, currentAccount: true, allowsSourceSwitch: true)
             } else {
                 Text(chinese ? "登录 Codex 后显示当前账号用量；历史可在设置中查看。" : "Sign in to Codex to see this account’s usage. History remains in Settings.")
                     .font(.caption2).foregroundStyle(.secondary)
@@ -24,20 +26,137 @@ struct CodexUsageTrend: View {
     @Bindable var model: CodexLocalUsageModel
     let language: AppLanguage
     var currentAccount = false
+    /// Menu-only: offers the 本机/团队 switch next to the metric toggles.
+    var allowsSourceSwitch = false
+    private func t(_ zh: String, _ en: String) -> String { language == .simplifiedChinese ? zh : en }
+    private var teamCalendar: Calendar {
+        var value = Calendar(identifier: .gregorian)
+        value.timeZone = TimeZone(secondsFromGMT: 0)!
+        return value
+    }
+    /// Without a team binding the switch degrades to the static Local tag.
+    private var showsSwitch: Bool { allowsSourceSwitch && model.connection != nil }
+    private var activeSource: UsageMenuSource {
+        showsSwitch && model.menuUsageSource == .team ? .team : .local
+    }
+    private var sourceSwitch: UsageSourceSwitch {
+        UsageSourceSwitch(
+            source: activeSource,
+            showsTeam: showsSwitch,
+            members: model.teamRows,
+            selectedMemberID: model.menuTeamMemberID,
+            language: language,
+            onSelectSource: { model.menuUsageSource = $0 },
+            onSelectMember: { model.menuTeamMemberID = $0 })
+    }
     var body: some View {
         TimelineView(.periodic(from: .now, by: 60)) { context in
-            CodexUsageActivityView(
-                daily: model.activityHistory(month: true, currentAccount: currentAccount, now: context.date),
-                hourly: model.activityHistory(month: false, currentAccount: currentAccount, now: context.date),
-                total: model.monthSummary(currentAccount: currentAccount, now: context.date),
-                language: language, now: context.date, showsLocalLabel: currentAccount,
-                subscription: CodexSubscriptionStatus.shared.marker(
-                    accountID: currentAccount ? model.currentAccountID : model.selectedAccount,
-                    now: context.date),
-                resets: CodexResetHistory.shared.markers)
+            Group {
+                if activeSource == .team {
+                    VStack(alignment: .leading, spacing: 6) {
+                        CodexUsageActivityView(
+                            daily: model.teamMenuDaily,
+                            hourly: model.teamMenuHourly,
+                            total: UsageActivityLayout.summary(model.teamMenuDaily),
+                            language: language, now: context.date,
+                            calendar: teamCalendar,
+                            // 拉取前的空态也保持「近 24h」标题（服务端固定返回 24h）。
+                            hourlyCaption: t("近 24h", "Last 24h"),
+                            sourceSwitch: sourceSwitch,
+                            emptyHint: t("暂无团队上报；成员开启“共享本机用量”后显示。", "No team reports yet. Usage appears once members enable Share local usage."))
+                        if model.teamMenuLoading && model.teamMenuDaily.isEmpty {
+                            Text(t("正在加载团队用量…", "Loading team usage…"))
+                                .font(.system(size: 9)).foregroundStyle(.secondary)
+                        }
+                        if let error = model.teamMenuError {
+                            Text(error).font(.system(size: 9)).foregroundStyle(.secondary).lineLimit(2)
+                        }
+                    }
+                } else {
+                    CodexUsageActivityView(
+                        daily: model.activityHistory(month: true, currentAccount: currentAccount, now: context.date),
+                        hourly: model.activityHistory(month: false, currentAccount: currentAccount, now: context.date),
+                        total: model.monthSummary(currentAccount: currentAccount, now: context.date),
+                        language: language, now: context.date, showsLocalLabel: currentAccount && !showsSwitch,
+                        subscription: CodexSubscriptionStatus.shared.marker(
+                            accountID: currentAccount ? model.currentAccountID : model.selectedAccount,
+                            now: context.date),
+                        resets: CodexResetHistory.shared.markers,
+                        sourceSwitch: showsSwitch ? sourceSwitch : nil,
+                        emptyHint: currentAccount && model.currentAccountID == nil
+                            ? t("登录 Codex 后显示当前账号用量。", "Sign in to Codex to see this account’s usage.")
+                            : nil)
+                }
+            }
+            .frame(maxWidth: 420, alignment: .leading)
+            .task(id: teamTaskKey(now: context.date)) {
+                guard activeSource == .team else { return }
+                if model.teamRows.isEmpty { await model.loadTeam() }
+                await model.refreshTeamMenuUsage(now: context.date)
+            }
         }
-        .frame(maxWidth: 420, alignment: .leading)
         .onAppear { CodexResetHistory.shared.refreshIfNeeded() }
+    }
+    /// Re-fetch when the menu reopens, the member changes, or every 5 minutes.
+    private func teamTaskKey(now: Date) -> String {
+        guard activeSource == .team else { return "off" }
+        return "\(model.connection?.binding ?? "")|\(model.menuTeamMemberID ?? "all")|\(Int(now.timeIntervalSince1970 / 300))"
+    }
+}
+
+/// 本机/团队 switch in the menu usage card; team mode gains a member picker.
+/// Kept model-free so CodexUsageActivityView stays plain-data.
+@MainActor
+struct UsageSourceSwitch: View {
+    let source: UsageMenuSource
+    let showsTeam: Bool
+    let members: [TeamUsageRow]
+    let selectedMemberID: String?
+    let language: AppLanguage
+    let onSelectSource: (UsageMenuSource) -> Void
+    let onSelectMember: (String?) -> Void
+    private func t(_ zh: String, _ en: String) -> String { language == .simplifiedChinese ? zh : en }
+    private var selectedMemberLabel: String {
+        guard let selectedMemberID else { return t("整个团队", "Whole team") }
+        return members.first(where: { $0.id == selectedMemberID })?.name ?? String(selectedMemberID.prefix(12))
+    }
+    var body: some View {
+        HStack(spacing: 7) {
+            sourceButton(.local, t("本机", "Local"))
+            if showsTeam { sourceButton(.team, t("团队", "Team")) }
+            if source == .team && showsTeam {
+                Menu {
+                    Button(t("整个团队", "Whole team")) { onSelectMember(nil) }
+                    ForEach(members) { row in
+                        Button((row.id == selectedMemberID ? "✓ " : "") + row.name) { onSelectMember(row.id) }
+                    }
+                } label: {
+                    HStack(spacing: 3) {
+                        Text(selectedMemberLabel).lineLimit(1)
+                        Image(systemName: "chevron.down").font(.system(size: 7, weight: .semibold))
+                    }
+                    .font(.system(size: 9))
+                    .foregroundStyle(.secondary)
+                    .frame(maxWidth: 110, alignment: .leading)
+                    .contentShape(Rectangle())
+                }
+                .menuStyle(.button)
+                .buttonStyle(.plain)
+                .menuIndicator(.hidden)
+                .fixedSize()
+                .accessibilityLabel(t("团队成员", "Team member") + ": " + selectedMemberLabel)
+            }
+        }
+    }
+    private func sourceButton(_ item: UsageMenuSource, _ label: String) -> some View {
+        Button { onSelectSource(item) } label: {
+            Text(label)
+                .font(.system(size: 10, weight: source == item ? .semibold : .regular))
+                .foregroundStyle(source == item ? Color.primary : .secondary)
+                .lineLimit(1)
+        }
+        .buttonStyle(.plain)
+        .accessibilityAddTraits(source == item ? .isSelected : [])
     }
 }
 
@@ -102,6 +221,10 @@ struct CodexUsageActivityView: View {
     var calendar: Calendar = .current
     var hourlyCaption: String? = nil
     var onSelectDay: ((Date) -> Void)? = nil
+    /// Menu-only: replaces the static Local tag with the 本机/团队 switch.
+    var sourceSwitch: UsageSourceSwitch? = nil
+    /// Overrides the "no records" hint (team mode reports its own wording).
+    var emptyHint: String? = nil
     @State private var metric = Metric.tokens
     @State private var selectedDay: Int?
     @State private var selectedHour: Int?
@@ -136,8 +259,11 @@ struct CodexUsageActivityView: View {
     private var tint: Color { .green }
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
-            HStack(spacing: showsLocalLabel ? 7 : 10) {
-                if showsLocalLabel {
+            HStack(spacing: showsLocalLabel || sourceSwitch != nil ? 7 : 10) {
+                if let sourceSwitch {
+                    sourceSwitch
+                    Spacer(minLength: 0)
+                } else if showsLocalLabel {
                     Text(t("本机", "Local")).font(.system(size: 9)).foregroundStyle(.tertiary)
                     Spacer(minLength: 0)
                 }
@@ -147,7 +273,7 @@ struct CodexUsageActivityView: View {
                             .foregroundStyle(metric == item ? Color.primary : .secondary).lineLimit(1)
                     }.buttonStyle(.plain).accessibilityAddTraits(metric == item ? .isSelected : [])
                 }
-                if !showsLocalLabel { Spacer(minLength: 0) }
+                if !showsLocalLabel && sourceSwitch == nil { Spacer(minLength: 0) }
             }
             HStack(alignment: .top, spacing: 5) {
                 VStack(alignment: .leading, spacing: 4) {
@@ -179,7 +305,7 @@ struct CodexUsageActivityView: View {
                 Text(t("未定价 / 覆盖 \(total.pricedRecords)/\(total.records) 条", "Unpriced / coverage \(total.pricedRecords)/\(total.records)"))
                     .font(.system(size: 9)).foregroundStyle(.tertiary)
             } else if total.records == 0 {
-                Text(t("尚无用量记录；使用 Codex 后会自动出现。", "No records yet. Usage appears after you use Codex."))
+                Text(emptyHint ?? t("尚无用量记录；使用 Codex 后会自动出现。", "No records yet. Usage appears after you use Codex."))
                     .font(.system(size: 9)).foregroundStyle(.secondary)
             }
         }.onChange(of: daily.first?.start) { _, _ in selectedDay = nil; selectedHour = nil }
