@@ -53,8 +53,10 @@ public abstract class PopupWindow : Window
     public void PositionNearTray()
     {
         var trayPixels = ((App)Application.Current).TrayIconRect();
-        var fromDevice = HwndSource.FromHwnd(_hwnd)?.CompositionTarget?.TransformFromDevice
-            ?? System.Windows.Media.Matrix.Identity;
+        var fromDevice = _hwnd == IntPtr.Zero
+            ? System.Windows.Media.Matrix.Identity
+            : HwndSource.FromHwnd(_hwnd)?.CompositionTarget?.TransformFromDevice
+                ?? System.Windows.Media.Matrix.Identity;
         var tray = trayPixels is { } rawTray ? TransformRect(rawTray, fromDevice) : (Rect?)null;
         var work = trayPixels is { } raw
             ? WorkAreaFor(raw, fromDevice)
