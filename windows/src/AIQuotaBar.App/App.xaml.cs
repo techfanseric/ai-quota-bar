@@ -77,11 +77,13 @@ public partial class App : Application
         // 双主题初始化（计划视觉层：亮/暗 + 跟随系统 + 手动；详见 ThemeService 头注释）。
         // 弃用 Dispose 交给进程退出（常驻应用，与 _tray 同生命周期）。
         ThemeService.Initialize(ThemeService.ParsePreference(Settings.Theme));
+        // 语言初始化（全应用统一双语体系；模式对齐 ThemeService，详见 LanguageService 头注释）。
+        LanguageService.Initialize(LanguageService.ParsePreference(Settings.Language));
         DispatcherUnhandledException += (_, args) =>
         {
             // 顶层兜底：任何 UI 线程异常不允许闪退（托盘常驻应用的可用性底线）。
             Log($"UI exception: {args.Exception}");
-            _tray?.ShowBalloon("AI Quota Bar", $"发生异常：{args.Exception.Message}");
+            _tray?.ShowBalloon("AI Quota Bar", Lang.Format(AppStrings.ExceptionBalloonFormat, args.Exception.Message));
             args.Handled = true;
         };
 
@@ -105,6 +107,8 @@ public partial class App : Application
         _quota = new QuotaService(Settings);
         _clash = new ClashService(Settings);
         _quota.StateChanged += OnQuotaStateChanged;
+        // 语言即时切换：托盘 tooltip 摘要（未配置提示等）即时重刷（面板由各自订阅重建）。
+        LanguageService.Instance.LanguageChanged += OnLanguageChanged;
 
         _tray = new TrayIconService();
         _tray.LeftClick += () => { Log("tray left-click"); ShowPanel(QuotaPanel.Instance); };
@@ -264,6 +268,12 @@ public partial class App : Application
         _tray?.UpdateState(percent, summary);
     }
 
+    private void OnLanguageChanged()
+    {
+        // tooltip 文案随语言即时重刷（图标本身无文字，无需重建）。
+        _tray?.UpdateState(_quota?.RingPercent, _quota?.TraySummary ?? "AI Quota Bar");
+    }
+
     private static string? ParsePanelArg(string[] args)
     {
         for (var i = 0; i < args.Length; i++)
@@ -342,6 +352,9 @@ public sealed class AppSettings
 
     /// <summary>主题偏好（ThemePreference 枚举名字符串；null/未知值 = 跟随系统，旧 settings.json 天然兼容）。</summary>
     public string? Theme { get; set; }
+
+    /// <summary>语言偏好（LanguagePreference 枚举名字符串；null/未知值 = 跟随系统，旧 settings.json 天然兼容）。</summary>
+    public string? Language { get; set; }
 
     public static AppSettings Load()
     {

@@ -19,6 +19,7 @@ public partial class RoutePanel : PopupWindow
 {
     private List<ClashRoute> _routes = [];
     private string? _groupName;
+    private string? _selectedRoute;
     private bool _loading;
     private bool _testing;
 
@@ -42,9 +43,36 @@ public partial class RoutePanel : PopupWindow
                 RebuildRoutes(_routes.FirstOrDefault(static r => r.IsSelected)?.Name);
             }
         };
+        // 语言切换时刷新静态文案、组头与延迟徽章（模式对齐主题切换；单例常驻，无需退订）。
+        LanguageService.Instance.LanguageChanged += () =>
+        {
+            ApplyStrings();
+            if (!IsVisible)
+            {
+                return;
+            }
+
+            GroupText.Text = _testing ? Lang.Get(AppStrings.Testing) : GroupHeaderText();
+            RebuildRoutes(_selectedRoute ?? _routes.FirstOrDefault(static r => r.IsSelected)?.Name);
+        };
+        ApplyStrings();
     }
 
     private App AppHost => (App)Application.Current;
+
+    /// <summary>XAML 静态文案（标题/按钮）按当前语言填充。</summary>
+    private void ApplyStrings()
+    {
+        Title = Lang.Get(AppStrings.RoutePanelTitle);
+        ClashTitleText.Text = Lang.Get(AppStrings.ClashRoutesTitle);
+        TestButton.Content = Lang.Get(AppStrings.TestButton);
+        ReloadButton.Content = Lang.Get(AppStrings.Refresh);
+    }
+
+    /// <summary>组头文案：无选中路由时仅组名（对齐测速完成后的既有形态）。</summary>
+    private string GroupHeaderText() => _selectedRoute is { } selected
+        ? Lang.Format(AppStrings.GroupCurrentFormat, _groupName, selected)
+        : _groupName ?? string.Empty;
 
     private async Task ReloadAsync()
     {
@@ -55,15 +83,17 @@ public partial class RoutePanel : PopupWindow
 
         _loading = true;
         ErrorText.Visibility = Visibility.Collapsed;
-        GroupText.Text = "加载中…";
+        GroupText.Text = Lang.Get(AppStrings.Loading);
         try
         {
             var snapshot = await AppHost.Clash.LoadRoutesAsync();
             if (snapshot is null)
             {
-                ErrorText.Text = AppHost.Clash.Error is null
-                    ? "未发现本机 Clash 控制器（安装 Clash Verge Rev 或检查 external-controller 配置）。"
-                    : $"Clash 请求失败：{AppHost.Clash.Error}";
+                // 错误映射（关键改进）：按异常类型给出可操作双语提示，而非裸英文技术消息；
+                // 无异常信息的空快照仍保留控制器缺失提示。
+                ErrorText.Text = AppHost.Clash.LastException is null && AppHost.Clash.Error is null
+                    ? Lang.Get(AppStrings.ControllerNotFound)
+                    : DescribeClashFailure();
                 ErrorText.Visibility = Visibility.Visible;
                 RoutesHost.Children.Clear();
                 GroupText.Text = string.Empty;
@@ -72,7 +102,8 @@ public partial class RoutePanel : PopupWindow
 
             _routes = [.. snapshot.Routes];
             _groupName = snapshot.GroupName;
-            GroupText.Text = $"{snapshot.GroupName} · 当前 {snapshot.SelectedRouteName}";
+            _selectedRoute = snapshot.SelectedRouteName;
+            GroupText.Text = GroupHeaderText();
             RebuildRoutes(snapshot.SelectedRouteName);
         }
         finally
@@ -80,6 +111,14 @@ public partial class RoutePanel : PopupWindow
             _loading = false;
         }
     }
+
+    /// <summary>当前 Clash 失败的本地化描述（异常类型驱动映射，见 ClashErrorText）。</summary>
+    private string DescribeClashFailure() =>
+        AppHost.Clash.LastException is { } error
+            ? ClashErrorText.Describe(error)
+            : AppHost.Clash.Error is { } message
+                ? Lang.Format(AppStrings.ClashRequestFailedFormat, message)
+                : Lang.Get(AppStrings.UnknownError);
 
     private void RebuildRoutes(string? selected)
     {
@@ -147,7 +186,9 @@ public partial class RoutePanel : PopupWindow
     /// <summary>延迟徽章：圆角小胶囊，衬底 Badge*Brush + 分档前景色（<200 绿 / <500 黄 / 其余红）。</summary>
     private UIElement BuildDelayBadge(ClashRoute route)
     {
-        var text = route.Delay is { } delay && delay > 0 ? $"{delay}ms" : route.Delay == 0 ? "超时" : "—";
+        var text = route.Delay is { } delay && delay > 0
+            ? $"{delay}ms"
+            : route.Delay == 0 ? Lang.Get(AppStrings.TimeoutBadge) : Lang.Get(AppStrings.UntestedBadge);
         var (backgroundKey, foregroundKey) = route.Delay switch
         {
             null => ("BadgeMutedBrush", "TextSecondary"),
@@ -195,12 +236,13 @@ public partial class RoutePanel : PopupWindow
         var ok = await AppHost.Clash.SwitchRouteAsync(route);
         if (ok)
         {
-            GroupText.Text = $"{_groupName} · 当前 {route}";
+            _selectedRoute = route;
+            GroupText.Text = GroupHeaderText();
             RebuildRoutes(route);
         }
         else
         {
-            ErrorText.Text = $"切换失败：{AppHost.Clash.Error ?? "未知错误"}";
+            ErrorText.Text = Lang.Format(AppStrings.SwitchFailedFormat, DescribeClashFailure());
             ErrorText.Visibility = Visibility.Visible;
         }
     }
@@ -213,7 +255,7 @@ public partial class RoutePanel : PopupWindow
         }
 
         TestButton.IsEnabled = false;
-        GroupText.Text = "测速中…";
+        GroupText.Text = Lang.Get(AppStrings.Testing);
         // 测速期间全组线路行以 indeterminate 细条代替延迟徽章（组级并发测速，逐行回填无进度语义）。
         _testing = true;
         RebuildRoutes(_routes.FirstOrDefault(static r => r.IsSelected)?.Name);
@@ -228,7 +270,7 @@ public partial class RoutePanel : PopupWindow
             }
             else
             {
-                ErrorText.Text = $"测速失败：{AppHost.Clash.Error ?? "未知错误"}";
+                ErrorText.Text = Lang.Format(AppStrings.TestFailedFormat, DescribeClashFailure());
                 ErrorText.Visibility = Visibility.Visible;
             }
 

@@ -37,6 +37,27 @@ public partial class QuotaPanel : PopupWindow
                 Rebuild();
             }
         };
+        // 语言切换时刷新静态文案与可见内容（模式对齐主题切换；单例常驻，无需退订）。
+        LanguageService.Instance.LanguageChanged += () =>
+        {
+            ApplyStrings();
+            if (IsVisible)
+            {
+                Rebuild();
+            }
+        };
+        ApplyStrings();
+    }
+
+    /// <summary>XAML 静态文案（标题/按钮）按当前语言填充；Rebuild 覆盖动态部分。</summary>
+    private void ApplyStrings()
+    {
+        Title = Lang.Get(AppStrings.QuotaPanelTitle);
+        HeaderTitle.Text = Lang.Get(AppStrings.OverviewTitle);
+        FooterHint.Text = Lang.Get(AppStrings.PanelFooterHint);
+        RefreshButton.Content = Lang.Get(AppStrings.Refresh);
+        RoutesButton.Content = Lang.Get(AppStrings.RouteButton);
+        SettingsButton.Content = Lang.Get(AppStrings.Settings);
     }
 
     private App AppHost => (App)Application.Current;
@@ -47,7 +68,10 @@ public partial class QuotaPanel : PopupWindow
         RenderProvider(AppHost.Quota.Glm);
         RenderProvider(AppHost.Quota.Minimax);
         RenderProvider(AppHost.Quota.Codex);
-        UpdatedText.Text = DateTime.Now.ToString("HH:mm:ss");
+        // 视觉装饰层（并行边界约定）：provider 节包卡片 + 头部环形图，不动 RenderProvider 逻辑。
+        ProviderSectionChrome.DecorateAll(
+            ProvidersHost, new[] { AppHost.Quota.Glm, AppHost.Quota.Minimax, AppHost.Quota.Codex });
+        UpdatedText.Text = Lang.Format(AppStrings.UpdatedAtFormat, $"{DateTime.Now:HH:mm:ss}");
         RefreshButton.IsEnabled = !_refreshing;
     }
 
@@ -94,7 +118,7 @@ public partial class QuotaPanel : PopupWindow
         switch (state.Status)
         {
             case ProviderStatus.Ok when state.Usage is { } usage:
-                statusText.Text = $"剩余 {usage.PercentageRemaining():F0}%";
+                statusText.Text = Lang.Format(AppStrings.PercentLeftFormat, usage.PercentageRemaining());
                 statusText.Foreground = PercentBrush(usage.PercentageRemaining());
                 foreach (var model in usage.Models)
                 {
@@ -105,7 +129,7 @@ public partial class QuotaPanel : PopupWindow
                 {
                     details.Children.Add(new TextBlock
                     {
-                        Text = $"整体 {usage.Remains}/{usage.Total}",
+                        Text = Lang.Format(AppStrings.OverallFormat, usage.Remains, usage.Total),
                         Foreground = FindResource("TextSecondary") as Brush,
                         FontSize = 11,
                         Margin = new Thickness(0, 5, 0, 0),
@@ -115,11 +139,11 @@ public partial class QuotaPanel : PopupWindow
                 break;
 
             case ProviderStatus.NotConfigured:
-                statusText.Text = "未配置";
+                statusText.Text = Lang.Get(AppStrings.NotConfigured);
                 var configure = new Button
                 {
                     Style = FindResource("InlineActionButton") as Style,
-                    Content = "前往配置凭据 →",
+                    Content = Lang.Get(AppStrings.GoConfigureCredentials),
                     HorizontalAlignment = HorizontalAlignment.Left,
                     Margin = new Thickness(0, 5, 0, 0),
                 };
@@ -128,11 +152,11 @@ public partial class QuotaPanel : PopupWindow
                 break;
 
             case ProviderStatus.Loading:
-                statusText.Text = "加载中…";
+                statusText.Text = Lang.Get(AppStrings.Loading);
                 break;
 
             case ProviderStatus.Error:
-                statusText.Text = "失败";
+                statusText.Text = Lang.Get(AppStrings.Failed);
                 statusText.Foreground = FindResource("AccentRed") as Brush;
                 details.Children.Add(new TextBlock
                 {
@@ -174,7 +198,7 @@ public partial class QuotaPanel : PopupWindow
         var value = $"{model.CurrentIntervalRemaining}/{model.CurrentIntervalTotal}{model.ValueSuffix ?? string.Empty}";
         if (model.CurrentIntervalRemainingPercent is { } pct)
         {
-            value += $"（{pct}%）";
+            value += Lang.Format(AppStrings.ModelPercentFormat, pct);
         }
 
         var right = new TextBlock
@@ -213,7 +237,7 @@ public partial class QuotaPanel : PopupWindow
 
         _refreshing = true;
         RefreshButton.IsEnabled = false;
-        UpdatedText.Text = "刷新中…";
+        UpdatedText.Text = Lang.Get(AppStrings.Refreshing);
         try
         {
             await AppHost.Quota.RefreshAsync();

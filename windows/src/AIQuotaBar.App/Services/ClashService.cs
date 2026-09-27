@@ -14,6 +14,10 @@ public sealed class ClashService
 
     public string? Error { get; private set; }
 
+    /// <summary>最近一次失败的原始异常（UI 层按错误类型做本地化映射，见 ClashErrorText；
+    /// Error 仅为英文技术消息，类型信息已丢失，不足以驱动映射）。</summary>
+    public Exception? LastException { get; private set; }
+
     public ClashService(AppSettings settings) => _settings = settings;
 
     public async Task<ClashRouteSnapshot?> LoadRoutesAsync()
@@ -59,11 +63,13 @@ public sealed class ClashService
             var config = await new ClashConfigurationDiscovery().DiscoverAsync().ConfigureAwait(false);
             using var client = new ClashApiClient(config, _settings.CreateHttpHandler());
             Error = null;
+            LastException = null;
             return await action(client).ConfigureAwait(false);
         }
         catch (Exception ex)
         {
             Error = ex.Message;
+            LastException = ex;
             return default;
         }
         finally

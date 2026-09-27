@@ -5,6 +5,8 @@
         WindowStartupLocation="CenterScreen"
         FontFamily="{DynamicResource PanelFontFamily}"
         Background="{DynamicResource WindowBackgroundBrush}">
+    <!-- 全部可见文案由 code-behind ApplyStrings 按当前语言填充（AppStrings 唯一来源，
+         XAML 内文本仅为设计器占位）。主题/语言三选：即时生效，保存按钮统一落盘。 -->
     <Grid Margin="20">
         <Grid.RowDefinitions>
             <RowDefinition Height="Auto" />
@@ -14,42 +16,53 @@
 
         <StackPanel Grid.Row="0">
             <!-- 主题三选（规格 §3）：即时生效（ThemeService.ApplyPreference），保存按钮落 AppSettings.Theme。 -->
-            <TextBlock Text="主题" Foreground="{DynamicResource TextPrimary}" FontSize="15"
+            <TextBlock x:Name="ThemeLabel" Foreground="{DynamicResource TextPrimary}" FontSize="15"
                        FontWeight="SemiBold" Margin="0,0,0,6" />
             <StackPanel Orientation="Horizontal">
-                <RadioButton x:Name="ThemeFollowRadio" Content="跟随系统"
+                <RadioButton x:Name="ThemeFollowRadio"
                              Style="{StaticResource PanelRadioButton}" Checked="OnThemePreferenceChecked" />
-                <RadioButton x:Name="ThemeLightRadio" Content="亮色"
+                <RadioButton x:Name="ThemeLightRadio"
                              Style="{StaticResource PanelRadioButton}" Checked="OnThemePreferenceChecked" />
-                <RadioButton x:Name="ThemeDarkRadio" Content="暗色"
+                <RadioButton x:Name="ThemeDarkRadio"
                              Style="{StaticResource PanelRadioButton}" Checked="OnThemePreferenceChecked" />
             </StackPanel>
 
-            <TextBlock Text="Provider 凭据" Foreground="{DynamicResource TextPrimary}" FontSize="15"
+            <!-- 语言三选（对齐主题三选形态）：即时生效（LanguageService.ApplyPreference），保存按钮落 AppSettings.Language。 -->
+            <TextBlock x:Name="LanguageLabel" Foreground="{DynamicResource TextPrimary}" FontSize="15"
+                       FontWeight="SemiBold" Margin="0,14,0,6" />
+            <StackPanel Orientation="Horizontal">
+                <RadioButton x:Name="LangFollowRadio"
+                             Style="{StaticResource PanelRadioButton}" Checked="OnLanguagePreferenceChecked" />
+                <RadioButton x:Name="LangChineseRadio"
+                             Style="{StaticResource PanelRadioButton}" Checked="OnLanguagePreferenceChecked" />
+                <RadioButton x:Name="LangEnglishRadio"
+                             Style="{StaticResource PanelRadioButton}" Checked="OnLanguagePreferenceChecked" />
+            </StackPanel>
+
+            <TextBlock x:Name="CredentialsSectionLabel" Foreground="{DynamicResource TextPrimary}" FontSize="15"
                        FontWeight="SemiBold" Margin="0,14,0,4" />
-            <TextBlock Foreground="{DynamicResource TextSecondary}" FontSize="11" TextWrapping="Wrap"
-                       Text="凭据保存到 Windows 凭据管理器（Credential Manager），不明文落盘。GLM 支持 API key 或 cURL 导入串；MiniMax 填 API token。" />
+            <TextBlock x:Name="CredentialsHint" Foreground="{DynamicResource TextSecondary}" FontSize="11"
+                       TextWrapping="Wrap" />
         </StackPanel>
 
         <ScrollViewer Grid.Row="1" Margin="0,12" VerticalScrollBarVisibility="Auto">
             <StackPanel>
-                <TextBlock Text="GLM 凭据" Foreground="{DynamicResource TextPrimary}" FontSize="12" Margin="0,8,0,4" />
+                <TextBlock x:Name="GlmCredentialLabel" Foreground="{DynamicResource TextPrimary}" FontSize="12" Margin="0,8,0,4" />
                 <TextBox x:Name="GlmBox" Height="60" TextWrapping="Wrap" AcceptsReturn="False"
                          Style="{StaticResource PanelTextBox}"
                          VerticalScrollBarVisibility="Auto" />
 
-                <TextBlock Text="MiniMax token" Foreground="{DynamicResource TextPrimary}" FontSize="12" Margin="0,12,0,4" />
+                <TextBlock x:Name="MinimaxTokenLabel" Foreground="{DynamicResource TextPrimary}" FontSize="12" Margin="0,12,0,4" />
                 <PasswordBox x:Name="MinimaxBox" Height="30" Style="{StaticResource PanelPasswordBox}" />
 
-                <TextBlock Text="网络代理（可选，如 http://10.0.0.181:7897）" Foreground="{DynamicResource TextPrimary}" FontSize="12" Margin="0,12,0,4" />
+                <TextBlock x:Name="ProxyLabel" Foreground="{DynamicResource TextPrimary}" FontSize="12" Margin="0,12,0,4" />
                 <TextBox x:Name="ProxyBox" Height="30" Style="{StaticResource PanelTextBox}" />
 
-                <TextBlock Text="刷新间隔（秒）" Foreground="{DynamicResource TextPrimary}" FontSize="12" Margin="0,12,0,4" />
+                <TextBlock x:Name="RefreshIntervalLabel" Foreground="{DynamicResource TextPrimary}" FontSize="12" Margin="0,12,0,4" />
                 <TextBox x:Name="RefreshBox" Height="30" Style="{StaticResource PanelTextBox}"
                          PreviewTextInput="OnNumericOnly" />
 
                 <CheckBox x:Name="AutostartCheck" Margin="0,16,0,0"
-                          Content="开机自启（登录后静默启动，仅托盘图标，不弹面板）"
                           Style="{StaticResource PanelCheckBox}" />
 
                 <TextBlock x:Name="StatusText" Foreground="{DynamicResource AccentGreen}" FontSize="11"
@@ -58,8 +71,8 @@
         </ScrollViewer>
 
         <StackPanel Grid.Row="2" Orientation="Horizontal" HorizontalAlignment="Right">
-            <Button x:Name="SaveButton" Content="保存" Style="{StaticResource PanelButton}" Click="OnSave" MinWidth="72" />
-            <Button Content="关闭" Style="{StaticResource PanelButton}" Click="OnClose" MinWidth="72" />
+            <Button x:Name="SaveButton" Style="{StaticResource PanelButton}" Click="OnSave" MinWidth="72" />
+            <Button x:Name="CloseButton" Style="{StaticResource PanelButton}" Click="OnClose" MinWidth="72" />
         </StackPanel>
     </Grid>
 </Window>

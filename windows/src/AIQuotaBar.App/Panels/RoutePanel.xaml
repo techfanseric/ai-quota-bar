@@ -21,9 +21,9 @@
             BorderBrush="{DynamicResource PanelBorder}"
             BorderThickness="1" CornerRadius="10" Margin="8" Padding="0,6">
         <StackPanel>
-            <!-- 主标题 16px（规格 §2 标题层级）。 -->
+            <!-- 主标题 16px（规格 §2 标题层级）；文案经 ApplyStrings 按当前语言填充。 -->
             <DockPanel Margin="16,10,16,8">
-                <TextBlock Text="Clash 路由" Foreground="{DynamicResource TextPrimary}"
+                <TextBlock x:Name="ClashTitleText" Foreground="{DynamicResource TextPrimary}"
                            FontSize="16" FontWeight="SemiBold" />
                 <TextBlock x:Name="GroupText" Foreground="{DynamicResource TextSecondary}"
                            FontSize="12" HorizontalAlignment="Right" VerticalAlignment="Bottom" />
@@ -36,8 +36,8 @@
             </ScrollViewer>
             <Separator Background="{DynamicResource SeparatorBrush}" Height="1" Margin="10,4" />
             <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" Margin="12,8">
-                <Button x:Name="TestButton" Content="测速" Style="{StaticResource PanelButton}" Click="OnTest" />
-                <Button x:Name="ReloadButton" Content="刷新" Style="{StaticResource PanelButton}" Click="OnReload" />
+                <Button x:Name="TestButton" Style="{StaticResource PanelButton}" Click="OnTest" />
+                <Button x:Name="ReloadButton" Style="{StaticResource PanelButton}" Click="OnReload" />
             </StackPanel>
         </StackPanel>
     </Border>
