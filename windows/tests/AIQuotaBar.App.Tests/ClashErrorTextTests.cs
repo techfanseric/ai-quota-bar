@@ -98,7 +98,7 @@ public sealed class ClashErrorTextTests
     {
         var constructor = errorType.GetConstructors().Single();
         var arguments = constructor.GetParameters()
-            .Select(static p => p.ParameterType == typeof(int)
+            .Select(p => p.ParameterType == typeof(int)
                 ? (object)501
                 : p.ParameterType == typeof(string)
                     ? "probe:9090"
