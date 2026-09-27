@@ -310,3 +310,12 @@
 .tb-clock b{display:block;font-size:9.5px;font-weight:400;color:var(--wf-primary)}
 .tb-clock span{font-size:8.5px}
 @media(max-width:760px){.win-stage{grid-template-columns:1fr}}
+
+/* Windows native tray command menu (TrackPopupMenuEx recreation, dark) */
+.win-menu{width:64%;max-width:230px;margin-left:auto;border:1px solid rgba(255,255,255,.07);border-radius:8px;background:#2c2c2c;color:var(--wf-primary);box-shadow:0 14px 34px rgba(0,0,0,.3);padding:4px;font-family:"Segoe UI Variable Display","Segoe UI",-apple-system,"PingFang SC","Hiragino Sans GB",sans-serif}
+.wm-item{position:relative;display:flex;align-items:center;justify-content:space-between;gap:8px;padding:6px 10px 6px 30px;border-radius:5px;font-size:11px;line-height:1.45}
+.wm-item.default{font-weight:600}
+.wm-item.sub{padding-right:8px}
+.wm-arrow{font-size:10px;color:var(--wf-secondary)}
+.wm-item.check::before{content:"✓";position:absolute;left:11px;font-size:9.5px;color:var(--wf-primary)}
+.wm-sep{height:1px;background:rgba(255,255,255,.08);margin:4px 8px}
