@@ -67,7 +67,10 @@ public partial class QuotaPanel : PopupWindow
         ProvidersHost.Children.Clear();
         RenderProvider(AppHost.Quota.Glm);
         RenderProvider(AppHost.Quota.Minimax);
-        RenderProvider(AppHost.Quota.Codex);
+        if (AppHost.Quota.Codex.Status != ProviderStatus.Hidden)
+        {
+            RenderProvider(AppHost.Quota.Codex);
+        }
         // 扁平重设计（a9302e6）后视觉内联在 RenderProvider（QuotaGauge 直挂节首），无后置装饰层。
         UpdatedText.Text = Lang.Format(AppStrings.UpdatedAtFormat, $"{DateTime.Now:HH:mm:ss}");
         RefreshButton.IsEnabled = !_refreshing;
@@ -76,7 +79,7 @@ public partial class QuotaPanel : PopupWindow
     private void RenderProvider(ProviderState state)
     {
         var remaining = state.Status == ProviderStatus.Ok && state.Usage is { } okUsage
-            ? okUsage.PercentageRemaining()
+            ? okUsage.HeadlineRemainingPercentage()
             : (double?)null;
         var section = new Grid { Margin = new Thickness(16, 12, 16, 12) };
         section.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(44) });
@@ -116,8 +119,8 @@ public partial class QuotaPanel : PopupWindow
         switch (state.Status)
         {
             case ProviderStatus.Ok when state.Usage is { } usage:
-                statusText.Text = Lang.Format(AppStrings.PercentLeftFormat, usage.PercentageRemaining());
-                statusText.Foreground = PercentBrush(usage.PercentageRemaining());
+                statusText.Text = Lang.Format(AppStrings.PercentLeftFormat, remaining ?? 0);
+                statusText.Foreground = PercentBrush(remaining ?? 0);
                 foreach (var model in usage.Models)
                 {
                     details.Children.Add(BuildModelRow(model));
@@ -135,6 +138,9 @@ public partial class QuotaPanel : PopupWindow
                 }
 
                 break;
+
+            case ProviderStatus.Hidden:
+                return;
 
             case ProviderStatus.NotConfigured:
                 statusText.Text = Lang.Get(AppStrings.NotConfigured);

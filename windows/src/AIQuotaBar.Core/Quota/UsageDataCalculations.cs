@@ -33,6 +33,26 @@ public static class UsageDataCalculations
     public static double PercentageRemaining(this UsageData data) =>
         data.Total > 0 ? (double)data.Remains / data.Total * 100 : 0;
 
+    /// <summary>
+    /// 面板、托盘环与 tooltip 使用的真实剩余比例。取所有可解释窗口中最低的剩余比例，
+    /// 让汇总值代表最先需要关注的额度；没有窗口比例时才退回 model 可用数占比。
+    /// </summary>
+    public static double HeadlineRemainingPercentage(this UsageData data)
+    {
+        var percentages = data.Models
+            .Select(static model => model.ProgressBarPercentOverride
+                ?? (model.CurrentIntervalRemainingPercent is { } directPercent
+                    ? directPercent
+                    : model.CurrentIntervalTotal > 0
+                        ? (double)model.CurrentIntervalRemaining / model.CurrentIntervalTotal * 100
+                        : (double?)null))
+            .OfType<double>()
+            .Select(static percent => Math.Clamp(percent, 0, 100))
+            .ToList();
+
+        return percentages.Count > 0 ? percentages.Min() : Math.Clamp(data.PercentageRemaining(), 0, 100);
+    }
+
     /// <summary>Swift: modelCount。</summary>
     public static int ModelCount(this UsageData data) => data.Models.Count;
 

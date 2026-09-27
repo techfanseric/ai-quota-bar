@@ -55,24 +55,26 @@ public static class NativeTrayMenu
 
         try
         {
-            AppendCommand(menu, TrayMenuCommand.OpenQuota, "配额概览");
-            AppendCommand(menu, TrayMenuCommand.OpenRoutes, "Clash 路由…");
+            AppendCommand(menu, TrayMenuCommand.OpenQuota, Lang.Get(AppStrings.TrayOpenQuota));
+            AppendCommand(menu, TrayMenuCommand.OpenRoutes, Lang.Get(AppStrings.TrayOpenRoutes));
             AppendSeparator(menu);
-            AppendCommand(menu, TrayMenuCommand.Refresh, state.IsRefreshing ? "正在刷新…" : "立即刷新", state.IsRefreshing);
+            AppendCommand(menu, TrayMenuCommand.Refresh,
+                Lang.Get(state.IsRefreshing ? AppStrings.Refreshing : AppStrings.TrayRefreshNow), state.IsRefreshing);
             AppendSeparator(menu);
 
-            AppendCommand(themeMenu, TrayMenuCommand.ThemeFollowSystem, "跟随系统", false,
+            AppendCommand(themeMenu, TrayMenuCommand.ThemeFollowSystem, Lang.Get(AppStrings.ThemeFollow), false,
                 state.ThemePreference == ThemePreference.FollowSystem);
-            AppendCommand(themeMenu, TrayMenuCommand.ThemeLight, "亮色", false,
+            AppendCommand(themeMenu, TrayMenuCommand.ThemeLight, Lang.Get(AppStrings.ThemeLight), false,
                 state.ThemePreference == ThemePreference.Light);
-            AppendCommand(themeMenu, TrayMenuCommand.ThemeDark, "暗色", false,
+            AppendCommand(themeMenu, TrayMenuCommand.ThemeDark, Lang.Get(AppStrings.ThemeDark), false,
                 state.ThemePreference == ThemePreference.Dark);
-            _ = AppendMenuW(menu, MfPopup, unchecked((nuint)themeMenu.ToInt64()), "主题");
+            _ = AppendMenuW(menu, MfPopup, unchecked((nuint)themeMenu.ToInt64()), Lang.Get(AppStrings.ThemeLabel));
 
-            AppendCommand(menu, TrayMenuCommand.ToggleAutostart, "登录 Windows 时启动", false, state.AutostartEnabled);
-            AppendCommand(menu, TrayMenuCommand.Settings, "设置…");
+            AppendCommand(menu, TrayMenuCommand.ToggleAutostart, Lang.Get(AppStrings.TrayLaunchAtLogin), false,
+                state.AutostartEnabled);
+            AppendCommand(menu, TrayMenuCommand.Settings, Lang.Get(AppStrings.TraySettings));
             AppendSeparator(menu);
-            AppendCommand(menu, TrayMenuCommand.Exit, "退出 AI Quota Bar");
+            AppendCommand(menu, TrayMenuCommand.Exit, Lang.Get(AppStrings.TrayExit));
 
             _ = SetMenuDefaultItem(menu, (uint)TrayMenuCommand.OpenQuota, false);
             _ = GetCursorPos(out var point);

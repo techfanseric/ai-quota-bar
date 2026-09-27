@@ -229,13 +229,13 @@ public partial class App : Application
             }
             else
             {
-                _tray?.ShowBalloon("AI Quota Bar", "无法确定安装路径，未能启用开机启动。");
+                _tray?.ShowBalloon("AI Quota Bar", Lang.Get(AppStrings.AutostartUnavailable));
             }
         }
         catch (Exception ex)
         {
             Log($"toggle autostart failed: {ex}");
-            _tray?.ShowBalloon("AI Quota Bar", $"开机启动设置失败：{ex.Message}");
+            _tray?.ShowBalloon("AI Quota Bar", Lang.Format(AppStrings.AutostartSaveFailedFormat, ex.Message));
         }
     }
 
@@ -250,7 +250,7 @@ public partial class App : Application
         catch (Exception ex)
         {
             Log($"save theme preference failed: {ex}");
-            _tray?.ShowBalloon("AI Quota Bar", $"主题偏好保存失败：{ex.Message}");
+            _tray?.ShowBalloon("AI Quota Bar", Lang.Format(AppStrings.ThemeSaveFailedFormat, ex.Message));
         }
     }
 
