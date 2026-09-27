@@ -40,6 +40,7 @@ public sealed class ThemeService : IDisposable
 {
     private const string PersonalizeKeyPath = @"Software\Microsoft\Windows\CurrentVersion\Themes\Personalize";
     private const string AppsUseLightThemeValue = "AppsUseLightTheme";
+    private const string SystemUsesLightThemeValue = "SystemUsesLightTheme";
     private const string DwmKeyPath = @"Software\Microsoft\Windows\DWM";
     private const string ColorizationColorValue = "ColorizationColor";
     private const int RegNotifyChangeLastSet = 0x00000001;
@@ -49,6 +50,9 @@ public sealed class ThemeService : IDisposable
 
     /// <summary>跟随模式下系统亮暗切换的即时通知（UI 线程回调；字典已换完）。</summary>
     public event Action? ThemeChanged;
+
+    /// <summary>任务栏等系统表面明暗变化；托盘图标用它重绘，独立于应用手动主题。</summary>
+    public event Action? SystemAppearanceChanged;
 
     public static ThemeService Instance { get; private set; } = new();
 
@@ -103,6 +107,24 @@ public sealed class ThemeService : IDisposable
         {
             // 注册表读失败（权限/特殊会话）：不崩常驻应用，保守按暗色（当前视觉基线）。
             App.Log($"theme: read system theme failed: {ex.Message}");
+            return EffectiveTheme.Dark;
+        }
+    }
+
+    /// <summary>读取任务栏/开始菜单主题。它与 AppsUseLightTheme 可由用户分别设置，
+    /// 因此托盘图标不能复用应用 flyout 的实际主题。</summary>
+    public static EffectiveTheme ReadSystemSurfaceTheme()
+    {
+        try
+        {
+            using var key = Registry.CurrentUser.OpenSubKey(PersonalizeKeyPath);
+            return key?.GetValue(SystemUsesLightThemeValue) is int value && value == 0
+                ? EffectiveTheme.Dark
+                : EffectiveTheme.Light;
+        }
+        catch (Exception ex)
+        {
+            App.Log($"theme: read system surface theme failed: {ex.Message}");
             return EffectiveTheme.Dark;
         }
     }
@@ -237,6 +259,8 @@ public sealed class ThemeService : IDisposable
                     {
                         ApplyEffective();
                     }
+
+                    SystemAppearanceChanged?.Invoke();
                 });
             }
         }

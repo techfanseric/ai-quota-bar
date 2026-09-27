@@ -111,6 +111,7 @@ public partial class App : Application
         _tray.RightClick += ShowTrayMenu;
         _tray.RunIconLoop();
         ThemeService.Instance.ThemeChanged += RefreshTrayIconForTheme;
+        ThemeService.Instance.SystemAppearanceChanged += RefreshTrayIconForTheme;
 
         StartActivationListener();
         Log("tray icon running, starting first refresh");
