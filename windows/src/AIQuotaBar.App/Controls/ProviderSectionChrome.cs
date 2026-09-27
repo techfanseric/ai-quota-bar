@@ -17,7 +17,8 @@ namespace AIQuotaBar.App.Controls;
 /// <summary>provider 节装饰器：包卡片、头部插环形图、区块标题调 Secondary 色。</summary>
 public static partial class ProviderSectionChrome
 {
-    /// <summary>RenderProvider 头部状态文本的现行格式（"82.0% 剩余"），未登记状态时的兜底解析源。</summary>
+    /// <summary>RenderProvider 头部状态文本的现行格式（AppStrings.PercentLeftFormat：
+    /// zh "82.0% 剩余" / en "82.0% left"，两语言同为数字前缀），未登记状态时的兜底解析源。</summary>
     [GeneratedRegex(@"^(\d+(?:\.\d+)?)% ")]
     private static partial Regex RemainingPercentPrefix();
 
@@ -112,7 +113,8 @@ public static partial class ProviderSectionChrome
             return usage.PercentageRemaining();
         }
 
-        // 兜底路径：状态文本 "82.0% 剩余" 前缀解析（防御调用方未登记的新 provider 节）。
+        // 兜底路径：状态文本数字前缀解析（zh "82.0% 剩余" / en "82.0% left" 同构；
+        // 防御调用方未登记的新 provider 节）。
         var match = RemainingPercentPrefix().Match(blocks[^1].Text);
         return match.Success && double.TryParse(match.Groups[1].ValueSpan, System.Globalization.NumberStyles.Float,
             System.Globalization.CultureInfo.InvariantCulture, out var parsed)
