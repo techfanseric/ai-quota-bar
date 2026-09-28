@@ -4,7 +4,9 @@ import SwiftUI
 struct CodexProtectionPopoverView: View {
     @Bindable var coordinator: CodexSleepProtectionCoordinator
     @Bindable var closedLidModeManager: ClosedLidModeManager
+    var stepAwayDimController = StepAwayDimController()
     let language: AppLanguage
+    var onDimDismiss: (() -> Void)?
 
     var body: some View {
         VStack(spacing: 0) {
@@ -35,9 +37,14 @@ struct CodexProtectionPopoverView: View {
                 .padding(.leading, 42)
 
             closedLidRow
+
+            Divider()
+                .padding(.leading, 42)
+
+            stepAwayRow
         }
         .frame(maxWidth: .infinity)
-        .frame(height: 140)
+        .frame(height: ClashPopoverLayout.protectionSectionHeight)
         .background(Color(nsColor: .windowBackgroundColor))
     }
 
@@ -142,6 +149,55 @@ struct CodexProtectionPopoverView: View {
         }
         .padding(.horizontal, 14)
         .frame(height: 52)
+    }
+
+    private var stepAwayRow: some View {
+        HStack(spacing: 10) {
+            Image(systemName: "eye.slash")
+                .font(.system(size: 13, weight: .medium))
+                .foregroundStyle(stepAwayColor)
+                .frame(width: 18)
+
+            VStack(alignment: .leading, spacing: 2) {
+                Text(language.stepAwayRowTitle())
+                    .font(.system(size: 10, weight: .medium))
+                Text(stepAwayStatusText)
+                    .font(.system(size: 9))
+                    .foregroundStyle(.tertiary)
+                    .lineLimit(1)
+                    .help(language.stepAwayActiveStatus())
+            }
+
+            Spacer(minLength: 8)
+
+            Button(stepAwayActionTitle) {
+                if stepAwayDimController.isActive {
+                    stepAwayDimController.restore(reason: "menu")
+                } else {
+                    stepAwayDimController.dim()
+                    onDimDismiss?()
+                }
+            }
+            .controlSize(.mini)
+        }
+        .padding(.horizontal, 14)
+        .frame(height: 52)
+    }
+
+    private var stepAwayStatusText: String {
+        stepAwayDimController.isActive || stepAwayDimController.isTransitioning
+            ? language.stepAwayActiveStatus()
+            : language.stepAwayIdleStatus()
+    }
+
+    private var stepAwayActionTitle: String {
+        stepAwayDimController.isActive || stepAwayDimController.isTransitioning
+            ? language.stepAwayRestoreActionTitle()
+            : language.stepAwayDimActionTitle()
+    }
+
+    private var stepAwayColor: Color {
+        stepAwayDimController.isActive ? .green : .secondary
     }
 
     private var protectionStatusText: String {

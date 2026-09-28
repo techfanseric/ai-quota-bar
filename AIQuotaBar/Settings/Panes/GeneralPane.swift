@@ -5,6 +5,7 @@ import SwiftUI
 @MainActor
 struct GeneralPane: View {
     @Bindable var viewModel: UsageViewModel
+    @Bindable var stepAwayPreferences: StepAwayPreferences = .shared
 
     private var language: AppLanguage { viewModel.appLanguage }
 
@@ -12,6 +13,8 @@ struct GeneralPane: View {
         ScrollView(.vertical, showsIndicators: true) {
             VStack(alignment: .leading, spacing: 16) {
                 systemSection
+                Divider()
+                stepAwaySection
                 Divider()
                 menuBarSection
                 Divider()
@@ -22,6 +25,34 @@ struct GeneralPane: View {
             .frame(maxWidth: .infinity, alignment: .leading)
             .padding(.horizontal, 20)
             .padding(.vertical, 12)
+        }
+    }
+
+    private var stepAwaySection: some View {
+        SettingsSection(
+            title: language.stepAwaySectionTitle(),
+            contentSpacing: 12
+        ) {
+            VStack(alignment: .leading, spacing: 8) {
+                HStack(spacing: 10) {
+                    Text(language.stepAwayShadeOpacityLabel())
+                        .font(.body)
+                    Spacer()
+                    Text(language.stepAwayShadeOpacityValue(
+                        stepAwayPreferences.shadeOpacityPercent))
+                        .font(.footnote.monospacedDigit())
+                        .foregroundStyle(.secondary)
+                }
+                Slider(
+                    value: $stepAwayPreferences.shadeOpacityPercent,
+                    in: StepAwayPreferences.opacityRange,
+                    step: 5
+                )
+                Text(language.stepAwayShadeOpacityDescription())
+                    .font(.footnote)
+                    .foregroundStyle(.tertiary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
         }
     }
 

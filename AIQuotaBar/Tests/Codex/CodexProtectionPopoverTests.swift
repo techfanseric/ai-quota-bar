@@ -35,7 +35,7 @@ final class CodexProtectionPopoverTests: XCTestCase {
 
         let size = NSSize(
             width: ClashPopoverLayout.width,
-            height: 140)
+            height: ClashPopoverLayout.protectionSectionHeight)
         let hostingView = NSHostingView(
             rootView: CodexProtectionPopoverView(
                 coordinator: coordinator,
@@ -66,7 +66,10 @@ final class CodexProtectionPopoverTests: XCTestCase {
             hostingView.fittingSize.width,
             ClashPopoverLayout.width,
             accuracy: 1)
-        XCTAssertEqual(hostingView.fittingSize.height, 140, accuracy: 1)
+        XCTAssertEqual(
+            hostingView.fittingSize.height,
+            ClashPopoverLayout.protectionSectionHeight,
+            accuracy: 1)
         XCTAssertGreaterThan(png.count, 8_000)
     }
 }

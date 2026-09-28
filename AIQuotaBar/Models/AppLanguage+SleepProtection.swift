@@ -404,4 +404,81 @@ extension AppLanguage {
         case .simplifiedChinese: return "授权"
         }
     }
+
+    // MARK: - Step-away dimming
+
+    func stepAwayRowTitle() -> String {
+        switch self {
+        case .english: return "Step away · dim every display"
+        case .simplifiedChinese: return "暂时离开 · 调暗所有屏幕"
+        }
+    }
+
+    func stepAwayIdleStatus() -> String {
+        switch self {
+        case .english:
+            return "Dim all screens at once for privacy while away."
+        case .simplifiedChinese:
+            return "一键调暗全部屏幕，离开时保护隐私又节能。"
+        }
+    }
+
+    func stepAwayActiveStatus() -> String {
+        switch self {
+        case .english:
+            return "Dimmed · move the pointer or press any key to restore."
+        case .simplifiedChinese:
+            return "已调暗 · 晃动鼠标或按任意键恢复。"
+        }
+    }
+
+    func stepAwayDimActionTitle() -> String {
+        switch self {
+        case .english: return "Dim"
+        case .simplifiedChinese: return "调暗"
+        }
+    }
+
+    func stepAwayRestoreActionTitle() -> String {
+        switch self {
+        case .english: return "Restore"
+        case .simplifiedChinese: return "恢复"
+        }
+    }
+
+    func stepAwaySectionTitle() -> String {
+        switch self {
+        case .english: return "Step away (dim all displays)"
+        case .simplifiedChinese: return "暂时离开（调暗所有屏幕）"
+        }
+    }
+
+    func stepAwayShadeOpacityLabel() -> String {
+        switch self {
+        case .english: return "Shade darkness"
+        case .simplifiedChinese: return "遮罩黑度"
+        }
+    }
+
+    func stepAwayShadeOpacityValue(_ percent: Double) -> String {
+        switch self {
+        case .english:
+            return percent >= 100
+                ? "100% · fully black"
+                : String(format: "%.0f%% · faintly visible", percent)
+        case .simplifiedChinese:
+            return percent >= 100
+                ? "100% · 全黑"
+                : String(format: "%.0f%% · 隐约可见", percent)
+        }
+    }
+
+    func stepAwayShadeOpacityDescription() -> String {
+        switch self {
+        case .english:
+            return "100% covers every display with pure black and dims the panels to minimum for energy saving. Below 100% the shade becomes translucent so you can faintly see the content; in that mode the panel brightness is left untouched."
+        case .simplifiedChinese:
+            return "100% 时所有屏幕被纯黑遮罩盖住，并把面板背光压到最低以节能。低于 100% 后遮罩变为半透明，可以隐约看到屏幕内容；此模式下不再调整面板亮度。"
+        }
+    }
 }
