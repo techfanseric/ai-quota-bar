@@ -101,6 +101,11 @@ final class CodexLocalUsageModel {
     private var failures = 0
     private var client: UsageClient?
     private let defaults: UserDefaults
+    private var lastDeliveredPruneAt = Date.distantPast
+    /// Confirmed events are pruned once they are safely beyond the ~35 day
+    /// window the local charts read; the cloud holds the durable copy.
+    private static let deliveredRetentionDays = 40
+    private static let deliveredPruneInterval: TimeInterval = 86_400
     var deviceID: String { CloudSyncSettings.current.deviceID }
     var root: URL {
         URL(fileURLWithPath: ProcessInfo.processInfo.environment["CODEX_HOME"] ?? NSHomeDirectory() + "/.codex", isDirectory: true)
@@ -189,6 +194,7 @@ final class CodexLocalUsageModel {
             sourceLogBytes = result.sourceLogBytes
             files = result.files; issues = result.issues; deferred = result.deferred; incomplete = result.incomplete
             storageStats = try await store.storageStats()
+            await pruneDeliveredHistoryIfDue(store: store)
             lastScan = Date(); error = nil
             if let connection {
                 delivery = try await store.deliveryCounts(binding: connection.binding)
@@ -197,6 +203,22 @@ final class CodexLocalUsageModel {
         } catch { self.error = error.localizedDescription }
         guard reportingEnabled, !syncing, Date() >= nextAttempt else { return }
         syncTask = Task { await sync() }
+    }
+    /// Once a day, drop cloud-confirmed events past the retention horizon and
+    /// reclaim the freed pages when the reclaim is worthwhile. Never touches
+    /// pending/rejected/local-only rows, and never blocks refresh on failure.
+    private func pruneDeliveredHistoryIfDue(store: UsageStore) async {
+        guard Date().timeIntervalSince(lastDeliveredPruneAt)
+            >= Self.deliveredPruneInterval else { return }
+        lastDeliveredPruneAt = Date()
+        let cutoff = Calendar.current.date(
+            byAdding: .day,
+            value: -Self.deliveredRetentionDays,
+            to: Date())!
+        do {
+            try await store.pruneDelivered(olderThan: cutoff)
+            try await store.reclaimFreePagesIfWorthwhile()
+        } catch { /* Pruning is housekeeping; a failure must not surface as a scan error. */ }
     }
     @discardableResult func connect(endpoint: String, token: String, includeHistory: Bool) async -> Bool {
         guard !syncing else { return false }
