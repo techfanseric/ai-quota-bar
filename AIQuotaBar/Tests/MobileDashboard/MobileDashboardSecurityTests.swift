@@ -541,6 +541,7 @@ final class MobileDashboardSecurityTests: XCTestCase {
         defer { defaults.removePersistentDomain(forName: suiteName) }
         let missingHelper = FileManager.default.temporaryDirectory
             .appendingPathComponent(UUID().uuidString)
+        let now = Date(timeIntervalSince1970: 90_000)
         let coordinator = CodexSleepProtectionCoordinator(
             defaults: defaults,
             hookInstaller: CodexHookInstaller(
@@ -549,12 +550,11 @@ final class MobileDashboardSecurityTests: XCTestCase {
             localActivityProvider: nil,
             closedLidModeManager: ClosedLidModeManager(
                 defaults: defaults,
-                bundle: .main))
+                bundle: .main),
+            nowProvider: { now })
         coordinator.start()
         defer { coordinator.stop() }
         coordinator.setProtectedProviders([.codex, .kimi])
-
-        let now = Date(timeIntervalSince1970: 90_000)
         coordinator.receiveKimiSnapshot(KimiLocalActivitySnapshot(
             activeSessionIDs: ["kimi:test-session"],
             lastEventAt: now))

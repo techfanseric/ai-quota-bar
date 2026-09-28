@@ -8,6 +8,7 @@ final class ClashRoutePopoverController: NSObject {
     private let sleepProtectionCoordinator: CodexSleepProtectionCoordinator
     private let displayStore: ClashPanelDisplayStore
     private let accountStore: CodexAuthAccountStore
+    private let stepAwayDimController: StepAwayDimController
     private let panel: MenuBarPanel
     private let hostingView:
         NSHostingView<MenuBarPanelSurface<ClashPopoverView>>
@@ -18,14 +19,17 @@ final class ClashRoutePopoverController: NSObject {
         connectionViewModel: ClashConnectionViewModel,
         sleepProtectionCoordinator: CodexSleepProtectionCoordinator,
         displayStore: ClashPanelDisplayStore,
-        accountStore: CodexAuthAccountStore
+        accountStore: CodexAuthAccountStore,
+        stepAwayDimController: StepAwayDimController
     ) {
         self.routeViewModel = routeViewModel
         self.connectionViewModel = connectionViewModel
         self.sleepProtectionCoordinator = sleepProtectionCoordinator
         self.displayStore = displayStore
         self.accountStore = accountStore
-        panel = MenuBarPanel()
+        self.stepAwayDimController = stepAwayDimController
+        let popoverPanel = MenuBarPanel()
+        panel = popoverPanel
         hostingView = NSHostingView(
             rootView: MenuBarPanelSurface {
                 ClashPopoverView(
@@ -34,7 +38,11 @@ final class ClashRoutePopoverController: NSObject {
                     sleepProtectionCoordinator:
                         sleepProtectionCoordinator,
                     displayStore: displayStore,
-                    accountStore: accountStore)
+                    accountStore: accountStore,
+                    stepAwayDimController: stepAwayDimController,
+                    onDimDismiss: { [weak popoverPanel] in
+                        popoverPanel?.dismiss()
+                    })
             })
         super.init()
 
@@ -88,6 +96,7 @@ final class ClashRoutePopoverController: NSObject {
         panel.appearance = appearance
         hostingView.appearance = appearance
         accountStore.beginDisplayRefresh()
+        displayStore.panelMaximumHeight = placement.maximumHeight
         panel.present(
             relativeTo: button,
             placement: placement,
@@ -118,7 +127,8 @@ final class ClashRoutePopoverController: NSObject {
                     stashCount: accountStore.stashedAccounts.count,
                     legacyCount: accountStore.legacyBackupFileNames.count,
                     hasPending: accountStore.pendingRequest != nil,
-                    hasStatus: accountStore.statusMessage != nil)))
+                    hasStatus: accountStore.statusMessage != nil),
+                maximumHeight: displayStore.panelMaximumHeight))
     }
 
     /// 展开收起变化时：重算面板高度；收起/展开 connections 增删 live 轮询；
@@ -142,6 +152,8 @@ final class ClashRoutePopoverController: NSObject {
         guard let button = anchoredButton,
               let placement = MenuBarPanelPlacement.resolve(
                 relativeTo: button) else { return }
+        // 屏幕可能变了（外接显示器插拔），重新测定可用高度。
+        displayStore.panelMaximumHeight = placement.maximumHeight
         let size = currentContentSize()
         panel.setFrame(
             placement.panelFrame(contentSize: size),

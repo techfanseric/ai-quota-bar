@@ -38,6 +38,8 @@ struct ClashConnectionPopoverView: View {
 
                         Text(language.clashConnectionsTitle())
                             .font(.system(size: 13, weight: .semibold))
+                            .lineLimit(1)
+                            .minimumScaleFactor(0.85)
                     }
                     .contentShape(Rectangle())
                 }
@@ -370,7 +372,7 @@ struct ClashConnectionPopoverView: View {
                 .lineLimit(1)
         }
         .padding(.horizontal, 14)
-        .frame(height: 29)
+        .frame(height: ClashPopoverLayout.connectionsFooterHeight)
         .overlay(alignment: .top) {
             Divider()
         }

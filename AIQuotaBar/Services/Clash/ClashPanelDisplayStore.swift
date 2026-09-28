@@ -19,6 +19,11 @@ final class ClashPanelDisplayStore {
 
     private(set) var collapsedSections: Set<ClashPanelSection>
 
+    /// 面板可用的最大高度（锚点所在屏幕可用高度的 90%）。
+    /// 由 ClashRoutePopoverController 在展示 / 重排时写入，不持久化；
+    /// nil 表示尚未测定（预览、测试），按内容自然高度求解。
+    var panelMaximumHeight: CGFloat?
+
     private let defaults: UserDefaults
 
     init(defaults: UserDefaults = .standard) {

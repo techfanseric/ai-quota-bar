@@ -64,6 +64,48 @@ final class ClashPanelDisplayStoreTests: XCTestCase {
         XCTAssertTrue(fixture.store.isConnectionsCollapsed)
     }
 
+    func testPanelHeightGrowsWithAccountsAndKeepsConnectionsWhole() {
+        let connectionsMinimum = ClashPopoverLayout.connectionsSectionMinimumHeight
+        let fixed = ClashPopoverLayout.protectionSectionHeight
+            + ClashPopoverLayout.routeSectionHeight
+            + ClashPopoverLayout.dividerAllowance * 3
+
+        // 全展开、无屏幕约束：面板随账号内容增长，
+        // connections 不再被压到「chrome + 列表最小高」以下。
+        XCTAssertEqual(
+            ClashPopoverLayout.panelHeight(
+                routesCollapsed: false,
+                connectionsCollapsed: false,
+                accountsCollapsed: false,
+                accountsContentHeight: 115),
+            fixed + 115 + connectionsMinimum)
+        XCTAssertEqual(
+            ClashPopoverLayout.panelHeight(
+                routesCollapsed: false,
+                connectionsCollapsed: false,
+                accountsCollapsed: false,
+                accountsContentHeight: 467),
+            fixed + 467 + connectionsMinimum)
+        // 基准高 850 只是下限参考：内容超出基准时面板变高。
+        XCTAssertGreaterThan(
+            ClashPopoverLayout.panelHeight(
+                routesCollapsed: false,
+                connectionsCollapsed: false,
+                accountsCollapsed: false,
+                accountsContentHeight: 115),
+            ClashPopoverLayout.height)
+    }
+
+    func testPanelHeightKeepsBaselineWhenRoutesCollapsed() {
+        // 路由收起时 850 基线内放得下：connections 拿残余（旧弹性区行为保留）。
+        XCTAssertEqual(
+            ClashPopoverLayout.panelHeight(
+                routesCollapsed: true,
+                connectionsCollapsed: false,
+                accountsCollapsed: true),
+            ClashPopoverLayout.height)
+    }
+
     func testPanelHeightCollapsesAndRestores() {
         let collapsedHeight = ClashPopoverLayout.collapsedSectionHeight
         let protection = ClashPopoverLayout.protectionSectionHeight
@@ -71,81 +113,91 @@ final class ClashPanelDisplayStoreTests: XCTestCase {
         let dividers = ClashPopoverLayout.dividerAllowance * 3
         let defaultAccountsHeight: CGFloat = 100
 
-        // 全部展开：connections 吃掉 850 总高的剩余空间。
         XCTAssertEqual(
             ClashPopoverLayout.panelHeight(
                 routesCollapsed: false,
-                connectionsCollapsed: false),
-            ClashPopoverLayout.height)
-        // connections 是弹性区：其余分区展开到上限时面板仍保持 850。
+                connectionsCollapsed: true),
+            protection + defaultAccountsHeight + routes
+                + collapsedHeight + dividers)
+
+        XCTAssertEqual(
+            ClashPopoverLayout.panelHeight(
+                routesCollapsed: true,
+                connectionsCollapsed: true),
+            protection + defaultAccountsHeight
+                + collapsedHeight * 2 + dividers)
+    }
+
+    func testScreenCapCompressesAccountsBeforeConnections() {
+        // 屏幕 1000：账号区先让位（下限 80），connections 保住 chrome + 列表。
+        let sections = ClashPopoverLayout.resolveSectionHeights(
+            routesCollapsed: false,
+            connectionsCollapsed: false,
+            accountsCollapsed: false,
+            accountsContentHeight: 467,
+            maximumHeight: 1000)
+        XCTAssertEqual(sections.accounts, 111)
+        XCTAssertEqual(
+            sections.connections,
+            ClashPopoverLayout.connectionsSectionMinimumHeight)
         XCTAssertEqual(
             ClashPopoverLayout.panelHeight(
                 routesCollapsed: false,
                 connectionsCollapsed: false,
                 accountsCollapsed: false,
-                accountsContentHeight: 250),
-            ClashPopoverLayout.height)
+                accountsContentHeight: 467,
+                maximumHeight: 1000),
+            1000)
+    }
 
+    func testScreenCapCompressionKeepsConnectionsChromeWhole() {
+        // 中等屏幕（850）：账号压到 80 仍放不下 → 连接列表让位（下限 0）
+        // → 账号再压到只剩标题行。chrome 完整，总高恰好贴合屏幕上限。
+        let sections = ClashPopoverLayout.resolveSectionHeights(
+            routesCollapsed: false,
+            connectionsCollapsed: false,
+            accountsCollapsed: false,
+            accountsContentHeight: 467,
+            maximumHeight: 850)
+        XCTAssertEqual(sections.accounts, 51)
         XCTAssertEqual(
-            ClashPopoverLayout.panelHeight(
-                routesCollapsed: true,
-                connectionsCollapsed: false),
-            ClashPopoverLayout.height)
-
-        let expectedConnectionsCollapsed = protection
-            + defaultAccountsHeight
-            + routes
-            + collapsedHeight
-            + dividers
-        XCTAssertEqual(
-            ClashPopoverLayout.panelHeight(
-                routesCollapsed: false,
-                connectionsCollapsed: true),
-            expectedConnectionsCollapsed)
-
-        let expectedBothCollapsed = protection
-            + defaultAccountsHeight
-            + collapsedHeight * 2
-            + dividers
-        XCTAssertEqual(
-            ClashPopoverLayout.panelHeight(
-                routesCollapsed: true,
-                connectionsCollapsed: true),
-            expectedBothCollapsed)
-
-        // 账号分区收起后回到与旧两分区布局等价的高度。
+            sections.connections,
+            ClashPopoverLayout.connectionsChromeHeight)
         XCTAssertEqual(
             ClashPopoverLayout.panelHeight(
                 routesCollapsed: false,
                 connectionsCollapsed: false,
-                accountsCollapsed: true),
-            ClashPopoverLayout.height)
+                accountsCollapsed: false,
+                accountsContentHeight: 467,
+                maximumHeight: 850),
+            850)
     }
 
-    func testAccountsContentHeightCountsRowsAndClamps() {
+    func testScreenCapAlsoAppliesWhenConnectionsCollapsed() {
+        // connections 收起时账号分区同样受屏幕约束（不再封顶后尤其重要）。
+        XCTAssertEqual(
+            ClashPopoverLayout.panelHeight(
+                routesCollapsed: false,
+                connectionsCollapsed: true,
+                accountsCollapsed: false,
+                accountsContentHeight: 995,
+                maximumHeight: 700),
+            700)
+    }
+
+    func testAccountsContentHeightCountsRowsWithoutUpperCap() {
         // 空状态：chrome + 当前账号行 + 登录入口。
         XCTAssertEqual(
             ClashPopoverLayout.accountsContentHeight(
                 stashCount: 0, legacyCount: 0, hasPending: false, hasStatus: false),
             ClashPopoverLayout.accountsSectionChromeHeight
                 + ClashPopoverLayout.accountRowHeight + 32)
-        // chrome + 当前行 + 备份行×2 + 旧备份 30 + 横幅 28 + 登录 32 + 状态 20，
-        // 超出上限时收敛到最大高度（内部滚动）。
-        let naturalHeight: CGFloat = ClashPopoverLayout.accountsSectionChromeHeight
-            + ClashPopoverLayout.accountRowHeight * 3 + 30 + 28 + 32 + 20
+        // 不再封顶：20 个备份按行数自然增长，挤压由屏幕钳制统一处理。
         XCTAssertEqual(
             ClashPopoverLayout.accountsContentHeight(
-                stashCount: 2, legacyCount: 1, hasPending: true, hasStatus: true),
-            min(naturalHeight, ClashPopoverLayout.accountsSectionMaximumHeight))
-        // 上限抬高到 280 后，四个账号的常规现场无需滚动即可完整显示。
-        XCTAssertGreaterThanOrEqual(
-            ClashPopoverLayout.accountsSectionMaximumHeight,
-            ClashPopoverLayout.accountsSectionChromeHeight
-                + ClashPopoverLayout.accountRowHeight * 4 + 30 + 32)
-        XCTAssertLessThanOrEqual(
-            ClashPopoverLayout.accountsContentHeight(
                 stashCount: 20, legacyCount: 0, hasPending: false, hasStatus: false),
-            ClashPopoverLayout.accountsSectionMaximumHeight)
+            ClashPopoverLayout.accountsSectionChromeHeight
+                + ClashPopoverLayout.accountRowHeight * 21 + 32)
     }
 
     // MARK: - Fixtures
