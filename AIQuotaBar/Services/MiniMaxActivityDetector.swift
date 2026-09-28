@@ -22,20 +22,37 @@ final class MiniMaxActivityDetector: ProviderLocalActivityProviding,
     /// midnight, without walking the whole history.
     static let scannedDayFolderLimit = 2
 
+    /// Thousands of finished `bg_*` folders accumulate under the root and
+    /// never go stale on disk, so probing every one of them each pass turns
+    /// into tens of thousands of `stat` syscalls per minute. Folders whose
+    /// last known activity and own mtime are both outside the freshness
+    /// window are skipped entirely; a periodic full sweep re-checks
+    /// everything so a long-paused task that resumes writing in place is
+    /// picked up again within this interval at the latest.
+    static let defaultFullBackgroundSweepInterval: TimeInterval = 300
+
     let sessionsRootURL: URL
     let backgroundTasksRootURL: URL
     let freshnessWindow: TimeInterval
+    let fullBackgroundSweepInterval: TimeInterval
+
+    /// Newest known activity time per background-task directory.
+    private var backgroundActivityCache: [String: Date] = [:]
+    private var lastFullBackgroundSweep = Date.distantPast
 
     init(
         sessionsRootURL: URL = MiniMaxActivityDetector.defaultSessionsRootURL(),
         backgroundTasksRootURL: URL = MiniMaxActivityDetector
             .defaultBackgroundTasksRootURL(),
         freshnessWindow: TimeInterval = MiniMaxActivityDetector
-            .defaultFreshnessWindow
+            .defaultFreshnessWindow,
+        fullBackgroundSweepInterval: TimeInterval = MiniMaxActivityDetector
+            .defaultFullBackgroundSweepInterval
     ) {
         self.sessionsRootURL = sessionsRootURL
         self.backgroundTasksRootURL = backgroundTasksRootURL
         self.freshnessWindow = freshnessWindow
+        self.fullBackgroundSweepInterval = fullBackgroundSweepInterval
     }
 
     static func defaultHomeURL(
@@ -108,14 +125,34 @@ final class MiniMaxActivityDetector: ProviderLocalActivityProviding,
             record("minimax:cli:\(sessionID)", activityAt)
         }
 
+        let fullSweep = now.timeIntervalSince(lastFullBackgroundSweep)
+            >= fullBackgroundSweepInterval
+        if fullSweep { lastFullBackgroundSweep = now }
+        var seenBackgroundPaths = Set<String>()
         for taskDirectory in backgroundTaskDirectories() {
+            seenBackgroundPaths.insert(taskDirectory.url.path)
+            if !fullSweep,
+               let knownActivity = backgroundActivityCache[
+                taskDirectory.url.path],
+               knownActivity < cutoff,
+               (taskDirectory.modifiedAt ?? .distantPast) < cutoff {
+                // Known-stale folder with no recent structural change: its
+                // probe files cannot have become fresh without a directory
+                // event, so the two per-folder stats buy nothing. The full
+                // sweep bounds the miss window for in-place writes.
+                continue
+            }
             guard let activityAt = newestBackgroundTaskModification(
                 in: taskDirectory.url,
                 directoryModifiedAt: taskDirectory.modifiedAt) else {
                 continue
             }
+            backgroundActivityCache[taskDirectory.url.path] = activityAt
             guard activityAt >= cutoff, activityAt <= now else { continue }
             record("minimax:bg:\(taskDirectory.url.lastPathComponent)", activityAt)
+        }
+        backgroundActivityCache = backgroundActivityCache.filter {
+            seenBackgroundPaths.contains($0.key)
         }
 
         return ProviderLocalActivitySnapshot(
