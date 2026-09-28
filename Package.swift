@@ -37,7 +37,13 @@ let package = Package(
                 .process("Resources")
             ],
             linkerSettings: [
-                .linkedLibrary("sqlite3")
+                .linkedLibrary("sqlite3"),
+                // CoreDisplay 只存在于 dyld 共享缓存（磁盘上没有二进制），
+                // DDC 显示器信息入口点必须链接时绑定私有框架。
+                .unsafeFlags([
+                    "-F", "/System/Library/PrivateFrameworks",
+                    "-weak_framework", "CoreDisplay",
+                ]),
             ]
         ),
         .executableTarget(
@@ -62,7 +68,11 @@ let package = Package(
             ],
             path: "AIQuotaBar/Tests",
             linkerSettings: [
-                .linkedLibrary("sqlite3")
+                .linkedLibrary("sqlite3"),
+                .unsafeFlags([
+                    "-F", "/System/Library/PrivateFrameworks",
+                    "-weak_framework", "CoreDisplay",
+                ]),
             ]
         )
     ]

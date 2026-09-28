@@ -80,6 +80,7 @@ final class ClosedLidModeManager {
     var isEnabled: Bool {
         didSet {
             defaults.set(isEnabled, forKey: Self.enabledKey)
+            refreshBrightnessArming()
             reconcile(allowInstallation: isEnabled)
         }
     }
@@ -100,6 +101,7 @@ final class ClosedLidModeManager {
 
     private let defaults: UserDefaults
     private let helperInstaller: PrivilegedSleepHelperInstaller
+    let closedLidBrightnessController: ClosedLidBrightnessController
     private let leaseID = UUID().uuidString
     private var connection: NSXPCConnection?
     private var heartbeatTimer: Timer?
@@ -115,11 +117,14 @@ final class ClosedLidModeManager {
     init(
         defaults: UserDefaults = .standard,
         bundle: Bundle = .main,
-        helperInstaller: PrivilegedSleepHelperInstaller? = nil
+        helperInstaller: PrivilegedSleepHelperInstaller? = nil,
+        closedLidBrightnessController: ClosedLidBrightnessController? = nil
     ) {
         self.defaults = defaults
         self.helperInstaller = helperInstaller
             ?? PrivilegedSleepHelperInstaller(bundle: bundle)
+        self.closedLidBrightnessController = closedLidBrightnessController
+            ?? ClosedLidBrightnessController(defaults: defaults)
         if defaults.object(forKey: Self.enabledKey) == nil {
             isEnabled = false
         } else {
@@ -130,6 +135,7 @@ final class ClosedLidModeManager {
     func start() {
         guard !hasStarted else { return }
         hasStarted = true
+        closedLidBrightnessController.recoverPendingRestore()
         heartbeatTimer = Timer.scheduledTimer(
             withTimeInterval: Self.heartbeatInterval,
             repeats: true
@@ -146,6 +152,7 @@ final class ClosedLidModeManager {
         hasStarted = false
         heartbeatTimer?.invalidate()
         heartbeatTimer = nil
+        closedLidBrightnessController.stop()
         releaseLease()
         invalidateConnection()
         status = .disabled
@@ -157,7 +164,15 @@ final class ClosedLidModeManager {
         if !active {
             maximumDurationReachedForCurrentTask = false
         }
+        refreshBrightnessArming()
         reconcile(allowInstallation: false)
+    }
+
+    /// The built-in display is dimmed only while closed-lid protection is
+    /// enabled and a task is actually keeping the machine awake; the lid
+    /// state itself is polled by the controller.
+    private func refreshBrightnessArming() {
+        closedLidBrightnessController.setArmed(isEnabled && isTaskActive)
     }
 
     func retryRegistration() {
