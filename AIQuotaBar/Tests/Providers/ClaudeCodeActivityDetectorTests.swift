@@ -72,6 +72,23 @@ final class ClaudeCodeActivityDetectorTests: XCTestCase {
             ["glm:claude:session-switched"])
     }
 
+    func testSwitchingBackToOfficialModelClearsAttribution() throws {
+        let fixture = try makeFixture()
+        // The session ran on MiniMax, then the user switched back to an
+        // official Anthropic model: the newest assistant message must win,
+        // so the old attribution no longer counts the session.
+        try fixture.writeTranscript(
+            project: "-Users-ericyim-project",
+            sessionID: "session-switched-back",
+            modifiedAt: now - 10,
+            lines: [
+                #"{"type":"assistant","message":{"model":"MiniMax-M3"}}"#,
+                #"{"type":"assistant","message":{"model":"claude-sonnet-4-5"}}"#,
+            ])
+
+        XCTAssertEqual(fixture.detector.detectSnapshot(now: now), .empty)
+    }
+
     func testQuietTranscriptsAreIgnored() throws {
         let fixture = try makeFixture()
         try fixture.writeTranscript(

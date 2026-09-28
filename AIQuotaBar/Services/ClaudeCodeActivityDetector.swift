@@ -96,6 +96,12 @@ final class ClaudeCodeActivityDetector: ProviderLocalActivityProviding,
         return nil
     }
 
+    /// Attribution follows the *newest* assistant message in the transcript
+    /// tail. Taking the newest attributable model instead would stick: after
+    /// the user switches the session back to an official Anthropic model, the
+    /// old GLM/MiniMax attribution kept counting the session for the whole
+    /// freshness window.
+
     private func projectDirectories() -> [URL] {
         guard let entries = try? FileManager.default.contentsOfDirectory(
             at: projectsRootURL,
@@ -173,9 +179,7 @@ final class ClaudeCodeActivityDetector: ProviderLocalActivityProviding,
                   let candidate = message["model"] as? String else {
                 continue
             }
-            if Self.attributedProvider(for: candidate) != nil {
-                model = candidate
-            }
+            model = candidate
         }
         return model
     }
