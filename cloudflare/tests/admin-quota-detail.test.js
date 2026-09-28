@@ -5,7 +5,7 @@ import {readFileSync} from 'node:fs';
 
 test('admin console renders every account quota detail and filters by the selected team',async()=>{
  const elements=new Map();
- const fakeNode=()=>({hidden:false,value:'',disabled:false,textContent:'',colSpan:0,children:[],listeners:{},
+ const fakeNode=()=>({hidden:false,value:'',disabled:false,textContent:'',colSpan:0,children:[],listeners:{},style:{},
   setAttribute(){},append(...nodes){this.children.push(...nodes);},appendChild(node){this.children.push(node);},
   add(child){this.children.push(child);},replaceChildren(){this.children.length=0;},
   addEventListener(event,fn){this.listeners[event]=fn;}});
@@ -48,4 +48,43 @@ test('admin console renders every account quota detail and filters by the select
  element('data-team').listeners.change();
  assert.equal(element('quota-detail-rows').children.length,1);
  assert.equal(element('quota-detail-rows').children[0].children[0].textContent,'Team A');
+ element('data-team').value='';
+ element('data-team').listeners.change();
+ await flush();
+ const cards=()=>element('quota-cards').children;
+ assert.equal(cards().length,2);
+ const worstFirst=cards()[0],urgentSecond=cards()[1];
+ assert.equal(worstFirst.children[0].children[1].textContent,'glm');
+ assert.equal(worstFirst.children[0].children[2].textContent,'未命名');
+ assert.equal(worstFirst.children[0].children[3].textContent,'Team B');
+ assert.equal(worstFirst.children[1].textContent,'1 个模型 · 最低剩余 29%');
+ assert.equal(urgentSecond.children[0].children[1].textContent,'codex');
+ assert.equal(urgentSecond.children[0].children[2].textContent,'a@example.test');
+ assert.equal(urgentSecond.children[1].textContent,'1 个模型 · 最低剩余 60%');
+ assert.equal(worstFirst.children.length,2);
+ assert.equal(urgentSecond.children.length,2);
+ worstFirst.children[0].listeners.click();
+ urgentSecond.children[0].listeners.click();
+ const openCards=()=>element('quota-cards').children;
+ assert.equal(openCards().length,2);
+ assert.equal(openCards()[0].children.length,3);
+ assert.equal(openCards()[1].children.length,3);
+ const glmRow=openCards()[0].children[2].children[0];
+ assert.equal(glmRow.children[0].children[0].textContent,'GLM-4.6');
+ assert.equal(glmRow.children[0].children[1].textContent,'230 / 800');
+ assert.equal(glmRow.children[1].children[0].style.width,'71.25%');
+ assert.equal(glmRow.children[1].children[0].style.background,'#507a59');
+ assert.equal(glmRow.children[2].children[0].textContent,'重置 09-28 00:00 ~ 09-28 05:00');
+ assert.equal(glmRow.children[2].children[2].textContent,'设备 cafe1234…');
+ const codexRow=openCards()[1].children[2].children[0];
+ assert.equal(codexRow.children[0].children[1].textContent,'60%');
+ assert.equal(codexRow.children[1].children[0].style.width,'40%');
+ assert.equal(codexRow.children[2].children[0].textContent,'周 80%');
+ element('qd-view-list').listeners.click();
+ assert.equal(element('quota-cards').hidden,true);
+ assert.equal(element('quota-table-wrap').hidden,false);
+ assert.equal(element('quota-detail-rows').children.length,2);
+ element('qd-view-cards').listeners.click();
+ assert.equal(element('quota-cards').hidden,false);
+ assert.equal(element('quota-cards').children.length,2);
 });
