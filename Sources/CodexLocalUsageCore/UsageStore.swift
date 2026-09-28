@@ -300,6 +300,31 @@ public actor UsageStore {
     public func rejectionReasons(binding: String) throws -> [String: Int] {
         Dictionary(uniqueKeysWithValues: try rows("SELECT COALESCE(delivery_error,'rejected'),COUNT(*) FROM usage_events WHERE binding=? AND delivery='rejected' GROUP BY delivery_error", [binding]).map { ($0[0], Int($0[1]) ?? 0) })
     }
+    /// Deletes cloud-confirmed events older than `cutoff`; the server is
+    /// already the durable copy, and the local charts only read a ~35 day
+    /// window, so old confirmed rows are pure dead weight. Pending, rejected,
+    /// and local-only rows are never touched: they have no cloud copy.
+    /// Returns the number of deleted rows.
+    @discardableResult
+    public func pruneDelivered(olderThan cutoff: Date) throws -> Int {
+        try run("DELETE FROM usage_events WHERE delivery='sent' AND occurred_at<?", [UsageTime.string(cutoff)])
+        return Int(sqlite3_changes(db))
+    }
+
+    /// Runs a full VACUUM only when the freelist alone exceeds
+    /// `minimumFreeBytes`, so routine prunes stay cheap and the rare big
+    /// reclaim actually pays for the rewrite. Returns true when it vacuumed.
+    @discardableResult
+    public func reclaimFreePagesIfWorthwhile(
+        minimumFreeBytes: Int64 = 64 * 1_024 * 1_024
+    ) throws -> Bool {
+        let freePages = Int64(try rows("PRAGMA freelist_count").first?.first ?? "0") ?? 0
+        let pageSize = Int64(try rows("PRAGMA page_size").first?.first ?? "0") ?? 0
+        guard freePages * pageSize >= minimumFreeBytes else { return false }
+        try Self.exec(db, "VACUUM")
+        return true
+    }
+
     public func metadata(_ key: String) throws -> String? { try rows("SELECT value FROM metadata WHERE key=?", [key]).first?.first }
     public func setMetadata(_ key: String, value: String) throws {
         try run("INSERT INTO metadata(key,value) VALUES(?,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value", [key, value])
