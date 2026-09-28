@@ -130,12 +130,14 @@ final class StatusBarController {
             })
     private let clashPanelDisplayStore = ClashPanelDisplayStore()
     private let codexAuthAccountStore = CodexAuthAccountStore.shared
+    let stepAwayDimController = StepAwayDimController()
     private lazy var clashRoutePopoverController = ClashRoutePopoverController(
         routeViewModel: clashRouteViewModel,
         connectionViewModel: clashConnectionViewModel,
         sleepProtectionCoordinator: sleepProtectionCoordinator,
         displayStore: clashPanelDisplayStore,
-        accountStore: codexAuthAccountStore)
+        accountStore: codexAuthAccountStore,
+        stepAwayDimController: stepAwayDimController)
     private let initialStatusItemLength: CGFloat = 110
     private var screenObserverTokens: [NSObjectProtocol] = []
     private var accessibilityDisplayObserver: NSObjectProtocol?
@@ -144,6 +146,12 @@ final class StatusBarController {
     private var recoveryTask: Task<Void, Never>?
     private var compactImageAnimationTask: Task<Void, Never>?
     private let compactAppearanceTrackingView = StatusButtonAppearanceTrackingView()
+    /// Long-pressing the status item with the right button triggers the
+    /// step-away dim directly; a quick right-click still opens the panel.
+    private static let stepAwayHoldThreshold: TimeInterval = 0.6
+    private var rightHoldTimer: Timer?
+    private var rightHoldTriggeredStepAway = false
+    private var rightButtonMonitor: Any?
     private var compactImageFrames: [NSImage] = []
     private var compactRenderState: CompactStatusRenderState?
     private var appearanceUpdateScheduled = false
@@ -155,6 +163,7 @@ final class StatusBarController {
         setupStatusItem()
         setupMenu()
         sleepProtectionCoordinator.start()
+        stepAwayDimController.recoverPendingRestore()
         viewModel.appPresenceMonitor.start()
         viewModel.syncCollapsedProvidersWithRunningApps()
         clashConnectionViewModel.startBackgroundMonitoring()
@@ -210,7 +219,7 @@ final class StatusBarController {
             button.target = self
             button.action = #selector(handleStatusItemClick(_:))
             button.sendAction(on: [.leftMouseUp, .rightMouseUp])
-            button.toolTip = "Left-click for usage. Right-click for task protection, OpenAI routes, and connections."
+            button.toolTip = "Left-click for usage. Right-click for task protection, OpenAI routes, and connections. Hold right-click to step away (dim all screens)."
             statusView.translatesAutoresizingMaskIntoConstraints = true
             statusView.frame = NSRect(x: 0, y: 0, width: initialStatusItemLength, height: 22)
             statusView.autoresizingMask = [.width, .height]
@@ -225,6 +234,7 @@ final class StatusBarController {
             button.addSubview(compactAppearanceTrackingView)
             updateStatusItem()
             installActiveScreenObservers(button: button)
+            installStepAwayHoldMonitor(button: button)
             accessibilityDisplayObserver = NSWorkspace.shared.notificationCenter.addObserver(
                 forName: NSWorkspace.accessibilityDisplayOptionsDidChangeNotification, object: nil, queue: .main
             ) { [weak self] _ in Task { @MainActor in self?.scheduleAppearanceUpdate() } }
@@ -353,6 +363,12 @@ final class StatusBarController {
     @objc private func handleStatusItemClick(_ sender: NSStatusBarButton) {
         AppUsageAnalytics.shared.recordActivity()
         if NSApp.currentEvent?.type == .rightMouseUp {
+            if rightHoldTriggeredStepAway {
+                // The click that ends a step-away long press must not also
+                // open the panel.
+                rightHoldTriggeredStepAway = false
+                return
+            }
             dismissMenu()
             clashRouteViewModel.language = viewModel.appLanguage
             clashConnectionViewModel.language = viewModel.appLanguage
@@ -362,6 +378,48 @@ final class StatusBarController {
         } else {
             clashRoutePopoverController.close()
             showMenu(relativeTo: sender)
+        }
+    }
+
+    /// Watches right-button presses on the status item: holding past the
+    /// threshold dims every display immediately, while a quick right-click
+    /// keeps opening the panel.
+    private func installStepAwayHoldMonitor(button: NSStatusBarButton) {
+        rightButtonMonitor = NSEvent.addLocalMonitorForEvents(
+            matching: [.rightMouseDown, .rightMouseUp]
+        ) { [weak self] event in
+            guard let self,
+                  event.window === button.window,
+                  button.frame.contains(
+                    button.convert(event.locationInWindow, from: nil))
+            else {
+                return event
+            }
+            MainActor.assumeIsolated {
+                switch event.type {
+                case .rightMouseDown:
+                    self.rightHoldTriggeredStepAway = false
+                    self.rightHoldTimer?.invalidate()
+                    let timer = Timer.scheduledTimer(
+                        withTimeInterval: Self.stepAwayHoldThreshold,
+                        repeats: false
+                    ) { [weak self] _ in
+                        Task { @MainActor [weak self] in
+                            guard let self else { return }
+                            self.rightHoldTriggeredStepAway = true
+                            self.stepAwayDimController.dim()
+                        }
+                    }
+                    timer.tolerance = 0.05
+                    self.rightHoldTimer = timer
+                case .rightMouseUp:
+                    self.rightHoldTimer?.invalidate()
+                    self.rightHoldTimer = nil
+                default:
+                    break
+                }
+            }
+            return event
         }
     }
 
@@ -531,6 +589,13 @@ final class StatusBarController {
         compactImageAnimationTask = nil
         recoveryTask?.cancel()
         recoveryTask = nil
+        rightHoldTimer?.invalidate()
+        rightHoldTimer = nil
+        if let rightButtonMonitor {
+            NSEvent.removeMonitor(rightButtonMonitor)
+            self.rightButtonMonitor = nil
+        }
+        stepAwayDimController.stop()
         sleepProtectionCoordinator.stop()
         viewModel.appPresenceMonitor.stop()
         dismissMenu()
