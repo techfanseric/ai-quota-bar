@@ -400,17 +400,32 @@ final class StatusBarController {
                 case .rightMouseDown:
                     self.rightHoldTriggeredStepAway = false
                     self.rightHoldTimer?.invalidate()
-                    let timer = Timer.scheduledTimer(
-                        withTimeInterval: Self.stepAwayHoldThreshold,
+                    let timer = Timer(
+                        timeInterval: Self.stepAwayHoldThreshold,
                         repeats: false
                     ) { [weak self] _ in
                         Task { @MainActor [weak self] in
                             guard let self else { return }
+                            // The button's tracking loop consumes the
+                            // mouse-up event before our monitor sees it,
+                            // so a short click cannot invalidate the timer.
+                            // The physical button state at fire time is
+                            // the authoritative long-press signal.
+                            // NSEventButtonMask only covers pen buttons;
+                            // pressedMouseButtons uses bit 1 for the right
+                            // mouse button.
+                            let rightButtonDown = NSEvent.pressedMouseButtons
+                                & 0b10 != 0
+                            guard rightButtonDown else { return }
                             self.rightHoldTriggeredStepAway = true
                             self.stepAwayDimController.dim()
                         }
                     }
                     timer.tolerance = 0.05
+                    // Tracking runs the run loop in the event-tracking
+                    // mode; a default-mode timer would never fire while the
+                    // button is held.
+                    RunLoop.main.add(timer, in: .common)
                     self.rightHoldTimer = timer
                 case .rightMouseUp:
                     self.rightHoldTimer?.invalidate()
