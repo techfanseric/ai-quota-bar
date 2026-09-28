@@ -1,5 +1,5 @@
 import { listQuotaSamples, listAccountSummaries, listDevices } from './legacy-quota.js';
-import { teamQuota, quotaAccounts, deleteTeamQuota, adminQuotaHeads } from './team-quota.js';
+import { teamQuota, quotaAccounts, deleteTeamQuota, adminQuotaHeads, adminQuotaHistory } from './team-quota.js';
 import { operations, authorized } from "./operations.js";
 import { localUsage, identity } from "./local-usage.js";
 import { teamService } from "./team.js";
@@ -30,6 +30,17 @@ export default {
           const quotaTeamID = url.searchParams.get('team_id');
           if (quotaTeamID && !/^[a-z0-9_-]{1,60}$/.test(quotaTeamID)) return json({error:'invalid_team'},400);
           return json({ok:true,items:await adminQuotaHeads(env,quotaTeamID||null,2000)});
+        }
+        if (url.pathname === '/v1/admin/data/quota-history' && request.method === 'GET') {
+          const historyTeamID = url.searchParams.get('team_id');
+          if (!historyTeamID || !/^[a-z0-9_-]{1,60}$/.test(historyTeamID)) return json({error:'invalid_team'},400);
+          const provider = url.searchParams.get('provider') || '';
+          const account = url.searchParams.get('account') || '';
+          const invalid = value => !value || value.length > 200 || /[\u0000-\u001f]/.test(value);
+          if (invalid(provider) || account.length > 200 || /[\u0000-\u001f]/.test(account)) return json({error:'invalid_account'},400);
+          const hoursRaw = url.searchParams.get('hours') || '168';
+          if (!/^\d{1,3}$/.test(hoursRaw) || Number(hoursRaw) < 1 || Number(hoursRaw) > 168) return json({error:'invalid_hours'},400);
+          return json({ok:true,samples:await adminQuotaHistory(env,historyTeamID,provider,account,Number(hoursRaw))});
         }
         const teamID=url.searchParams.get('team_id');
         if (url.pathname === '/v1/admin/data/accounts' && request.method === 'GET') {
@@ -85,7 +96,7 @@ export default {
         response.headers.set("referrer-policy", "no-referrer");
         return response;
       }
-      if (["GET", "HEAD"].includes(request.method) && ["/admin", "/admin/", "/admin-locale-1.js","/admin-locale-2.js", "/admin.css", "/admin.js"].includes(url.pathname)) {
+      if (["GET", "HEAD"].includes(request.method) && ["/admin", "/admin/", "/admin-locale-1.js","/admin-locale-2.js", "/admin.css", "/admin.js", "/admin-charts.js"].includes(url.pathname)) {
         const assetURL = new URL(request.url);
         if (["/admin", "/admin/"].includes(url.pathname)) assetURL.pathname = "/admin";
         const asset = await env.ASSETS.fetch(new Request(assetURL, request));

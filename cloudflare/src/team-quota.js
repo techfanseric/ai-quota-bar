@@ -28,6 +28,20 @@ export async function adminQuotaHeads(env, teamID, limit) {
   }
   return items;
 }
+// Platform-admin console: raw sample history for one account, ascending, for
+// curves/cycle/hourly charts. Percent-mode uploads fold total to 100.
+export async function adminQuotaHistory(env, teamID, provider, account, hours) {
+  const since = new Date(Date.now() - hours * 3600000).toISOString();
+  const rows = (await env.DB.prepare(`SELECT payload FROM team_quota_samples
+    WHERE team_id=? AND provider=? AND account_key=? AND sampled_at>=?
+    ORDER BY sampled_at ASC LIMIT 5000`).bind(teamID, provider, account, since).all()).results;
+  const samples = [];
+  for (const row of rows) {
+    try { samples.push(JSON.parse(row.payload)); } catch { /* server-written payloads; skip unreadable */ }
+  }
+  return samples;
+}
+
 export function auditStatement(env, teamID, actor, action, target) {
   return env.DB.prepare('INSERT INTO team_data_audit VALUES(?,?,?,?,?,?)')
     .bind(crypto.randomUUID(),teamID,actor,action,target,new Date().toISOString());

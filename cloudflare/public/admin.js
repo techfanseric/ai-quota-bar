@@ -38,6 +38,12 @@ const T={
  resets:EN?'Resets':'重置',
  device:EN?'Device':'设备',
  reported:EN?'Reported':'上报',
+ recentCycles:EN?'Recent cycles':'近期周期',
+ hourlyUse:EN?'Hourly use':'每小时消耗',
+ loadingHistory:EN?'Loading history…':'历史加载中…',
+ historyFailed:EN?'History failed — retry.':'历史加载失败，请重试。',
+ noHistory:EN?'No samples in the last 7 days.':'近 7 天没有上报样本。',
+ paceLabel:delta=>{const value=Math.round(Math.abs(delta));return EN?(value<=2?'On pace':delta>2?`${value}% in deficit`:`${value}% in reserve`):(value<=2?'节奏正常':delta>2?`超额 ${value}%`:`余量 ${value}%`);},
 };
 let loading=false,quotaItems=[];
 async function api(path,options={}) {
@@ -83,7 +89,7 @@ async function loadBusinessData(){
   const select=$('data-team'),previous=select.value;select.replaceChildren(new Option(T.allTeams,''));
   for(const team of teams.teams)select.add(new Option(team.team_name,team.team_id));
   if(teams.teams.some(t=>t.team_id===previous))select.value=previous;
-  quotaItems=quota.items;renderQuotaDetail();renderQuotaCards();
+  quotaItems=quota.items;qd.history.clear();renderQuotaDetail();renderQuotaCards();
   renderTable('legacy-account-rows',legacy.accounts,[r=>r.provider,r=>r.account_name||T.unnamed,r=>r.model_count,r=>r.sample_count]);
   renderTable('audit-rows',audit.items,[r=>r.created_at,r=>r.team_id,r=>r.actor,r=>r.action,r=>r.target]);
   await loadTeamAccounts();
@@ -128,7 +134,7 @@ function renderQuotaDetail(){
 }
 // 直观视图：还原 App 菜单弹窗的账号行——胶囊条按"已用比例"填充，
 // 右侧文字为剩余，阈值配色（≥100% 红、≥80% 或剩余≤20% 橙、有消耗绿、未消耗灰）。
-const qd={view:(()=>{try{return localStorage.getItem('aqb-admin-quota-view')||'cards'}catch{return 'cards'}})(),open:new Set(),accounts:[]};
+const qd={view:(()=>{try{return localStorage.getItem('aqb-admin-quota-view')||'cards'}catch{return 'cards'}})(),open:new Set(),history:new Map(),accounts:[]};
 const qdTint=(used,left)=>{
  if(used>=100)return '#9b4a32';
  if(used>=80||(left<=20&&used>0))return '#b07a2a';
@@ -149,6 +155,82 @@ function qdWeeklyText(item){
  if(total>0)return `${T.weekly} ${numberFormat.format(remaining)} / ${numberFormat.format(total)}`;
  return null;
 }
+// 每账号懒加载 168h 历史：qd.history 以账号 key 缓存 {status:'loading'|'ready'|'error',samples}，
+// 业务数据刷新时整体失效（loadBusinessData 里 clear），展开中的卡片在回调后重渲染。
+async function qdLoadHistory(acc){
+ const entry={status:'loading',samples:[]};
+ qd.history.set(acc.key,entry);
+ try{
+  const data=await api('data/quota-history?'+new URLSearchParams({team_id:acc.team_id,provider:acc.provider,account:acc.account_name||'',hours:'168'}));
+  if(qd.history.get(acc.key)!==entry)return;
+  entry.status='ready';entry.samples=Array.isArray(data.samples)?data.samples:[];
+ }catch(error){
+  if(qd.history.get(acc.key)!==entry)return;
+  entry.status='error';
+ }
+ renderQuotaCards();
+}
+// 单模型分析（纯函数）：样本升序，item 为该模型的 head 快照。
+function qdModelAnalysis(item,samples,now){
+ const reference=samples.length?samples[samples.length-1]:item;
+ const start=reference.reset_start_time?Date.parse(reference.reset_start_time):NaN;
+ const end=reference.reset_end_time?Date.parse(reference.reset_end_time):NaN;
+ const hasWindow=Number.isFinite(start)&&Number.isFinite(end)&&end>start;
+ let points=null;
+ if(hasWindow){
+  const collected=[];
+  for(const sample of samples){
+   const time=Date.parse(sample.sampled_at||'');
+   if(!Number.isFinite(time)||time<start||time>end)continue;
+   const left=qdModel(sample).left;
+   if(left==null)continue;
+   collected.push({t:Math.max(start,Math.min(end,time)),y:left});
+  }
+  if(collected.length)points=collected;
+ }
+ let pace=null;
+ if(points){
+  const expected=Math.max(0,Math.min(100,(now-start)/(end-start)*100));
+  const actual=Math.max(0,Math.min(100,100-points[points.length-1].y));
+  pace={expectedUsedPercent:expected,reserve:actual<expected,delta:actual-expected};
+ }
+ return {points,windowStart:hasWindow?start:null,windowEnd:hasWindow?end:null,pace,
+  cycles:qdCycles(samples,hasWindow?end-start:null),hourly:qdHourly(samples)};
+}
+// 完整周期峰值（app ModelUtilizationHistory.cycles 语义）：按 reset_end_time ±120s 合并取 max(used)，
+// 剔除进行中的周期（resetsAt>now），短窗口（<24h，约 5h 周期）取最近 30 根否则 12 根。
+function qdCycles(samples,windowDuration){
+ const now=Date.now(),buckets=[];
+ for(const sample of samples){
+  if(!sample.reset_end_time)continue;
+  const resetsAt=Date.parse(sample.reset_end_time);
+  if(!Number.isFinite(resetsAt))continue;
+  const used=qdModel(sample).used;
+  if(used==null||used<=0)continue;
+  const bucket=buckets.find(item=>Math.abs(item.resetsAt-resetsAt)<=120000);
+  if(bucket){bucket.resetsAt=Math.max(bucket.resetsAt,resetsAt);bucket.peakPercent=Math.max(bucket.peakPercent,used);}
+  else buckets.push({resetsAt,peakPercent:used});
+ }
+ return buckets.filter(bucket=>bucket.resetsAt<=now).sort((a,b)=>a.resetsAt-b.resetsAt)
+  .slice(windowDuration!=null&&windowDuration<86400000?-30:-12)
+  .map(bucket=>({resetsAt:bucket.resetsAt,peakPercent:bucket.peakPercent}));
+}
+// 每 UTC 小时消耗（48h）：相邻样本的剩余降幅记入后一个样本所在小时，首样本计 0。
+function qdHourly(samples){
+ const buckets=[],byHour=new Map();let previous=null;
+ for(const sample of samples){
+  const time=Date.parse(sample.sampled_at||'');
+  if(!Number.isFinite(time))continue;
+  const left=qdModel(sample).left;
+  if(left==null)continue;
+  const date=new Date(time),hourStart=Date.UTC(date.getUTCFullYear(),date.getUTCMonth(),date.getUTCDate(),date.getUTCHours());
+  let bucket=byHour.get(hourStart);
+  if(!bucket){bucket={hourStart,consumedPercent:0};byHour.set(hourStart,bucket);buckets.push(bucket);}
+  if(previous!=null)bucket.consumedPercent+=Math.max(0,previous-left);
+  previous=left;
+ }
+ return buckets.slice(-48);
+}
 function qdCard(acc){
  const open=qd.open.has(acc.key),card=document.createElement('div');
  card.className='qd-card'+(open?' is-open':'');
@@ -166,9 +248,13 @@ function qdCard(acc){
  summary.textContent=`${T.modelsCount(acc.rows.length)} · ${T.minLeft(acc.worst)}`;
  card.append(summary);
  if(open){
+  let history=qd.history.get(acc.key);
+  if(!history){qdLoadHistory(acc);history=qd.history.get(acc.key);}
   const body=document.createElement('div');body.className='qd-models';
   for(const row of acc.rows){
    const box=document.createElement('div');box.className='qd-model';
+   const samples=history.status==='ready'?history.samples.filter(sample=>sample.model_id===row.item.model_id):[];
+   const analysis=samples.length?qdModelAnalysis(row.item,samples,Date.now()):null;
    const modelHead=document.createElement('div');modelHead.className='qd-model-head';
    const modelName=document.createElement('span');modelName.textContent=row.item.model_name||row.item.model_id;
    const remaining=document.createElement('span');remaining.className='qd-remaining';remaining.textContent=row.right;
@@ -180,11 +266,50 @@ function qdCard(acc){
    if(row.used!=null)fill.style.background=qdTint(row.used,row.left);
    bar.append(fill);
    const meta=document.createElement('div');meta.className='qd-meta';
+   if(analysis&&analysis.pace){
+    const paceSpan=document.createElement('span');
+    paceSpan.textContent=T.paceLabel(analysis.pace.delta);
+    paceSpan.style.color=analysis.pace.delta>2?'#9b4a32':'#69746c';
+    meta.append(paceSpan);
+   }
    const parts=[qdWeeklyText(row.item),row.item.reset_start_time?`${T.resets} ${dayMinute(row.item.reset_start_time)} ~ ${dayMinute(row.item.reset_end_time)}`:null,
     `${T.device} ${row.item.device_id?row.item.device_id.slice(0,8)+'…':'—'}`,`${T.reported} ${dayMinute(row.item.sampled_at)}`].filter(Boolean);
-   parts.forEach((text,index)=>{if(index){const dot=document.createElement('span');dot.textContent='·';meta.append(dot);}
+   parts.forEach((text,index)=>{if(index||(analysis&&analysis.pace)){const dot=document.createElement('span');dot.textContent='·';meta.append(dot);}
     const span=document.createElement('span');span.textContent=text;meta.append(span);});
-   box.append(modelHead,bar,meta);body.append(box);
+   box.append(modelHead,bar,meta);
+   const chartsModule=window.AdminQuotaCharts;
+   if(analysis&&chartsModule){
+    if(analysis.points){
+     const chart=document.createElement('div');chart.className='qd-chart';
+     chartsModule.curve(chart,{points:analysis.points,windowStart:analysis.windowStart,windowEnd:analysis.windowEnd,
+      tint:qdTint(row.used,row.left),
+      pace:analysis.pace?{expectedUsedPercent:analysis.pace.expectedUsedPercent,reserve:analysis.pace.reserve}:null});
+     box.append(chart);
+    }
+    if(analysis.cycles.length||analysis.hourly.length){
+     const miniRows=document.createElement('div');miniRows.className='qd-mini-rows';
+     if(analysis.cycles.length){
+      const half=document.createElement('div');half.className='qd-mini';
+      const label=document.createElement('span');label.className='qd-mini-label';label.textContent=T.recentCycles;
+      const bars=document.createElement('div');
+      chartsModule.cycleBars(bars,{cycles:analysis.cycles,tint:qdTint(row.used,row.left)});
+      half.append(label,bars);miniRows.append(half);
+     }
+     if(analysis.hourly.length){
+      const half=document.createElement('div');half.className='qd-mini';
+      const label=document.createElement('span');label.className='qd-mini-label';label.textContent=T.hourlyUse;
+      const bars=document.createElement('div');
+      chartsModule.hourlyBars(bars,{buckets:analysis.hourly});
+      half.append(label,bars);miniRows.append(half);
+     }
+     if(miniRows.children.length)box.append(miniRows);
+    }
+   }else if(!analysis){
+    const state=document.createElement('div');state.className='qd-state';
+    state.textContent=history.status==='error'?T.historyFailed:history.status==='ready'?T.noHistory:T.loadingHistory;
+    box.append(state);
+   }
+   body.append(box);
   }
   card.append(body);
  }
