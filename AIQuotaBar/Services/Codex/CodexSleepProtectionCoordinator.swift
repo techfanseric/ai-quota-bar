@@ -136,6 +136,11 @@ final class CodexSleepProtectionCoordinator {
     private var zcodeActivitySnapshot = ProviderLocalActivitySnapshot.empty
     private var miniMaxActivitySnapshot = ProviderLocalActivitySnapshot.empty
     private var claudeCodeActivitySnapshot = ProviderLocalActivitySnapshot.empty
+    /// Last logged active-task count per detector source. Polls run every two
+    /// seconds, so logging every pass would write hundreds of thousands of
+    /// identical lines into the persistent unified log each day; only count
+    /// transitions are noteworthy.
+    private var lastLoggedActiveCounts: [String: Int] = [:]
     private var workspaceObserverTokens: [NSObjectProtocol] = []
     private var isSessionActive = true
     private var hasStarted = false
@@ -347,48 +352,53 @@ final class CodexSleepProtectionCoordinator {
         refreshMergedActivity()
     }
 
+    /// Logs an active-task count only when it changed since the previous
+    /// poll for the same source.
+    private func logActiveCountIfChanged(source: String, count: Int) {
+        guard lastLoggedActiveCounts[source] != count else { return }
+        lastLoggedActiveCounts[source] = count
+        logger.notice(
+            "Local \(source, privacy: .public) detector found \(count) active tasks"
+        )
+    }
+
     func receiveLocalSnapshot(_ snapshot: CodexLocalActivitySnapshot) {
         guard hasStarted else { return }
         localActivitySnapshot = snapshot
-        logger.notice(
-            "Local Codex detector found \(snapshot.activeSessionIDs.count) active tasks"
-        )
+        logActiveCountIfChanged(
+            source: "Codex", count: snapshot.activeSessionIDs.count)
         refreshMergedActivity()
     }
 
     func receiveKimiSnapshot(_ snapshot: KimiLocalActivitySnapshot) {
         guard hasStarted else { return }
         kimiActivitySnapshot = snapshot
-        logger.notice(
-            "Local Kimi detector found \(snapshot.activeSessionIDs.count) active tasks"
-        )
+        logActiveCountIfChanged(
+            source: "Kimi", count: snapshot.activeSessionIDs.count)
         refreshMergedActivity()
     }
 
     func receiveZcodeSnapshot(_ snapshot: ProviderLocalActivitySnapshot) {
         guard hasStarted else { return }
         zcodeActivitySnapshot = snapshot
-        logger.notice(
-            "Local ZCode detector found \(snapshot.activeSessionIDs.count) active tasks"
-        )
+        logActiveCountIfChanged(
+            source: "ZCode", count: snapshot.activeSessionIDs.count)
         refreshMergedActivity()
     }
 
     func receiveMiniMaxSnapshot(_ snapshot: ProviderLocalActivitySnapshot) {
         guard hasStarted else { return }
         miniMaxActivitySnapshot = snapshot
-        logger.notice(
-            "Local MiniMax detector found \(snapshot.activeSessionIDs.count) active tasks"
-        )
+        logActiveCountIfChanged(
+            source: "MiniMax", count: snapshot.activeSessionIDs.count)
         refreshMergedActivity()
     }
 
     func receiveClaudeCodeSnapshot(_ snapshot: ProviderLocalActivitySnapshot) {
         guard hasStarted else { return }
         claudeCodeActivitySnapshot = snapshot
-        logger.notice(
-            "Local Claude Code detector found \(snapshot.activeSessionIDs.count) active tasks"
-        )
+        logActiveCountIfChanged(
+            source: "Claude Code", count: snapshot.activeSessionIDs.count)
         refreshMergedActivity()
     }
 
