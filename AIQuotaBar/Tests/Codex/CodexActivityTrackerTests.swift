@@ -130,6 +130,28 @@ final class CodexActivityTrackerTests: XCTestCase {
                 for: tracker.activeSessionIDs))
     }
 
+    func testStaleTurnsPastTTLArePruned() {
+        var tracker = CodexActivityTracker()
+        let now = Date(timeIntervalSince1970: 10_000)
+        tracker.receive(event(
+            .userPromptSubmit,
+            sessionID: "ghost-session",
+            turnID: "ghost-turn",
+            date: now.addingTimeInterval(-11 * 60)))
+        tracker.receive(event(
+            .userPromptSubmit,
+            sessionID: "live-session",
+            turnID: "live-turn",
+            date: now.addingTimeInterval(-30)))
+        XCTAssertEqual(tracker.activeTurnCount, 2)
+
+        XCTAssertTrue(tracker.pruneStaleTurns(now: now))
+
+        XCTAssertEqual(tracker.activeTurnCount, 1)
+        XCTAssertEqual(tracker.activeSessionIDs, ["live-session"])
+        XCTAssertFalse(tracker.pruneStaleTurns(now: now))
+    }
+
     private func event(
         _ name: CodexHookEventName,
         sessionID: String = "session-1",

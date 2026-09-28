@@ -129,6 +129,30 @@ struct CodexActivityTracker {
     private var turns: [TurnKey: TurnState] = [:]
     private var safeRecentEvents: [CodexSafeActivityEvent] = []
 
+    /// A hook-tracked turn that produced no event for this long is treated as
+    /// dead: `kill -9`, a missed Stop hook (e.g. Esc interruption paths that
+    /// never reach the hook), or a crashed CLI would otherwise leave a ghost
+    /// turn pinned in the active set forever. Matches the mobile summary's
+    /// stale semantics. A turn legitimately waiting on a permission prompt
+    /// can outlive the TTL, but answering the prompt emits fresh events that
+    /// re-open the turn, so the drop is self-healing.
+    static let defaultTurnTTL: TimeInterval = 10 * 60
+
+    /// Drops turns idle past the TTL. Returns true when anything changed.
+    mutating func pruneStaleTurns(
+        now: Date,
+        ttl: TimeInterval = CodexActivityTracker.defaultTurnTTL
+    ) -> Bool {
+        let cutoff = now.addingTimeInterval(-ttl)
+        let staleKeys = turns.filter { $0.value.lastEventAt < cutoff }.keys
+        guard !staleKeys.isEmpty else { return false }
+        for key in staleKeys {
+            turns.removeValue(forKey: key)
+        }
+        activeTurnCount = turns.count
+        return true
+    }
+
     var isWorking: Bool {
         !turns.isEmpty
     }
