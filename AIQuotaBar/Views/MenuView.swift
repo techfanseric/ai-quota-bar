@@ -338,7 +338,8 @@ private struct ProviderModelsSection: View {
 
     @State private var showsFullQuotaModels = false
     @State private var showsExhaustedModels = false
-    /// 账号分组折叠状态的用户覆盖；未覆盖时默认「当前账号展开、其余收起」。
+    /// 账号分组折叠状态的用户覆盖；未覆盖时默认「当前账号展开、其余收起」，
+    /// 切换登录账号后清空，让默认规则对新账号重新生效。
     @State private var accountCollapseOverrides: [String: Bool] = [:]
 
     private var visibleModels: [ModelUsageData] {
@@ -595,6 +596,10 @@ private struct ProviderModelsSection: View {
                 }
             }
             }
+        }
+        .onChange(of: CodexLocalUsageModel.shared.currentAccountID) { _, _ in
+            accountCollapseOverrides = [:]
+            notifyLayoutChange()
         }
     }
 
