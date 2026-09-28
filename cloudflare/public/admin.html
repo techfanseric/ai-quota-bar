@@ -1,4 +1,4 @@
-<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="robots" content="noindex,nofollow"><title>运营后台 · AI Quota Bar</title><link rel="icon" href="/favicon.svg"><link rel="stylesheet" href="/admin.css"><script src="/admin.js" defer></script><script src="/admin-charts.js" defer></script><script src="/admin-locale-1.js"></script></head><body><header><a href="/">AI Quota Bar</a><span>运营后台</span><button id="logout" hidden>退出登录</button></header><main>
+<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="robots" content="noindex,nofollow"><title>运营后台 · AI Quota Bar</title><link rel="icon" href="/favicon.svg"><link rel="stylesheet" href="/admin.css"><script src="/admin-quota.js" defer></script><script src="/admin-charts.js" defer></script><script src="/admin.js" defer></script><script src="/admin-locale-1.js"></script></head><body><header><a href="/">AI Quota Bar</a><span>运营后台</span><button id="logout" hidden>退出登录</button></header><main>
 <section id="login" hidden><p class="eyebrow">PRIVATE CONSOLE</p><h1>看见产品的使用情况。</h1><p>使用独立管理员密码登录。会话有效期为 8 小时。</p><form id="login-form"><label for="password">管理员密码</label><input id="password" type="password" name="password" autocomplete="current-password" required maxlength="200"><button class="primary" type="submit">登录后台 →</button></form><p id="login-error" role="alert"></p><p class="hint">密码保存在管理员 Mac 的钥匙串中：<br>AI Quota Bar Operations</p></section>
 <p id="loading" role="status">正在确认登录状态…</p>
 <section id="dashboard" hidden><div class="page-heading"><div><p class="eyebrow">PRODUCT ANALYTICS</p><h1>使用概览</h1><p id="updated" class="muted"></p></div><div class="tools"><label for="days">趋势范围</label><select id="days"><option value="7">近 7 天</option><option value="30" selected>近 30 天</option><option value="90">近 90 天</option></select><button id="refresh">刷新</button></div></div><div class="coverage"><strong>安装设备 ≠ 真实人数</strong><p>仅统计已开启匿名统计的新版客户端。启动 App 或打开菜单／设置记为活跃；后台心跳不计入日活。日期按 UTC 划分。</p><span id="coverage-since"></span></div><p id="error" role="alert" hidden></p>
@@ -12,15 +12,17 @@
 <div class="control-row"><label for="data-team">查看团队账号</label><select id="data-team"><option value="">选择团队</option></select></div>
 <div class="table-scroll"><table><thead><tr><th>供应商</th><th>账号</th><th>模型数</th><th>快照数</th><th>最新上报</th><th>操作</th></tr></thead><tbody id="quota-rows"></tbody></table></div>
 <div class="section-heading" id="quota-detail-heading"><h2>账号额度详情</h2>
- <div class="qd-tools"><span class="muted">每个账号／模型的最新快照 · 最多 2000 条</span>
+ <div class="qd-tools"><span class="muted">每个模型并排一列 · 时间为 UTC+8 · 最多 2000 条</span>
+  <label class="qd-search" id="qd-search-wrap" for="qd-search"><span class="muted">搜索</span><input id="qd-search" type="search" placeholder="账号 / 模型 / 团队" autocomplete="off"></label>
+  <button id="qd-reset-view" type="button">重置视图</button>
+  <button id="qd-expand-all" class="qd-tab" type="button">全部展开</button>
+  <button id="qd-collapse-all" class="qd-tab" type="button">全部收起</button>
   <button id="qd-view-cards" class="qd-tab active" type="button">直观视图</button>
   <button id="qd-view-list" class="qd-tab" type="button">列表</button>
-  <button id="qd-expand-all" type="button" hidden>全部展开</button>
-  <button id="qd-collapse-all" type="button" hidden>全部收起</button>
  </div></div>
-<p class="quota-note muted">默认显示全部团队；在上方选择团队后只显示该团队。点击账号卡片展开进度条详情，可同时展开多个对比。</p>
-<div id="quota-cards" class="qd-grid"></div>
-<div class="table-scroll" id="quota-table-wrap"><table><thead><tr><th>团队</th><th>供应商</th><th>账号</th><th>模型</th><th>区间剩余</th><th>本周剩余</th><th>区间重置（UTC）</th><th>设备</th><th>上报时间（UTC）</th></tr></thead><tbody id="quota-detail-rows"></tbody></table></div>
+<p class="quota-note muted">默认显示全部团队；在上方选择团队后只显示该团队。层级与文案沿用 App 左键菜单：供应商 → 账号 → 模型；排版改为模型列，同一账号下每个模型并排一列，列宽随该账号的模型数自适应。默认只展开最紧张的一个账号，其余折叠并在右侧显示最低剩余。</p>
+<div id="quota-cards" class="qm"></div>
+<div class="table-scroll" id="quota-table-wrap"><table><thead><tr><th>团队</th><th>供应商</th><th>账号</th><th>模型</th><th>区间剩余</th><th>本周剩余</th><th>区间重置（UTC+8）</th><th>设备</th><th>上报时间（UTC+8）</th></tr></thead><tbody id="quota-detail-rows"></tbody></table></div>
 <details><summary>历史共享数据（只读）</summary><table><thead><tr><th>供应商</th><th>账号</th><th>模型数</th><th>快照数</th></tr></thead><tbody id="legacy-account-rows"></tbody></table></details>
 <details><summary>数据管理审计（最近 100 条）</summary><table><thead><tr><th>时间</th><th>团队</th><th>执行身份</th><th>操作</th><th>目标</th></tr></thead><tbody id="audit-rows"></tbody></table></details></section>
 <section class="legacy"><div><h2>已有业务数据</h2><p>这两项来自原有同步和团队配置，不与匿名安装数相加。</p></div><div><span>已同步设备</span><strong id="legacy-devices">—</strong></div><div><span>已配置团队成员</span><strong id="legacy-members">—</strong></div></section>

@@ -21,7 +21,10 @@ test('account totals reconcile without double-counting cached tokens and hide un
 });
 test('all new preview resources are public without weakening private routes',async()=>{
  const env={ASSETS:{fetch:async()=>new Response('fixture')}};
- for(const path of ['/usage-demo.js','/usage-fixture.js','/provider-logos/codex.svg','/provider-logos/kimi.svg','/team-settings-en.png','/team-settings-zh-Hans.png']){
+ // 四个供应商 logo 都在白名单里：新增的 zai/minimax 少了会让 /admin 的品牌图标
+ // 落到兜底 404，页面上只剩一个 12pt 空位。
+ for(const path of ['/usage-demo.js','/usage-fixture.js','/provider-logos/codex.svg','/provider-logos/kimi.svg',
+  '/provider-logos/zai.svg','/provider-logos/minimax.svg','/team-settings-en.png','/team-settings-zh-Hans.png']){
   const r=await worker.fetch(new Request('https://example.com'+path),env);assert.equal(r.status,200,path);
  }
  assert.equal((await worker.fetch(new Request('https://example.com/v1/quota-samples'),env)).status,401);

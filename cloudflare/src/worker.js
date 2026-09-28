@@ -96,7 +96,7 @@ export default {
         response.headers.set("referrer-policy", "no-referrer");
         return response;
       }
-      if (["GET", "HEAD"].includes(request.method) && ["/admin", "/admin/", "/admin-locale-1.js","/admin-locale-2.js", "/admin.css", "/admin.js", "/admin-charts.js"].includes(url.pathname)) {
+      if (["GET", "HEAD"].includes(request.method) && ["/admin", "/admin/", "/admin-locale-1.js","/admin-locale-2.js", "/admin.css", "/admin.js", "/admin-quota.js", "/admin-charts.js"].includes(url.pathname)) {
         const assetURL = new URL(request.url);
         if (["/admin", "/admin/"].includes(url.pathname)) assetURL.pathname = "/admin";
         const asset = await env.ASSETS.fetch(new Request(assetURL, request));
@@ -119,7 +119,7 @@ export default {
         response.headers.set("cache-control", "public, max-age=0, must-revalidate");
         return response;
       }
-      const publicPaths = new Set(["/language-links.js", "/home-locale-zh-1.js", "/home-locale-en-1.js", "/changelog-locale-zh.js", "/changelog-locale-en.js", "/", "/index.html", "/site.css", "/demo.js", "/favicon.svg", "/robots.txt", "/sitemap.xml", "/changelog", "/changelog/", "/changelog.html", "/changelog.css", "/changelog.js", "/app-icon.png", "/cycle-demo.js", "/en", "/en/", "/en/index.html", "/en/changelog", "/en/changelog/", "/en/feedback", "/en/feedback/", "/usage-demo.js", "/usage-fixture.js", "/team-demo.js", "/team-mock.css", "/provider-logos/codex.svg", "/provider-logos/kimi.svg", "/team-dashboard-en.png", "/team-dashboard-zh-Hans.png", "/team-settings-en.png", "/team-settings-zh-Hans.png"]);
+      const publicPaths = new Set(["/language-links.js", "/home-locale-zh-1.js", "/home-locale-en-1.js", "/changelog-locale-zh.js", "/changelog-locale-en.js", "/", "/index.html", "/site.css", "/demo.js", "/favicon.svg", "/robots.txt", "/sitemap.xml", "/changelog", "/changelog/", "/changelog.html", "/changelog.css", "/changelog.js", "/app-icon.png", "/cycle-demo.js", "/en", "/en/", "/en/index.html", "/en/changelog", "/en/changelog/", "/en/feedback", "/en/feedback/", "/usage-demo.js", "/usage-fixture.js", "/team-demo.js", "/team-mock.css", "/provider-logos/codex.svg", "/provider-logos/kimi.svg", "/provider-logos/zai.svg", "/provider-logos/minimax.svg", "/team-dashboard-en.png", "/team-dashboard-zh-Hans.png", "/team-settings-en.png", "/team-settings-zh-Hans.png"]);
       if (["GET", "HEAD"].includes(request.method) && publicPaths.has(url.pathname)) {
         const asset = await env.ASSETS.fetch(request);
         const response = new Response(asset.body, asset);
