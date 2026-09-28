@@ -82,6 +82,9 @@ final class CodexAuthAccountStore {
     private let notify: (_ title: String, _ body: String) -> Void
     private let openCompanionApp: () -> Void
     private let quotaSnapshotProvider: @MainActor (String) -> CodexAccountQuotaSnapshot?
+    /// 切换/重新登录写完 auth.json 后立即让本机用量模型跟上，
+    /// 左键菜单的当前账号不必等 60s 定时刷新才翻转。
+    private let usageAccountRefresher: @MainActor () -> Void
     private let autoQuitPerformer: () -> Bool
     private let relaunchDelayProvider: () -> TimeInterval?
 
@@ -114,6 +117,8 @@ final class CodexAuthAccountStore {
             CodexAuthAccountStore.liveOpenCompanionApp,
         quotaSnapshotProvider: @escaping @MainActor (String) -> CodexAccountQuotaSnapshot? =
             { CodexAccountQuotaStore.shared.snapshot(for: $0) },
+        usageAccountRefresher: @escaping @MainActor () -> Void =
+            { CodexLocalUsageModel.shared.refreshCurrentAccount() },
         autoQuitPerformer: @escaping () -> Bool =
             CodexAuthAccountStore.liveAutoQuitDesktopApp,
         relaunchDelayProvider: @escaping () -> TimeInterval? =
@@ -127,6 +132,7 @@ final class CodexAuthAccountStore {
         self.notify = notify
         self.openCompanionApp = openCompanionApp
         self.quotaSnapshotProvider = quotaSnapshotProvider
+        self.usageAccountRefresher = usageAccountRefresher
         self.autoQuitPerformer = autoQuitPerformer
         self.relaunchDelayProvider = relaunchDelayProvider
         self.exitMode = defaults.string(forKey: Self.exitModeStorageKey)
@@ -333,6 +339,7 @@ final class CodexAuthAccountStore {
             case .loginNewAccount:
                 try performLoginNewAccount()
             }
+            usageAccountRefresher()
         } catch {
             if let message = error as? CodexAccountSwitchError {
                 setStatus(message.text, isError: true)

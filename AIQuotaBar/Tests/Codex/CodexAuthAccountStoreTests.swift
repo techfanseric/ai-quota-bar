@@ -14,6 +14,7 @@ final class CodexAuthAccountStoreTests: XCTestCase {
         let setCLIRunning: (Bool) -> Void
         let expectedQuotaSnapshot: CodexAccountQuotaSnapshot
         let autoQuitCount: () -> Int
+        let usageRefreshCount: () -> Int
         let defaults: UserDefaults
     }
 
@@ -42,6 +43,7 @@ final class CodexAuthAccountStoreTests: XCTestCase {
         let desktopRunning = LockedFlag()
         let cliRunning = LockedFlag()
         let autoQuitCount = LockedCounter()
+        let usageRefreshCount = LockedCounter()
         let quotaSnapshot = CodexAccountQuotaSnapshot(
             shortRemainingPercent: 73,
             shortResetsAt: Date(timeIntervalSince1970: 1_800_000_000),
@@ -65,6 +67,7 @@ final class CodexAuthAccountStoreTests: XCTestCase {
             },
             openCompanionApp: { [openedCount] in openedCount.increment() },
             quotaSnapshotProvider: { _ in quotaSnapshot },
+            usageAccountRefresher: { [usageRefreshCount] in usageRefreshCount.increment() },
             autoQuitPerformer: { [autoQuitCount] in
                 autoQuitCount.increment()
                 return true
@@ -89,6 +92,7 @@ final class CodexAuthAccountStoreTests: XCTestCase {
             setCLIRunning: { cliRunning.value = $0 },
             expectedQuotaSnapshot: quotaSnapshot,
             autoQuitCount: { autoQuitCount.value },
+            usageRefreshCount: { usageRefreshCount.value },
             defaults: defaults)
     }
 
@@ -179,6 +183,30 @@ final class CodexAuthAccountStoreTests: XCTestCase {
                 atPath: accounts.appendingPathComponent("bob.json").path))
         XCTAssertEqual(fixture.openedAppsCount(), 1)
         XCTAssertEqual(fixture.notifications().count, 1)
+    }
+
+    /// 切换成功后应立即刷新本机用量模型的当前账号，
+    /// 左键菜单不等 60s 定时就能把新账号展开、旧账号收起。
+    func testSwitchRefreshesUsageAccountImmediately() throws {
+        let fixture = try makeFixture()
+
+        fixture.store.requestSwitch(to: "bob")
+
+        XCTAssertEqual(fixture.usageRefreshCount(), 1)
+    }
+
+    /// 挂起中的切换在障碍解除接力执行时，同样要触发一次立即刷新。
+    func testDeferredSwitchRefreshesUsageAccountWhenRelayed() throws {
+        let fixture = try makeFixture()
+        fixture.setDesktopAppRunning(true)
+
+        fixture.store.requestSwitch(to: "bob")
+        XCTAssertEqual(fixture.usageRefreshCount(), 0)
+
+        fixture.setDesktopAppRunning(false)
+        fixture.store.evaluatePendingRequest()
+
+        XCTAssertEqual(fixture.usageRefreshCount(), 1)
     }
 
     func testSwitchToCurrentAccountIsNoOp() throws {
