@@ -5,7 +5,78 @@ import XCTest
 final class KimiLocalActivityDetectorTests: XCTestCase {
     private let now = Date(timeIntervalSince1970: 1_000_000)
 
-    func testFreshDesktopConversationIsActive() throws {
+    // MARK: - Desktop status ledger
+
+    func testRunningDesktopStatusIsActive() throws {
+        let fixture = try makeFixture()
+        try fixture.writeDesktopConversation(
+            conversationID: "conv-running",
+            updatedAtText: Self.isoString(now - 30))
+        try fixture.writeDesktopStatus(
+            conversationID: "conv-running",
+            status: "running")
+
+        let snapshot = fixture.detector.detectSnapshot(now: now)
+
+        XCTAssertEqual(snapshot.activeSessionIDs, ["kimi:desktop:conv-running"])
+        XCTAssertEqual(
+            try XCTUnwrap(
+                snapshot.lastEventBySession["kimi:desktop:conv-running"]
+            ).timeIntervalSince1970,
+            (now - 30).timeIntervalSince1970,
+            accuracy: 0.001)
+    }
+
+    func testCompletedDesktopStatusIsInactiveDespiteFreshHeartbeat() throws {
+        let fixture = try makeFixture()
+        // The heartbeat was refreshed seconds ago (an idle conversation can
+        // still refresh context usage), but the ledger says the turn ended:
+        // the conversation must drop out immediately.
+        try fixture.writeDesktopConversation(
+            conversationID: "conv-done",
+            updatedAtText: Self.isoString(now - 5))
+        try fixture.writeDesktopStatus(
+            conversationID: "conv-done",
+            status: "completed")
+
+        XCTAssertEqual(fixture.detector.detectSnapshot(now: now), .empty)
+    }
+
+    func testStaleRunningDesktopStatusIsCrashGuarded() throws {
+        let fixture = try makeFixture()
+        // Status says running, but the heartbeat stopped long past the
+        // silence window: the runtime was killed mid-turn.
+        try fixture.writeDesktopConversation(
+            conversationID: "conv-crashed",
+            updatedAtText: Self.isoString(now - 15 * 60))
+        try fixture.writeDesktopStatus(
+            conversationID: "conv-crashed",
+            status: "running")
+
+        XCTAssertEqual(fixture.detector.detectSnapshot(now: now), .empty)
+    }
+
+    func testUnknownDesktopStatusFallsBackToFreshness() throws {
+        let fixture = try makeFixture()
+        try fixture.writeDesktopConversation(
+            conversationID: "conv-fresh",
+            updatedAtText: Self.isoString(now - 30))
+        try fixture.writeDesktopStatus(
+            conversationID: "conv-fresh",
+            status: "some-future-status")
+        try fixture.writeDesktopConversation(
+            conversationID: "conv-stale",
+            updatedAtText: Self.isoString(now - 10 * 60))
+        try fixture.writeDesktopStatus(
+            conversationID: "conv-stale",
+            status: "some-future-status")
+
+        let snapshot = fixture.detector.detectSnapshot(now: now)
+
+        XCTAssertEqual(snapshot.activeSessionIDs, ["kimi:desktop:conv-fresh"])
+    }
+
+    func testFreshDesktopConversationWithoutStatusLedgerIsActive() throws {
         let fixture = try makeFixture()
         try fixture.writeDesktopConversation(
             conversationID: "conv-running",
@@ -25,6 +96,8 @@ final class KimiLocalActivityDetectorTests: XCTestCase {
             accuracy: 0.001)
     }
 
+    // MARK: - CLI wires
+
     func testOpenCLIWireWithFreshActivityIsActive() throws {
         let fixture = try makeFixture()
         try fixture.writeWire(
@@ -39,6 +112,22 @@ final class KimiLocalActivityDetectorTests: XCTestCase {
         XCTAssertEqual(snapshot.activeSessionIDs, ["kimi:cli:session_abc"])
     }
 
+    func testQuietOpenTurnStaysActiveWithinSilenceWindow() throws {
+        let fixture = try makeFixture()
+        // A long tool call or a slow model can leave an open turn quiet for
+        // minutes; the silence window must not flap it out of the active set.
+        try fixture.writeWire(
+            workspace: "wd_project_1",
+            session: "session_quiet",
+            agent: "main",
+            events: ["turn.prompt"],
+            modifiedAt: now - 5 * 60)
+
+        let snapshot = fixture.detector.detectSnapshot(now: now)
+
+        XCTAssertEqual(snapshot.activeSessionIDs, ["kimi:cli:session_quiet"])
+    }
+
     func testEndedTurnAndKilledStaleTurnAreIgnored() throws {
         let fixture = try makeFixture()
         try fixture.writeWire(
@@ -47,14 +136,14 @@ final class KimiLocalActivityDetectorTests: XCTestCase {
             agent: "main",
             events: ["turn.prompt", "turn.ended"],
             modifiedAt: now - 30)
-        // Killed mid-turn: the lifecycle never closed, but the file went
-        // quiet beyond the freshness window.
+        // Killed mid-turn: the lifecycle never closed, and the file went
+        // quiet beyond the open-turn silence window.
         try fixture.writeWire(
             workspace: "wd_project_1",
             session: "session_killed",
             agent: "main",
             events: ["turn.prompt"],
-            modifiedAt: now - 10 * 60)
+            modifiedAt: now - 15 * 60)
 
         XCTAssertEqual(fixture.detector.detectSnapshot(now: now), .empty)
     }
@@ -80,12 +169,45 @@ final class KimiLocalActivityDetectorTests: XCTestCase {
         XCTAssertEqual(snapshot.activeSessionIDs.count, 1)
     }
 
+    // MARK: - Kimi Work (daimon) runtime wires
+
+    func testWorkRuntimeWireIsDetectedWithWorkPrefix() throws {
+        let fixture = try makeFixture()
+        try fixture.writeWire(
+            root: fixture.workSessionsRootURL,
+            workspace: "wd_project_1",
+            session: "conv-0123456789abcdef",
+            agent: "main",
+            events: ["turn.prompt"],
+            modifiedAt: now - 30)
+
+        let snapshot = fixture.detector.detectSnapshot(now: now)
+
+        XCTAssertEqual(
+            snapshot.activeSessionIDs,
+            ["kimi:work:conv-0123456789abcdef"])
+    }
+
+    func testWorkRuntimeEndedTurnIsIgnored() throws {
+        let fixture = try makeFixture()
+        try fixture.writeWire(
+            root: fixture.workSessionsRootURL,
+            workspace: "wd_project_1",
+            session: "ctitle-0123456789abcdef",
+            agent: "main",
+            events: ["turn.prompt", "turn.ended"],
+            modifiedAt: now - 30)
+
+        XCTAssertEqual(fixture.detector.detectSnapshot(now: now), .empty)
+    }
+
     func testMissingRootsReturnIdle() {
         let missing = FileManager.default.temporaryDirectory
             .appendingPathComponent(UUID().uuidString, isDirectory: true)
         let detector = KimiLocalActivityDetector(
             codeHomeURL: missing,
-            agentDataURL: missing)
+            agentDataURL: missing,
+            workSessionsRootURL: missing)
 
         XCTAssertEqual(detector.detectSnapshot(now: now), .empty)
     }
@@ -105,11 +227,16 @@ final class KimiLocalActivityDetectorTests: XCTestCase {
             .appendingPathComponent(".kimi-code", isDirectory: true)
         let agentDataURL = rootURL
             .appendingPathComponent("kimi-agent", isDirectory: true)
+        let workSessionsRootURL = rootURL
+            .appendingPathComponent("daimon-home/sessions", isDirectory: true)
         try FileManager.default.createDirectory(
             at: codeHomeURL,
             withIntermediateDirectories: true)
         try FileManager.default.createDirectory(
             at: agentDataURL,
+            withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(
+            at: workSessionsRootURL,
             withIntermediateDirectories: true)
         addTeardownBlock {
             try? FileManager.default.removeItem(at: rootURL)
@@ -117,15 +244,18 @@ final class KimiLocalActivityDetectorTests: XCTestCase {
         return Fixture(
             codeHomeURL: codeHomeURL,
             agentDataURL: agentDataURL,
+            workSessionsRootURL: workSessionsRootURL,
             detector: KimiLocalActivityDetector(
                 codeHomeURL: codeHomeURL,
                 agentDataURL: agentDataURL,
+                workSessionsRootURL: workSessionsRootURL,
                 freshnessWindow: 120))
     }
 
     private struct Fixture {
         let codeHomeURL: URL
         let agentDataURL: URL
+        let workSessionsRootURL: URL
         let detector: KimiLocalActivityDetector
 
         func writeDesktopConversation(
@@ -153,17 +283,40 @@ final class KimiLocalActivityDetectorTests: XCTestCase {
             try data.write(to: url)
         }
 
+        func writeDesktopStatus(
+            conversationID: String,
+            status: String
+        ) throws {
+            let url = agentDataURL
+                .appendingPathComponent("conversation-statuses.json")
+            var entries: [String: Any] = [:]
+            if let data = try? Data(contentsOf: url),
+               let existing = try? JSONSerialization.jsonObject(
+                    with: data) as? [String: Any] {
+                entries = existing
+            }
+            entries["agent:main:main:conversation:\(conversationID)"] = status
+            let data = try JSONSerialization.data(
+                withJSONObject: entries,
+                options: [.sortedKeys])
+            try data.write(to: url)
+        }
+
         @discardableResult
         func writeWire(
+            root: URL? = nil,
             workspace: String,
             session: String,
             agent: String,
             events: [String],
             modifiedAt: Date
         ) throws -> URL {
-            let wireURL = codeHomeURL
+            let sessionsRoot = root
+                ?? codeHomeURL.appendingPathComponent(
+                    "sessions", isDirectory: true)
+            let wireURL = sessionsRoot
                 .appendingPathComponent(
-                    "sessions/\(workspace)/\(session)/agents/\(agent)",
+                    "\(workspace)/\(session)/agents/\(agent)",
                     isDirectory: true)
                 .appendingPathComponent("wire.jsonl")
             try FileManager.default.createDirectory(

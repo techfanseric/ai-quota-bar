@@ -36,27 +36,61 @@
 **收益**:结束/取消检测延迟 ~120s → ~2-3s(轮询周期);取消语义可感知;开始与多会话计数不变。
 **残余盲区**:`error` 状态无实测样本(处理路径与 completed 相同);schema 无官方契约,回退逻辑是必要组成。
 
+## 已实施:Kimi 桌面状态账本 + Kimi Work 运行时接入(2026-09-28)
+
+**现场实验结论**(计划中的"实验 2",在真实运行中的会话上验证):
+`kimi-agent/conversation-statuses.json` 是权威的按会话生命周期账本——任务执行期间
+条目为 `"running"`(文件随回合实时改写),结束后为 `"completed"`。
+同时实测 `conversation-context-usage.json` 的 `updatedAt` 在任务中约 60–80s 才刷新一次,
+贴着 120s 新鲜度窗,曾导致指示闪烁与结束后最长 120s 的滞留。
+
+**实施内容**(`KimiLocalActivityDetector.swift`):
+- Desktop:`conversation-statuses.json` 为主信号——`running` 等进行中状态 = 活跃
+  (开始即亮、结束即灭);`completed`/`stopped`/`error` 等终态 = 立即不活跃,
+  覆盖 `updatedAt` 新鲜度(消除误报与结束滞留);未知状态或账本缺失 → 回退原新鲜度
+  启发式(schema 漂移防御,沿用 ZCode 模式);`running` 但 `updatedAt` 静默超过
+  10 分钟 = 进程中途死亡,判为不活跃(崩溃兜底);
+- Kimi Work(daimon)运行时:新增扫描桌面 App 托管运行时 home
+  (`kimi-desktop/daimon-share/daimon/runtime/kimi-code/home/sessions`)的
+  wire.jsonl,会话目录不再要求 `session_` 前缀(该运行时用 `conv-*`/`ctitle-*`),
+  以 `kimi:work:` 前缀上报,移动端标签为 "Kimi Work";
+- CLI/Work 开着 turn 但静默的 mtime 门从 120s 放宽到 10 分钟
+  (`defaultOpenTurnSilenceWindow`):turn 生命周期仍由 `turn.prompt`/`turn.ended`
+  驱动,mtime 只做进程死亡兜底,消除长工具调用/慢模型期间的闪烁。
+
+**收益**:Kimi 任务的开始/结束在 ring 上 ≤2s(轮询周期)反映;Desktop 误报消除;
+Kimi Work 桌面会话从不可见变为精确 turn 级检测。
+
+## 已实施:Codex hook turn TTL(2026-09-28)
+
+`CodexActivityTracker` 新增 `defaultTurnTTL`(10 分钟)与 `pruneStaleTurns(now:)`;
+协调器每次合并刷新(轮询周期 2s)时回收超过 TTL 无事件的 turn,
+消灭 kill -9 / hook Stop 丢失场景的无限幽灵任务。权限等待等合法长停顿被回收后,
+用户响应产生的新事件会自动重建 turn(自愈)。Esc 是否触发 Stop 的实验(实验 3)
+仍待做,若证实不触发可再叠加 rollout 双源对账。
+
+## 已实施:Claude Code 归因粘滞修复(2026-09-28)
+
+`ClaudeCodeActivityDetector.lastAssistantModel` 改为以转录尾部**最新一条** assistant
+消息的模型为准:会话切回官方 Anthropic 模型后立即不再计入 GLM/MiniMax,
+不再粘滞整个新鲜度窗。官方钩子方案(下方横切项)仍可做,用于彻底解决 120s 结束延迟。
+
 ## 待实施(实验驱动,按优先级)
 
-### 1. Codex:turn TTL + 双源对账(需实验 3)
+### 1. Codex:Esc 中断实验 + 双源对账(需实验 3)
 
+- **已完成**:turn 级 TTL(见上文"已实施:Codex hook turn TTL")。
 - **待做实验**:开一个 Codex 任务 → 中途按 Esc 中断 → 观察 os_log
   (`log stream --predicate 'subsystem == "com.techfanseric.aiquotabar" AND category == "CodexActivity"'`)
   是否出现 Stop 事件,以及 rollout 是否写 `turn_aborted`。
-- **无论结果都要做**:hook 追踪器加 turn 级 TTL(~10 分钟无任何事件即失效,
-  与 mobile summary 的 stale 语义对齐),消灭 kill -9 / hook 丢失场景的无限幽灵。
 - **若实验证实 Esc 不触发 Stop**:增加双源对账——rollout 判定回合已结束
   (`task_complete`/`turn_aborted`/`task_aborted`)而 hook 侧仍活跃时,采纳文件结论摘除 turn。
 
-### 2. Kimi:Desktop 状态账本 + CLI mtime 门放宽(需实验 2)
+### 2. Kimi:已完成(2026-09-28)
 
-- **待做实验**:在 Kimi Desktop 跑一个 ≥60s 任务,观察
-  `~/Library/Application Support/kimi-desktop/kimi-agent/conversation-statuses.json`
-  是否出现 `completed` 以外的枚举值(如 running/generating);
-  同时做一次手动停止,观察 `stopped-turn-blocks.json`;再静置打开 3 分钟检验 context-usage 是否持续刷新(误报验证)。
-- **若存在运行枚举**:Desktop 直读状态文件为主、updatedAt 回退;
-- **若无**:Desktop 维持启发式;CLI 侧把"turn 开着但静默"的 mtime 门从 120s 放宽到 ~10min
-  (turn 生命周期仍由 `turn.prompt`/`turn.ended` 驱动,mtime 只做进程死亡兜底)。
+见上文"已实施:Kimi 桌面状态账本 + Kimi Work 运行时接入"。
+`stopped-turn-blocks.json` 未单独接入:手动停止后 `conversation-statuses.json`
+已立即离开 `running`,账本信号足够。
 
 ### 3. MiniMax:activeGeneration 语义(需实验 4)
 

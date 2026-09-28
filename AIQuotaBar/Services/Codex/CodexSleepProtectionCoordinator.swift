@@ -129,6 +129,7 @@ final class CodexSleepProtectionCoordinator {
         any ProviderLocalActivityProviding
     )?
     private let workspaceNotificationCenter: NotificationCenter
+    private let nowProvider: () -> Date
     private var activityTracker = CodexActivityTracker()
     private var localActivitySnapshot = CodexLocalActivitySnapshot.empty
     private var kimiActivitySnapshot = KimiLocalActivitySnapshot.empty
@@ -194,7 +195,8 @@ final class CodexSleepProtectionCoordinator {
         )? = ClaudeCodeActivityDetector(),
         closedLidModeManager: ClosedLidModeManager? = nil,
         workspaceNotificationCenter: NotificationCenter = NSWorkspace.shared.notificationCenter,
-        turnEndGracePeriod: TimeInterval = CodexSleepProtectionCoordinator.defaultTurnEndGracePeriod
+        turnEndGracePeriod: TimeInterval = CodexSleepProtectionCoordinator.defaultTurnEndGracePeriod,
+        nowProvider: @escaping () -> Date = Date.init
     ) {
         self.defaults = defaults
         self.assertionController = assertionController
@@ -209,6 +211,7 @@ final class CodexSleepProtectionCoordinator {
         )
         self.workspaceNotificationCenter = workspaceNotificationCenter
         self.turnEndGracePeriod = turnEndGracePeriod
+        self.nowProvider = nowProvider
         isEnabled = Self.bool(
             defaults: defaults,
             key: Self.enabledKey,
@@ -544,9 +547,9 @@ final class CodexSleepProtectionCoordinator {
     }
 
     /// Builds the content-free task view for passive client detectors
-    /// (Kimi CLI, ZCode, MiniMax CLI, Claude Code). These clients expose no
-    /// turn lifecycle, only a last-event freshness signal, so tasks flip to
-    /// stale once their source goes quiet.
+    /// (Kimi CLI, Kimi Work, ZCode, MiniMax CLI, Claude Code). These clients
+    /// expose no per-task metadata beyond the lifecycle/freshness signal, so
+    /// tasks flip to stale once their source goes quiet.
     private func clientActivityTask(
         sessionID: String,
         now: Date,
@@ -557,6 +560,12 @@ final class CodexSleepProtectionCoordinator {
         let lastActivityAt: Date?
         if sessionID.hasPrefix("kimi:cli:") {
             source = "Kimi CLI"
+            modelProvider = "Kimi"
+            lastActivityAt = kimiActivitySnapshot
+                .lastEventBySession[sessionID]
+                ?? kimiActivitySnapshot.lastEventAt
+        } else if sessionID.hasPrefix("kimi:work:") {
+            source = "Kimi Work"
             modelProvider = "Kimi"
             lastActivityAt = kimiActivitySnapshot
                 .lastEventBySession[sessionID]
@@ -714,6 +723,12 @@ final class CodexSleepProtectionCoordinator {
     }
 
     private func refreshMergedActivity() {
+        // Hook-tracked turns have no heartbeat of their own; reap the ones
+        // whose Stop event never arrived (kill -9, lost hook) so they cannot
+        // pin the ring in "working" forever.
+        if activityTracker.pruneStaleTurns(now: nowProvider()) {
+            logger.notice("Pruned Codex hook turns idle past their TTL")
+        }
         let codexCount = protectedProviders.contains(.codex)
             ? mergedCodexActiveSessionIDs.count
             : 0
