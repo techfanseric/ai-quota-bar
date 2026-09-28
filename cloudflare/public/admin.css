@@ -29,3 +29,10 @@ table td button{padding:4px 11px;font-size:11px;border-radius:5px;background:#ff
 .qd-bar{position:relative;height:6px;border-radius:3px;background:rgba(40,53,46,.16);margin-top:5px}
 .qd-bar-fill{position:absolute;top:0;bottom:0;left:0;border-radius:3px}
 .qd-meta{display:flex;gap:5px;flex-wrap:wrap;font-size:10px;color:var(--muted);margin-top:5px;font-variant-numeric:tabular-nums}
+/* 2026-09-28 额度卡片历史图表：admin.js 注入容器，admin-charts.js 画 svg（剩余曲线/周期峰值/每小时消耗） */
+.qd-chart svg{display:block;width:100%;height:auto}
+.qd-chart{margin-top:6px}
+.qd-mini-rows{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-top:8px}
+.qd-mini-label{font-size:10px;color:var(--muted);margin-bottom:3px;display:block}
+.qd-state{font-size:11px;color:var(--muted);margin-top:8px}
+@media(max-width:550px){.qd-mini-rows{grid-template-columns:1fr}}
