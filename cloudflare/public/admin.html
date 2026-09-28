@@ -11,6 +11,9 @@
 <div class="table-scroll"><table><thead><tr><th>团队</th><th>ID</th><th>成员</th><th>有效设备</th><th>用量记录</th><th>操作</th></tr></thead><tbody id="team-rows"></tbody></table></div>
 <div class="control-row"><label for="data-team">查看团队账号</label><select id="data-team"><option value="">选择团队</option></select></div>
 <div class="table-scroll"><table><thead><tr><th>供应商</th><th>账号</th><th>模型数</th><th>快照数</th><th>最新上报</th><th>操作</th></tr></thead><tbody id="quota-rows"></tbody></table></div>
+<div class="section-heading" id="quota-detail-heading"><h2>账号额度详情</h2><span class="muted">每个账号／模型的最新快照 · 最多 2000 条</span></div>
+<p class="quota-note muted">默认显示全部团队；在上方选择团队后只显示该团队。</p>
+<div class="table-scroll"><table><thead><tr><th>团队</th><th>供应商</th><th>账号</th><th>模型</th><th>区间剩余</th><th>本周剩余</th><th>区间重置（UTC）</th><th>设备</th><th>上报时间（UTC）</th></tr></thead><tbody id="quota-detail-rows"></tbody></table></div>
 <details><summary>历史共享数据（只读）</summary><table><thead><tr><th>供应商</th><th>账号</th><th>模型数</th><th>快照数</th></tr></thead><tbody id="legacy-account-rows"></tbody></table></details>
 <details><summary>数据管理审计（最近 100 条）</summary><table><thead><tr><th>时间</th><th>团队</th><th>执行身份</th><th>操作</th><th>目标</th></tr></thead><tbody id="audit-rows"></tbody></table></details></section>
 <section class="legacy"><div><h2>已有业务数据</h2><p>这两项来自原有同步和团队配置，不与匿名安装数相加。</p></div><div><span>已同步设备</span><strong id="legacy-devices">—</strong></div><div><span>已配置团队成员</span><strong id="legacy-members">—</strong></div></section>

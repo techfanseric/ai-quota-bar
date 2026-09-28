@@ -21,6 +21,7 @@ const T={
  logoutFailed:EN?'Sign-out failed — retry.':'退出失败，请重试。',
  unnamed:EN?'Unnamed':'未命名',
  selectTeam:EN?'Select a team':'选择团队',
+ allTeams:EN?'All teams':'全部团队',
  deleteQuotaHistory:EN?'Delete quota history':'删除额度历史',
  confirmDeleteQuota:(t,p,n)=>EN?`Delete team ${t}'s ${p} / ${n} quota history? Other teams are unaffected. Reporting devices will create new snapshots.`:`删除团队 ${t} 的 ${p} / ${n} 额度历史？其他团队不受影响。正在上报的设备会产生新快照。`,
  deleteRetry:EN?'Delete failed — retry.':'删除失败，请重试。',
@@ -32,7 +33,7 @@ const T={
  d1:(r,w)=>EN?`D1 today: ${r} rows read · ${w} rows written`:`D1 今日读取 ${r} 行 · 写入 ${w} 行`,
  d1Unavailable:EN?'D1 monitoring unavailable or not configured.':'D1 监控暂不可用或尚未配置。',
 };
-let loading=false;
+let loading=false,quotaItems=[];
 async function api(path,options={}) {
  const response=await fetch('/v1/admin/'+path,{credentials:'same-origin',...options});
  const data=await response.json();if(!response.ok){const error=new Error(data.error||'request_failed');error.status=response.status;throw error;}return data;
@@ -70,12 +71,13 @@ function renderTeams(rows){
 }
 async function loadBusinessData(){
  try{
-  const [teams,legacy,audit]=await Promise.all([api('data/teams'),api('data/legacy/accounts'),api('data/audit')]);
+  const [teams,legacy,audit,quota]=await Promise.all([api('data/teams'),api('data/legacy/accounts'),api('data/audit'),api('data/quota')]);
   $('data-error').textContent='';
   renderTeams(teams.teams);
-  const select=$('data-team'),previous=select.value;select.replaceChildren(new Option(T.selectTeam,''));
+  const select=$('data-team'),previous=select.value;select.replaceChildren(new Option(T.allTeams,''));
   for(const team of teams.teams)select.add(new Option(team.team_name,team.team_id));
   if(teams.teams.some(t=>t.team_id===previous))select.value=previous;
+  quotaItems=quota.items;renderQuotaDetail();
   renderTable('legacy-account-rows',legacy.accounts,[r=>r.provider,r=>r.account_name||T.unnamed,r=>r.model_count,r=>r.sample_count]);
   renderTable('audit-rows',audit.items,[r=>r.created_at,r=>r.team_id,r=>r.actor,r=>r.action,r=>r.target]);
   await loadTeamAccounts();
@@ -94,4 +96,28 @@ async function loadTeamAccounts(){
   if(!data.accounts.length){const row=document.createElement('tr'),cell=document.createElement('td');cell.colSpan=6;cell.textContent=T.noData;row.append(cell);rows.append(row);}
  }catch{$('data-error').textContent=T.teamAccountsFailed;}
 }
-$('data-refresh').addEventListener('click',loadBusinessData);$('data-team').addEventListener('change',loadTeamAccounts);
+const numberFormat=new Intl.NumberFormat(L);
+const quotaCell=(remaining,total,suffix)=>{
+ if(!(Number(total)>0))return '—';
+ if(suffix==='%')return numberFormat.format(remaining)+'%';
+ return numberFormat.format(remaining)+' / '+numberFormat.format(total)+(suffix||'');
+};
+const minute=value=>value?value.replace('T',' ').slice(0,16):'—';
+function renderQuotaDetail(){
+ const team=$('data-team').value,rows=$('quota-detail-rows');
+ const items=quotaItems.filter(item=>!team||item.team_id===team);
+ rows.replaceChildren();
+ if(!items.length){const row=document.createElement('tr'),cell=document.createElement('td');cell.colSpan=9;cell.textContent=T.noData;row.append(cell);rows.append(row);return;}
+ for(const item of items){
+  const row=document.createElement('tr');
+  for(const text of [item.team_name||item.team_id,item.provider,item.account_name||T.unnamed,item.model_name||item.model_id,
+   quotaCell(item.current_interval_remaining,item.current_interval_total,item.value_suffix),
+   quotaCell(item.weekly_remaining,item.weekly_total,item.value_suffix),
+   item.reset_start_time?minute(item.reset_start_time)+' ~ '+minute(item.reset_end_time):'—',
+   item.device_id?item.device_id.slice(0,8)+'…':'—',minute(item.sampled_at)]){
+   const cell=document.createElement('td');cell.textContent=String(text);row.append(cell);
+  }
+  rows.append(row);
+ }
+}
+$('data-refresh').addEventListener('click',loadBusinessData);$('data-team').addEventListener('change',()=>{loadTeamAccounts();renderQuotaDetail();});

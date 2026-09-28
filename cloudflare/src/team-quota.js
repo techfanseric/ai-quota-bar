@@ -8,6 +8,26 @@ export async function quotaAccounts(env, teamID) {
     FROM team_quota_samples WHERE team_id=? GROUP BY provider,account_key ORDER BY latest_sampled_at DESC LIMIT 1000`)
     .bind(teamID).all()).results;
 }
+
+// Platform-admin console: the latest snapshot of every account/model, across
+// all teams when no team is scoped. Same latest-per-account semantics as the
+// team read path: shared quota is not summed across devices.
+export async function adminQuotaHeads(env, teamID, limit) {
+  const sql = `SELECT team_id,provider,account_key,model_id,sampled_at,payload FROM (
+    SELECT team_id,provider,account_key,model_id,sampled_at,payload,
+      ROW_NUMBER() OVER(PARTITION BY team_id,provider,account_key,model_id ORDER BY sampled_at DESC,device_id) n
+    FROM team_quota_heads ${teamID ? 'WHERE team_id=?' : ''}) WHERE n=1 ORDER BY sampled_at DESC LIMIT ?`;
+  const rows = (await env.DB.prepare(sql)
+    .bind(...(teamID ? [teamID] : []), limit).all()).results;
+  const names = new Map((await env.DB.prepare(`SELECT team_id,team_name FROM usage_teams ${teamID ? 'WHERE team_id=?' : ''}`)
+    .bind(...(teamID ? [teamID] : [])).all()).results.map(row => [row.team_id, row.team_name]));
+  const items = [];
+  for (const row of rows) {
+    try { items.push({...JSON.parse(row.payload), team_id: row.team_id, team_name: names.get(row.team_id) || row.team_id}); }
+    catch { /* payloads are only written by this service; skip unreadable rows */ }
+  }
+  return items;
+}
 export function auditStatement(env, teamID, actor, action, target) {
   return env.DB.prepare('INSERT INTO team_data_audit VALUES(?,?,?,?,?,?)')
     .bind(crypto.randomUUID(),teamID,actor,action,target,new Date().toISOString());

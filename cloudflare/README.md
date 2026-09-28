@@ -70,8 +70,9 @@ See [team rollout notes](../docs/team-isolation.md) for the release checklist.
   management of a single team using the separate team management cookie.
 - `GET /v1/team/accounts`, `DELETE /v1/team/accounts?provider=...&account_name=...`: team-manager quota inspection/cleanup.
   Deletion always includes team + provider + account and records an audit entry. Consumption events remain separate.
-- `/v1/admin/data/teams`, `/accounts?team_id=...`, `/audit`, `/legacy/accounts`, `/legacy/samples`, `/legacy/devices`:
+- `/v1/admin/data/teams`, `/accounts?team_id=...`, `/quota[?team_id=...]`, `/audit`, `/legacy/accounts`, `/legacy/samples`, `/legacy/devices`:
   platform-admin session only. Team account deletion uses `DELETE /v1/admin/data/accounts` with explicit team/provider/account.
+  `/quota` returns the latest snapshot of every account/model (all teams unless scoped by `team_id`), backing the `/admin` console's quota detail table.
 - `/v1/admin/d1-usage`: platform-admin D1 analytics. The old `/v1/d1-usage` is closed.
 - `POST /v1/admin/team-session {teamID}`: platform-admin session only. Swaps the browser's
   team cookie for one signed with `OPS_ADMIN_SECRET`, which team.js accepts as a manager
