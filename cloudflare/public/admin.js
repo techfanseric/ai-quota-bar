@@ -32,6 +32,12 @@ const T={
  openTeamFailed:EN?'Could not open the team dashboard — retry.':'打开团队面板失败，请重试。',
  d1:(r,w)=>EN?`D1 today: ${r} rows read · ${w} rows written`:`D1 今日读取 ${r} 行 · 写入 ${w} 行`,
  d1Unavailable:EN?'D1 monitoring unavailable or not configured.':'D1 监控暂不可用或尚未配置。',
+ modelsCount:n=>EN?`${n} model${n===1?'':'s'}`:`${n} 个模型`,
+ minLeft:v=>v==null?(EN?'quota values missing':'无数值额度'):(EN?`lowest left ${Math.round(v)}%`:`最低剩余 ${Math.round(v)}%`),
+ weekly:EN?'Weekly':'周',
+ resets:EN?'Resets':'重置',
+ device:EN?'Device':'设备',
+ reported:EN?'Reported':'上报',
 };
 let loading=false,quotaItems=[];
 async function api(path,options={}) {
@@ -77,7 +83,7 @@ async function loadBusinessData(){
   const select=$('data-team'),previous=select.value;select.replaceChildren(new Option(T.allTeams,''));
   for(const team of teams.teams)select.add(new Option(team.team_name,team.team_id));
   if(teams.teams.some(t=>t.team_id===previous))select.value=previous;
-  quotaItems=quota.items;renderQuotaDetail();
+  quotaItems=quota.items;renderQuotaDetail();renderQuotaCards();
   renderTable('legacy-account-rows',legacy.accounts,[r=>r.provider,r=>r.account_name||T.unnamed,r=>r.model_count,r=>r.sample_count]);
   renderTable('audit-rows',audit.items,[r=>r.created_at,r=>r.team_id,r=>r.actor,r=>r.action,r=>r.target]);
   await loadTeamAccounts();
@@ -120,4 +126,103 @@ function renderQuotaDetail(){
   rows.append(row);
  }
 }
-$('data-refresh').addEventListener('click',loadBusinessData);$('data-team').addEventListener('change',()=>{loadTeamAccounts();renderQuotaDetail();});
+// 直观视图：还原 App 菜单弹窗的账号行——胶囊条按"已用比例"填充，
+// 右侧文字为剩余，阈值配色（≥100% 红、≥80% 或剩余≤20% 橙、有消耗绿、未消耗灰）。
+const qd={view:(()=>{try{return localStorage.getItem('aqb-admin-quota-view')||'cards'}catch{return 'cards'}})(),open:new Set(),accounts:[]};
+const qdTint=(used,left)=>{
+ if(used>=100)return '#9b4a32';
+ if(used>=80||(left<=20&&used>0))return '#b07a2a';
+ if(used>0)return '#507a59';
+ return '#8a948d';
+};
+const qdModel=item=>{
+ const percent=item.value_suffix==='%';
+ const total=Number(item.current_interval_total)||0,remaining=Number(item.current_interval_remaining)||0;
+ const left=percent?remaining:(total>0?remaining/total*100:null);
+ const used=left==null?null:Math.max(0,Math.min(100,100-left));
+ return {item,left,used,right:quotaCell(remaining,total,item.value_suffix)};
+};
+const dayMinute=value=>value?value.slice(5,16).replace('T',' '):'—';
+function qdWeeklyText(item){
+ const total=Number(item.weekly_total)||0,remaining=Number(item.weekly_remaining)||0;
+ if(item.value_suffix==='%'&&total===100)return `${T.weekly} ${remaining}%`;
+ if(total>0)return `${T.weekly} ${numberFormat.format(remaining)} / ${numberFormat.format(total)}`;
+ return null;
+}
+function qdCard(acc){
+ const open=qd.open.has(acc.key),card=document.createElement('div');
+ card.className='qd-card'+(open?' is-open':'');
+ const head=document.createElement('button');head.type='button';head.className='qd-head';
+ head.setAttribute('aria-expanded',open?'true':'false');
+ const caret=document.createElement('span');caret.className='qd-caret';caret.textContent=open?'▾':'▸';
+ const provider=document.createElement('span');provider.className='qd-provider';provider.textContent=acc.provider;
+ const name=document.createElement('span');name.className='qd-account';name.textContent=acc.account_name||T.unnamed;
+ const chip=document.createElement('span');chip.className='qd-team';chip.textContent=acc.team_name;
+ const time=document.createElement('span');time.className='qd-time';time.textContent=dayMinute(acc.latest);
+ head.append(caret,provider,name,chip,time);
+ head.addEventListener('click',()=>{if(qd.open.has(acc.key))qd.open.delete(acc.key);else qd.open.add(acc.key);renderQuotaCards();});
+ card.append(head);
+ const summary=document.createElement('p');summary.className='qd-summary';
+ summary.textContent=`${T.modelsCount(acc.rows.length)} · ${T.minLeft(acc.worst)}`;
+ card.append(summary);
+ if(open){
+  const body=document.createElement('div');body.className='qd-models';
+  for(const row of acc.rows){
+   const box=document.createElement('div');box.className='qd-model';
+   const modelHead=document.createElement('div');modelHead.className='qd-model-head';
+   const modelName=document.createElement('span');modelName.textContent=row.item.model_name||row.item.model_id;
+   const remaining=document.createElement('span');remaining.className='qd-remaining';remaining.textContent=row.right;
+   if(row.used!=null)remaining.style.color=qdTint(row.used,row.left);
+   modelHead.append(modelName,remaining);
+   const bar=document.createElement('div');bar.className='qd-bar';
+   const fill=document.createElement('div');fill.className='qd-bar-fill';
+   fill.style.width=(row.used==null?0:row.used)+'%';
+   if(row.used!=null)fill.style.background=qdTint(row.used,row.left);
+   bar.append(fill);
+   const meta=document.createElement('div');meta.className='qd-meta';
+   const parts=[qdWeeklyText(row.item),row.item.reset_start_time?`${T.resets} ${dayMinute(row.item.reset_start_time)} ~ ${dayMinute(row.item.reset_end_time)}`:null,
+    `${T.device} ${row.item.device_id?row.item.device_id.slice(0,8)+'…':'—'}`,`${T.reported} ${dayMinute(row.item.sampled_at)}`].filter(Boolean);
+   parts.forEach((text,index)=>{if(index){const dot=document.createElement('span');dot.textContent='·';meta.append(dot);}
+    const span=document.createElement('span');span.textContent=text;meta.append(span);});
+   box.append(modelHead,bar,meta);body.append(box);
+  }
+  card.append(body);
+ }
+ return card;
+}
+function renderQuotaCards(){
+ const grid=$('quota-cards');grid.replaceChildren();
+ const team=$('data-team').value;
+ const items=quotaItems.filter(item=>!team||item.team_id===team);
+ if(!items.length){const empty=document.createElement('p');empty.className='empty';empty.textContent=T.noData;grid.append(empty);qd.accounts=[];return;}
+ const accounts=new Map();
+ for(const item of items){
+  const key=item.team_id+'|'+item.provider+'|'+(item.account_name??'');
+  if(!accounts.has(key))accounts.set(key,{key,team_id:item.team_id,team_name:item.team_name||item.team_id,provider:item.provider,account_name:item.account_name,models:[]});
+  accounts.get(key).models.push(item);
+ }
+ qd.accounts=[...accounts.values()].map(account=>{
+  const rows=account.models.map(qdModel).sort((a,b)=>(a.left??101)-(b.left??101));
+  const lefts=rows.map(row=>row.left).filter(value=>value!=null);
+  return {...account,rows,worst:lefts.length?Math.min(...lefts):null,
+   latest:account.models.reduce((max,model)=>model.sampled_at>max?model.sampled_at:max,'')};
+ }).sort((a,b)=>(a.worst??101)-(b.worst??101)||(a.latest<b.latest?1:a.latest>b.latest?-1:0));
+ const keys=new Set(qd.accounts.map(account=>account.key));
+ for(const key of [...qd.open])if(!keys.has(key))qd.open.delete(key);
+ for(const account of qd.accounts)grid.append(qdCard(account));
+}
+function setQuotaView(view){
+ qd.view=view;try{localStorage.setItem('aqb-admin-quota-view',view)}catch{}
+ $('quota-cards').hidden=view!=='cards';
+ $('quota-table-wrap').hidden=view==='cards';
+ $('qd-view-cards').className='qd-tab'+(view==='cards'?' active':'');
+ $('qd-view-list').className='qd-tab'+(view==='cards'?'':' active');
+ $('qd-expand-all').hidden=view!=='cards';
+ $('qd-collapse-all').hidden=view!=='cards';
+}
+$('qd-view-cards').addEventListener('click',()=>setQuotaView('cards'));
+$('qd-view-list').addEventListener('click',()=>setQuotaView('list'));
+$('qd-expand-all').addEventListener('click',()=>{for(const account of qd.accounts)qd.open.add(account.key);renderQuotaCards();});
+$('qd-collapse-all').addEventListener('click',()=>{qd.open.clear();renderQuotaCards();});
+setQuotaView(qd.view);
+$('data-refresh').addEventListener('click',loadBusinessData);$('data-team').addEventListener('change',()=>{loadTeamAccounts();renderQuotaDetail();renderQuotaCards();});
