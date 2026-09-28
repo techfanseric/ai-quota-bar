@@ -139,6 +139,48 @@ final class MiniMaxActivityDetectorTests: XCTestCase {
         XCTAssertEqual(detector.detectSnapshot(now: now), .empty)
     }
 
+    func testStaleBackgroundFolderSkipsStatsUntilFullSweep() throws {
+        let fixture = try makeFixture()
+        try fixture.writeBackgroundTask(
+            taskID: "bg_stale",
+            modifiedAt: now - 10 * 60)
+        let sweeping = MiniMaxActivityDetector(
+            sessionsRootURL: fixture.sessionsRootURL,
+            backgroundTasksRootURL: fixture.backgroundTasksRootURL,
+            freshnessWindow: 120,
+            fullBackgroundSweepInterval: 60)
+
+        // First pass probes the folder once and caches its stale state.
+        XCTAssertEqual(sweeping.detectSnapshot(now: now), .empty)
+
+        // A resumed task appends in place: output.log becomes fresh while
+        // the folder's own mtime stays stale.
+        let taskDirectory = fixture.backgroundTasksRootURL
+            .appendingPathComponent("bg_stale", isDirectory: true)
+        let logURL = taskDirectory.appendingPathComponent("output.log")
+        let handle = try FileHandle(forWritingTo: logURL)
+        try handle.seekToEnd()
+        try handle.write(contentsOf: Data("resumed".utf8))
+        try handle.close()
+
+        // Before the sweep deadline the folder is trusted stale and never
+        // re-stat'd, so the resumed write is not seen yet.
+        let beforeSweep = now + 30
+        try FileManager.default.setAttributes(
+            [.modificationDate: beforeSweep - 5],
+            ofItemAtPath: logURL.path)
+        XCTAssertEqual(sweeping.detectSnapshot(now: beforeSweep), .empty)
+
+        // The periodic full sweep bounds that miss window.
+        let atSweep = now + 70
+        try FileManager.default.setAttributes(
+            [.modificationDate: atSweep - 5],
+            ofItemAtPath: logURL.path)
+        XCTAssertEqual(
+            sweeping.detectSnapshot(now: atSweep).activeSessionIDs,
+            ["minimax:bg:bg_stale"])
+    }
+
     // MARK: - Fixtures
 
     private func milliseconds(_ date: Date) -> Double {
