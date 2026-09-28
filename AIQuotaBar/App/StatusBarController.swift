@@ -425,7 +425,7 @@ final class StatusBarController {
                     // Tracking runs the run loop in the event-tracking
                     // mode; a default-mode timer would never fire while the
                     // button is held.
-                    RunLoop.main.add(timer, in: .common)
+                    RunLoop.main.add(timer, forMode: .common)
                     self.rightHoldTimer = timer
                 case .rightMouseUp:
                     self.rightHoldTimer?.invalidate()
