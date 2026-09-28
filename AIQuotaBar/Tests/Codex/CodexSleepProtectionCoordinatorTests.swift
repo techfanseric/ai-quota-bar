@@ -169,9 +169,9 @@ final class CodexSleepProtectionCoordinatorTests: XCTestCase {
     func testMobileActivitySummaryDeduplicatesHookAndLocalSessions()
         throws
     {
-        let fixture = try makeFixture()
-        fixture.coordinator.start()
         let now = Date(timeIntervalSince1970: 10_000)
+        let fixture = try makeFixture(nowProvider: { now })
+        fixture.coordinator.start()
         fixture.coordinator.receive(event(
             .userPromptSubmit,
             sessionID: "shared-session",
@@ -195,9 +195,9 @@ final class CodexSleepProtectionCoordinatorTests: XCTestCase {
     func testMobileActivitySummaryBecomesStaleAndZeroClearsActiveMetadata()
         throws
     {
-        let fixture = try makeFixture()
-        fixture.coordinator.start()
         let start = Date(timeIntervalSince1970: 20_000)
+        let fixture = try makeFixture(nowProvider: { start })
+        fixture.coordinator.start()
         fixture.coordinator.receive(event(
             .userPromptSubmit,
             sessionID: "sensitive-session",
@@ -377,11 +377,49 @@ final class CodexSleepProtectionCoordinatorTests: XCTestCase {
         XCTAssertTrue(stale.tasks.allSatisfy { $0.state == .stale })
     }
 
+    func testMobileSummaryLabelsKimiWorkTasks() throws {
+        let now = Date()
+        let fixture = try makeFixture()
+        fixture.coordinator.setProtectedProviders([.kimi])
+        fixture.coordinator.start()
+        fixture.coordinator.receiveKimiSnapshot(
+            KimiLocalActivitySnapshot(
+                activeSessionIDs: ["kimi:work:conv-1"],
+                lastEventAt: now,
+                lastEventBySession: ["kimi:work:conv-1": now]))
+
+        let summary = fixture.coordinator.mobileActivitySummary(now: now)
+
+        XCTAssertEqual(summary.state, .working)
+        XCTAssertEqual(summary.tasks.compactMap(\.source), ["Kimi Work"])
+        XCTAssertEqual(summary.tasks.first?.modelProvider, "Kimi")
+    }
+
+    func testHookTurnPastTTLIsReapedDuringMerge() throws {
+        let start = Date()
+        var current = start
+        let fixture = try makeFixture(nowProvider: { current })
+        fixture.coordinator.start()
+        fixture.coordinator.receive(event(.userPromptSubmit, date: start))
+        XCTAssertEqual(fixture.coordinator.activeTurnCount, 1)
+        XCTAssertTrue(fixture.assertions.isHoldingAssertions)
+
+        // The Stop hook never arrived (kill -9, lost event); the next merge
+        // pass past the TTL must reap the ghost turn.
+        current = start.addingTimeInterval(
+            CodexActivityTracker.defaultTurnTTL + 60)
+        fixture.coordinator.receiveKimiSnapshot(.empty)
+
+        XCTAssertEqual(fixture.coordinator.activeTurnCount, 0)
+        XCTAssertFalse(fixture.assertions.isHoldingAssertions)
+    }
+
     private func makeFixture(
         turnEndGracePeriod: TimeInterval = 0,
         zcodeActivityProvider: (any ProviderLocalActivityProviding)? = nil,
         miniMaxActivityProvider: (any ProviderLocalActivityProviding)? = nil,
-        claudeCodeActivityProvider: (any ProviderLocalActivityProviding)? = nil
+        claudeCodeActivityProvider: (any ProviderLocalActivityProviding)? = nil,
+        nowProvider: @escaping () -> Date = Date.init
     ) throws -> (
         coordinator: CodexSleepProtectionCoordinator,
         assertions: FakePowerAssertionController,
@@ -414,7 +452,8 @@ final class CodexSleepProtectionCoordinatorTests: XCTestCase {
             claudeCodeActivityProvider: claudeCodeActivityProvider,
             closedLidModeManager: closedLidManager,
             workspaceNotificationCenter: workspaceCenter,
-            turnEndGracePeriod: turnEndGracePeriod
+            turnEndGracePeriod: turnEndGracePeriod,
+            nowProvider: nowProvider
         )
         addTeardownBlock {
             await MainActor.run {
