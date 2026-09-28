@@ -1,5 +1,5 @@
 import { listQuotaSamples, listAccountSummaries, listDevices } from './legacy-quota.js';
-import { teamQuota, quotaAccounts, deleteTeamQuota } from './team-quota.js';
+import { teamQuota, quotaAccounts, deleteTeamQuota, adminQuotaHeads } from './team-quota.js';
 import { operations, authorized } from "./operations.js";
 import { localUsage, identity } from "./local-usage.js";
 import { teamService } from "./team.js";
@@ -25,6 +25,11 @@ export default {
             FROM (SELECT team_id FROM usage_teams UNION SELECT team_id FROM usage_devices) known
             LEFT JOIN usage_teams t ON t.team_id=known.team_id ORDER BY t.created_at DESC LIMIT 1000`).all();
           return json({ok:true,teams:result.results});
+        }
+        if (url.pathname === '/v1/admin/data/quota' && request.method === 'GET') {
+          const quotaTeamID = url.searchParams.get('team_id');
+          if (quotaTeamID && !/^[a-z0-9_-]{1,60}$/.test(quotaTeamID)) return json({error:'invalid_team'},400);
+          return json({ok:true,items:await adminQuotaHeads(env,quotaTeamID||null,2000)});
         }
         const teamID=url.searchParams.get('team_id');
         if (url.pathname === '/v1/admin/data/accounts' && request.method === 'GET') {

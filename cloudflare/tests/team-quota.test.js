@@ -65,10 +65,29 @@ test('legacy shared data and D1 are admin-only; device/team sessions never eleva
  for(const path of ['/v1/quota-samples','/v1/account-summaries','/v1/devices','/v1/data?provider=codex'])assert.equal((await call(env,path,{headers:auth(env.SYNC_TOKEN),method:path.includes('/data')?'DELETE':'GET'})).status,401);
  assert.deepEqual((await call(env,'/v1/account-summaries',{headers:auth(token)})).body.accounts,[]);
  const cookie=await loginSession(env,team);
- for(const headers of [auth(token),auth(env.SYNC_TOKEN),{cookie}])for(const path of ['/v1/admin/data/teams','/v1/admin/data/legacy/accounts','/v1/admin/data/audit','/v1/admin/d1-usage'])assert.equal((await call(env,path,{headers})).status,401);
+ for(const headers of [auth(token),auth(env.SYNC_TOKEN),{cookie}])for(const path of ['/v1/admin/data/teams','/v1/admin/data/quota','/v1/admin/data/legacy/accounts','/v1/admin/data/audit','/v1/admin/d1-usage'])assert.equal((await call(env,path,{headers})).status,401);
  const login=await post(env,'/v1/admin/login',{password:env.OPS_ADMIN_SECRET},{origin:'https://test.invalid'}),adminCookie=login.response.headers.get('set-cookie').split(';')[0];
  const data=await call(env,'/v1/admin/data/legacy/accounts',{headers:{cookie:adminCookie}});assert.equal(data.status,200);assert.equal(data.body.accounts[0].account_name,'legacy-secret');
  assert.equal((await call(env,'/v1/admin/data/teams',{headers:{cookie:adminCookie}})).body.teams.length,1);assert.equal(db.prepare('SELECT COUNT(*) n FROM quota_samples').get().n,1);
+});
+test('admin quota detail shows every team latest snapshot; admin-only and team-scoped',async()=>{
+ const {env}=setup();const a=await createTeam(env,'Team A'),b=await createTeam(env,'Team B');
+ const ta=await join(env,a.inviteCode,'Alice','same-device','secret-a'),tb=await join(env,b.inviteCode,'Bob','same-device','secret-b');
+ await upload(env,ta,[model()],{sampledAt:'2026-09-01T00:00:00Z'});
+ await upload(env,ta,[{...model(),currentIntervalRemaining:10}],{sampledAt:'2026-09-01T02:00:00Z'});
+ await upload(env,tb,[{...model('kimi','other@example.test'),weeklyRemaining:55}],{sampledAt:'2026-09-01T03:00:00Z'});
+ for(const headers of [auth(ta),auth(env.SYNC_TOKEN),{cookie:await loginSession(env,a)}])assert.equal((await call(env,'/v1/admin/data/quota',{headers})).status,401);
+ const login=await post(env,'/v1/admin/login',{password:env.OPS_ADMIN_SECRET},{origin:'https://test.invalid'}),adminCookie=login.response.headers.get('set-cookie').split(';')[0];
+ const all=await call(env,'/v1/admin/data/quota',{headers:{cookie:adminCookie}});assert.equal(all.status,200);
+ assert.equal(all.body.items.length,2);
+ const byTeam=new Map(all.body.items.map(item=>[item.team_id,item]));
+ assert.equal(byTeam.get(a.teamID).current_interval_remaining,10);
+ assert.equal(byTeam.get(a.teamID).team_name,'Team A');
+ assert.equal(byTeam.get(b.teamID).weekly_remaining,55);
+ assert.equal(byTeam.get(b.teamID).account_name,'other@example.test');
+ assert.equal((await call(env,'/v1/admin/data/quota?team_id='+b.teamID,{headers:{cookie:adminCookie}})).body.items.length,1);
+ assert.equal((await call(env,'/v1/admin/data/quota?team_id=tnothing',{headers:{cookie:adminCookie}})).body.items.length,0);
+ assert.equal((await call(env,'/v1/admin/data/quota?team_id=invalid!id',{headers:{cookie:adminCookie}})).status,400);
 });
 test('known device IDs cannot rotate member credentials; leaving revokes both data paths',async()=>{
  const {env}=setup();const team=await createTeam(env),token=await join(env,team.inviteCode,'Alice','same-device','alice-secret');
