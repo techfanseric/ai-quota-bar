@@ -72,7 +72,10 @@ See [team rollout notes](../docs/team-isolation.md) for the release checklist.
   Deletion always includes team + provider + account and records an audit entry. Consumption events remain separate.
 - `/v1/admin/data/teams`, `/accounts?team_id=...`, `/quota[?team_id=...]`, `/audit`, `/legacy/accounts`, `/legacy/samples`, `/legacy/devices`:
   platform-admin session only. Team account deletion uses `DELETE /v1/admin/data/accounts` with explicit team/provider/account.
-  `/quota` returns the latest snapshot of every account/model (all teams unless scoped by `team_id`), backing the `/admin` console's quota detail table.
+  `/quota` returns the latest snapshot of every account/model (all teams unless scoped by `team_id`), backing the `/admin` console's quota detail view.
+- `/v1/admin/data/quota-history?team_id&provider&account&hours`: platform-admin session only. Raw
+  ascending samples of one account (1-168h), fetched lazily when an account row is expanded in the
+  `/admin` console so the menu-shaped curve and cycle columns have history to draw.
 - `/v1/admin/d1-usage`: platform-admin D1 analytics. The old `/v1/d1-usage` is closed.
 - `POST /v1/admin/team-session {teamID}`: platform-admin session only. Swaps the browser's
   team cookie for one signed with `OPS_ADMIN_SECRET`, which team.js accepts as a manager
