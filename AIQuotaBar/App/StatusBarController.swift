@@ -127,36 +127,8 @@ final class StatusBarController {
                 self.clashRouteViewModel.language =
                     self.viewModel.appLanguage
                 await self.clashRouteViewModel.testRoutes()
-            },
-            // 关注链路的两个注入点：要不要监听，以及被问到时给什么。
-            // 两者都刻意与手机看板解耦——分享 Codex 额度不等于打开看板。
-            watchServingProvider: {
-                CodexWatchGrantStore.shared.isServing
-            },
-            codexWatchResponseProvider: { [weak self] in
-                self?.codexWatchResponse()
             })
     private let clashPanelDisplayStore = ClashPanelDisplayStore()
-    /// 构造「被局域网其他 Mac 关注」时对外给出的应答。
-    ///
-    /// 只用 `providerUsageSections`：那是菜单真正在显示的那份数据，
-    /// 已经在 providerUsageData / 云端 / 关注对端三路合并之后，
-    /// 用别的源会让对端看到本机界面上并不存在的账号。
-    private func codexWatchResponse() -> CodexWatchResponse? {
-        let grants = CodexWatchGrantStore.shared
-        return CodexWatchProjector.response(
-            sourceAccounts: CodexWatchProjector.sourceAccounts(
-                from: viewModel.providerUsageSections),
-            isServing: grants.isServing,
-            isAllowed: { grants.isAllowed($0) },
-            allowedAccountNames: grants.allowedAccountNames,
-            hostName: Host.current().localizedName
-                ?? ProcessInfo.processInfo.hostName,
-            appVersion: Bundle.main.object(
-                forInfoDictionaryKey: "CFBundleShortVersionString")
-                as? String ?? "dev")
-    }
-
     private let codexAuthAccountStore = CodexAuthAccountStore.shared
     let stepAwayDimController = StepAwayDimController()
     private lazy var clashRoutePopoverController = ClashRoutePopoverController(
@@ -199,15 +171,15 @@ final class StatusBarController {
         updateClashWorkGating()
         viewModel.flushPendingCloudSyncQueue()
         mobileDashboardService.startIfEnabled()
-        // 关注链路：owner 侧随服务起停，watcher 侧自己轮询对端。
-        CodexWatchPeerStore.shared.startPolling()
-        viewModel.onUsageDidRefresh = { [weak self] in
-            self?.mobileDashboardService.refreshCodexWatchServing()
-        }
-        // 授权可以随时收紧，所以设置页改完授权必须立刻重算对外应答，
-        // 而不是等下一轮用量刷新。
-        CodexWatchGrantStore.shared.onChange = { [weak self] in
-            self?.mobileDashboardService.refreshCodexWatchServing()
+        // 名单变化后要立刻反映到界面上：取消勾选的账号下一次刷新就不会
+        // 再上报，关注列表变化则要重新解析一次云端数据。
+        // 云端快照本身由下一轮用量刷新覆盖（取消勾选到真正消失之间
+        // 有一个刷新周期的窗口），所以这里不谎称是即时的。
+        CodexWatchStore.shared.onChange = { [weak self] in
+            guard let self else { return }
+            Task { @MainActor in
+                await self.viewModel.refresh(showIconSelfTest: false)
+            }
         }
         synchronizeMobileDashboardModelSelection()
         observeMobileDashboardModelSelection()

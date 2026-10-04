@@ -73,12 +73,8 @@ final class MobileDashboardService {
         }
     }
 
-    /// 局域网「关注账号」是否需要服务在跑。
-    ///
-    /// 与手机看板解耦，是刻意的：把 Codex 额度分享给另一台 Mac
-    /// 不应该顺带把手机看板也打开、把账号名掩码策略暴露出去。
     private var shouldRunListener: Bool {
-        isEnabled || watchServingProvider()
+        isEnabled
     }
 
     var masksAccountNames: Bool {
@@ -223,13 +219,6 @@ final class MobileDashboardService {
     private let onViewerActivityChanged: @MainActor (Bool) -> Void
     private let refreshRoute: @MainActor () async -> Void
     private let testRoutes: @MainActor () async -> Void
-    /// 关注链路是否需要服务在跑（由 `CodexWatchGrantStore` 注入）。
-    private let watchServingProvider: @MainActor () -> Bool
-    /// 关注链路的应答构造（授权判定 + 本机用量，注入以免服务理解授权语义）。
-    private let codexWatchResponseProvider:
-        @MainActor () -> CodexWatchResponse?
-    /// 供 HTTP 服务跨队列读取的应答缓存。
-    @ObservationIgnored let codexWatchResponseBox = CodexWatchResponseBox()
     @ObservationIgnored private lazy var server =
         MobileDashboardHTTPServer(
         stateHandler: { [weak self] state in
@@ -288,10 +277,6 @@ final class MobileDashboardService {
             @escaping @MainActor (Bool) -> Void,
         refreshRoute: @escaping @MainActor () async -> Void,
         testRoutes: @escaping @MainActor () async -> Void,
-        watchServingProvider:
-            @escaping @MainActor () -> Bool = { false },
-        codexWatchResponseProvider:
-            @escaping @MainActor () -> CodexWatchResponse? = { nil }
     ) {
         self.defaults = defaults
         self.accessTokenStore = accessTokenStore
@@ -302,8 +287,6 @@ final class MobileDashboardService {
         self.onViewerActivityChanged = onViewerActivityChanged
         self.refreshRoute = refreshRoute
         self.testRoutes = testRoutes
-        self.watchServingProvider = watchServingProvider
-        self.codexWatchResponseProvider = codexWatchResponseProvider
         let storedSelection = Self.loadModelSelection(
             defaults: defaults)
         selectedModelKeys = storedSelection ?? []
@@ -478,20 +461,6 @@ final class MobileDashboardService {
             state = .off
             return
         }
-        start()
-    }
-
-    /// 授权名单或本机用量变化后调用：重算一次对外应答并（按需）起停服务。
-    ///
-    /// 授权是可以在服务运行中被随时收紧的，所以这份缓存必须能被热更新——
-    /// 否则用户点了「取消授权」，对端仍能读到旧快照直到下次重启。
-    func refreshCodexWatchServing() {
-        guard shouldRunListener else {
-            if isRunningRequested { stop() }
-            codexWatchResponseBox.update(nil)
-            return
-        }
-        codexWatchResponseBox.update(codexWatchResponseProvider())
         start()
     }
 
@@ -711,11 +680,6 @@ final class MobileDashboardService {
         state = .starting
         startNetworkMonitoring()
         updateAccessURLs()
-        // 端点在 HTTP 服务自己的队列上被调用，不能直接碰主 actor 状态，
-        // 所以应答由主 actor 预先算好放进这个加锁盒子，服务端只读缓存。
-        codexWatchResponseBox.update(codexWatchResponseProvider())
-        let responseBox = codexWatchResponseBox
-        server.updateCodexWatchQuotaProvider { responseBox.current }
         server.start(
             port: Self.defaultPort,
             accessToken: accessToken,
