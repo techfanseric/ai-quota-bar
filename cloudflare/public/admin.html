@@ -13,6 +13,7 @@
 <div class="table-scroll"><table><thead><tr><th>供应商</th><th>账号</th><th>模型数</th><th>快照数</th><th>最新上报</th><th>操作</th></tr></thead><tbody id="quota-rows"></tbody></table></div>
 <div class="section-heading" id="quota-detail-heading"><h2>账号额度详情</h2>
  <div class="qd-tools"><span class="muted">每个模型并排一列 · 时间为 UTC+8 · 最多 2000 条</span>
+  <label class="qd-range" id="qd-range-wrap" for="qd-hours"><span class="muted">历史范围</span><select id="qd-hours"><option value="24">近 24 小时</option><option value="168" selected>近 7 天</option><option value="720">近 30 天</option><option value="2160">近 90 天</option></select></label>
   <label class="qd-search" id="qd-search-wrap" for="qd-search"><span class="muted">搜索</span><input id="qd-search" type="search" placeholder="账号 / 模型 / 团队" autocomplete="off"></label>
   <button id="qd-reset-view" type="button">重置视图</button>
   <button id="qd-expand-all" class="qd-tab" type="button">全部展开</button>
@@ -20,7 +21,7 @@
   <button id="qd-view-cards" class="qd-tab active" type="button">直观视图</button>
   <button id="qd-view-list" class="qd-tab" type="button">列表</button>
  </div></div>
-<p class="quota-note muted">默认显示全部团队；在上方选择团队后只显示该团队。层级与文案沿用 App 左键菜单：供应商 → 账号 → 模型；排版改为模型列，同一账号下每个模型并排一列，列宽随该账号的模型数自适应。默认只展开最紧张的一个账号，其余折叠并在右侧显示最低剩余。</p>
+<p class="quota-note muted">默认显示全部团队；在上方选择团队后只显示该团队。层级与文案沿用 App 左键菜单：供应商 → 账号 → 模型；排版改为模型列，同一账号下每个模型并排一列，列宽随该账号的模型数自适应。默认只展开最紧张的一个账号，其余折叠并在右侧显示最低剩余。历史范围默认近 7 天，最远可回溯近 90 天，与服务端保留期一致；展开账号时按需拉取该范围的历史。</p>
 <div id="quota-cards" class="qm"></div>
 <div class="table-scroll" id="quota-table-wrap"><table><thead><tr><th>团队</th><th>供应商</th><th>账号</th><th>模型</th><th>区间剩余</th><th>本周剩余</th><th>区间重置（UTC+8）</th><th>设备</th><th>上报时间（UTC+8）</th></tr></thead><tbody id="quota-detail-rows"></tbody></table></div>
 <details><summary>历史共享数据（只读）</summary><table><thead><tr><th>供应商</th><th>账号</th><th>模型数</th><th>快照数</th></tr></thead><tbody id="legacy-account-rows"></tbody></table></details>

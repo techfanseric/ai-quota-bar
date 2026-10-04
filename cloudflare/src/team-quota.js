@@ -12,13 +12,19 @@ export async function quotaAccounts(env, teamID) {
 // Platform-admin console: the latest snapshot of every account/model, across
 // all teams when no team is scoped. Same latest-per-account semantics as the
 // team read path: shared quota is not summed across devices.
+// `truncated` reports that the row cap dropped the oldest snapshots rather than
+// letting the console present a partial roster as if it were complete.
 export async function adminQuotaHeads(env, teamID, limit) {
   const sql = `SELECT team_id,provider,account_key,model_id,sampled_at,payload FROM (
     SELECT team_id,provider,account_key,model_id,sampled_at,payload,
       ROW_NUMBER() OVER(PARTITION BY team_id,provider,account_key,model_id ORDER BY sampled_at DESC,device_id) n
     FROM team_quota_heads ${teamID ? 'WHERE team_id=?' : ''}) WHERE n=1 ORDER BY sampled_at DESC LIMIT ?`;
-  const rows = (await env.DB.prepare(sql)
-    .bind(...(teamID ? [teamID] : []), limit).all()).results;
+  // ORDER BY sampled_at DESC already puts the newest first, so slicing to the
+  // cap keeps current state and drops only the stalest accounts.
+  const found = (await env.DB.prepare(sql)
+    .bind(...(teamID ? [teamID] : []), limit + 1).all()).results;
+  const truncated = found.length > limit;
+  const rows = truncated ? found.slice(0, limit) : found;
   const names = new Map((await env.DB.prepare(`SELECT team_id,team_name FROM usage_teams ${teamID ? 'WHERE team_id=?' : ''}`)
     .bind(...(teamID ? [teamID] : [])).all()).results.map(row => [row.team_id, row.team_name]));
   const items = [];
@@ -26,20 +32,35 @@ export async function adminQuotaHeads(env, teamID, limit) {
     try { items.push({...JSON.parse(row.payload), team_id: row.team_id, team_name: names.get(row.team_id) || row.team_id}); }
     catch { /* payloads are only written by this service; skip unreadable rows */ }
   }
-  return items;
+  return { items, truncated, rowBudget: limit };
 }
+// Row budget for one account's history response. Samples are one row per
+// device × model × report, so a 90-day window over a few devices already
+// overflows this. Raising the window without a budget would just move the
+// problem; the budget is explicit and the caller is told when it bites.
+export const HISTORY_ROW_BUDGET = 5000;
+
 // Platform-admin console: raw sample history for one account, ascending, for
 // curves/cycle/hourly charts. Percent-mode uploads fold total to 100.
-export async function adminQuotaHistory(env, teamID, provider, account, hours) {
+// `model` narrows to one model so a wide account doesn't spend its whole
+// budget on siblings the console will filter away anyway.
+export async function adminQuotaHistory(env, teamID, provider, account, hours, model = '') {
   const since = new Date(Date.now() - hours * 3600000).toISOString();
+  // Newest rows win the budget. Taking the OLDEST slice made a busy account
+  // silently render stale state: the chart showed "current" numbers that were
+  // days old, with nothing in the response to say so.
   const rows = (await env.DB.prepare(`SELECT payload FROM team_quota_samples
-    WHERE team_id=? AND provider=? AND account_key=? AND sampled_at>=?
-    ORDER BY sampled_at ASC LIMIT 5000`).bind(teamID, provider, account, since).all()).results;
+    WHERE team_id=? AND provider=? AND account_key=? AND sampled_at>=? ${model ? 'AND model_id=?' : ''}
+    ORDER BY sampled_at DESC LIMIT ?`)
+    .bind(teamID, provider, account, since, ...(model ? [model] : []), HISTORY_ROW_BUDGET + 1).all()).results;
+  const truncated = rows.length > HISTORY_ROW_BUDGET;
   const samples = [];
-  for (const row of rows) {
-    try { samples.push(JSON.parse(row.payload)); } catch { /* server-written payloads; skip unreadable */ }
+  // Read back newest-first, emit ascending: both the charts and the existing
+  // response contract treat this array as time-ordered.
+  for (let index = Math.min(rows.length, HISTORY_ROW_BUDGET) - 1; index >= 0; index--) {
+    try { samples.push(JSON.parse(rows[index].payload)); } catch { /* server-written payloads; skip unreadable */ }
   }
-  return samples;
+  return { samples, truncated, rowBudget: HISTORY_ROW_BUDGET };
 }
 
 export function auditStatement(env, teamID, actor, action, target) {

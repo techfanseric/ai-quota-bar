@@ -13,6 +13,10 @@ const WARNING=20;
 const FRESH=HOUR;
 const numberFormat=new Intl.NumberFormat(ZH?'zh-CN':'en-US');
 const clamp=(v,lo,hi)=>Math.min(hi,Math.max(lo,v));
+// 历史上限 90 天 = 服务端 team_quota_samples 的保留期，超过就是查不到的数据。
+const HOURS_MAX=2160, HOURS_DEFAULT=168;
+// 与 #qd-hours 的选项同源，缺一个就退到通用单位，别显示 "近 1 天"。
+const rangeShort=h=>h%24===0?`${h/24} 天`:`${h/24===1?'':`${h/24} `}小时`;
 const p2=n=>String(n).padStart(2,'0');
 const parseTime=value=>{const t=Date.parse(value||'');return Number.isFinite(t)?t:null;};
 // 展示时区：中文界面按 UTC+8 读小时／日界线，英文界面保持 UTC。
@@ -37,7 +41,16 @@ const T={
  cycleMonthly:ZH?'月度周期':'Monthly cycles',
  loading:ZH?'历史加载中…':'Loading history…',
  historyFailed:ZH?'历史加载失败，请重试。':'History failed — retry.',
- noHistory:ZH?'近 7 天没有上报样本。':'No samples in the last 7 days.',
+ // 窗口长度是运行时选择，静态文案会把 7 天说成 90 天。
+ noHistory:h=>ZH?`近 ${rangeShort(h)}没有上报样本。`:`No samples in the last ${rangeShort(h)}.`,
+ // 服务端按行数预算截断时必须说出来：否则「当前」那条曲线其实是几天前的。
+ truncated:(n,budget)=>ZH
+  ?`${n} 个账号的历史超出单账号 ${budget} 条上限，仅显示最近的部分（最新的已保留）。`
+  :`${n} account(s) exceeded the ${budget}-row history budget; only the most recent samples are shown.`,
+ // 账号名册本身被截断：下面这张表就不是全部，最新的已保留。
+ rosterTruncated:ZH
+  ?'账号名册超出 2000 条上限，仅显示最近上报的部分——下方并非全部账号。'
+  :'The account roster exceeded its 2000-row cap; only the most recently reported accounts are shown.',
  exhausted:(n,open)=>open
   ?(ZH?`收起 ${n} 个已用完模型`:`Hide ${n} exhausted models`)
   :(ZH?`展开 ${n} 个已用完模型`:`Show ${n} exhausted models`),
@@ -185,7 +198,11 @@ function deriveModel(item,now){
 
 const state={items:[],teamId:'',view:'cards',search:'',open:new Set(),collapsed:new Set(),
  showExhausted:new Set(),showUnused:new Set(),showHourly:new Set(),history:new Map(),accounts:[],touched:false,
- rendering:false,pending:false};
+ hours:HOURS_DEFAULT,truncated:new Map(),rowBudget:0,rosterTruncated:false,rendering:false,pending:false};
+
+// 历史缓存必须按窗口分桶：同一账号在 7 天和 90 天下是两份完全不同的数据，
+// 用账号 key 直接当缓存键会让切窗口后画出上一个窗口的曲线。
+const historyKey=account=>account.key+'|'+state.hours;
 
 function buildAccounts(){
  const team=state.teamId;
@@ -203,10 +220,14 @@ function buildAccounts(){
   const models=account.models.map(item=>deriveModel(item,now));
   const lefts=models.map(model=>model.left).filter(value=>value!=null);
   const worst=lefts.length?Math.min(...lefts):null;
+  // 展开后真正看得见的最低剩余：已用完／满额未用的模型默认折在分组开关里，
+  // 用它们排序等于替操作者选了一个「打开后其实什么紧急内容都没有」的账号。
+  const shown=models.filter(model=>!model.exhausted&&!model.unused).map(model=>model.left).filter(value=>value!=null);
+  const worstShown=shown.length?Math.min(...shown):null;
   const latest=account.models.reduce((max,item)=>(item.sampled_at||'')>max?item.sampled_at||'':max,'');
   const plans=models.map(model=>model.plan).filter(Boolean);
   const sources=models.map(model=>model.source);
-  return {...account,rows:models.sort(orderModels),worst,latest:parseTime(latest||''),
+  return {...account,rows:models.sort(orderModels),worst,worstShown,latest:parseTime(latest||''),
    stale:!(now-(parseTime(latest||'')||0)<=FRESH),
    plan:plans.length?plans[0]:null,source:sources.length?sources[0]:'Cloud',
    active:models.some(model=>model.isCurrentWindow)||now-(parseTime(latest||'')||0)<=FRESH};
@@ -227,7 +248,10 @@ function isOpen(account){
 // 后台没有"当前账号"，最紧张的账号就是最该被看见的那个。
 function applyDefault(accounts){
  if(state.touched||!accounts.length)return;
- const worst=accounts.filter(a=>a.worst!=null).sort((a,b)=>a.worst-b.worst)[0]||accounts[0];
+ // 打开前先在可见模型里挑最紧张的那个，而不是在含已用完模型的总体里挑。
+ // 否则账号里只要有一个 0% 的废模型就夺冠，展开后却是一片正常色。
+ const shown=accounts.filter(account=>account.worstShown!=null).sort((a,b)=>a.worstShown-b.worstShown);
+ const worst=shown[0]||accounts[0];
  state.open=new Set([worst.key]);
 }
 function pruneOpen(accounts){
@@ -237,18 +261,23 @@ function pruneOpen(accounts){
 }
 
 async function loadHistory(account){
+ const key=historyKey(account);
  const entry={status:'loading',samples:[]};
- state.history.set(account.key,entry);
+ state.history.set(key,entry);
+ state.truncated.delete(key);
  try{
   const response=await fetch('/v1/admin/data/quota-history?'+new URLSearchParams(
-   {team_id:account.team_id,provider:account.provider,account:account.account_name||'',hours:'168'}),
+   {team_id:account.team_id,provider:account.provider,account:account.account_name||'',hours:String(state.hours)}),
    {credentials:'same-origin'});
   const data=await response.json();
   if(!response.ok)throw new Error(data.error||'request_failed');
-  if(state.history.get(account.key)!==entry)return;
+  if(state.history.get(key)!==entry)return;
   entry.status='ready';entry.samples=Array.isArray(data.samples)?data.samples:[];
+  // 服务端只会丢弃最旧的一批，最新的始终在返回里，所以截断不等于数据过期。
+  if(data.truncated)state.truncated.set(key,account);
+  if(Number(data.row_budget)>0)state.rowBudget=Number(data.row_budget);
  }catch{
-  if(state.history.get(account.key)!==entry)return;
+  if(state.history.get(key)!==entry)return;
   entry.status='error';
  }
  renderCards();
@@ -439,7 +468,7 @@ function paintModel(box){
   }
  }
  if(!ready){
-  box.append(el('div','qm-state',history.status==='error'?T.historyFailed:history.status==='loading'?T.loading:T.noHistory));
+  box.append(el('div','qm-state',history.status==='error'?T.historyFailed:history.status==='loading'?T.loading:T.noHistory(state.hours)));
  }
 }
 // 把一棵已入文档的子树里所有待画的模型列画完。
@@ -506,7 +535,7 @@ function accountRow(account,now){
  head.addEventListener('click',()=>{
   if(state.open.has(account.key))state.open.delete(account.key);else state.open.add(account.key);
   state.touched=true;
-  if(isOpen(account)&&!state.history.has(account.key))loadHistory(account);
+  if(isOpen(account)&&!state.history.has(historyKey(account)))loadHistory(account);
   renderCards();
  });
  row.append(head);
@@ -518,8 +547,8 @@ function accountRow(account,now){
 // 120ms 后 ResizeObserver 按真实宽度重画又缩回去 —— 账号卡片在两帧之间上下跳一下，
 // 看起来就是「每次展开收起都在抖」。
 function accountBody(row,account){
- let history=state.history.get(account.key);
- if(!history){history={status:'loading',samples:[]};state.history.set(account.key,history);loadHistory(account);}
+ let history=state.history.get(historyKey(account));
+ if(!history){history={status:'loading',samples:[]};state.history.set(historyKey(account),history);loadHistory(account);}
  const visibleRows=account.rows.filter(model=>!model.exhausted&&!model.unused);
  row.append(...modelRows(account.rows,account,history));
  if(!account.rows.length)row.append(el('p','qm-note',T.noData));
@@ -582,13 +611,22 @@ function renderCardsInto(grid){
   if(!providers.has(account.provider))providers.set(account.provider,[]);
   providers.get(account.provider).push(account);
  }
- const worstOf=accounts=>Math.min(...accounts.map(account=>account.worst??101));
+ // 供应商排序同样按可见模型：藏在折叠组里的 0% 不该把整个供应商顶到最前。
+ const worstOf=accounts=>{const shown=accounts.map(account=>account.worstShown).filter(value=>value!=null);
+  return shown.length?Math.min(...shown):Math.min(...accounts.map(account=>account.worst??101));};
  const ordered=[...providers.entries()].sort((a,b)=>{
   const delta=worstOf(a[1])-worstOf(b[1]);
   return delta!==0?delta:a[0].localeCompare(b[0]);
  });
  const title=el('div','qm-title');
  title.append(el('strong',null,`${ordered.length} Providers · ${accounts.length} Accounts · ${accounts.reduce((sum,account)=>sum+account.rows.length,0)} Models`));
+ // 截断横幅贴着总数走：被截断的账号少一个，最近的样本仍然是对的，
+ // 但曲线左侧是空的——不说出来就会被当成「那几天没上报」。
+ if(state.truncated.size){
+  const budget=state.rowBudget||5000;
+  title.append(el('span','qm-truncated',T.truncated(state.truncated.size,budget)));
+ }
+ if(state.rosterTruncated)title.append(el('span','qm-truncated',T.rosterTruncated));
  grid.append(title);
  // 两段式渲染：先把供应商壳挂进文档，再往里填账号，账号行头挂进文档后再填模型列。
  // 图表要靠 clientWidth 定尺寸，脱离文档时量不到（见 accountBody 的注释）。
@@ -657,8 +695,9 @@ function setView(view){
  const cardsTab=$('qd-view-cards'),listTab=$('qd-view-list');
  if(cardsTab)cardsTab.className='qd-tab'+(view==='cards'?' active':'');
  if(listTab)listTab.className='qd-tab'+(view==='cards'?'':' active');
+ // 历史范围和搜索一样只在卡片视图有意义：列表视图是原始快照，不画历史。
  for(const [id,hidden] of [['qd-expand-all',view!=='cards'],['qd-collapse-all',view!=='cards'],
-  ['qd-search-wrap',view!=='cards']]){
+  ['qd-search-wrap',view!=='cards'],['qd-range-wrap',view!=='cards']]){
   const node=$(id);
   if(node)node.hidden=hidden;
  }
@@ -677,9 +716,24 @@ function switchView(view){
  renderCards();
 }
 
+function setHours(hours){
+ const value=Number(hours);
+ if(!Number.isInteger(value)||value<1||value>HOURS_MAX||value===state.hours)return;
+ state.hours=value;
+ // 换窗口 = 换一份数据：旧缓存整桶作废，展开中的账号重新拉。
+ state.history.clear();state.truncated.clear();
+ // setHours 也可能被直接调用而不经过 change 事件，选择器要跟着走。
+ const picker=$('qd-hours');
+ if(picker)picker.value=String(value);
+ for(const account of buildAccounts()){
+  if(isOpen(account))loadHistory(account);
+ }
+ renderCards();
+}
 function setItems(items,options={}){
  state.items=Array.isArray(items)?items:[];
- if(options.reset!==false)state.history.clear();
+ if(options.reset!==false){state.history.clear();state.truncated.clear();}
+ if(options.rosterTruncated!==undefined)state.rosterTruncated=options.rosterTruncated===true;
  render();
 }
 function setTeam(teamId){
@@ -702,8 +756,21 @@ function bind(){
  }catch{state.view='cards';}
  const search=$('qd-search');
  if(search)search.placeholder=ZH?'账号 / 模型 / 团队':'account / model / team';
+ // 恢复上次选中的历史窗口，越界的一律回默认值。
+ const hours=$('qd-hours');
+ if(hours){
+  try{
+   const saved=Number(localStorage.getItem('aqb-admin-quota-hours'));
+   if(Number.isInteger(saved)&&saved>=1&&saved<=HOURS_MAX)state.hours=saved;
+  }catch{}
+  hours.value=String(state.hours);
+  on('qd-hours','change',event=>{
+   setHours(event.target.value);
+   try{localStorage.setItem('aqb-admin-quota-hours',String(state.hours));}catch{}
+  });
+ }
 }
 
 bind();
-return {bind,setItems,setTeam,render,state,deriveModel,cyclesFor,hourlyFor,paceStage,paceLabel};
+return {bind,setItems,setTeam,setHours,render,state,deriveModel,cyclesFor,hourlyFor,paceStage,paceLabel};
 })();
