@@ -300,14 +300,16 @@ public actor UsageStore {
     public func rejectionReasons(binding: String) throws -> [String: Int] {
         Dictionary(uniqueKeysWithValues: try rows("SELECT COALESCE(delivery_error,'rejected'),COUNT(*) FROM usage_events WHERE binding=? AND delivery='rejected' GROUP BY delivery_error", [binding]).map { ($0[0], Int($0[1]) ?? 0) })
     }
-    /// Deletes cloud-confirmed events older than `cutoff`; the server is
-    /// already the durable copy, and the local charts only read a ~35 day
-    /// window, so old confirmed rows are pure dead weight. Pending, rejected,
-    /// and local-only rows are never touched: they have no cloud copy.
+    /// Deletes rows past the retention horizon whose loss cannot hurt:
+    /// cloud-confirmed (`sent`) rows — the server is the durable copy — and
+    /// local-only (`binding IS NULL`) rows, which no view reads beyond the
+    /// ~35 day chart window and which a future include-history connect can
+    /// regenerate from the source logs. Bound pending/rejected rows are
+    /// never touched: they have no cloud copy.
     /// Returns the number of deleted rows.
     @discardableResult
-    public func pruneDelivered(olderThan cutoff: Date) throws -> Int {
-        try run("DELETE FROM usage_events WHERE delivery='sent' AND occurred_at<?", [UsageTime.string(cutoff)])
+    public func pruneExpendable(olderThan cutoff: Date) throws -> Int {
+        try run("DELETE FROM usage_events WHERE occurred_at<? AND (delivery='sent' OR binding IS NULL)", [UsageTime.string(cutoff)])
         return Int(sqlite3_changes(db))
     }
 
