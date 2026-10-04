@@ -5,6 +5,11 @@ import { localUsage, identity } from "./local-usage.js";
 import { teamService } from "./team.js";
 import { feedbackService } from "./feedback.js";
 
+// Every query parameter the quota-history route understands. Anything else is
+// rejected rather than ignored, so a typo or a half-ported date range can never
+// masquerade as a filter that worked.
+const HISTORY_PARAMS = new Set(['team_id', 'provider', 'account', 'hours', 'model']);
+
 export default {
   async fetch(request, env) {
     try {
@@ -29,7 +34,8 @@ export default {
         if (url.pathname === '/v1/admin/data/quota' && request.method === 'GET') {
           const quotaTeamID = url.searchParams.get('team_id');
           if (quotaTeamID && !/^[a-z0-9_-]{1,60}$/.test(quotaTeamID)) return json({error:'invalid_team'},400);
-          return json({ok:true,items:await adminQuotaHeads(env,quotaTeamID||null,2000)});
+          const heads = await adminQuotaHeads(env, quotaTeamID || null, 2000);
+          return json({ok:true, items:heads.items, truncated:heads.truncated, row_budget:heads.rowBudget});
         }
         if (url.pathname === '/v1/admin/data/quota-history' && request.method === 'GET') {
           const historyTeamID = url.searchParams.get('team_id');
@@ -38,9 +44,20 @@ export default {
           const account = url.searchParams.get('account') || '';
           const invalid = value => !value || value.length > 200 || /[\u0000-\u001f]/.test(value);
           if (invalid(provider) || account.length > 200 || /[\u0000-\u001f]/.test(account)) return json({error:'invalid_account'},400);
+          // 90 days matches the server-side retention horizon, so everything the
+          // service still holds is reachable from the console.
           const hoursRaw = url.searchParams.get('hours') || '168';
-          if (!/^\d{1,3}$/.test(hoursRaw) || Number(hoursRaw) < 1 || Number(hoursRaw) > 168) return json({error:'invalid_hours'},400);
-          return json({ok:true,samples:await adminQuotaHistory(env,historyTeamID,provider,account,Number(hoursRaw))});
+          if (!/^\d{1,4}$/.test(hoursRaw) || Number(hoursRaw) < 1 || Number(hoursRaw) > 2160) return json({error:'invalid_hours'},400);
+          // Fail closed on unrecognised filters. A `from`/`to` that was quietly
+          // ignored answered 200 with the default 7 days, which reads as a
+          // working date range and is worse than an explicit rejection.
+          for (const key of url.searchParams.keys()) {
+            if (!HISTORY_PARAMS.has(key)) return json({error:'invalid_parameter'},400);
+          }
+          const model = url.searchParams.get('model') || '';
+          if (model.length > 200 || /[\u0000-\u001f]/.test(model)) return json({error:'invalid_model'},400);
+          const {samples, truncated, rowBudget} = await adminQuotaHistory(env, historyTeamID, provider, account, Number(hoursRaw), model);
+          return json({ok:true, samples, truncated, row_budget:rowBudget, hours:Number(hoursRaw), model});
         }
         const teamID=url.searchParams.get('team_id');
         if (url.pathname === '/v1/admin/data/accounts' && request.method === 'GET') {

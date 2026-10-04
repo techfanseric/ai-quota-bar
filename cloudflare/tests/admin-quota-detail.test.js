@@ -14,7 +14,7 @@ const resetRange=(start,end)=>`${md(start)} ${clockOf(start)}-${clockOf(end)}`;
 // Shared vm harness: DOM shim + fetch mock. The console loads the same three
 // scripts in admin.html's order — admin-quota.js (renderer), admin-charts.js
 // (svg) and admin.js (data). historyStatus forces the history endpoint to fail.
-function buildConsole({historyStatus=200}={}){
+function buildConsole({historyStatus=200,truncated=false,extraItems=[]}={}){
  const NOW=Date.now();
  const iso=t=>new Date(t).toISOString();
  const elements=new Map();
@@ -46,7 +46,7 @@ function buildConsole({historyStatus=200}={}){
  const element=id=>{if(!elements.has(id)){const n=fakeNode();n.parent=documentElement;elements.set(id,n);}
   return elements.get(id);};
  const codexAccount=extra=>({team_id:'t1',team_name:'Team A',provider:'codex',account_name:'a@example.test',...extra});
- const quotaItems=[
+ const baseQuotaItems=[
   // Codex：5h 短周期 + Weekly 长周期；detail_text 还原 App 的 plan/source 表达。
   codexAccount({model_id:'5h',model_name:'5h',
    current_interval_total:100,current_interval_remaining:60,weekly_total:100,weekly_remaining:80,value_suffix:'%',
@@ -61,6 +61,8 @@ function buildConsole({historyStatus=200}={}){
    current_interval_total:800,current_interval_remaining:230,weekly_total:0,weekly_remaining:0,value_suffix:null,
    reset_start_time:iso(NOW-HOUR),reset_end_time:iso(NOW+4*HOUR),device_id:'cafe12345678',sampled_at:iso(NOW-120000)},
  ];
+ // extraItems 让单个用例往默认三行之外再加账号，不必重写整套 fixture。
+ const quotaItems=[...baseQuotaItems,...extraItems];
  const sample=(model_id,model_name,offsetMs,remaining,extra={})=>({model_id,model_name,sampled_at:iso(NOW+offsetMs),
   current_interval_total:100,current_interval_remaining:remaining,weekly_total:100,weekly_remaining:80,value_suffix:'%',
   reset_start_time:iso(NOW-2*HOUR),reset_end_time:iso(NOW+3*HOUR),device_id:'deadbeef1234',
@@ -84,7 +86,8 @@ function buildConsole({historyStatus=200}={}){
    if(path.includes('data/quota-history')){
     if(historyStatus!==200)return respond(false,{error:'history_unavailable'},historyStatus);
     const query=new URLSearchParams(path.split('?')[1]||'');
-    return respond(true,{ok:true,samples:query.get('team_id')==='t1'&&query.get('provider')==='codex'?historySamples:[]});
+    return respond(true,{ok:true,samples:query.get('team_id')==='t1'&&query.get('provider')==='codex'?historySamples:[],
+     truncated:truncated,row_budget:5000,hours:Number(query.get('hours')||168),model:query.get('model')||''});
    }
    if(path.includes('overview'))return respond(true,{ok:true,generatedAt:iso(NOW),coverageSince:null,
     metrics:{total:2,dau:1,wau:1,mau:2,new_today:0,reporting_recently:1},
@@ -373,4 +376,66 @@ test('history failure keeps the static model rows and shows the retry hint',asyn
  const fiveHour=rows[0];
  assert.equal(byClass(fiveHour,'qm-model-right')[0].textContent,'60%');
  assert.equal(byClass(byClass(fiveHour,'qm-capsule')[0],'qm-capsule-fill')[0].style.width,'40%');
+});
+
+test('the history window selector re-queries with the chosen range and invalidates the cache',async()=>{
+ const {element,calls,api}=buildConsole();
+ await flush();
+ assert.equal(api.state.hours,168);
+ const historyCalls=()=>calls.filter(path=>path.includes('data/quota-history'));
+ assert.ok(historyCalls().every(path=>path.includes('hours=168')));
+ const before=historyCalls().length;
+ // 切到 90 天：缓存整桶作废，展开中的账号按新窗口重新拉。
+ api.setHours(2160);
+ await flush();
+ assert.equal(api.state.hours,2160);
+ assert.ok(historyCalls().length>before);
+ assert.ok(historyCalls().some(path=>path.includes('hours=2160')));
+ // 同一个窗口重复设置不重复打接口。
+ const after=historyCalls().length;
+ api.setHours(2160);
+ await flush();
+ assert.equal(historyCalls().length,after);
+ // 越界窗口被拒，不会把 hours 写坏。
+ api.setHours(99999);
+ await flush();
+ assert.equal(api.state.hours,2160);
+ assert.equal(element('qd-hours').value,'2160');
+});
+
+test('an exhausted model hidden in a fold cannot steal the default expansion',async()=>{
+ const DAY=86400000,NOW=Date.now(),iso=t=>new Date(t).toISOString();
+ const {element}=buildConsole({extraItems:[
+  // 这个账号整体最紧张（0%），但 0% 的模型默认折在「已用完」分组里 ——
+  // 展开后实际只剩 64% 的 total usage，看起来一片正常。
+  {team_id:'t3',team_name:'Team C',provider:'kimi',account_name:'kimi@example.test',model_id:'k2',model_name:'K2',
+   current_interval_total:100,current_interval_remaining:0,weekly_total:100,weekly_remaining:12,value_suffix:'%',
+   reset_start_time:iso(NOW-5*86400000),reset_end_time:iso(NOW+25*86400000),device_id:'beef12345678',sampled_at:iso(NOW-60000)},
+  {team_id:'t3',team_name:'Team C',provider:'kimi',account_name:'kimi@example.test',model_id:'total',model_name:'Total usage',
+   current_interval_total:100,current_interval_remaining:64,weekly_total:100,weekly_remaining:64,value_suffix:'%',
+   reset_start_time:iso(NOW-5*86400000),reset_end_time:iso(NOW+25*86400000),device_id:'beef12345678',sampled_at:iso(NOW-60000)},
+ ]});
+ await flush();
+ const sections=providers(element);
+ // 排序与默认展开都按可见模型：glm 28.75% < codex 45% < kimi 64%。
+ assert.deepEqual(sections.map(section=>byClass(section,'qm-provider-name')[0].textContent),['glm','codex','kimi']);
+ const kimi=accountRows(sections[2])[0];
+ assert.equal(kimi.className,'qm-account');
+ // 折叠态的「最低剩余」仍然如实显示 0%，这是状态，不是排序依据。
+ assert.equal(byClass(byClass(accountHead(kimi),'qm-account-meta')[0],'qm-worst')[0].textContent,'最低剩余 0%');
+ // 真正该被看见的 glm 28.75% 才是默认展开的那个。
+ assert.equal(accountRows(sections[0])[0].className,'qm-account is-open');
+});
+
+test('a history response over the row budget says so instead of silently looking stale',async()=>{
+ const {element}=buildConsole({truncated:true});
+ await flush();
+ const banner=byClass(element('quota-cards'),'qm-truncated');
+ assert.equal(banner.length,1);
+ assert.match(banner[0].textContent,/5000/);
+ assert.match(banner[0].textContent,/^1 个账号/);
+ // 未截断时不占位置。
+ const clean=buildConsole();
+ await new Promise(resolve=>setImmediate(resolve));
+ assert.equal(byClass(clean.element('quota-cards'),'qm-truncated').length,0);
 });

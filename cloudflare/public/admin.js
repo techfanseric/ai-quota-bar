@@ -77,7 +77,7 @@ async function loadBusinessData(){
   const select=$('data-team'),previous=select.value;select.replaceChildren(new Option(T.allTeams,''));
   for(const team of teams.teams)select.add(new Option(team.team_name,team.team_id));
   if(teams.teams.some(t=>t.team_id===previous))select.value=previous;
-  AdminQuota.setItems(quota.items);
+  AdminQuota.setItems(quota.items,{rosterTruncated:quota.truncated===true,rosterBudget:quota.row_budget});
   renderTable('legacy-account-rows',legacy.accounts,[r=>r.provider,r=>r.account_name||T.unnamed,r=>r.model_count,r=>r.sample_count]);
   renderTable('audit-rows',audit.items,[r=>r.created_at,r=>r.team_id,r=>r.actor,r=>r.action,r=>r.target]);
   await loadTeamAccounts();

@@ -25,6 +25,11 @@ table td button{padding:4px 11px;font-size:11px;border-radius:5px;background:#ff
 .qd-tools .qd-tab.active{background:var(--ink);color:#f5f6f1;border-color:var(--ink)}
 .qd-search{display:flex;align-items:center;gap:6px}
 .qd-search>span{flex:none}
+/* 历史范围：和搜索并排的窗口选择器。select 继承全局 9px 内距偏高，
+   这里压到和 .qd-search input 同一高度，工具条才对齐。 */
+.qd-range{display:flex;align-items:center;gap:6px}
+.qd-range>span{flex:none}
+.qd-range select{height:30px;padding:0 26px 0 9px;font-size:12px;border-radius:6px;background-color:#fff}
 .qd-search input{height:30px;min-width:150px;border:1px solid #ccd3c8;border-radius:6px;background:#fff;
   padding:0 9px;font-size:12px;color:var(--ink)}
 .qd-search input:focus-visible{outline:2px solid var(--green);outline-offset:1px}
@@ -33,6 +38,8 @@ table td button{padding:4px 11px;font-size:11px;border-radius:5px;background:#ff
 .qm{margin-top:16px;width:100%}
 .qm-title{display:flex;align-items:baseline;gap:8px;padding:0 2px 10px;font-size:11px;font-weight:600;color:var(--muted)}
 .qm-title strong{font-weight:600;color:var(--muted)}
+/* 截断提示用 App 的橙色（ModelRow.tint 的 ≥80 档），和「用量偏高」同一语义色。 */
+.qm-truncated{font-weight:400;color:#b07a2a}
 .qm-provider{background:#fff;border:1px solid var(--line);border-radius:10px;padding:10px 4px 12px}
 .qm-provider+.qm-provider{margin-top:10px}
 .qm-provider-head{display:flex;align-items:center;gap:6px;width:100%;text-align:left;border:0;background:none;
