@@ -298,6 +298,17 @@ actor CredentialVaultStore {
         }
     }
 
+    /// 抹掉一条设备凭据。
+    ///
+    /// 删除对端关注记录时必须真的删掉令牌：把一条已撤销的访问令牌
+    /// 留在钥匙串里，等于「用户以为已经删了、其实还能用」。
+    func deleteDeviceCredential(binding: String) async -> Bool {
+        await mutateVault { vault in
+            var credentials = vault.deviceCredentials ?? [:]
+            credentials.removeValue(forKey: binding); vault.deviceCredentials = credentials
+        }
+    }
+
     private var vaultLoad: VaultLoadInFlight?
 
     init(
@@ -676,6 +687,10 @@ final class KeychainService: @unchecked Sendable {
 
     func saveDeviceCredential(_ value: String, binding: String) async -> Bool {
         await vault.saveDeviceCredential(value, binding: binding)
+    }
+
+    func deleteDeviceCredential(binding: String) async -> Bool {
+        await vault.deleteDeviceCredential(binding: binding)
     }
 
     func providerCredentials() -> [UsageProvider: String] {

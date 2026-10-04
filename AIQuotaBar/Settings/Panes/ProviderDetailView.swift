@@ -28,6 +28,8 @@ struct ProviderDetailView: View {
     let onRefreshCodexAccount: (String) -> Void
     let onSignOutCodexAccount: (String) -> Void
     let onUpdateCodexSourceMode: (CodexDataSourceMode) -> Void
+    /// 本机当前可见的 Codex 账号，供「关注」区勾选可分享的对象。
+    let localCodexAccounts: [String]
 
     private var language: AppLanguage { viewModel.appLanguage }
 
@@ -95,7 +97,8 @@ struct ProviderDetailView: View {
                 onRemove: onRemoveCodexAccount,
                 onRefresh: onRefreshCodexAccount,
                 onSignOut: onSignOutCodexAccount,
-                onSourceModeChange: onUpdateCodexSourceMode
+                onSourceModeChange: onUpdateCodexSourceMode,
+                localCodexAccounts: localCodexAccounts
             )
         case .kimi:
             KimiSourceSection(language: language) {

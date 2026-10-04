@@ -5,6 +5,7 @@
 ## 当前文档
 
 - [产品规格](./SPEC.md)：v1.16.0 的功能、数据来源、安全边界和设置结构。
+- [关注账号（局域网跨设备）](./codex-watch-accounts.md)：在另一台 Mac 上显示本机 Codex 额度，凭据不出机器、无需建团队。
 - [MiniMax API 字段](./api-field-mapping.md)：MiniMax 剩余额度字段与时间单位。
 - [GLM API 字段](./glm-api-field-mapping.md)：GLM API Key、网页 cURL、新旧额度类型及周期映射。
 - [云同步后端](../cloudflare/README.md)：Worker API、D1 结构、部署和迁移。

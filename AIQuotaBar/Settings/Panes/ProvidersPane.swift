@@ -18,6 +18,7 @@ struct ProvidersPane: View {
     @State private var kimiInputID: UUID = UUID()
     @State private var codexSourceMode: CodexDataSourceMode = .default
     @State private var codexAccounts: [CodexAccountDraft] = []
+    @State private var localCodexAccounts: [String] = []
     @State private var miniMaxTestResult: InlineFeedback? = nil
     @State private var isTestingMiniMax: Bool = false
     @State private var kimiTestResult: InlineFeedback? = nil
@@ -65,7 +66,8 @@ struct ProvidersPane: View {
                 onRemoveCodexAccount: removeCodexAccount,
                 onRefreshCodexAccount: refreshCodexAccount,
                 onSignOutCodexAccount: signOutCodexAccount,
-                onUpdateCodexSourceMode: updateCodexSourceMode
+                onUpdateCodexSourceMode: updateCodexSourceMode,
+                localCodexAccounts: localCodexAccounts
             )
         }
         .onAppear {
@@ -161,6 +163,28 @@ struct ProvidersPane: View {
         glmInputID = UUID()
         codexSourceMode = CodexService.shared.sourceMode
         codexAccounts = CodexAccountCoordinator.shared.listAccountDrafts()
+        refreshLocalCodexAccounts()
+    }
+
+    /// 本机 Codex 账号列表，供「关注」区勾选可分享的对象。
+    ///
+    /// 只认界面真正在显示的那份数据：勾选一个用户看不到的账号没有意义，
+    /// 而对端拿到一份本机没在显示的额度同样会让人困惑。
+    ///
+    /// 从别的 Mac 关注来的账号必须排除 —— 本机只是「看」了它，
+    /// 没有资格把它当自己的账号再分享出去。
+    private func refreshLocalCodexAccounts() {
+        var seen = Set<String>()
+        localCodexAccounts = viewModel.providerUsageSections
+            .flatMap(\.models)
+            .filter { $0.provider == .codex && !CodexWatchPeerModel.isRelayed($0) }
+            .compactMap { model -> String? in
+                guard let name = model.accountName?
+                    .trimmingCharacters(in: .whitespacesAndNewlines),
+                    !name.isEmpty else { return nil }
+                return seen.insert(name).inserted ? name : nil
+            }
+            .sorted { $0.localizedStandardCompare($1) == .orderedAscending }
     }
 
     private func testConnection(for provider: UsageProvider) {
