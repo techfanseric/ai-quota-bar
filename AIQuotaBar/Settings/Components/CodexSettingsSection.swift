@@ -12,6 +12,8 @@ struct CodexSettingsSection: View {
     let onRefresh: (String) -> Void
     let onSignOut: (String) -> Void
     let onSourceModeChange: (CodexDataSourceMode) -> Void
+    /// 本机当前可见的 Codex 账号，供「关注」区勾选可分享的对象。
+    let localCodexAccounts: [String]
     @State private var showingAddAlert: Bool = false
 
     var body: some View {
@@ -88,6 +90,12 @@ struct CodexSettingsSection: View {
 
                 Spacer()
             }
+
+            Divider()
+
+            CodexWatchSettingsSection(
+                language: language,
+                localCodexAccounts: localCodexAccounts)
         }
     }
 }

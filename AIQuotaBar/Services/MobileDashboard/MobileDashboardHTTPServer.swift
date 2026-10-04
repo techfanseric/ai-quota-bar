@@ -46,6 +46,9 @@ final class MobileDashboardHTTPServer {
     private let pwaInstallCredentialLifetime: TimeInterval
     private let sensitiveCORSHostProvider:
         @Sendable () -> Set<String>
+    /// 局域网「关注账号」的应答来源。owner 侧注入授权判定与本机用量，
+    /// 服务端只负责编码与鉴权，不自己理解授权语义。
+    private var codexWatchQuotaProvider: (@Sendable () -> CodexWatchResponse?)?
     private var listener: NWListener?
     private var connections: [ObjectIdentifier: NWConnection] = [:]
     private var eventConnections: [ObjectIdentifier: NWConnection] = [:]
@@ -125,6 +128,18 @@ final class MobileDashboardHTTPServer {
     ) {
         queue.async { [weak self] in
             self?.colorScheme = colorScheme
+        }
+    }
+
+    /// 更新「关注账号」应答来源。
+    ///
+    /// 返回 nil 表示 owner 侧没开启该功能，端点会回 `disabled` 而不是
+    /// 假装设备不存在——对端需要区分「对方没开」和「对方不在这」。
+    func updateCodexWatchQuotaProvider(
+        _ provider: @escaping @Sendable () -> CodexWatchResponse?
+    ) {
+        queue.async { [weak self] in
+            self?.codexWatchQuotaProvider = provider
         }
     }
 
@@ -648,6 +663,20 @@ final class MobileDashboardHTTPServer {
             return
         }
 
+        if path == "/api/v1/watch/quota" {
+            guard method == "GET" else {
+                respond(
+                    status: "405 Method Not Allowed",
+                    contentType: "text/plain; charset=utf-8",
+                    body: Data(),
+                    to: connection,
+                    sendsBody: false)
+                return
+            }
+            handleCodexWatchQuota(headers: headers, connection: connection)
+            return
+        }
+
         if path == "/api/v1/health" {
             let corsHeaders: [String: String]
             if headers["origin"] != nil {
@@ -1142,6 +1171,61 @@ final class MobileDashboardHTTPServer {
             status: "403 Forbidden",
             contentType: "application/json; charset=utf-8",
             body: Data("{\"error\":\"invalid_origin\"}".utf8),
+            to: connection)
+    }
+
+    /// GET /api/v1/watch/quota —— 局域网对端读取被授权 Codex 账号的额度。
+    ///
+    /// 鉴权刻意复用看板的 Bearer 令牌：同一台设备、同一份令牌，
+    /// 避免出现第二套需要单独分发的凭据。令牌不认识时直接 401，
+    /// 且**不透露任何账号信息**——一个拿着错令牌的人不该靠状态码
+    /// 推断出这台机器上有哪些 Codex 账号。
+    private func handleCodexWatchQuota(
+        headers: [String: String],
+        connection: NWConnection
+    ) {
+        guard normalizedRequestOrigin(headers: headers) != nil else {
+            forbidden(connection)
+            return
+        }
+        guard isAuthorized(headers: headers) else {
+            unauthorized(connection)
+            return
+        }
+        guard let response = codexWatchQuotaProvider?() else {
+            // 服务在跑但没注入应答来源：功能未开启，如实回 disabled，
+            // 让对端显示「对方没开启」，而不是「设备失联」。
+            respondCodexWatch(
+                CodexWatchResponse.failure(
+                    .disabled, generatedAt: dateProvider()),
+                connection: connection)
+            return
+        }
+        respondCodexWatch(response, connection: connection)
+    }
+
+    private func respondCodexWatch(
+        _ response: CodexWatchResponse,
+        connection: NWConnection
+    ) {
+        let encoder = JSONEncoder()
+        encoder.dateEncodingStrategy = .iso8601
+        encoder.outputFormatting = [.sortedKeys]
+        guard let body = try? encoder.encode(response) else {
+            respond(
+                status: "500 Internal Server Error",
+                contentType: "application/json; charset=utf-8",
+                body: Data("{\"error\":\"encoding_failed\"}".utf8),
+                to: connection)
+            return
+        }
+        // 额度是高频轮询的数据，任何中间缓存都会让对端看到过期的数。
+        respond(
+            status: "200 OK",
+            contentType: "application/json; charset=utf-8",
+            body: body,
+            extraHeaders: ["Cache-Control": "no-store"],
+            resourcePolicy: "same-origin",
             to: connection)
     }
 

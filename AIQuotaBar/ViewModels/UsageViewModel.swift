@@ -250,6 +250,10 @@ final class UsageViewModel {
         }
     }
 
+    /// 一轮用量刷新刚完成。由 `StatusBarController` 挂上，用来重算
+    /// 对外提供给他人的关注应答缓存（那里读的是刷新后的数据）。
+    @ObservationIgnored var onUsageDidRefresh: (@MainActor () -> Void)?
+
     var utilizationHistoryMode: UtilizationHistoryMode {
         didSet {
             UserDefaults.standard.set(utilizationHistoryMode.rawValue, forKey: Self.utilizationHistoryModeKey)
@@ -980,6 +984,15 @@ final class UsageViewModel {
         let historyCloudModels = supplementalCloudModelsFromHistory(excluding: localModelKeys.union(remoteCloudModelKeys))
         let cloudModels = remoteCloudModels + historyCloudModels
         let cloudModelKeys = Set(cloudModels.map(\.quotaIdentityKey))
+        // 局域网点对点关注到的账号。它们不是云端团队数据，而是另一台
+        // Mac 自己抓到、明确授权给我们看的额度，所以单列一路而不是
+        // 混进 cloudModels —— 两者失效原因完全不同（云端是团队上报停了，
+        // 这里是对端不可达或撤销了授权）。
+        let watchedPeerModels = CodexWatchPeerStore.shared.displayModels()
+        let existingModelKeys = localModelKeys.union(cloudModelKeys)
+        let peerModels = watchedPeerModels.filter {
+            !existingModelKeys.contains($0.quotaIdentityKey)
+        }
 
         return UsageProvider.allCases
             .filter(isProviderEnabled)
@@ -994,7 +1007,7 @@ final class UsageViewModel {
                     !localModelKeys.contains(model.quotaIdentityKey)
                         && !model.isCloudNoiseModel
                 }
-                let models = localModels + cloudOnlyModels
+                let models = localModels + cloudOnlyModels + peerModels.filter { $0.provider == provider }
                 guard !models.isEmpty else { return nil }
 
                 let baseData = localDataByProvider[provider]
@@ -1332,6 +1345,9 @@ final class UsageViewModel {
             }
         }
         await refreshCloudUsageData()
+        // 本机用量刚变过，被局域网对端关注的应答缓存要跟着重算，
+        // 否则对方要等到下次授权变更才会看到新的额度。
+        onUsageDidRefresh?()
         updateStatusBarText()
         checkThreshold()
         await waitForMenuBarSelfTestCycle(startedAt: selfTestStartedAt)
