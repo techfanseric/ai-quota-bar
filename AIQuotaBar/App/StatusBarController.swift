@@ -171,14 +171,18 @@ final class StatusBarController {
         updateClashWorkGating()
         viewModel.flushPendingCloudSyncQueue()
         mobileDashboardService.startIfEnabled()
-        // 名单变化后要立刻反映到界面上：取消勾选的账号下一次刷新就不会
-        // 再上报，关注列表变化则要重新解析一次云端数据。
-        // 云端快照本身由下一轮用量刷新覆盖（取消勾选到真正消失之间
-        // 有一个刷新周期的窗口），所以这里不谎称是即时的。
+        // 关注通道在启动时先走一遍：发布本机勾选的账号，并解析已关注的地址。
+        // 否则关注行要空到下一次用量刷新才出现。
+        Task { @MainActor [weak self] in
+            await self?.viewModel.refreshCodexWatch()
+        }
+        // 名单变化后要立刻反映到界面上：勾选/取消勾选要重新发布（取消要
+        // 立刻从云端删掉，不能等下一轮），关注列表变化则要重新解析一次。
+        // 发布走的是整体替换语义，所以这里直接重跑一次关注通道就够了。
         CodexWatchStore.shared.onChange = { [weak self] in
             guard let self else { return }
             Task { @MainActor in
-                await self.viewModel.refresh(showIconSelfTest: false)
+                await self.viewModel.refreshCodexWatch()
             }
         }
         synchronizeMobileDashboardModelSelection()

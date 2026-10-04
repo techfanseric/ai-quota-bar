@@ -984,6 +984,13 @@ final class UsageViewModel {
         let historyCloudModels = supplementalCloudModelsFromHistory(excluding: localModelKeys.union(remoteCloudModelKeys))
         let cloudModels = remoteCloudModels + historyCloudModels
         let cloudModelKeys = Set(cloudModels.map(\.quotaIdentityKey))
+        // 关注来的账号走自己的通道（按邮箱公开查），不是团队云端数据 —— 两者失效
+        // 原因完全不同（云端是团队上报停了，这里是对方没分享或没在跑），所以单列
+        // 一路而不是混进 cloudModels。
+        let existingModelKeys = localModelKeys.union(cloudModelKeys)
+        let watchModels = CodexWatchStore.shared.watchedModels.filter {
+            !existingModelKeys.contains($0.quotaIdentityKey)
+        }
 
         return UsageProvider.allCases
             .filter(isProviderEnabled)
@@ -999,6 +1006,7 @@ final class UsageViewModel {
                         && !model.isCloudNoiseModel
                 }
                 let models = localModels + cloudOnlyModels
+                    + watchModels.filter { $0.provider == provider }
                 guard !models.isEmpty else { return nil }
 
                 let baseData = localDataByProvider[provider]
@@ -1146,9 +1154,7 @@ final class UsageViewModel {
         loadUtilizationHistories()
         modelQuotaSamples = quotaSampleStore.loadAll()
         updateStatusBarText()
-        // 只想看别人账号的机器不开「共享账号额度」，但关注列表非空
-        // 同样要拉一次云端，否则启动后关注行要空到下一次刷新才有数据。
-        if cloudSyncEnabled || !CodexWatchStore.shared.watchedAccountNames.isEmpty {
+        if cloudSyncEnabled {
             Task { @MainActor in
                 await refreshCloudUsageData()
             }
@@ -1261,6 +1267,7 @@ final class UsageViewModel {
             usageData = combinedUsageData(from: providerUsageData.values, timestamp: lastRefreshTime ?? Date())
             error = nil
             await refreshCloudUsageData()
+            await refreshCodexWatch()
             updateStatusBarText()
             await waitForMenuBarSelfTestCycle(startedAt: selfTestStartedAt)
             return
@@ -1336,6 +1343,8 @@ final class UsageViewModel {
                let freshlyFetchedUsageData = combinedUsageData(from: fetchedProviderData.values, timestamp: sampleTimestamp) {
                 syncUsageDataToCloud(freshlyFetchedUsageData, sampledAt: sampleTimestamp)
             }
+            // 关注通道独立于团队：有没有团队都照发照收。
+            await refreshCodexWatch()
         }
         await refreshCloudUsageData()
         // 本机用量刚变过，被局域网对端关注的应答缓存要跟着重算，
@@ -1874,24 +1883,20 @@ final class UsageViewModel {
     }
 
     private func refreshCloudUsageData() async {
-        // 只想「看」别人的账号、并不想把自己的额度共享出去时，
-        // 也必须能读云端：关注列表非空本身就构成一次读请求。
-        let watch = CodexWatchStore.shared
-        let wantsCloudData = cloudSyncEnabled || !watch.watchedAccountNames.isEmpty
-        guard wantsCloudData, let binding = CodexLocalUsageModel.shared.connection?.binding else {
+        guard cloudSyncEnabled, let binding = CodexLocalUsageModel.shared.connection?.binding else {
             clearCloudUsageData()
             return
         }
         do {
             let usage = try await CloudSyncService.shared.fetchRemoteUsageData()
-            guard wantsCloudData, CodexLocalUsageModel.shared.connection?.binding == binding else { return }
+            guard cloudSyncEnabled, CodexLocalUsageModel.shared.connection?.binding == binding else { return }
             let samples = try await CloudSyncService.shared.fetchRemoteModelQuotaSamples()
-            guard wantsCloudData, CodexLocalUsageModel.shared.connection?.binding == binding else { return }
+            guard cloudSyncEnabled, CodexLocalUsageModel.shared.connection?.binding == binding else { return }
             cloudProviderUsageData = usage; cloudModelQuotaSamples = samples
             cloudUsageLoadError = nil
             CloudDiagnosticLog.shared.record("download")
         } catch {
-            guard wantsCloudData, CodexLocalUsageModel.shared.connection?.binding == binding else { return }
+            guard cloudSyncEnabled, CodexLocalUsageModel.shared.connection?.binding == binding else { return }
             clearCloudUsageData()
             cloudUsageLoadError = error.localizedDescription
             CloudDiagnosticLog.shared.record("download", error: error)
@@ -1900,38 +1905,45 @@ final class UsageViewModel {
 
     /// 某个被关注的邮箱现在能不能拿到额度，以及卡在哪一步。
     ///
-    /// 数据本身来自团队云端（`cloudProviderUsageData`），关注列表只负责
-    /// 回答「我关心的那个号现在什么状态」——所以这里不复制模型，
-    /// 只做一次按账号名的匹配。
-    func watchStatus(for accountName: String) -> CodexWatchStore.WatchStatus {
-        let key = CodexWatchStore.normalize(accountName)
-        guard !key.isEmpty else { return .waitingForPublisher }
-        guard CodexLocalUsageModel.shared.connection != nil else { return .noTeam }
-        let models = (cloudProviderUsageData[.codex]?.models ?? []).filter {
-            CodexWatchStore.normalize($0.accountName ?? "") == key
-        }
-        guard !models.isEmpty else { return .waitingForPublisher }
-        let sampledAt = models.compactMap(\.sampledAt).max()
-            ?? cloudProviderUsageData[.codex]?.timestamp
-            ?? .distantPast
-        return .available(sampledAt: sampledAt, modelCount: models.count)
+    /// 数据来自关注通道自己的快照缓存，不碰团队云同步 —— 关注一个账号
+    /// 不需要团队，也不该和团队数据的失效规则（陈旧就整条隐藏）混在一起。
+    func watchStatus(for accountName: String) -> CodexWatchStore.Status {
+        CodexWatchStore.shared.status(for: accountName)
     }
+
+    /// 走一遍关注通道：发布本机勾选的账号，再拉取本机关注的每一个地址。
+    ///
+    /// 与团队通道完全独立：没有团队也能工作，团队同步开着也不影响它。
+    func refreshCodexWatch() async {
+        // `refresh()` 末尾也会调到这里，所以必须有这道闸：否则「没有本机
+        // Codex 数据 → 先去抓一次」会自己撞自己。
+        guard !isRunningCodexWatchRefresh else { return }
+        let store = CodexWatchStore.shared
+        guard store.isSharing || !store.watchedAccountNames.isEmpty else { return }
+        isRunningCodexWatchRefresh = true
+        defer { isRunningCodexWatchRefresh = false }
+
+        // 分享侧要发布本机 Codex 额度。刚打开开关时通常一帧数据都还没有，
+        // 不先抓一次就会发布一个空列表，勾选框也就永远列不出账号 ——
+        // 用户看到的是「这台 Mac 还没有登录任何 Codex 账号」，而他明明登了。
+        if store.isSharing, providerUsageData[.codex] == nil {
+            await refresh(showIconSelfTest: false)
+        }
+        await store.refresh(usageData: providerUsageData[.codex])
+    }
+
+    @ObservationIgnored private var isRunningCodexWatchRefresh = false
 
     private func syncUsageDataToCloud(_ usageData: UsageData, sampledAt: Date) {
         guard cloudSyncEnabled else { return }
 
         let historiesSnapshot = utilizationHistories
         let binding = CodexLocalUsageModel.shared.connection?.binding
-        // 「允许其他 Mac 关注我的账号」打开后，只有勾选的 Codex 账号允许
-        // 离开这台 Mac。开关没开时 `uploadableModels` 原样返回，
-        // 既有团队用户的共享行为完全不变。
-        let shareable = CodexWatchStore.shared.uploadableModels(usageData.models)
-        let payload = usageData.withModels(shareable)
 
         Task { @MainActor in
             guard let binding, CodexLocalUsageModel.shared.connection?.binding == binding else { return }
             await CloudSyncService.shared.syncUsageData(
-                payload,
+                usageData,
                 sampledAt: sampledAt,
                 utilizationHistories: historiesSnapshot
             )
