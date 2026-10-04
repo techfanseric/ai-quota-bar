@@ -86,10 +86,12 @@ enum MenuBarTaskWaveLayout: String, CaseIterable, Codable, Identifiable {
 }
 
 /// Which quota window supplies the compact ring's outer arc. Providers without
-/// a weekly window keep using their current window.
+/// a weekly window keep using their current window. `.total` is the provider's
+/// monthly overall quota (Kimi "Total usage").
 enum MenuBarRingQuotaWindow: String, CaseIterable, Codable, Identifiable {
     case weekly
     case current
+    case total
 
     static let storageKey = "menuBarRingQuotaWindow"
 
@@ -101,6 +103,7 @@ enum MenuBarReserveQuotaWindow: String, CaseIterable, Codable, Identifiable {
     case synchronized
     case weekly
     case current
+    case total
 
     static let storageKey = "menuBarReserveQuotaWindow"
 
@@ -111,7 +114,44 @@ enum MenuBarReserveQuotaWindow: String, CaseIterable, Codable, Identifiable {
         case .synchronized: return outerRing
         case .weekly: return .weekly
         case .current: return .current
+        case .total: return .total
         }
+    }
+}
+
+extension UsageProvider {
+    /// Ring data windows this provider can actually supply. MiniMax only has a
+    /// current window; only Kimi exposes a monthly total ("Total usage").
+    var supportedRingWindows: [MenuBarRingQuotaWindow] {
+        switch self {
+        case .kimi: return [.current, .weekly, .total]
+        case .codex, .glm: return [.current, .weekly]
+        case .miniMax: return [.current]
+        }
+    }
+}
+
+/// Per-provider ring data-source overrides. A nil field follows the global
+/// `menuBarRingQuotaWindow` / `menuBarReserveQuotaWindow` defaults, so existing
+/// users keep their previous behavior until they customize a provider.
+struct MenuBarProviderRingWindows: Codable, Equatable {
+    var outer: MenuBarRingQuotaWindow?
+    var center: MenuBarReserveQuotaWindow?
+
+    static let storageKey = "menuBarProviderRingWindows"
+
+    static func load(from defaults: UserDefaults) -> [UsageProvider: MenuBarProviderRingWindows] {
+        guard let data = defaults.data(forKey: storageKey),
+              let raw = try? JSONDecoder().decode([String: MenuBarProviderRingWindows].self, from: data)
+        else { return [:] }
+        return Dictionary(uniqueKeysWithValues: raw.compactMap { key, value in
+            UsageProvider(rawValue: key).map { ($0, value) }
+        })
+    }
+
+    static func save(_ map: [UsageProvider: MenuBarProviderRingWindows], to defaults: UserDefaults) {
+        let raw = Dictionary(uniqueKeysWithValues: map.map { ($0.key.rawValue, $0.value) })
+        defaults.set(try? JSONEncoder().encode(raw), forKey: storageKey)
     }
 }
 

@@ -489,6 +489,102 @@ final class MenuBarPresentationTests: XCTestCase {
     }
 
     @MainActor
+    func testKimiPerProviderRingWindowsOverrideGlobalDefaults() {
+        let defaults = UserDefaults.standard
+        let keys = [
+            MenuBarContentSelection.storageKey,
+            MenuBarRingDisplayMode.storageKey,
+            MenuBarRingPreferences.providersKey,
+            MenuBarAppearance.storageKey,
+            MenuBarRingQuotaWindow.storageKey,
+            MenuBarReserveQuotaWindow.storageKey,
+            MenuBarProviderRingWindows.storageKey,
+            CloudSyncSettings.enabledKey,
+        ]
+        let previousValues = keys.map { key in
+            (key: key, value: defaults.object(forKey: key))
+        }
+        defer {
+            for previous in previousValues {
+                if let value = previous.value {
+                    defaults.set(value, forKey: previous.key)
+                } else {
+                    defaults.removeObject(forKey: previous.key)
+                }
+            }
+        }
+
+        defaults.set(
+            MenuBarContentSelection.kimi.rawValue,
+            forKey: MenuBarContentSelection.storageKey)
+        defaults.set(
+            MenuBarAppearance.compactRing.rawValue,
+            forKey: MenuBarAppearance.storageKey)
+        defaults.set(
+            MenuBarRingQuotaWindow.weekly.rawValue,
+            forKey: MenuBarRingQuotaWindow.storageKey)
+        defaults.set(
+            MenuBarReserveQuotaWindow.synchronized.rawValue,
+            forKey: MenuBarReserveQuotaWindow.storageKey)
+        defaults.set(false, forKey: CloudSyncSettings.enabledKey)
+
+        let now = Date()
+        let fiveHour = makeModel(provider: .kimi, name: "5h", remainingPercent: 82, now: now)
+        let weekly = makeModel(provider: .kimi, name: "7d", remainingPercent: 37, now: now)
+        let monthly = ModelUsageData(
+            provider: .kimi,
+            accountName: nil,
+            modelName: "Total usage",
+            currentIntervalTotal: 100,
+            currentIntervalUsed: 64,
+            weeklyTotal: 0,
+            weeklyUsed: 0,
+            remainsTime: 3_600_000,
+            startTime: nil,
+            endTime: now.addingTimeInterval(10 * 24 * 3_600),
+            weeklyStartTime: nil,
+            weeklyEndTime: nil,
+            valueSuffix: "%",
+            detailText: nil,
+            currentIntervalRemainingPercent: 64,
+            weeklyRemainingPercent: nil,
+            progressBarPercentOverride: nil,
+            progressBarRightText: nil,
+            sampledAt: nil)
+        let viewModel = UsageViewModel()
+        viewModel.usageData = UsageData(
+            provider: .kimi,
+            remains: 3,
+            total: 3,
+            timestamp: now,
+            models: [fiveHour, weekly, monthly],
+            subscribeTitle: nil,
+            subscribeEndTime: nil)
+
+        // 基线：全局 weekly，外环取 7d。
+        XCTAssertEqual(viewModel.menuBarSnapshot.ringPercent, 37)
+
+        // Kimi 单独改成月度总额度：外环与跟随外环的中心都来自 Total usage。
+        viewModel.setRingOuterWindow(.total, for: .kimi)
+        XCTAssertEqual(viewModel.menuBarSnapshot.ringPercent, 64)
+        XCTAssertGreaterThan(viewModel.menuBarSnapshot.paceDeltaPercent ?? 0, 0)
+
+        // 中心单独改成当前短周期：外环保持月度，中心用 5h。
+        viewModel.setRingCenterWindow(.current, for: .kimi)
+        XCTAssertEqual(viewModel.menuBarSnapshot.ringPercent, 64)
+        XCTAssertGreaterThan(viewModel.menuBarSnapshot.paceDeltaPercent ?? 0, 0)
+
+        // 不支持的窗口被忽略：Codex 没有月度总额度，仍跟随全局 weekly。
+        viewModel.setRingOuterWindow(.total, for: .codex)
+        XCTAssertEqual(viewModel.ringQuotaWindow(for: .codex), .weekly)
+        // MiniMax 只有当前短周期。
+        XCTAssertEqual(viewModel.ringQuotaWindow(for: .miniMax), .current)
+
+        // per-provider 覆盖持久化到独立的存储键。
+        XCTAssertNotNil(defaults.data(forKey: MenuBarProviderRingWindows.storageKey))
+    }
+
+    @MainActor
     func testAutomaticSelectsUrgentProviderAndFixedSelectionOverridesIt() {
         let defaults = UserDefaults.standard
         let keys = [

@@ -173,6 +173,49 @@ final class UsageViewModel {
         }
     }
 
+    /// 每个 provider 独立的 ring 内外层取数覆盖；nil 字段跟随上面的全局默认。
+    var menuBarProviderRingWindows: [UsageProvider: MenuBarProviderRingWindows] {
+        didSet {
+            MenuBarProviderRingWindows.save(
+                menuBarProviderRingWindows, to: UserDefaults.standard)
+            updateStatusBarText()
+        }
+    }
+
+    /// 某 provider 外环实际使用的窗口：优先 per-provider 覆盖，其次全局默认；
+    /// 该 provider 不支持所求窗口（如 MiniMax 的周/月度）时回落到 current。
+    func ringQuotaWindow(for provider: UsageProvider) -> MenuBarRingQuotaWindow {
+        let supported = provider.supportedRingWindows
+        if let override = menuBarProviderRingWindows[provider]?.outer,
+           supported.contains(override) {
+            return override
+        }
+        return supported.contains(menuBarRingQuotaWindow) ? menuBarRingQuotaWindow : .current
+    }
+
+    /// 某 provider 中心扇形实际使用的窗口（未解析 synchronized）。
+    func reserveQuotaWindow(for provider: UsageProvider) -> MenuBarReserveQuotaWindow {
+        let supported = provider.supportedRingWindows
+        if let override = menuBarProviderRingWindows[provider]?.center,
+           override == .synchronized || supported.contains(
+                MenuBarRingQuotaWindow(rawValue: override.rawValue) ?? .current) {
+            return override
+        }
+        return menuBarReserveQuotaWindow
+    }
+
+    func setRingOuterWindow(_ window: MenuBarRingQuotaWindow, for provider: UsageProvider) {
+        var entry = menuBarProviderRingWindows[provider] ?? MenuBarProviderRingWindows()
+        entry.outer = window
+        menuBarProviderRingWindows[provider] = entry
+    }
+
+    func setRingCenterWindow(_ window: MenuBarReserveQuotaWindow, for provider: UsageProvider) {
+        var entry = menuBarProviderRingWindows[provider] ?? MenuBarProviderRingWindows()
+        entry.center = window
+        menuBarProviderRingWindows[provider] = entry
+    }
+
     var menuBarCompactHorizontalPadding: Double {
         didSet {
             let clamped = MenuBarCompactLayoutPreferences.horizontalPadding(
@@ -541,7 +584,7 @@ final class UsageViewModel {
             isLowQuota: remaining <= warningLimit,
             tooltip: menuBarReadyTooltip(
                 primary: primary,
-                weeklyRemainingPercent: menuBarRingQuotaWindow == .weekly
+                weeklyRemainingPercent: ringQuotaWindow(for: primary.provider) == .weekly
                     && (primary.provider == .codex || primary.provider == .kimi || primary.provider == .glm)
                         ? ringPercent
                         : nil,
@@ -611,6 +654,25 @@ final class UsageViewModel {
         })
     }
 
+    /// Finds the model backing a ring data window. `.current` is the primary
+    /// model itself, so it has no separate lookup.
+    private func windowModel(
+        _ window: MenuBarRingQuotaWindow,
+        for provider: UsageProvider,
+        in models: [ModelUsageData]
+    ) -> ModelUsageData? {
+        switch window {
+        case .weekly:
+            return weeklyModel(for: provider, in: models)
+        case .total:
+            return models.first(where: {
+                $0.provider == provider && $0.isKimiMonthlyTotalWindow
+            })
+        case .current:
+            return nil
+        }
+    }
+
     private func selectedMenuBarModel(from candidates: [ModelUsageData]) -> ModelUsageData? {
         if let fixedProvider = menuBarContentSelection.provider {
             return pickPrimary(from: candidates.filter { $0.provider == fixedProvider })
@@ -647,17 +709,18 @@ final class UsageViewModel {
     }
 
     /// Codex, Kimi and GLM can independently source the bidirectional fan center's pace from
-    /// their weekly or current window. Missing weekly data falls back safely.
+    /// their weekly, total or current window. Missing window data falls back safely.
     private func menuBarPaceSource(
         for primary: ModelUsageData,
         models: [ModelUsageData]
     ) -> ModelUsageData {
-        guard primary.provider == .codex || primary.provider == .kimi || primary.provider == .glm,
-              menuBarReserveQuotaWindow.resolved(
-                outerRing: menuBarRingQuotaWindow) == .weekly else {
-            return primary
-        }
-        return weeklyModel(
+        guard primary.provider == .codex || primary.provider == .kimi || primary.provider == .glm
+        else { return primary }
+        let resolved = reserveQuotaWindow(for: primary.provider)
+            .resolved(outerRing: ringQuotaWindow(for: primary.provider))
+        guard resolved != .current else { return primary }
+        return windowModel(
+            resolved,
             for: primary.provider,
             in: models.filter {
                 $0.normalizedAccountName == primary.normalizedAccountName
@@ -665,24 +728,26 @@ final class UsageViewModel {
             ?? primary
     }
 
-    /// Codex, Kimi and GLM can source the outer arc from either their weekly quota
-    /// or the selected short/current quota. Providers without weekly data keep
-    /// their existing current-window behavior.
+    /// Codex, Kimi and GLM can source the outer arc from their weekly quota,
+    /// monthly total or the selected short/current quota. Providers without the
+    /// requested window keep their existing current-window behavior.
     private func menuBarRingPercent(
         for primary: ModelUsageData,
         models: [ModelUsageData]
     ) -> Double? {
-        guard menuBarRingQuotaWindow == .weekly,
+        let window = ringQuotaWindow(for: primary.provider)
+        guard window != .current,
               primary.provider == .codex || primary.provider == .kimi || primary.provider == .glm else {
             return primary.currentIntervalPercentageRemaining
         }
-        let weeklyRemaining = weeklyModel(
+        let windowRemaining = windowModel(
+            window,
             for: primary.provider,
             in: models.filter {
                 $0.normalizedAccountName == primary.normalizedAccountName
             })?
             .currentIntervalPercentageRemaining
-        return weeklyRemaining ?? (primary.provider == .glm ? primary.currentIntervalPercentageRemaining : nil)
+        return windowRemaining ?? (primary.provider == .glm ? primary.currentIntervalPercentageRemaining : nil)
     }
 
     private func fallbackMenuBarProvider() -> UsageProvider {
@@ -1020,6 +1085,8 @@ final class UsageViewModel {
             forKey: MenuBarReserveQuotaWindow.storageKey)
             .flatMap(MenuBarReserveQuotaWindow.init(rawValue:))
             ?? .synchronized
+        self.menuBarProviderRingWindows = MenuBarProviderRingWindows.load(
+            from: UserDefaults.standard)
         self.menuBarCompactHorizontalPadding =
             MenuBarCompactLayoutPreferences.horizontalPadding(
                 UserDefaults.standard.object(

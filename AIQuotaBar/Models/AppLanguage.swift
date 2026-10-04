@@ -1556,46 +1556,16 @@ enum AppLanguage: String, CaseIterable, Codable, Identifiable {
         }
     }
 
-    func menuBarRingQuotaWindowLabel() -> String {
-        switch self {
-        case .english: return "Outer ring quota"
-        case .simplifiedChinese: return "外环额度周期"
-        }
-    }
-
-    func menuBarRingQuotaWindowDescription() -> String {
-        switch self {
-        case .english:
-            return "Choose whether Codex, Kimi, and GLM outer rings show weekly or current-window remaining quota."
-        case .simplifiedChinese:
-            return "选择 Codex、Kimi 与 GLM 外环显示周周期还是当前短周期的剩余额度。"
-        }
-    }
-
     func menuBarRingQuotaWindowDisplayName(
         _ window: MenuBarRingQuotaWindow
     ) -> String {
         switch (self, window) {
         case (.english, .weekly): return "Weekly cycle"
         case (.english, .current): return "Current cycle"
+        case (.english, .total): return "Monthly total"
         case (.simplifiedChinese, .weekly): return "周周期"
         case (.simplifiedChinese, .current): return "当前短周期"
-        }
-    }
-
-    func menuBarReserveQuotaWindowLabel() -> String {
-        switch self {
-        case .english: return "Center reserve cycle"
-        case .simplifiedChinese: return "中心 Reserve 周期"
-        }
-    }
-
-    func menuBarReserveQuotaWindowDescription() -> String {
-        switch self {
-        case .english:
-            return "Choose which quota cycle drives the bidirectional fan center’s reserve or deficit; by default it follows the outer ring."
-        case .simplifiedChinese:
-            return "选择中心双向扇形的 reserve / deficit 采用哪个额度周期；默认跟随外环。"
+        case (.simplifiedChinese, .total): return "月度总额度"
         }
     }
 
@@ -1606,9 +1576,48 @@ enum AppLanguage: String, CaseIterable, Codable, Identifiable {
         case (.english, .synchronized): return "Follow outer ring"
         case (.english, .weekly): return "Weekly cycle"
         case (.english, .current): return "Current cycle"
+        case (.english, .total): return "Monthly total"
         case (.simplifiedChinese, .synchronized): return "同步外环"
         case (.simplifiedChinese, .weekly): return "周周期"
         case (.simplifiedChinese, .current): return "当前短周期"
+        case (.simplifiedChinese, .total): return "月度总额度"
+        }
+    }
+
+    func menuBarProviderRingWindowsLabel() -> String {
+        switch self {
+        case .english: return "Ring data cycle per provider"
+        case .simplifiedChinese: return "各供应商圆环数据周期"
+        }
+    }
+
+    func menuBarProviderRingWindowsDescription() -> String {
+        switch self {
+        case .english:
+            return "Choose which quota window feeds each provider's outer ring and center pace fan. Total is only available for Kimi."
+        case .simplifiedChinese:
+            return "分别为每个供应商选择外环与中心节奏扇形使用的额度周期；月度总额度仅 Kimi 提供。"
+        }
+    }
+
+    func menuBarRingOuterColumnTitle() -> String {
+        switch self {
+        case .english: return "Outer ring"
+        case .simplifiedChinese: return "外环"
+        }
+    }
+
+    func menuBarRingProviderColumnTitle() -> String {
+        switch self {
+        case .english: return "Provider"
+        case .simplifiedChinese: return "供应商"
+        }
+    }
+
+    func menuBarRingCenterColumnTitle() -> String {
+        switch self {
+        case .english: return "Center pace"
+        case .simplifiedChinese: return "中心节奏"
         }
     }
 
