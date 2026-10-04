@@ -4,6 +4,7 @@ import { operations, authorized } from "./operations.js";
 import { localUsage, identity } from "./local-usage.js";
 import { teamService } from "./team.js";
 import { feedbackService } from "./feedback.js";
+import { codexWatchService } from './codex-watch.js';
 
 // Every query parameter the quota-history route understands. Anything else is
 // rejected rather than ignored, so a typo or a half-ported date range can never
@@ -86,6 +87,12 @@ export default {
       }
       if (url.pathname.startsWith("/v1/feedback")) {
         return await feedbackService(request, env, url);
+      }
+      // Deliberately outside /v1/team/ and the quota routes: watching an account by
+      // email has nothing to do with team membership, and must never become a way
+      // to read team data or a device credential.
+      if (url.pathname.startsWith("/v1/watch/")) {
+        return await codexWatchService(request, env, url);
       }
       if (["GET", "HEAD"].includes(request.method) && ["/team", "/team/", "/team-locale-1.js","/team-locale-2.js", "/team.css", "/team.js", "/team-charts.js"].includes(url.pathname)) {
         const assetURL = new URL(request.url);

@@ -3,11 +3,10 @@ import SwiftUI
 /// 「关注账号」设置区。两侧都在这里，因为它们是一次操作的两半：
 ///
 /// - **分享侧**（owner）：勾选哪些 Codex 账号允许被别的 Mac 看到。
-///   打开后这些账号的额度会跟着团队云同步一起上云。
-/// - **关注侧**（watcher）：只填一个邮箱，就能看到那台 Mac 分享的额度。
+/// - **关注侧**（watcher）：只填一个邮箱，就能看到对方分享的额度。
 ///
-/// 传输走的是已有的团队云端通道，所以关注侧**不需要地址、端口或访问密钥**，
-/// 对方也**不需要在这台 Mac 上登录 Codex**。
+/// 不需要建团队、不需要邀请码、不需要密钥，也不需要在关注方登录 Codex。
+/// 传输走 app 自带的云端服务，关注的地址本身就是查找键。
 @MainActor
 struct CodexWatchSettingsSection: View {
     let language: AppLanguage
@@ -23,9 +22,6 @@ struct CodexWatchSettingsSection: View {
     private func t(_ zh: String, _ en: String) -> String {
         language == .simplifiedChinese ? zh : en
     }
-
-    /// 是否已经接上云端通道。没有它，关注和分享都无从谈起。
-    private var hasTeam: Bool { CodexLocalUsageModel.shared.connection != nil }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
@@ -46,8 +42,8 @@ struct CodexWatchSettingsSection: View {
                 VStack(alignment: .leading, spacing: 2) {
                     Text(t("允许其他 Mac 关注我的账号", "Let other Macs watch my accounts"))
                     Text(t(
-                        "开启后，下面勾选的账号额度会随「共享账号额度」一起同步到团队云端。别人在他们的「我关注的账号」里填这个邮箱就能看到，不需要密钥，也不需要在这台 Mac 上登录 Codex。Codex 登录凭据始终不离开这台 Mac。",
-                        "When on, the accounts checked below sync to your team's cloud alongside Share account quota. Anyone can then enter that email under \"Accounts I watch\" to see the quota — no access key, and no Codex sign-in on this Mac. Codex credentials never leave this Mac."))
+                        "开启后，下面勾选的账号额度会发布到云端。任何装了 AI Quota Bar、并且知道这个邮箱的 Mac 都能看到它——不需要密钥，也不需要在对方登录 Codex。Codex 登录凭据始终不离开这台 Mac。",
+                        "When on, the quota of the accounts checked below is published to the cloud. Any Mac running AI Quota Bar that knows the address can read it — no access key, and no Codex sign-in on their side. Codex credentials never leave this Mac."))
                         .font(.caption)
                         .foregroundStyle(.secondary)
                         .fixedSize(horizontal: false, vertical: true)
@@ -56,43 +52,50 @@ struct CodexWatchSettingsSection: View {
             .toggleStyle(.switch)
 
             if store.isSharing {
-                if !hasTeam {
-                    cloudPrerequisiteWarning
-                }
                 if localCodexAccounts.isEmpty {
-                    Text(t(
-                        "这台 Mac 还没有登录任何 Codex 账号。",
-                        "No Codex account is signed in on this Mac."))
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
+                    // 刻意不说「没有登录任何 Codex 账号」：这个列表来自本机
+                    // 这一轮抓到的额度，可能是根本没抓，而不是没登录。两者
+                    // 的用户动作完全相反，混淆只会让人以为 app 坏了。
+                    HStack(spacing: 6) {
+                        Text(t(
+                            "还没有拿到这台 Mac 的 Codex 额度数据，所以列不出可分享的账号。",
+                            "No Codex quota has been fetched on this Mac yet, so there is nothing to share yet."))
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                            .fixedSize(horizontal: false, vertical: true)
+                        Button(t("重试", "Retry")) {
+                            Task { await viewModel.refresh(showIconSelfTest: false) }
+                        }
+                        .buttonStyle(.borderless)
+                        .controlSize(.small)
+                    }
                 } else {
                     ForEach(localCodexAccounts, id: \.self) { account in
                         Toggle(isOn: Binding(
                             get: { store.isShared(account) },
                             set: { store.setShared($0, for: account) })
                         ) {
-                            Text(account).font(.callout)
+                            VStack(alignment: .leading, spacing: 1) {
+                                Text(account).font(.callout)
+                                if let reads = store.readCounts[
+                                    CodexWatchStore.normalize(account)] {
+                                    Text(readSummary(reads))
+                                        .font(.caption)
+                                        .foregroundStyle(.secondary)
+                                }
+                            }
                         }
                         .toggleStyle(.checkbox)
                     }
                     Text(t(
-                        "默认一个都不共享，只有勾选的账号会上传。取消勾选后，它会在下一次用量刷新时从云端消失。",
-                        "Nothing is shared by default — only checked accounts are uploaded. Unchecking one makes it disappear from the cloud on the next quota refresh."))
+                        "默认一个都不分享，只有勾选的账号会发布。取消勾选会立刻从云端删除。",
+                        "Nothing is shared by default — only checked accounts are published. Unchecking one deletes it from the cloud immediately."))
                         .font(.caption)
                         .foregroundStyle(.secondary)
                         .fixedSize(horizontal: false, vertical: true)
                 }
             }
         }
-    }
-
-    private var cloudPrerequisiteWarning: some View {
-        Text(t(
-            "⚠︎ 还没加入团队，额度没有地方可同步。请先在「设置 → 团队」里创建或加入一个团队，并打开「共享账号额度」。",
-            "⚠︎ Not in a team yet, so there is nowhere to sync to. Create or join a team under Settings → Team first, and turn on Share account quota."))
-            .font(.caption)
-            .foregroundStyle(.orange)
-            .fixedSize(horizontal: false, vertical: true)
     }
 
     // MARK: - 关注侧
@@ -103,20 +106,11 @@ struct CodexWatchSettingsSection: View {
                 .font(.headline)
 
             Text(t(
-                "填一个邮箱就行。两台 Mac 在同一个团队里，对方勾了这个邮箱，这里就会显示它的额度。",
-                "Just enter an email. With both Macs in the same team and the other one sharing that address, its quota shows up here."))
+                "填一个邮箱就行，不需要加团队、不需要邀请码、不需要密钥。对方在他们的设置里勾了这个邮箱，这里就会显示它的额度。",
+                "Just enter an email — no team, no invite code, no access key. Once the other Mac ticks that address in their settings, its quota shows up here."))
                 .font(.caption)
                 .foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
-
-            if !hasTeam {
-                Text(t(
-                    "⚠︎ 还没加入团队，现在看不到任何别人的账号。请先在「设置 → 团队」里用邀请码加入。",
-                    "⚠︎ Not in a team yet, so no one else's account can be seen. Join one with an invite code under Settings → Team first."))
-                    .font(.caption)
-                    .foregroundStyle(.orange)
-                    .fixedSize(horizontal: false, vertical: true)
-            }
 
             HStack(spacing: 8) {
                 TextField(t("对方 Codex 账号的邮箱", "Their Codex account email"), text: $emailInput)
@@ -173,7 +167,7 @@ struct CodexWatchSettingsSection: View {
             Spacer(minLength: 8)
 
             Button {
-                Task { await viewModel.refresh(showIconSelfTest: false) }
+                Task { await viewModel.refreshCodexWatch() }
             } label: {
                 Image(systemName: "arrow.clockwise")
             }
@@ -218,42 +212,64 @@ struct CodexWatchSettingsSection: View {
         errorText = nil
         emailInput = ""
         emailFieldFocused = false
-        // 刚加的邮箱可能已经在云端有数据了，立刻解析一次，
-        // 免得用户盯着一个「还没数据」要等下一轮刷新。
-        Task { await viewModel.refresh(showIconSelfTest: false) }
+        // 刚加的地址可能已经有人分享，立刻解析一次，免得用户盯着
+        // 「还没数据」要等下一轮刷新。
+        Task { await viewModel.refreshCodexWatch() }
     }
 
-    private func statusDot(_ status: CodexWatchStore.WatchStatus) -> Color {
+    private func statusDot(_ status: CodexWatchStore.Status) -> Color {
         switch status {
         case .available: return .green
-        case .noTeam: return .orange
-        case .waitingForPublisher: return .secondary
+        case .loading: return .secondary
+        case .stale, .unreachable: return .orange
+        case .notShared: return .secondary
         }
     }
 
-    private func statusTint(_ status: CodexWatchStore.WatchStatus) -> Color {
+    private func statusTint(_ status: CodexWatchStore.Status) -> Color {
         switch status {
-        case .available: return .secondary
-        case .noTeam, .waitingForPublisher: return .orange
+        case .available, .loading: return .secondary
+        case .stale, .unreachable: return .orange
+        case .notShared: return .secondary
         }
     }
 
-    private func statusText(_ status: CodexWatchStore.WatchStatus) -> String {
+    private func statusText(_ status: CodexWatchStore.Status) -> String {
         switch status {
-        case .noTeam:
-            return t("还没加入团队，暂时读不到别人的账号。",
-                     "Not in a team yet, so no one else's account can be read.")
-        case .waitingForPublisher:
+        case .loading:
+            return t("正在获取…", "Fetching…")
+        case .notShared:
             return t(
-                "还没数据。让对方在这台 Mac 上勾选这个邮箱，并确认那台 Mac 在运行且已加入同一个团队。",
-                "No data yet. Ask them to tick this address on their Mac, and check that Mac is running and in the same team.")
-        case let .available(sampledAt, modelCount):
+                "还没有人分享这个邮箱。让对方在「允许其他 Mac 关注我的账号」里勾选它。",
+                "Nobody is sharing this address yet. Ask them to tick it under \"Let other Macs watch my accounts\".")
+        case .stale:
+            return t(
+                "对方已经很久没上报了，上面的数字可能是旧的。确认那台 Mac 上的 AI Quota Bar 还在运行。",
+                "The other Mac has not reported for a while, so these numbers may be old. Check that AI Quota Bar is still running there.")
+        case let .available(sampledAt, windowCount):
+            guard let sampledAt else {
+                return t("已连接", "Connected")
+            }
             let formatter = RelativeDateTimeFormatter()
             formatter.unitsStyle = .short
-            let relative = formatter.localizedString(
-                for: sampledAt, relativeTo: Date())
-            return t("团队云端 · \(modelCount) 条 · 更新于 \(relative)",
-                     "Team cloud · \(modelCount) entries · updated \(relative)")
+            let relative = formatter.localizedString(for: sampledAt, relativeTo: Date())
+            return t("云端 · \(windowCount) 条 · 更新于 \(relative)",
+                     "Cloud · \(windowCount) entries · updated \(relative)")
+        case .unreachable:
+            return t(
+                "取不到数据，检查网络后再试。",
+                "Could not fetch. Check your connection and try again.")
         }
+    }
+
+    private func readSummary(_ reads: CodexWatchReadCount) -> String {
+        guard reads.readCount > 0, let last = reads.lastReadAt else {
+            return t("还没有人看过", "Not read yet")
+        }
+        let formatter = RelativeDateTimeFormatter()
+        formatter.unitsStyle = .short
+        let relative = formatter.localizedString(for: last, relativeTo: Date())
+        return t("被查看 \(reads.readCount) 次 · 最近 \(relative)",
+                 "Read \(reads.readCount) times · last \(relative)")
     }
 }

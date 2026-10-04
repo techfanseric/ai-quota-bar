@@ -18,7 +18,6 @@ struct ProvidersPane: View {
     @State private var kimiInputID: UUID = UUID()
     @State private var codexSourceMode: CodexDataSourceMode = .default
     @State private var codexAccounts: [CodexAccountDraft] = []
-    @State private var localCodexAccounts: [String] = []
     @State private var miniMaxTestResult: InlineFeedback? = nil
     @State private var isTestingMiniMax: Bool = false
     @State private var kimiTestResult: InlineFeedback? = nil
@@ -163,23 +162,32 @@ struct ProvidersPane: View {
         glmInputID = UUID()
         codexSourceMode = CodexService.shared.sourceMode
         codexAccounts = CodexAccountCoordinator.shared.listAccountDrafts()
-        refreshLocalCodexAccounts()
     }
 
-    /// 本机登录着的 Codex 账号列表，供「关注」区勾选可分享的对象。
+    /// 本机可分享的 Codex 账号列表，供「关注」区勾选。
     ///
-    /// 刻意取自账号仓库而不是 `providerUsageSections`：后者已经和团队云端
-    /// 合并过了，里面混着别的 Mac 上报的账号。分享名单如果从那里取，
-    /// 勾一个同事的账号就会把它当自己的额度再转发一次 —— 本机只是
-    /// 「看」了它，没有资格替它分享。账号仓库是「这台 Mac 登了谁」的唯一
-    /// 事实来源，天然不含别人。
-    private func refreshLocalCodexAccounts() {
+    /// 取自 `providerUsageData`（本机这一轮真正抓到的用量），而不是
+    /// `providerUsageSections` —— 后者已经和团队云端合并过了，里面混着别人
+    /// 上报的账号，勾一个同事的账号就会把它当自己的额度再转发一次。
+    ///
+    /// 也不能只取托管账号仓库：Codex 可以是 CLI 登录的（`~/.codex/auth.json`），
+    /// 那种账号根本不在托管仓库里，但确实是本机的账号、也确实有额度可发。
+    /// 所以两个来源取并集：额度数据覆盖「抓到了」，仓库补上「刚登录还没抓到」。
+    private var localCodexAccounts: [String] {
         var seen = Set<String>()
-        localCodexAccounts = codexAccounts
-            .map { $0.email.trimmingCharacters(in: .whitespacesAndNewlines) }
-            .filter { !$0.isEmpty }
-            .filter { seen.insert(CodexWatchStore.normalize($0)).inserted }
-            .sorted { $0.localizedStandardCompare($1) == .orderedAscending }
+        var names: [String] = []
+        func add(_ raw: String?) {
+            guard let raw else { return }
+            let name = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !name.isEmpty,
+                  seen.insert(CodexWatchStore.normalize(name)).inserted else { return }
+            names.append(name)
+        }
+        for model in viewModel.providerUsageData[.codex]?.models ?? [] {
+            add(model.accountName)
+        }
+        for draft in codexAccounts { add(draft.email) }
+        return names.sorted { $0.localizedStandardCompare($1) == .orderedAscending }
     }
 
     private func testConnection(for provider: UsageProvider) {
@@ -276,13 +284,11 @@ struct ProvidersPane: View {
 
     private func addCodexAccount() {
         codexAccounts = CodexAccountCoordinator.shared.listAccountDrafts()
-        refreshLocalCodexAccounts()
     }
 
     private func removeCodexAccount(_ id: String) {
         CodexAccountCoordinator.shared.removeAccount(id: id)
         codexAccounts = CodexAccountCoordinator.shared.listAccountDrafts()
-        refreshLocalCodexAccounts()
     }
 
     private func refreshCodexAccount(id: String) {
@@ -292,7 +298,6 @@ struct ProvidersPane: View {
     private func signOutCodexAccount(id: String) {
         CodexAccountCoordinator.shared.removeAccount(id: id)
         codexAccounts = CodexAccountCoordinator.shared.listAccountDrafts()
-        refreshLocalCodexAccounts()
     }
 
     private func updateCodexSourceMode(_ newMode: CodexDataSourceMode) {

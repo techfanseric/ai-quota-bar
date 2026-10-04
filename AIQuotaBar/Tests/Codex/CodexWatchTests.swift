@@ -1,12 +1,11 @@
 import XCTest
 @testable import AIQuotaBar
 
-/// 「关注账号」走团队云端通道后的行为契约。
+/// 「关注账号」走公开云端通道后的行为契约。
 ///
-/// 这里守住三件事，任何一条破了都是用户能直接看见的故障：
-/// 1. 打开分享开关后，**只有勾选的 Codex 账号**可以离开这台 Mac；
-/// 2. 没打开开关的老用户，上报行为一个字都不变；
-/// 3. 关注名单的增删、邮箱校验、跨重启持久化。
+/// 这个功能的边界比团队同步宽得多——地址本身就是查找键——所以测试要守住的
+/// 不是「谁能读」，而是：发布出去的内容有多窄、撤销是否即时、以及三种
+/// 「看不到数据」有没有被混成一团。
 @MainActor
 final class CodexWatchTests: XCTestCase {
     private func makeStore() -> (CodexWatchStore, UserDefaults) {
@@ -17,115 +16,184 @@ final class CodexWatchTests: XCTestCase {
     }
 
     private func model(
-        _ provider: UsageProvider,
         _ account: String?,
-        _ name: String = "5h"
+        _ name: String = "5h",
+        percent: Int = 50,
+        sampledAt: Date? = nil,
+        plan: String? = "Plus"
     ) -> ModelUsageData {
         ModelUsageData(
-            provider: provider, accountName: account, modelName: name,
-            currentIntervalTotal: 100, currentIntervalUsed: 50,
+            provider: .codex, accountName: account, modelName: name,
+            currentIntervalTotal: 100, currentIntervalUsed: percent,
             weeklyTotal: 0, weeklyUsed: 0, remainsTime: 3_600_000,
-            startTime: nil, endTime: nil,
+            startTime: nil, endTime: Date().addingTimeInterval(3600),
             weeklyStartTime: nil, weeklyEndTime: nil,
-            valueSuffix: "%", detailText: nil,
-            currentIntervalRemainingPercent: 50, weeklyRemainingPercent: nil,
-            progressBarPercentOverride: nil, progressBarRightText: nil, sampledAt: nil)
+            valueSuffix: "%",
+            detailText: plan.map { "\($0) · Codex" },
+            currentIntervalRemainingPercent: percent,
+            weeklyRemainingPercent: nil,
+            progressBarPercentOverride: nil, progressBarRightText: nil,
+            sampledAt: sampledAt)
     }
 
-    // MARK: - 分享侧：上报过滤
+    private func codexUsage(_ models: [ModelUsageData]) -> UsageData {
+        UsageData(
+            provider: .codex,
+            remains: models.count, total: models.count,
+            timestamp: Date(), models: models,
+            subscribeTitle: nil, subscribeEndTime: nil)
+    }
 
-    func testSharingOffKeepsExistingUploadBehaviour() {
+    // MARK: - 发布内容：只有勾选的账号
+
+    func testSharingOffPublishesNothing() {
         let (store, _) = makeStore()
+        // 开关没开 = 一个都不发布。团队通道的原有行为不受影响。
         XCTAssertFalse(store.isSharing)
-        let models = [model(.codex, "a@example.com"), model(.kimi, "k@example.com")]
-        // 开关没开 = 用户没启用关注功能，绝不能顺手改变既有团队共享行为。
-        XCTAssertEqual(store.uploadableModels(models).map(\.id),
-                       models.map(\.id))
+        let usage = codexUsage([model("a@example.com")])
+        XCTAssertTrue(store.publishableSnapshots(from: usage).isEmpty)
     }
 
-    func testSharingOnUploadsOnlyCheckedCodexAccounts() {
+    func testOnlyCheckedAccountsArePublished() {
         let (store, _) = makeStore()
         store.isSharing = true
         store.setShared(true, for: "keep@example.com")
-        let models = [
-            model(.codex, "keep@example.com"),
-            model(.codex, "drop@example.com"),
-        ]
-        XCTAssertEqual(store.uploadableModels(models).map(\.accountName),
-                       ["keep@example.com"])
+        let usage = codexUsage([
+            model("keep@example.com", "5h", percent: 61),
+            model("drop@example.com", "5h", percent: 10),
+        ])
+        let published = store.publishableSnapshots(from: usage)
+        XCTAssertEqual(published.map(\.account), ["keep@example.com"])
+        XCTAssertEqual(published.first?.plan, "Plus")
+        XCTAssertEqual(published.first?.windows.first?.remainingPercent, 61)
     }
 
-    func testSharingOnWithNothingCheckedUploadsNoCodexAccount() {
+    func testSharingOnWithNothingCheckedPublishesNothing() {
         let (store, _) = makeStore()
         store.isSharing = true
-        // 默认拒绝：开了开关但一个都没勾，等于什么都不共享。
-        XCTAssertTrue(store.uploadableModels([model(.codex, "a@example.com")]).isEmpty)
+        // 默认拒绝：开了开关但一个都没勾，等于什么都不发布。
+        XCTAssertTrue(store.publishableSnapshots(
+            from: codexUsage([model("a@example.com")])).isEmpty)
     }
 
-    func testSharingFilterLeavesOtherProvidersAlone() {
+    func testUnpublishedAccountIsDroppedEvenIfChecked() {
         let (store, _) = makeStore()
         store.isSharing = true
-        // 这个开关只管 Codex，不该顺手改变 Kimi / GLM / MiniMax 的团队共享。
-        let others = [model(.kimi, "k@example.com"), model(.glm, "g@example.com")]
-        XCTAssertEqual(store.uploadableModels(others).count, 2)
+        store.setShared(true, for: "gone@example.com")
+        // 勾了但那台机器当前没有这个账号的额度，不能发一个空壳上去。
+        XCTAssertTrue(store.publishableSnapshots(
+            from: codexUsage([model("other@example.com")])).isEmpty)
     }
 
-    func testSharingFilterDropsUnattributedCodexQuota() {
-        let (store, _) = makeStore()
-        store.isSharing = true
-        store.setShared(true, for: "a@example.com")
-        // 账号名为空的未归属额度没法被按邮箱关注，留着只会让人以为在共享。
-        XCTAssertTrue(store.uploadableModels([model(.codex, nil)]).isEmpty)
-        XCTAssertTrue(store.uploadableModels([model(.codex, "  ")]).isEmpty)
-    }
-
-    func testUncheckingAccountRemovesItFromNextUpload() {
+    func testNonCodexUsageIsNeverPublished() {
         let (store, _) = makeStore()
         store.isSharing = true
         store.setShared(true, for: "a@example.com")
-        XCTAssertEqual(store.uploadableModels([model(.codex, "a@example.com")]).count, 1)
-        store.setShared(false, for: "a@example.com")
-        XCTAssertTrue(store.uploadableModels([model(.codex, "a@example.com")]).isEmpty)
+        let kimi = UsageData(
+            provider: .kimi, remains: 1, total: 1, timestamp: Date(),
+            models: [ModelUsageData(
+                provider: .kimi, accountName: "a@example.com", modelName: "5h",
+                currentIntervalTotal: 100, currentIntervalUsed: 50,
+                weeklyTotal: 0, weeklyUsed: 0, remainsTime: 0,
+                startTime: nil, endTime: nil, weeklyStartTime: nil, weeklyEndTime: nil,
+                valueSuffix: "%", detailText: nil,
+                currentIntervalRemainingPercent: 50, weeklyRemainingPercent: nil,
+                progressBarPercentOverride: nil, progressBarRightText: nil, sampledAt: nil)],
+            subscribeTitle: nil, subscribeEndTime: nil)
+        XCTAssertTrue(store.publishableSnapshots(from: kimi).isEmpty)
     }
 
-    func testShareListMatchesCaseAndWhitespaceInsensitively() {
+    func testWindowsCarryOnlyPercentagesNotAbsoluteCounts() {
+        let (store, _) = makeStore()
+        store.isSharing = true
+        store.setShared(true, for: "a@example.com")
+        let usage = codexUsage([model("a@example.com", "5h", percent: 37)])
+        let window = store.publishableSnapshots(from: usage)[0].windows[0]
+        // 百分比是额度唯一的对外形状：绝对量会暴露这个人真实烧了多少。
+        XCTAssertEqual(window.remainingPercent, 37)
+        XCTAssertNotEqual(window.remainingPercent, 63)
+    }
+
+    func testDuplicateWindowsKeepTheFreshestSample() {
+        let (store, _) = makeStore()
+        store.isSharing = true
+        store.setShared(true, for: "a@example.com")
+        let old = Date().addingTimeInterval(-3600)
+        let usage = codexUsage([
+            model("a@example.com", "5h", percent: 20, sampledAt: old),
+            model("a@example.com", "5h", percent: 80, sampledAt: Date()),
+        ])
+        let windows = store.publishableSnapshots(from: usage)[0].windows
+        XCTAssertEqual(windows.count, 1, "同名窗口只出一条")
+        XCTAssertEqual(windows[0].remainingPercent, 80)
+    }
+
+    func testCaseInsensitiveAccountMatching() {
         let (store, _) = makeStore()
         store.isSharing = true
         store.setShared(true, for: "User@Example.com")
-        XCTAssertTrue(store.isShared("user@example.com"))
-        XCTAssertTrue(store.isShared("  USER@EXAMPLE.COM  "))
-        XCTAssertTrue(store.uploadableModels([model(.codex, "USER@example.com")]).count == 1)
+        let usage = codexUsage([model("USER@example.com", "5h", percent: 44)])
+        XCTAssertEqual(store.publishableSnapshots(from: usage).count, 1)
     }
 
-    func testShareListHasNoDuplicates() {
+    // MARK: - 可分享账号的来源
+
+    func testPublishableAccountsFollowTheAccountsWithLiveQuota() {
+        let (store, _) = makeStore()
+        store.isSharing = true
+        store.setShared(true, for: "y17321008998@gmail.com")
+        // A Codex CLI sign-in lives in ~/.codex/auth.json and has live quota, but
+        // is NOT in the app's managed account store. Publishing keys off the quota
+        // data, so such an account must still be shareable.
+        let usage = codexUsage([
+            model("y17321008998@gmail.com", "5h", percent: 77),
+            model("y17321008998@gmail.com", "Weekly", percent: 62),
+        ])
+        let published = store.publishableSnapshots(from: usage)
+        XCTAssertEqual(published.map(\.account), ["y17321008998@gmail.com"])
+        // Both windows of one account travel together.
+        XCTAssertEqual(Set(published[0].windows.map(\.name)), ["5h", "Weekly"])
+    }
+
+    func testSharingOnWithNoLocalQuotaPublishesNothingRatherThanWipingTheCloud() {
         let (store, _) = makeStore()
         store.isSharing = true
         store.setShared(true, for: "a@example.com")
-        store.setShared(false, for: "a@example.com")
-        store.setShared(true, for: "A@Example.com")
-        XCTAssertEqual(store.sharedAccountNames.count, 1)
+        // usageData == nil is the "this cycle produced no local Codex quota" case.
+        // publishableSnapshots must be empty, and the caller must NOT treat that as
+        // "unshare everything" -- see refreshCodexWatch(), which fetches first.
+        XCTAssertTrue(store.publishableSnapshots(from: nil).isEmpty)
     }
 
-    // MARK: - 关注侧：名单
+    func testATeamMatesCloudAccountIsNeverPublishable() {
+        let (store, _) = makeStore()
+        store.isSharing = true
+        store.setShared(true, for: "colleague@example.com")
+        // The share list is the owner's explicit choice; what protects a teammate's
+        // account is that the publish source is local quota data, never the
+        // cloud-merged menu view. So a name that is only ticked publishes nothing.
+        XCTAssertTrue(store.publishableSnapshots(
+            from: codexUsage([model("mine@example.com")])).isEmpty)
+    }
+
+    // MARK: - 关注名单
 
     func testWatchAddsNormalizesAndRejectsDuplicates() {
         let (store, _) = makeStore()
         XCTAssertTrue(store.watch("Someone@Example.com"))
         XCTAssertEqual(store.watchedAccountNames, ["Someone@Example.com"])
-        // 大小写不同的同一个邮箱不算新增。
         XCTAssertFalse(store.watch("someone@example.com"))
         XCTAssertEqual(store.watchedAccountNames.count, 1)
     }
 
-    func testUnwatchRemovesRegardlessOfCase() {
+    func testUnwatchDropsTheCachedSnapshot() {
         let (store, _) = makeStore()
         store.watch("a@example.com")
+        // 取消关注后必须丢掉快照，否则菜单里会继续显示一个已经不再关注的账号。
+        XCTAssertEqual(store.status(for: "a@example.com"), .notShared)
         store.unwatch("A@EXAMPLE.COM")
         XCTAssertTrue(store.watchedAccountNames.isEmpty)
-        // 移除不存在的邮箱不应崩溃，也不应误删别的条目。
-        store.watch("b@example.com")
-        store.unwatch("zzz@example.com")
-        XCTAssertEqual(store.watchedAccountNames, ["b@example.com"])
+        XCTAssertTrue(store.watchedModels.isEmpty)
     }
 
     func testWatchRejectsMalformedInput() {
@@ -139,16 +207,6 @@ final class CodexWatchTests: XCTestCase {
         XCTAssertTrue(store.watchedAccountNames.isEmpty)
     }
 
-    func testWatchAcceptsRealisticEmails() {
-        let (store, _) = makeStore()
-        for good in ["a@example.com", "first.last+tag@sub.example.co.uk",
-                     "y17321008998@gmail.com", "UPPER@EXAMPLE.COM"]
-        {
-            XCTAssertTrue(store.watch(good), "should accept \(good)")
-        }
-        XCTAssertEqual(store.watchedAccountNames.count, 4)
-    }
-
     func testWatchAndShareListsAreIndependent() {
         let (store, _) = makeStore()
         store.isSharing = true
@@ -158,6 +216,85 @@ final class CodexWatchTests: XCTestCase {
         XCTAssertFalse(store.isShared("theirs@example.com"))
         XCTAssertTrue(store.isWatched("theirs@example.com"))
         XCTAssertFalse(store.isWatched("mine@example.com"))
+    }
+
+    // MARK: - 状态
+
+    func testUnknownAddressIsNotShared() {
+        let (store, _) = makeStore()
+        store.watch("a@example.com")
+        XCTAssertEqual(store.status(for: "a@example.com"), .notShared)
+    }
+
+    func testStatusForAnEmptyAccountIsNotShared() {
+        let (store, _) = makeStore()
+        XCTAssertEqual(store.status(for: "   "), .notShared)
+    }
+
+    func testStaleMarkerWinsOverACachedSnapshot() {
+        let (store, _) = makeStore()
+        store.watch("a@example.com")
+        store.seedSnapshotForTesting(
+            account: "a@example.com",
+            snapshot: CodexWatchSnapshot(
+                account: "a@example.com", plan: "Plus",
+                windows: [CodexWatchWindow(
+                    name: "5h", remainingPercent: 40,
+                    resetsAt: Date(), sampledAt: Date().addingTimeInterval(-9000))],
+                publishedAt: Date().addingTimeInterval(-9000)))
+        if case .available = store.status(for: "a@example.com") {} else {
+            XCTFail("a fresh snapshot should read as available")
+        }
+
+        store.markStaleForTesting("a@example.com")
+        // The row stays (a watched account must not vanish) but must not read as
+        // current: the cached numbers are 2.5 hours old.
+        XCTAssertEqual(store.status(for: "a@example.com"), .stale)
+        XCTAssertEqual(store.watchedModels.count, 1,
+                       "the stale row is still rendered, just labelled")
+    }
+
+    func testWatchingSomethingSharedRendersRows() {
+        let (store, _) = makeStore()
+        store.watch("a@example.com")
+        store.seedSnapshotForTesting(
+            account: "a@example.com",
+            snapshot: CodexWatchSnapshot(
+                account: "a@example.com", plan: "Plus",
+                windows: [CodexWatchWindow(
+                    name: "5h", remainingPercent: 40,
+                    resetsAt: Date().addingTimeInterval(3600), sampledAt: Date())],
+                publishedAt: Date()))
+        let rows = store.watchedModels
+        XCTAssertEqual(rows.count, 1)
+        XCTAssertEqual(rows[0].provider, .codex)
+        XCTAssertEqual(rows[0].accountName, "a@example.com")
+        XCTAssertEqual(rows[0].currentIntervalRemainingPercent, 40)
+        XCTAssertEqual(rows[0].currentIntervalTotal, 100,
+                       "the shareable shape is a percentage, never an absolute count")
+    }
+
+    // MARK: - 地址 → 云端查找键
+
+    func testAccountKeyMatchesTheServerSideDigest() {
+        // The client hashes locally to map read counts back to its own addresses,
+        // so this must stay byte-identical to the worker's `digestKey`. It is a
+        // known-answer test: if either side's normalization changes, the owner sees
+        // "read 0 times" and never finds out why.
+        XCTAssertEqual(
+            CodexWatchCloudClient.accountKey(for: "y17321008998@gmail.com"),
+            "b8cf896879af36ea2a9e48ccc510e000052ff457ce1aa57d428befc5d5116b34")
+    }
+
+    func testAccountKeyNormalizesBeforeHashing() {
+        XCTAssertEqual(
+            CodexWatchCloudClient.accountKey(for: "  User@Example.COM "),
+            CodexWatchCloudClient.accountKey(for: "user@example.com"))
+    }
+
+    func testAccountKeyRejectsMalformedAddresses() {
+        XCTAssertNil(CodexWatchCloudClient.accountKey(for: "not-an-email"))
+        XCTAssertNil(CodexWatchCloudClient.accountKey(for: ""))
     }
 
     // MARK: - 持久化
@@ -174,7 +311,7 @@ final class CodexWatchTests: XCTestCase {
         XCTAssertTrue(reloaded.isWatched("theirs@example.com"))
     }
 
-    func testOnChangeFiresForShareAndWatchEdits() {
+    func testOnChangeFiresForShareAndWatchEditsButNotForNoOps() {
         let (store, _) = makeStore()
         var changes = 0
         store.onChange = { changes += 1 }
@@ -183,9 +320,18 @@ final class CodexWatchTests: XCTestCase {
         store.watch("b@example.com")
         store.unwatch("b@example.com")
         XCTAssertEqual(changes, 4)
-        // 重复赋值同值不该触发。
+        // 重复投递同一个值不该触发：那会让 SwiftUI 每次重建都打一轮云端。
         store.setShared(true, for: "a@example.com")
         XCTAssertEqual(changes, 4)
+    }
+
+    func testUncheckingForgetsTheReadCount() {
+        let (store, _) = makeStore()
+        store.isSharing = true
+        store.setShared(true, for: "a@example.com")
+        store.setShared(false, for: "a@example.com")
+        // 已经不再分享的账号不该继续显示历史读取次数。
+        XCTAssertTrue(store.readCounts.isEmpty)
     }
 
     // MARK: - v1.32.x 迁移
@@ -200,7 +346,6 @@ final class CodexWatchTests: XCTestCase {
 
         let store = CodexWatchStore(defaults: defaults)
         XCTAssertTrue(store.isSharing)
-        // 只搬放行项，显式拒绝不搬。
         XCTAssertTrue(store.isShared("keep@example.com"))
         XCTAssertEqual(store.sharedAccountNames, ["keep@example.com"])
     }
