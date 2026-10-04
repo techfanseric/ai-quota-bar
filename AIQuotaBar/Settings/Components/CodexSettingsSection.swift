@@ -12,8 +12,11 @@ struct CodexSettingsSection: View {
     let onRefresh: (String) -> Void
     let onSignOut: (String) -> Void
     let onSourceModeChange: (CodexDataSourceMode) -> Void
-    /// 本机当前可见的 Codex 账号，供「关注」区勾选可分享的对象。
+    /// 本机当前登录的 Codex 账号，供「关注」区勾选可分享的对象。
     let localCodexAccounts: [String]
+    /// 关注区要显示每个被关注邮箱的真实状态（有没有团队通道、云端有没有数据），
+    /// 所以需要 viewModel，而不是只靠 store 里的名单。
+    let viewModel: UsageViewModel
     @State private var showingAddAlert: Bool = false
 
     var body: some View {
@@ -95,7 +98,8 @@ struct CodexSettingsSection: View {
 
             CodexWatchSettingsSection(
                 language: language,
-                localCodexAccounts: localCodexAccounts)
+                localCodexAccounts: localCodexAccounts,
+                viewModel: viewModel)
         }
     }
 }

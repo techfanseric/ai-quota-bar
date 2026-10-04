@@ -166,24 +166,19 @@ struct ProvidersPane: View {
         refreshLocalCodexAccounts()
     }
 
-    /// 本机 Codex 账号列表，供「关注」区勾选可分享的对象。
+    /// 本机登录着的 Codex 账号列表，供「关注」区勾选可分享的对象。
     ///
-    /// 只认界面真正在显示的那份数据：勾选一个用户看不到的账号没有意义，
-    /// 而对端拿到一份本机没在显示的额度同样会让人困惑。
-    ///
-    /// 从别的 Mac 关注来的账号必须排除 —— 本机只是「看」了它，
-    /// 没有资格把它当自己的账号再分享出去。
+    /// 刻意取自账号仓库而不是 `providerUsageSections`：后者已经和团队云端
+    /// 合并过了，里面混着别的 Mac 上报的账号。分享名单如果从那里取，
+    /// 勾一个同事的账号就会把它当自己的额度再转发一次 —— 本机只是
+    /// 「看」了它，没有资格替它分享。账号仓库是「这台 Mac 登了谁」的唯一
+    /// 事实来源，天然不含别人。
     private func refreshLocalCodexAccounts() {
         var seen = Set<String>()
-        localCodexAccounts = viewModel.providerUsageSections
-            .flatMap(\.models)
-            .filter { $0.provider == .codex && !CodexWatchPeerModel.isRelayed($0) }
-            .compactMap { model -> String? in
-                guard let name = model.accountName?
-                    .trimmingCharacters(in: .whitespacesAndNewlines),
-                    !name.isEmpty else { return nil }
-                return seen.insert(name).inserted ? name : nil
-            }
+        localCodexAccounts = codexAccounts
+            .map { $0.email.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter { !$0.isEmpty }
+            .filter { seen.insert(CodexWatchStore.normalize($0)).inserted }
             .sorted { $0.localizedStandardCompare($1) == .orderedAscending }
     }
 
@@ -281,11 +276,13 @@ struct ProvidersPane: View {
 
     private func addCodexAccount() {
         codexAccounts = CodexAccountCoordinator.shared.listAccountDrafts()
+        refreshLocalCodexAccounts()
     }
 
     private func removeCodexAccount(_ id: String) {
         CodexAccountCoordinator.shared.removeAccount(id: id)
         codexAccounts = CodexAccountCoordinator.shared.listAccountDrafts()
+        refreshLocalCodexAccounts()
     }
 
     private func refreshCodexAccount(id: String) {
@@ -295,6 +292,7 @@ struct ProvidersPane: View {
     private func signOutCodexAccount(id: String) {
         CodexAccountCoordinator.shared.removeAccount(id: id)
         codexAccounts = CodexAccountCoordinator.shared.listAccountDrafts()
+        refreshLocalCodexAccounts()
     }
 
     private func updateCodexSourceMode(_ newMode: CodexDataSourceMode) {

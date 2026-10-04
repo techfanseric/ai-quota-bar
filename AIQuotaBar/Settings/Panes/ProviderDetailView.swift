@@ -98,7 +98,8 @@ struct ProviderDetailView: View {
                 onRefresh: onRefreshCodexAccount,
                 onSignOut: onSignOutCodexAccount,
                 onSourceModeChange: onUpdateCodexSourceMode,
-                localCodexAccounts: localCodexAccounts
+                localCodexAccounts: localCodexAccounts,
+                viewModel: viewModel
             )
         case .kimi:
             KimiSourceSection(language: language) {

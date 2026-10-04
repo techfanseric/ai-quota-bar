@@ -2,24 +2,30 @@ import SwiftUI
 
 /// 「关注账号」设置区。两侧都在这里，因为它们是一次操作的两半：
 ///
-/// - **分享侧**（owner）：勾选哪些 Codex 账号允许被局域网其他 Mac 读取。
-///   默认全关；凭据不会离开本机，对端拿到的只是额度数字。
-/// - **关注侧**（watcher）：填对方的局域网地址与访问密钥，把它加进关注列表。
+/// - **分享侧**（owner）：勾选哪些 Codex 账号允许被别的 Mac 看到。
+///   打开后这些账号的额度会跟着团队云同步一起上云。
+/// - **关注侧**（watcher）：只填一个邮箱，就能看到那台 Mac 分享的额度。
 ///
-/// 两半互不依赖：只想被看的人只开分享，只想看别人的人只加对端。
+/// 传输走的是已有的团队云端通道，所以关注侧**不需要地址、端口或访问密钥**，
+/// 对方也**不需要在这台 Mac 上登录 Codex**。
 @MainActor
 struct CodexWatchSettingsSection: View {
     let language: AppLanguage
-    /// 本机当前可见的 Codex 账号，供分享侧勾选。
+    /// 本机登录着的 Codex 账号，供分享侧勾选。
     let localCodexAccounts: [String]
-    @State private var showAddPeer = false
+    let viewModel: UsageViewModel
+    @State private var emailInput = ""
+    @State private var errorText: String?
+    @FocusState private var emailFieldFocused: Bool
 
-    private var grants: CodexWatchGrantStore { .shared }
-    private var peers: CodexWatchPeerStore { .shared }
+    private var store: CodexWatchStore { .shared }
 
     private func t(_ zh: String, _ en: String) -> String {
         language == .simplifiedChinese ? zh : en
     }
+
+    /// 是否已经接上云端通道。没有它，关注和分享都无从谈起。
+    private var hasTeam: Bool { CodexLocalUsageModel.shared.connection != nil }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
@@ -34,16 +40,14 @@ struct CodexWatchSettingsSection: View {
     private var shareSide: some View {
         VStack(alignment: .leading, spacing: 8) {
             Toggle(isOn: Binding(
-                get: { grants.isServing },
-                set: { enabled in
-                    grants.isServing = enabled
-                })
+                get: { store.isSharing },
+                set: { store.isSharing = $0 })
             ) {
                 VStack(alignment: .leading, spacing: 2) {
                     Text(t("允许其他 Mac 关注我的账号", "Let other Macs watch my accounts"))
                     Text(t(
-                        "开启后，同一局域网内持有访问密钥的 Mac 可以读取下面勾选账号的额度。只有额度数字会被读走，Codex 登录凭据不会离开这台 Mac，也不需要建团队。",
-                        "When on, Macs on this LAN holding the access key can read the quota of the accounts checked below. Only quota numbers are shared — Codex credentials never leave this Mac, and no team is required."))
+                        "开启后，下面勾选的账号额度会随「共享账号额度」一起同步到团队云端。别人在他们的「我关注的账号」里填这个邮箱就能看到，不需要密钥，也不需要在这台 Mac 上登录 Codex。Codex 登录凭据始终不离开这台 Mac。",
+                        "When on, the accounts checked below sync to your team's cloud alongside Share account quota. Anyone can then enter that email under \"Accounts I watch\" to see the quota — no access key, and no Codex sign-in on this Mac. Codex credentials never leave this Mac."))
                         .font(.caption)
                         .foregroundStyle(.secondary)
                         .fixedSize(horizontal: false, vertical: true)
@@ -51,116 +55,134 @@ struct CodexWatchSettingsSection: View {
             }
             .toggleStyle(.switch)
 
-            if grants.isServing {
+            if store.isSharing {
+                if !hasTeam {
+                    cloudPrerequisiteWarning
+                }
                 if localCodexAccounts.isEmpty {
                     Text(t(
-                        "这台 Mac 还没有可分享的 Codex 账号。",
-                        "This Mac has no shareable Codex account yet."))
+                        "这台 Mac 还没有登录任何 Codex 账号。",
+                        "No Codex account is signed in on this Mac."))
                         .font(.caption)
                         .foregroundStyle(.secondary)
                 } else {
                     ForEach(localCodexAccounts, id: \.self) { account in
                         Toggle(isOn: Binding(
-                            get: { grants.isAllowed(account) },
-                            set: { allowed in
-                                // 授权可以随时收紧；grant store 的
-                                // onChange 会让服务立刻重算对外应答。
-                                grants.setAllowed(allowed, for: account)
-                            })
+                            get: { store.isShared(account) },
+                            set: { store.setShared($0, for: account) })
                         ) {
-                            Text(account)
-                                .font(.callout)
+                            Text(account).font(.callout)
                         }
                         .toggleStyle(.checkbox)
                     }
+                    Text(t(
+                        "默认一个都不共享，只有勾选的账号会上传。取消勾选后，它会在下一次用量刷新时从云端消失。",
+                        "Nothing is shared by default — only checked accounts are uploaded. Unchecking one makes it disappear from the cloud on the next quota refresh."))
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
                 }
-
-                Text(t(
-                    "对方需要密钥才能读取。密钥在「手机看板」里生成或重置。",
-                    "Peers need the access key. Generate or reset it in Mobile Dashboard."))
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                    .fixedSize(horizontal: false, vertical: true)
             }
         }
+    }
+
+    private var cloudPrerequisiteWarning: some View {
+        Text(t(
+            "⚠︎ 还没加入团队，额度没有地方可同步。请先在「设置 → 团队」里创建或加入一个团队，并打开「共享账号额度」。",
+            "⚠︎ Not in a team yet, so there is nowhere to sync to. Create or join a team under Settings → Team first, and turn on Share account quota."))
+            .font(.caption)
+            .foregroundStyle(.orange)
+            .fixedSize(horizontal: false, vertical: true)
     }
 
     // MARK: - 关注侧
 
     private var watchSide: some View {
         VStack(alignment: .leading, spacing: 8) {
-            HStack {
-                Text(t("我关注的账号", "Accounts I watch"))
-                    .font(.headline)
-                Spacer()
-                Button {
-                    showAddPeer = true
-                } label: {
-                    Label(t("添加设备", "Add device"),
-                          systemImage: "plus.circle")
-                }
-                .buttonStyle(.bordered)
-                .controlSize(.small)
-            }
+            Text(t("我关注的账号", "Accounts I watch"))
+                .font(.headline)
 
             Text(t(
-                "把另一台装了 AI Quota Bar 的 Mac 加进来，就能看到它授权给你的 Codex 额度。不需要建团队，连接只走局域网。",
-                "Add another Mac running AI Quota Bar to see the Codex quota it shares with you. No team required; the connection stays on your LAN."))
+                "填一个邮箱就行。两台 Mac 在同一个团队里，对方勾了这个邮箱，这里就会显示它的额度。",
+                "Just enter an email. With both Macs in the same team and the other one sharing that address, its quota shows up here."))
                 .font(.caption)
                 .foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
 
-            if peers.peers.isEmpty {
-                Text(t("还没有关注任何设备。", "No devices watched yet."))
+            if !hasTeam {
+                Text(t(
+                    "⚠︎ 还没加入团队，现在看不到任何别人的账号。请先在「设置 → 团队」里用邀请码加入。",
+                    "⚠︎ Not in a team yet, so no one else's account can be seen. Join one with an invite code under Settings → Team first."))
+                    .font(.caption)
+                    .foregroundStyle(.orange)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+
+            HStack(spacing: 8) {
+                TextField(t("对方 Codex 账号的邮箱", "Their Codex account email"), text: $emailInput)
+                    .textFieldStyle(.roundedBorder)
+                    .focused($emailFieldFocused)
+                    .onSubmit(addWatched)
+                    .onChange(of: emailInput) { _, _ in errorText = nil }
+                Button(t("添加", "Add"), action: addWatched)
+                    .buttonStyle(.borderedProminent)
+                    .controlSize(.small)
+                    // 只在完全为空时禁用。输入不合法或已关注过时保持可点，
+                    // 让 addWatched 给出具体原因 —— 一个不会解释自己为什么
+                    // 灰着的按钮，比点一下看到一句「格式不对」更让人卡住。
+                    .disabled(emailInput.trimmingCharacters(
+                        in: .whitespacesAndNewlines).isEmpty)
+            }
+
+            if let errorText {
+                Text(errorText)
+                    .font(.caption)
+                    .foregroundStyle(.red)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+
+            if store.watchedAccountNames.isEmpty {
+                Text(t("还没有关注任何账号。", "No accounts watched yet."))
                     .font(.caption)
                     .foregroundStyle(.secondary)
             } else {
-                ForEach(peers.peers) { peer in
-                    peerRow(peer)
+                ForEach(store.watchedAccountNames, id: \.self) { account in
+                    watchedRow(account)
                 }
             }
         }
-        .sheet(isPresented: $showAddPeer) {
-            AddCodexWatchPeerSheet(language: language)
-        }
     }
 
-    private func peerRow(_ peer: CodexWatchPeer) -> some View {
-        let status = peers.status(for: peer.id)
-        let accountCount = peers.accountsByPeer[peer.id]?.count ?? 0
+    private func watchedRow(_ account: String) -> some View {
+        let status = viewModel.watchStatus(for: account)
         return HStack(alignment: .top, spacing: 10) {
             Circle()
-                .fill(statusDot(status.state))
+                .fill(statusDot(status))
                 .frame(width: 7, height: 7)
                 .padding(.top, 5)
 
             VStack(alignment: .leading, spacing: 2) {
-                Text(peer.name)
+                Text(account)
                     .font(.callout.weight(.medium))
-                Text("\(peer.host):\(peer.port)")
+                Text(statusText(status))
                     .font(.caption)
-                    .foregroundStyle(.secondary)
-                Text(statusText(status, accountCount: accountCount))
-                    .font(.caption)
-                    .foregroundStyle(status.state == .ok(updatedAt: .distantPast)
-                        ? Color.secondary : statusTint(status.state))
+                    .foregroundStyle(statusTint(status))
                     .fixedSize(horizontal: false, vertical: true)
             }
 
             Spacer(minLength: 8)
 
             Button {
-                Task { await peers.refreshNow(id: peer.id) }
+                Task { await viewModel.refresh(showIconSelfTest: false) }
             } label: {
                 Image(systemName: "arrow.clockwise")
             }
             .buttonStyle(.borderless)
             .controlSize(.small)
-            .disabled(status.state == .loading)
             .accessibilityLabel(Text(t("刷新", "Refresh")))
 
             Button(role: .destructive) {
-                peers.removePeer(peer.id)
+                store.unwatch(account)
             } label: {
                 Image(systemName: "trash")
             }
@@ -175,169 +197,63 @@ struct CodexWatchSettingsSection: View {
         )
     }
 
-    private func statusDot(_ state: CodexWatchPeerStatus.State) -> Color {
-        switch state {
-        case .ok: return .green
-        case .loading: return .secondary
-        case .unreachable: return .orange
-        case .notAuthorized, .disabled, .invalidToken: return .red
-        case .idle: return .secondary
+    // MARK: - 状态文案
+
+    private func addWatched() {
+        let trimmed = emailInput.trimmingCharacters(in: .whitespacesAndNewlines)
+        if store.isWatched(trimmed) {
+            errorText = t("这个邮箱已经在关注列表里了。",
+                          "This email is already in your watch list.")
+            return
+        }
+        guard CodexWatchStore.isValidAccountName(trimmed) else {
+            errorText = t("这看起来不是一个完整的邮箱地址。",
+                          "That does not look like a complete email address.")
+            return
+        }
+        guard store.watch(trimmed) else {
+            errorText = t("添加失败，请重试。", "Could not add it. Please retry.")
+            return
+        }
+        errorText = nil
+        emailInput = ""
+        emailFieldFocused = false
+        // 刚加的邮箱可能已经在云端有数据了，立刻解析一次，
+        // 免得用户盯着一个「还没数据」要等下一轮刷新。
+        Task { await viewModel.refresh(showIconSelfTest: false) }
+    }
+
+    private func statusDot(_ status: CodexWatchStore.WatchStatus) -> Color {
+        switch status {
+        case .available: return .green
+        case .noTeam: return .orange
+        case .waitingForPublisher: return .secondary
         }
     }
 
-    private func statusTint(_ state: CodexWatchPeerStatus.State) -> Color {
-        switch state {
-        case .ok, .idle, .loading: return .secondary
-        case .unreachable, .notAuthorized, .disabled, .invalidToken:
-            return .orange
+    private func statusTint(_ status: CodexWatchStore.WatchStatus) -> Color {
+        switch status {
+        case .available: return .secondary
+        case .noTeam, .waitingForPublisher: return .orange
         }
     }
 
-    private func statusText(
-        _ status: CodexWatchPeerStatus,
-        accountCount: Int
-    ) -> String {
-        switch status.state {
-        case .idle:
-            return t("等待首次获取", "Waiting for first fetch")
-        case .loading:
-            return t("正在获取…", "Fetching…")
-        case let .ok(updatedAt):
+    private func statusText(_ status: CodexWatchStore.WatchStatus) -> String {
+        switch status {
+        case .noTeam:
+            return t("还没加入团队，暂时读不到别人的账号。",
+                     "Not in a team yet, so no one else's account can be read.")
+        case .waitingForPublisher:
+            return t(
+                "还没数据。让对方在这台 Mac 上勾选这个邮箱，并确认那台 Mac 在运行且已加入同一个团队。",
+                "No data yet. Ask them to tick this address on their Mac, and check that Mac is running and in the same team.")
+        case let .available(sampledAt, modelCount):
             let formatter = RelativeDateTimeFormatter()
             formatter.unitsStyle = .short
             let relative = formatter.localizedString(
-                for: updatedAt, relativeTo: Date())
-            return accountCount == 0
-                ? t("已连接，但对方还没有可显示的额度 · \(relative)",
-                     "Connected, but nothing to show yet · \(relative)")
-                : t("已更新 · \(accountCount) 个账号 · \(relative)",
-                     "Updated · \(accountCount) accounts · \(relative)")
-        case .notAuthorized:
-            return t(
-                "对方还没授权任何账号。请在对方的「允许其他 Mac 关注我的账号」里勾选。",
-                "The other Mac has not shared any account yet. Ask them to tick an account under \"Let other Macs watch my accounts\".")
-        case .disabled:
-            return t(
-                "对方没有开启分享。",
-                "The other Mac has not enabled sharing.")
-        case .invalidToken:
-            return t(
-                "访问密钥无效，请向对方索取新的密钥。",
-                "The access key is invalid. Ask the other Mac for a fresh one.")
-        case .unreachable:
-            return t(
-                "连不上对方。确认它在同一局域网、地址正确，且 AI Quota Bar 在运行。",
-                "Cannot reach the other Mac. Check it is on the same LAN, the address is right, and AI Quota Bar is running.")
-        }
-    }
-}
-
-/// 添加一台对端设备。
-private struct AddCodexWatchPeerSheet: View {
-    let language: AppLanguage
-    @Environment(\.dismiss) private var dismiss
-    @State private var name = ""
-    @State private var host = ""
-    @State private var port = String(CodexWatchEndpoint.defaultPort)
-    @State private var token = ""
-    @State private var errorText: String?
-    @State private var isTesting = false
-
-    private var peers: CodexWatchPeerStore { .shared }
-
-    private func t(_ zh: String, _ en: String) -> String {
-        language == .simplifiedChinese ? zh : en
-    }
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 14) {
-            Text(t("添加关注的设备", "Add a device to watch"))
-                .font(.title2)
-
-            Text(t(
-                "在对方 Mac 的「手机看板」里找到访问地址与密钥，填到这里。密钥只保存在这台 Mac 的钥匙串里。",
-                "Take the access address and key from the other Mac's Mobile Dashboard. The key is stored only in this Mac's Keychain."))
-                .font(.callout)
-                .foregroundStyle(.secondary)
-                .fixedSize(horizontal: false, vertical: true)
-
-            TextField(t("备注名（可选）", "Label (optional)"), text: $name)
-            TextField(t("IP 地址或主机名", "IP address or host name"), text: $host)
-            TextField(t("端口", "Port"), text: $port)
-                .textFieldStyle(.roundedBorder)
-
-            SecureField(t("访问密钥", "Access key"), text: $token)
-
-            if let errorText {
-                Text(errorText)
-                    .font(.caption)
-                    .foregroundStyle(.red)
-                    .fixedSize(horizontal: false, vertical: true)
-            }
-
-            HStack {
-                Button(t("取消", "Cancel")) { dismiss() }
-                Spacer()
-                if isTesting { ProgressView().controlSize(.small) }
-                Button(t("测试并添加", "Test & add")) { submit() }
-                    .buttonStyle(.borderedProminent)
-                    .disabled(isTesting || !canSubmit)
-            }
-        }
-        .padding(24)
-        .frame(width: 480)
-    }
-
-    private var parsedPort: UInt16? {
-        UInt16(port.trimmingCharacters(in: .whitespacesAndNewlines))
-    }
-
-    private var canSubmit: Bool {
-        !host.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-            && !token.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-            && parsedPort != nil
-    }
-
-    private func submit() {
-        guard let parsedPort, canSubmit else { return }
-        isTesting = true
-        errorText = nil
-        let trimmedHost = host.trimmingCharacters(in: .whitespacesAndNewlines)
-        let trimmedToken = token.trimmingCharacters(in: .whitespacesAndNewlines)
-        Task {
-            // 先握手一次再入库：地址写错、对方没开分享、密钥不对，
-            // 都在这一步变成一句明确的话，而不是加进去之后菜单里
-            // 永远显示一个连不上的条目。
-            let probe = CodexWatchPeerClient()
-            let result = await probe.fetch(
-                host: trimmedHost, port: parsedPort, token: trimmedToken)
-            switch result {
-            case .ok, .notAuthorized, .disabled:
-                if peers.addPeer(
-                    name: name, host: trimmedHost, port: parsedPort,
-                    token: trimmedToken)
-                {
-                    await peers.refreshNow(
-                        id: peers.peers.last?.id ?? UUID())
-                    dismiss()
-                } else {
-                    errorText = t(
-                        "这台设备已经在关注列表里了。",
-                        "This device is already in your watch list.")
-                }
-            case .invalidToken:
-                errorText = t(
-                    "访问密钥不对。请确认复制的是「手机看板」里的那一个。",
-                    "The access key is incorrect. Make sure you copied the one from Mobile Dashboard.")
-            case let .unreachable(reason):
-                errorText = reason == "incompatible"
-                    ? t("对方版本太旧，无法支持关注功能。",
-                         "The other Mac is too old to support watching.")
-                    : t(
-                        "连不上。确认两台 Mac 在同一局域网、地址和端口正确。",
-                        "Cannot connect. Check both Macs are on the same LAN and the address and port are correct.")
-            }
-            isTesting = false
+                for: sampledAt, relativeTo: Date())
+            return t("团队云端 · \(modelCount) 条 · 更新于 \(relative)",
+                     "Team cloud · \(modelCount) entries · updated \(relative)")
         }
     }
 }
