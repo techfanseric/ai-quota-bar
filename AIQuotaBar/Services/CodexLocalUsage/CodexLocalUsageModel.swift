@@ -102,8 +102,8 @@ final class CodexLocalUsageModel {
     private var client: UsageClient?
     private let defaults: UserDefaults
     private var lastDeliveredPruneAt = Date.distantPast
-    /// Confirmed events are pruned once they are safely beyond the ~35 day
-    /// window the local charts read; the cloud holds the durable copy.
+    /// Expendable rows (cloud-confirmed or local-only) are pruned once they
+    /// are safely beyond the ~35 day window the local charts read.
     private static let deliveredRetentionDays = 40
     private static let deliveredPruneInterval: TimeInterval = 86_400
     var deviceID: String { CloudSyncSettings.current.deviceID }
@@ -194,7 +194,7 @@ final class CodexLocalUsageModel {
             sourceLogBytes = result.sourceLogBytes
             files = result.files; issues = result.issues; deferred = result.deferred; incomplete = result.incomplete
             storageStats = try await store.storageStats()
-            await pruneDeliveredHistoryIfDue(store: store)
+            await pruneExpendableHistoryIfDue(store: store)
             lastScan = Date(); error = nil
             if let connection {
                 delivery = try await store.deliveryCounts(binding: connection.binding)
@@ -204,10 +204,11 @@ final class CodexLocalUsageModel {
         guard reportingEnabled, !syncing, Date() >= nextAttempt else { return }
         syncTask = Task { await sync() }
     }
-    /// Once a day, drop cloud-confirmed events past the retention horizon and
-    /// reclaim the freed pages when the reclaim is worthwhile. Never touches
-    /// pending/rejected/local-only rows, and never blocks refresh on failure.
-    private func pruneDeliveredHistoryIfDue(store: UsageStore) async {
+    /// Once a day, drop rows past the retention horizon that nothing can
+    /// still use (cloud-confirmed or local-only) and reclaim the freed pages
+    /// when the reclaim is worthwhile. Bound pending/rejected rows are never
+    /// touched, and refresh never fails because of housekeeping.
+    private func pruneExpendableHistoryIfDue(store: UsageStore) async {
         guard Date().timeIntervalSince(lastDeliveredPruneAt)
             >= Self.deliveredPruneInterval else { return }
         lastDeliveredPruneAt = Date()
@@ -216,7 +217,7 @@ final class CodexLocalUsageModel {
             value: -Self.deliveredRetentionDays,
             to: Date())!
         do {
-            try await store.pruneDelivered(olderThan: cutoff)
+            try await store.pruneExpendable(olderThan: cutoff)
             try await store.reclaimFreePagesIfWorthwhile()
         } catch { /* Pruning is housekeeping; a failure must not surface as a scan error. */ }
     }

@@ -20,7 +20,7 @@ final class UsageStorePruneTests: XCTestCase {
             tokens: UsageTokens(input: 1, output: 1))
     }
 
-    func testPruneDeliveredDeletesOnlyOldConfirmedRows() async throws {
+    func testPruneExpendableDeletesOldConfirmedAndLocalOnlyRows() async throws {
         let store = try UsageStore(
             url: temp().appendingPathComponent("test.sqlite"))
         let binding = "binding-1"
@@ -33,30 +33,42 @@ final class UsageStorePruneTests: XCTestCase {
                 event("recent-sent", daysAgo: 5),
                 event("old-pending", daysAgo: 60),
             ], binding: binding, since: .distantPast)
+        // Unbound rows: pre-connection history that was never uploadable.
+        try await store.insert(
+            [
+                event("old-local", daysAgo: 60),
+                event("recent-local", daysAgo: 5),
+            ])
         try await store.acknowledge(
             binding: binding, ids: ["old-sent", "recent-sent"])
 
         let cutoff = Date().addingTimeInterval(-40 * 86_400)
-        let deleted = try await store.pruneDelivered(olderThan: cutoff)
+        let deleted = try await store.pruneExpendable(olderThan: cutoff)
 
-        XCTAssertEqual(deleted, 1)
+        // old-sent (cloud has it) and old-local (no reader past 40 days) go;
+        // everything within the horizon stays.
+        XCTAssertEqual(deleted, 2)
         let remaining = try await store.events()
         XCTAssertEqual(
             remaining.map(\.id).sorted(),
-            ["old-pending", "recent-sent"])
-        // The pending row keeps its delivery state: it has no cloud copy and
-        // must survive pruning forever.
+            ["old-pending", "recent-local", "recent-sent"])
+        // The bound pending row keeps its delivery state: it has no cloud
+        // copy and must survive pruning forever.
         let counts = try await store.deliveryCounts(binding: binding)
         XCTAssertEqual(counts["pending"], 1)
         XCTAssertEqual(counts["sent"], 1)
     }
 
-    func testPruneDeliveredWithoutConfirmedRowsIsNoOp() async throws {
+    func testPruneExpendableNeverTouchesBoundPendingRows() async throws {
         let store = try UsageStore(
             url: temp().appendingPathComponent("test.sqlite"))
-        try await store.insert([event("pending", daysAgo: 90)])
+        // Bound but never uploaded: no cloud copy, so age alone can never
+        // make this row expendable.
+        try await store.insert(
+            [event("pending", daysAgo: 90)],
+            binding: "binding-1", since: .distantPast)
 
-        let deleted = try await store.pruneDelivered(
+        let deleted = try await store.pruneExpendable(
             olderThan: Date().addingTimeInterval(-40 * 86_400))
 
         XCTAssertEqual(deleted, 0)
