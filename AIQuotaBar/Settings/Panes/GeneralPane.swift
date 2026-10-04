@@ -9,6 +9,15 @@ struct GeneralPane: View {
 
     private var language: AppLanguage { viewModel.appLanguage }
 
+    /// 中心节奏下拉的可选项：跟随外环 + 该 provider 实际支持的窗口。
+    private func centerWindowOptions(
+        for provider: UsageProvider
+    ) -> [MenuBarReserveQuotaWindow] {
+        [.synchronized] + provider.supportedRingWindows.compactMap {
+            MenuBarReserveQuotaWindow(rawValue: $0.rawValue)
+        }
+    }
+
     var body: some View {
         ScrollView(.vertical, showsIndicators: true) {
             VStack(alignment: .leading, spacing: 16) {
@@ -129,28 +138,55 @@ struct GeneralPane: View {
             }
             .disabled(viewModel.menuBarAppearance != .compactRing)
 
-            PreferencePickerRow(
-                title: language.menuBarRingQuotaWindowLabel(),
-                subtitle: language.menuBarRingQuotaWindowDescription(),
-                selection: $viewModel.menuBarRingQuotaWindow,
-                maxWidth: 180
-            ) {
-                ForEach(MenuBarRingQuotaWindow.allCases) { window in
-                    Text(language.menuBarRingQuotaWindowDisplayName(window))
-                        .tag(window)
-                }
-            }
-            .disabled(viewModel.menuBarAppearance != .compactRing)
+            VStack(alignment: .leading, spacing: 8) {
+                Text(language.menuBarProviderRingWindowsLabel())
+                    .font(.body)
+                Text(language.menuBarProviderRingWindowsDescription())
+                    .font(.footnote)
+                    .foregroundStyle(.tertiary)
+                    .fixedSize(horizontal: false, vertical: true)
 
-            PreferencePickerRow(
-                title: language.menuBarReserveQuotaWindowLabel(),
-                subtitle: language.menuBarReserveQuotaWindowDescription(),
-                selection: $viewModel.menuBarReserveQuotaWindow,
-                maxWidth: 180
-            ) {
-                ForEach(MenuBarReserveQuotaWindow.allCases) { window in
-                    Text(language.menuBarReserveQuotaWindowDisplayName(window))
-                        .tag(window)
+                VStack(spacing: 0) {
+                    HStack(spacing: 12) {
+                        Text(language.menuBarRingProviderColumnTitle())
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                        Text(language.menuBarRingOuterColumnTitle())
+                            .frame(width: 120, alignment: .leading)
+                        Text(language.menuBarRingCenterColumnTitle())
+                            .frame(width: 120, alignment: .leading)
+                    }
+                    .font(.caption).foregroundStyle(.secondary).padding(.vertical, 4)
+                    Divider()
+                    ForEach(MenuBarRingPreferences.providerOrder) { provider in
+                        HStack(spacing: 12) {
+                            Text(provider.displayName)
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                            Picker(language.menuBarRingOuterColumnTitle(), selection: Binding(
+                                get: { viewModel.ringQuotaWindow(for: provider) },
+                                set: { viewModel.setRingOuterWindow($0, for: provider) })) {
+                                ForEach(provider.supportedRingWindows) { window in
+                                    Text(language.menuBarRingQuotaWindowDisplayName(window))
+                                        .tag(window)
+                                }
+                            }
+                            .labelsHidden().pickerStyle(.menu).controlSize(.small)
+                            .frame(width: 120)
+                            .disabled(provider.supportedRingWindows.count < 2)
+                            .accessibilityLabel(provider.displayName + " " + language.menuBarRingOuterColumnTitle())
+                            Picker(language.menuBarRingCenterColumnTitle(), selection: Binding(
+                                get: { viewModel.reserveQuotaWindow(for: provider) },
+                                set: { viewModel.setRingCenterWindow($0, for: provider) })) {
+                                ForEach(centerWindowOptions(for: provider)) { window in
+                                    Text(language.menuBarReserveQuotaWindowDisplayName(window))
+                                        .tag(window)
+                                }
+                            }
+                            .labelsHidden().pickerStyle(.menu).controlSize(.small)
+                            .frame(width: 120)
+                            .accessibilityLabel(provider.displayName + " " + language.menuBarRingCenterColumnTitle())
+                        }
+                        .frame(minHeight: 30)
+                    }
                 }
             }
             .disabled(viewModel.menuBarAppearance != .compactRing)
