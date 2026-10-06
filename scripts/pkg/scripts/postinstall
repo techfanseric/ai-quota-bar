@@ -105,7 +105,7 @@ if [ -z "$handled_package" ] && [ -z "$handled_downloads" ]; then
     exit 0
 fi
 
-echo "$SCRIPT_NAME: scheduling installer removal for${handled_package:+$handled_package}${handled_downloads:+ $handled_downloads}"
+echo "$SCRIPT_NAME: scheduling installer removal for${handled_package:+ $handled_package}${handled_downloads:+ $handled_downloads}"
 
 # Every path below is expanded now, while the installer script runs, so the
 # generated file carries no state of its own. \$0 is the one exception: it has
