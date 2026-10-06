@@ -526,7 +526,14 @@ private struct ProviderModelsSection: View {
             ForEach(Array(groups.enumerated()), id: \.offset) { groupIndex, group in
                 let rows = group.models
                 let isCurrentGroup = data.provider == .codex && currentIndex != nil && groupIndex == 0
-                if data.provider != .codex || currentIndex == nil || groupIndex != 0 {
+                // 账号名为空的分组不画账号头。那一行的内容退化成「来源词 + Unknown
+                // account」—— 来源词上方标题里已经有了，而 "Unknown account" 只是
+                // 把"没名字"这件事重复一遍。整行零信息量，纯噪音。
+                // Codex 的分组本来就按账号名分（空的已被过滤），所以这条只影响
+                // GLM / MiniMax / Kimi 这些账号名可空的供应商。
+                let hasAccountName = !(group.accountName ?? "").isEmpty
+                if hasAccountName,
+                   data.provider != .codex || currentIndex == nil || groupIndex != 0 {
                     accountHeader(group, isCurrent: false)
                 }
                 if !isAccountCollapsed(group, isCurrent: isCurrentGroup) {
@@ -633,7 +640,7 @@ private struct ProviderModelsSection: View {
 
                 Spacer()
 
-                Text(providerHeaderSubtitle() ?? providerCountSummary())
+                Text(providerHeaderTrailing ?? "")
                     .font(.system(size: 10, weight: .medium, design: .rounded))
                     .foregroundStyle(.secondary)
                     .lineLimit(1)
@@ -695,6 +702,9 @@ private struct ProviderModelsSection: View {
                 .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
+            // tooltip 挂在整个头部上，不挂在右侧那几段上：Button 内部的子视图
+            // 拿不到 hover，挂在它上面等于白写。
+            .help(accountTrailingHelp(group, isCurrent: isCurrent))
         } else {
             HStack(alignment: .firstTextBaseline, spacing: 6) {
                 Text(accountSourceSummary(group.models))
@@ -763,12 +773,15 @@ private struct ProviderModelsSection: View {
         .padding(.bottom, 2)
     }
 
-    /// 账号头部右侧那一串：状态图标 + 标签 + 最后采样时间 + 剩余量。
+    /// 账号头部右侧：状态图标 + 剩余量。
     ///
-    /// 标签的规则只有一条线：**只有本机** → 照旧显示来源（OAuth / Codex CLI /
-    /// Local），**只有一种远端** → `Latest`（这一行展示的是"最近一次采样"，
-    /// 不是一个来源的名字），**本机和远端都有、或两种远端都有** → `Mix`。
-    /// 图标负责说明是哪几种：云朵是团队云端，眼睛是按邮箱关注的，本机不带图标。
+    /// 这里刻意**不写"Latest"或"Mix"这种字**。它们是为了让来源可见而造的词，
+    /// 但读者要先理解这个词才知道它在说什么——为一个图标就能说清的事创造一个
+    /// 术语，代价是每个看到它的人都要先查一遍。图标承载"来自哪里"，tooltip
+    /// 解释"这是怎么回事"，行内只留真正每天都要读的那个数字。
+    ///
+    /// 本机账号仍然显示来源名（OAuth / Codex CLI），那不是造出来的词，是这台
+    /// Mac 到底用哪种登录方式在跑，删了反而丢信息。
     ///
     /// 折叠时就把剩余量放在这里，是为了不用展开也能读到数字 —— 展开只留给
     /// "想看全部 cycle" 和 "想换一个 cycle 看" 这两件事。
@@ -784,22 +797,16 @@ private struct ProviderModelsSection: View {
                     .font(.system(size: 8, weight: .semibold))
                     .foregroundStyle(.tertiary)
             }
-            if !summary.symbols.isEmpty, !summary.label.isEmpty {
+            if !summary.symbols.isEmpty, !summary.sourceLabel.isEmpty {
                 Text("·").foregroundStyle(.quaternary)
             }
-            Text(summary.label)
+            Text(summary.sourceLabel)
                 .font(.system(size: 10, weight: .semibold))
                 .foregroundStyle(.tertiary)
-            if let sampledAt = summary.sampledAt {
-                Text("·")
-                    .foregroundStyle(.quaternary)
-                Text(shortClockText(from: sampledAt))
-                    .font(.system(size: 10, weight: .semibold))
-                    .foregroundStyle(.tertiary)
-            }
             if let percent = summary.percent {
-                Text("·")
-                    .foregroundStyle(.quaternary)
+                if !summary.symbols.isEmpty || !summary.sourceLabel.isEmpty {
+                    Text("·").foregroundStyle(.quaternary)
+                }
                 Text("\(percent)%")
                     .font(.system(size: 10, weight: .bold, design: .rounded))
                     .foregroundStyle(percentColor(percent))
@@ -807,6 +814,38 @@ private struct ProviderModelsSection: View {
         }
         .lineLimit(1)
         .fixedSize()
+    }
+
+    /// 悬停头部时解释这个数字的来历。
+    ///
+    /// 一句话说完"来自哪里"和"什么时候量的"，再在多于一个来源时补一句为什么
+    /// —— 一个账号同时有本机和云端数据时，显示的是其中较新的一次，这个取舍
+    /// 不写出来就会让人以为数字对不上。
+    private func accountTrailingHelp(
+        _ group: AccountModelGroup, isCurrent: Bool
+    ) -> String {
+        let summary = accountTrailing(group, isCurrent: isCurrent)
+        let kinds = AccountSourceKind.ordered(summary.kinds)
+        let remote = kinds.filter { $0 != .local }
+        let time = summary.sampledAt.map { language.updatedAgoText(from: $0) } ?? ""
+        let lang = language
+
+        var lines: [String] = []
+        if kinds.contains(.local) {
+            lines.append(lang.accountSourceLocalLine)
+            if !remote.isEmpty {
+                lines.append(lang.accountSourcePicksNewerLine)
+            }
+        }
+        for kind in remote {
+            switch kind {
+            case .cloud: lines.append(lang.accountSourceCloudLine)
+            case .watch: lines.append(lang.accountSourceWatchLine)
+            case .local: break
+            }
+        }
+        let body = lines.joined(separator: "\n")
+        return time.isEmpty ? body : body + "\n" + time
     }
 
     private func percentColor(_ percent: Int) -> Color {
@@ -851,7 +890,11 @@ private struct ProviderModelsSection: View {
 
     private struct AccountTrailing {
         let symbols: [String]
-        let label: String
+        /// 行内保留的来源名。只有本机时是 OAuth / Codex CLI / Local；
+        /// 有远端来源时留空 —— 那时该说的是"来自哪儿"，已经由图标说明了，
+        /// 再加一个词只会挤掉数字。
+        let sourceLabel: String
+        let kinds: Set<AccountSourceKind>
         let sampledAt: Date?
         let percent: Int?
     }
@@ -865,19 +908,14 @@ private struct ProviderModelsSection: View {
         let remote = kinds.subtracting([.local])
         let symbols = AccountSourceKind.ordered(remote).compactMap(\.symbolName)
         let row = selectedCycleRow(group)
-        let label: String
-        if kinds.isSubset(of: [.local]) {
-            // 只有本机：来源名本身就是答案（OAuth / Codex CLI / Local）
-            label = accountSourceSummary(group.models)
-        } else if kinds.count == 1 {
-            label = "Latest"
-        } else {
-            label = "Mix"
-        }
+        let sourceLabel = kinds.isSubset(of: [.local])
+            ? accountSourceSummary(group.models)
+            : ""
         let sampledAt: Date? = isCurrent ? nil : row?.sampledAt ?? group.models.compactMap(\.sampledAt).max()
         return AccountTrailing(
             symbols: symbols,
-            label: label,
+            sourceLabel: sourceLabel,
+            kinds: kinds,
             sampledAt: sampledAt,
             percent: row.map { Int($0.currentIntervalPercentageRemaining.rounded()) })
     }
@@ -932,29 +970,40 @@ private struct ProviderModelsSection: View {
         )
     }
 
-    private func providerCountSummary() -> String {
-        guard data.provider == .codex else {
-            return language.menuBarCompactText(ready: data.readyModelsCount, total: data.modelCount)
+    /// 供应商标题右侧显示什么。
+    ///
+    /// 优先级：订阅信息 > 最后更新时间 + 当前账号的剩余额度 > 空。
+    ///
+    /// 这里原本是一个计数（`2/5` = 几个账号的数据还新鲜，`2/2` = 几个模型还有
+    /// 余额）。两种含义不一样，却占着同一个位置，而且都是排障视角：前者回答
+    /// "有几个旧了"，后者回答 "有几个没欠费"。日常没人问这两个问题，而它们
+    /// 占的却是这一节最好的位置。
+    private var providerHeaderTrailing: String? {
+        if let subtitle = providerHeaderSubtitle() { return subtitle }
+
+        var parts: [String] = []
+        // 时间取全部账号里最新的那一次：任何一行新了都说明这一节是活的，
+        // 而挑某一个账号的时间只代表它自己。
+        if let newest = data.models.compactMap(\.sampledAt).max() {
+            parts.append(shortClockText(from: newest))
         }
-
-        let accountGroups = Dictionary(grouping: data.models) { model in
-            model.normalizedAccountName
+        // 额度只取当前账号，因为它就是菜单栏环在显示的那一个 —— 同一个 app
+        // 两个地方给出不同数字，比少一个数字更糟。本机没登录 Codex（纯云端
+        // + 关注）时不显示：没有"主"可依，随便挑一个会让人以为是被特意选过的。
+        if let current = providerHeaderCurrentRow {
+            parts.append("\(Int(current.currentIntervalPercentageRemaining.rounded()))%")
         }
-        .filter { !$0.key.isEmpty }
+        return parts.isEmpty ? nil : parts.joined(separator: " · ")
+    }
 
-        let activeAccounts = accountGroups.values.filter { models in
-            models.contains { model in
-                let source = model.parsedDetail.source ?? ""
-                if source != "Cloud" {
-                    return true
-                }
-                guard let sampledAt = model.sampledAt else { return false }
-                guard let interval = viewModel.cloudCurrentWindowVisibilityLimit.interval else { return true }
-                return Date().timeIntervalSince(sampledAt) <= interval
-            }
-        }.count
-
-        return "\(activeAccounts)/\(accountGroups.count)"
+    /// 标题右侧的额度代表哪一行：当前账号那组的第一行。
+    private var providerHeaderCurrentRow: ModelUsageData? {
+        let usage = CodexLocalUsageModel.shared
+        guard let currentName = usage.currentAccountID.flatMap({ usage.accountLabels[$0] })
+        else { return nil }
+        return data.models.first {
+            ($0.accountName ?? "").caseInsensitiveCompare(currentName) == .orderedSame
+        }
     }
 
     private func providerSourceSummary() -> String? {

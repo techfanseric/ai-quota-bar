@@ -660,6 +660,28 @@ enum AppLanguage: String, CaseIterable, Codable, Identifiable {
         }
     }
 
+    /// 账号行悬停时解释这个数字的来历。分成几句而不是一句，是因为
+    /// 「来自哪儿」和「什么时候量的」是两件事，混成一句会丢掉其中一个。
+    var accountSourceLocalLine: String {
+        self == .english ? "Signed in on this Mac" : "本机登录中"
+    }
+
+    var accountSourceCloudLine: String {
+        self == .english ? "Quota reported to the team cloud" : "额度来自团队云端上报"
+    }
+
+    var accountSourceWatchLine: String {
+        self == .english ? "Watched by email address" : "按邮箱关注的账号"
+    }
+
+    /// 一个账号同时有本机和云端数据时，显示的是其中采样更晚的那一份。
+    /// 不写出来的话，用户会对着一个"和本机不一样"的数字以为出了 bug。
+    var accountSourcePicksNewerLine: String {
+        self == .english
+            ? "Showing whichever was measured more recently"
+            : "显示的是采样更晚的那一份"
+    }
+
     func updatedAgoText(from date: Date, now: Date = Date()) -> String {
         let minutes = Int((now.timeIntervalSince(date) / 60).rounded(.down))
         switch self {
@@ -725,10 +747,12 @@ enum AppLanguage: String, CaseIterable, Codable, Identifiable {
             return shortTitle
         }
 
+        // 27/4/05 而不是 2027-04-05：订阅到期日只关心"哪一天"，不关心年份
+        // 有几位。这个位置右侧宽度紧张，补零的四位年份会把它推出可视区。
         let formatter = DateFormatter()
         formatter.locale = Locale(identifier: "en_US_POSIX")
         formatter.timeZone = TimeZone(identifier: "Asia/Shanghai")
-        formatter.dateFormat = "yyyy-MM-dd"
+        formatter.dateFormat = "yy/M/d"
         let dateText = formatter.string(from: endTime)
 
         return "\(shortTitle) · \(dateText)"
