@@ -103,6 +103,44 @@ test('an unpublished address is a 404, not an error', async () => {
   assert.equal(read.body.error, 'not_shared');
 });
 
+test('a sample time in the future is clamped to the publish time', async () => {
+  const { env, db } = setup();
+  // What a pre-v1.34.1 publisher actually sent: the weekly window's reset time,
+  // five days out, mistaken for "when this number was measured". Readers rendered
+  // it as "updated 10/11 23:59" for data that was minutes old.
+  const reset = new Date(Date.now() + 5 * 86400000).toISOString();
+  await call(env, '/v1/watch/publish', {
+    body: { publisher: 'mac-a', accounts: [{
+      account: 'a@example.com', plan: 'Pro 5x',
+      windows: [{ name: 'Weekly', remainingPercent: 43, resetsAt: reset, sampledAt: reset }]
+    }] }
+  });
+  const read = await call(env, '/v1/watch/quota?email=a%40example.com');
+  assert.equal(read.status, 200);
+  assert.equal(read.body.windows[0].sampledAt, read.body.updated_at,
+    'a measurement cannot be later than the moment it arrived');
+  assert.equal(read.body.windows[0].resetsAt, reset,
+    'the reset time keeps its own field -- only the sample time was wrong');
+  // The stored row is what every other reader gets, so it must be clean too.
+  const stored = JSON.parse(db.prepare('SELECT payload FROM watch_shared_quota').all()[0].payload);
+  assert.equal(stored.windows[0].sampledAt, stored.sampled_at);
+});
+
+test('a sample time in the past is left exactly as the publisher sent it', async () => {
+  const { env } = setup();
+  const measured = new Date(Date.now() - 60000).toISOString();
+  const put = await call(env, '/v1/watch/publish', {
+    body: { publisher: 'mac-a', accounts: [{
+      account: 'a@example.com', plan: 'Plus',
+      windows: [{ name: '5h', remainingPercent: 42, resetsAt: new Date(Date.now() + 3600000).toISOString(), sampledAt: measured }]
+    }] }
+  });
+  assert.equal(put.status, 200);
+  const read = await call(env, '/v1/watch/quota?email=a%40example.com');
+  assert.equal(new Date(read.body.windows[0].sampledAt).toISOString(), measured,
+    'clamping must not drag a real sample time up to the publish time');
+});
+
 test('publishing replaces the whole set, so unsharing deletes', async () => {
   const { env, db } = setup();
   await call(env, '/v1/watch/publish', { body: { publisher: 'mac-a', accounts: [account('a@example.com'), account('b@example.com')] } });
@@ -193,6 +231,36 @@ test('a window must have a name and a parseable date', async () => {
     const entry = account('a@example.com');
     entry.windows[0] = { ...entry.windows[0], ...patch };
     assert.equal((await call(env, '/v1/watch/publish', { body: { publisher: 'p', accounts: [entry] } })).status, 400);
+  }
+});
+
+test('the window start round-trips so readers can pace and plot it', async () => {
+  const { env } = setup();
+  const entry = account('a@example.com');
+  entry.windows[0].startsAt = '2026-10-04T19:00:00.000Z';
+  assert.equal((await call(env, '/v1/watch/publish', { body: { publisher: 'p', accounts: [entry] } })).status, 200);
+  const read = await call(env, '/v1/watch/quota?email=a%40example.com');
+  assert.equal(read.body.windows[0].startsAt, '2026-10-04T19:00:00.000Z');
+});
+
+test('a missing window start is accepted, an incoherent one is not', async () => {
+  const { env } = setup();
+  // Publishers that predate the field still publish fine.
+  const legacy = account('legacy@example.com');
+  assert.equal((await call(env, '/v1/watch/publish', { body: { publisher: 'p', accounts: [legacy] } })).status, 200);
+  const read = await call(env, '/v1/watch/quota?email=legacy%40example.com');
+  assert.equal(read.body.windows[0].startsAt, null);
+
+  for (const patch of [
+    { startsAt: 'not-a-date' },
+    // A start at or after the reset is not a window; readers would render the
+    // row as permanently out of cycle, i.e. invisible.
+    { startsAt: '2026-10-05T00:00:00.000Z' },
+    { startsAt: '2026-10-06T00:00:00.000Z' }
+  ]) {
+    const entry = account('bad@example.com');
+    entry.windows[0] = { ...entry.windows[0], ...patch };
+    assert.equal((await call(env, '/v1/watch/publish', { body: { publisher: 'p', accounts: [entry] } })).status, 400, JSON.stringify(patch));
   }
 });
 

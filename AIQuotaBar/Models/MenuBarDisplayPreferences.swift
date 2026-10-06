@@ -71,6 +71,38 @@ enum MenuBarPaceDisplayMode: String, CaseIterable, Codable, Identifiable {
     var id: String { rawValue }
 }
 
+/// 一个 AI 都没开时（跟随模式无活动窗口 / 显示被手动暂停），菜单栏占位显示什么。
+///
+/// 三选一取代了原来那个「是否显示数量」的开关 —— 那是两种形态的布尔表达，
+/// 塞不进第三种。
+enum MenuBarPlaceholderStyle: String, CaseIterable, Codable, Identifiable {
+    /// 默认：环内一枚 OpenAI 连通性记号（对勾 / 叉 / 探测中）。
+    ///
+    /// 占位本来就「什么都没得显示」，但连通性是此刻唯一仍然成立、而且用户
+    /// 真在意的信息 —— 它直接回答「现在能不能顺利拉起 ChatGPT 桌面端」。
+    /// 否则占位期间菜单栏就是一个纯装饰的死环。
+    case openAIConnectivity
+    /// 哑色环 + 已启用供应商数量。
+    case providerCount
+    /// 复刻 App 图标构图（哑色开环 + "A" + 中心点/翼瓣）的品牌字母标。
+    case brandMark
+
+    static let storageKey = "menuBarPlaceholderStyle"
+
+    /// 读出偏好，缺省即连通性形态。
+    ///
+    /// 旧的布尔 key `menuBarPlaceholderShowsCount` **刻意不读**：它只表达
+    /// 「数量 vs 品牌标」两种形态，装不下第三种，迁移它等于替用户把新默认
+    /// 又关回去。两个旧形态仍然都在这里，切回去是一次设置点击的事。
+    static func stored(in defaults: UserDefaults = .standard) -> MenuBarPlaceholderStyle {
+        defaults.string(forKey: storageKey)
+            .flatMap(MenuBarPlaceholderStyle.init(rawValue:))
+            ?? .openAIConnectivity
+    }
+
+    var id: String { rawValue }
+}
+
 /// 任务能量波在紧凑环上的排布模式。`.chaseQueue` 是可整体摘除的实验布局：
 /// 移除时删除本枚举、各渲染层的 `taskWaveLayout` 参数、
 /// `MenuBarTaskChaseQueueMotion` 与设置项即可完整回落到 `.evenlySpaced` 行为。
@@ -279,6 +311,35 @@ struct MenuBarPaceGlyph: Equatable {
     }
 }
 
+/// 紧凑环内那条趋势曲线的数据点。
+///
+/// 横轴是样本在**本窗口时间轴**上的位置，不是它在数组里的序号：窗口第一天的
+/// 采样就该贴在左边，今天的采样贴在右边，历史因此是从左往右长出来的。按序号
+/// 排会让两个点横跨整个环，看上去像一周走了个来回，那是假的。
+struct MenuBarRingTrendPoint: Equatable {
+    /// 0...1，相对窗口起点
+    let x: Double
+    /// 0...1，剩余百分比
+    let y: Double
+}
+
+/// 紧凑环内那条趋势曲线的取值约束。
+///
+/// 只有 Weekly、没有 5h 的账号才用得上：5h 短窗口看的是「这一轮烧得快不快」，
+/// 用环内扇形节奏表达就够了；周窗口跨好几天，单一节奏值看不出形状，只能看趋势。
+enum MenuBarRingTrend {
+    /// 环内圈要画趋势，至少得有两个点 —— 一个点画不出线，只会在扇形的位置上
+    /// 留下一个孤零零的圆点，看着像渲染坏了。
+    ///
+    /// 注意这和**左键菜单那行**的规则是两回事：那一行是「进度条还是曲线图」的
+    /// 结构性选择，来回跳会让人分不清今天看到的是规则变了还是数据没攒够，所以
+    /// 那边一个点也照画曲线。环内圈本来就是节奏扇形的地盘，只有真的画得出线
+    /// 才让位给它，否则老老实实继续显示扇形。
+    static let minimumPoints = 2
+    /// 菜单栏图标只有二十几像素宽，点数再多也分辨不出来，反而挤成锯齿。
+    static let maximumPoints = 24
+}
+
 /// One deterministic frame in the refresh self-test loop.
 /// The outer Weekly ring sweeps continuously while the center demonstrates
 /// deficit, on-pace, and reserve in three equal phases.
@@ -339,6 +400,12 @@ struct MenuBarSnapshot: Equatable {
     /// Codex specifically sources it from the Weekly quota window.
     let ringPercent: Double?
     let paceDeltaPercent: Double?
+    /// 环内趋势曲线的采样点，按采样时间从左到右。
+    ///
+    /// 非 nil 时环内画曲线、**不**画双向节奏扇形 —— 两者抢占同一块内圈，
+    /// 同时画只会互相糊住。只有 Weekly 没有 5h 的 Codex 账号走这条：
+    /// 周窗口的「快慢」单值没有信息量，形状才有。
+    let ringTrend: [MenuBarRingTrendPoint]?
     let resetsAt: Date?
     let state: MenuBarSnapshotState
     let isLowQuota: Bool

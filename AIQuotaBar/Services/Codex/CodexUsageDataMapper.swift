@@ -24,7 +24,8 @@ enum CodexUsageDataMapper {
                 window: primary,
                 accountName: accountName,
                 planType: planType,
-                sourceLabel: sourceLabel))
+                sourceLabel: sourceLabel,
+                sampledAt: snapshot.updatedAt))
         }
 
         if let secondary = snapshot.secondary {
@@ -33,7 +34,8 @@ enum CodexUsageDataMapper {
                 window: secondary,
                 accountName: accountName,
                 planType: planType,
-                sourceLabel: sourceLabel))
+                sourceLabel: sourceLabel,
+                sampledAt: snapshot.updatedAt))
         }
 
         if let extras = snapshot.extraRateWindows {
@@ -43,7 +45,8 @@ enum CodexUsageDataMapper {
                     window: named.window,
                     accountName: accountName,
                     planType: planType,
-                    sourceLabel: sourceLabel))
+                    sourceLabel: sourceLabel,
+                    sampledAt: snapshot.updatedAt))
             }
         }
 
@@ -56,7 +59,8 @@ enum CodexUsageDataMapper {
                 remaining: remaining,
                 accountName: accountName,
                 planType: planType,
-                sourceLabel: sourceLabel))
+                sourceLabel: sourceLabel,
+                sampledAt: snapshot.updatedAt))
         }
 
         if models.isEmpty {
@@ -84,7 +88,8 @@ enum CodexUsageDataMapper {
         window: RateWindow,
         accountName: String?,
         planType: String?,
-        sourceLabel: String) -> ModelUsageData
+        sourceLabel: String,
+        sampledAt: Date) -> ModelUsageData
     {
         let remainingPercent = Int((100 - window.usedPercent).rounded())
         let endTime = window.resetsAt
@@ -115,7 +120,12 @@ enum CodexUsageDataMapper {
             weeklyRemainingPercent: nil,
             progressBarPercentOverride: nil,
             progressBarRightText: nil,
-            sampledAt: nil)
+            // 抓取时刻，不是窗口边界。这一列会一路走到关注链路：发布方按它标记
+            // 「这条数据是什么时候量的」，读侧菜单右端就显示这个时间。曾经这里写
+            // nil，上游于是拿 endTime（= resetsAt，周窗口的结束时刻，可能在几天
+            // 之后）去兜底，关注方看到的「更新于」就是一个未来的时刻 —— 数据其实是
+            // 新的，时间却是错的，比没有时间更难判断。
+            sampledAt: sampledAt)
     }
 
     /// codexbar 用 1000 作为 credits 进度条的固定满刻度，
@@ -128,7 +138,8 @@ enum CodexUsageDataMapper {
         remaining: Double,
         accountName: String?,
         planType: String?,
-        sourceLabel: String) -> ModelUsageData
+        sourceLabel: String,
+        sampledAt: Date) -> ModelUsageData
     {
         let intRemaining = Int(remaining.rounded())
         let detail = makeDetailText(
@@ -157,7 +168,7 @@ enum CodexUsageDataMapper {
             weeklyRemainingPercent: nil,
             progressBarPercentOverride: percentLeft,
             progressBarRightText: scaleText,
-            sampledAt: nil)
+            sampledAt: sampledAt)
     }
 
     private static func makeNotConfiguredPlaceholder(

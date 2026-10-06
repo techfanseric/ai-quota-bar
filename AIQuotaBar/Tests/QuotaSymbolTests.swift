@@ -48,6 +48,7 @@ final class QuotaSymbolTests: XCTestCase {
             view.appearance = NSAppearance(named: .aqua)
             view.setSnapshots([MenuBarSnapshot(provider: .codex, modelName: nil,
                 remainingPercent: 12, ringPercent: 12, paceDeltaPercent: -12,
+                ringTrend: nil,
                 resetsAt: nil, state: .ready, isLowQuota: true, tooltip: "Test")],
                 codexConnectivity: selfTest ? .reachable : .unreachable,
                 paceDisplayMode: .staged, isSelfTesting: selfTest, activeTaskCounts: [:],
@@ -68,6 +69,7 @@ final class QuotaSymbolTests: XCTestCase {
         let view = StatusBarCompactRingsView()
         view.setSnapshots([MenuBarSnapshot(provider: .codex, modelName: nil,
             remainingPercent: 65, ringPercent: 65, paceDeltaPercent: 10,
+            ringTrend: nil,
             resetsAt: nil, state: .ready, isLowQuota: false, tooltip: "Test")],
             codexConnectivity: .reachable, paceDisplayMode: .staged,
             isSelfTesting: false, activeTaskCounts: [.codex: 3], accessibilityLabel: "Test")
@@ -118,7 +120,8 @@ final class QuotaSymbolTests: XCTestCase {
         bitmap.size = NSSize(width: 22, height: 22)
         let view = StatusBarCompactRingView(frame: NSRect(x: 0, y: 0, width: 22, height: 22))
         view.setSnapshot(MenuBarSnapshot(provider: provider, modelName: nil, remainingPercent: 65,
-            ringPercent: 65, paceDeltaPercent: delta, resetsAt: nil, state: state, isLowQuota: low, tooltip: "Test"),
+            ringPercent: 65, paceDeltaPercent: delta,
+            ringTrend: nil, resetsAt: nil, state: state, isLowQuota: low, tooltip: "Test"),
             connectivity: connectivity, accessibilityLabel: "Test")
         view.setOfflinePulseOpacityForTesting(1)
         NSGraphicsContext.saveGraphicsState()

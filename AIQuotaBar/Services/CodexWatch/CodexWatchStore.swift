@@ -40,6 +40,12 @@ final class CodexWatchStore {
     private(set) var loadingAccountNames: Set<String> = []
     /// 最近一次失败的原因，按地址存。
     private(set) var lastErrors: [String: String] = [:]
+    /// **这一轮真的拉到了新数据**的地址。
+    ///
+    /// 「没读回来」和「读回来只有一个点」必须分开：失败或过期时缓存里的旧快照会
+    /// 继续留在 `snapshots` 里（行不能凭空消失），如果照单全收地拿去采样，等于
+    /// 把同一个旧数字当成一次新读数再记一遍，画出来是一条比真实更平的假曲线。
+    private(set) var freshlyFetchedAccountNames: Set<String> = []
     /// 本机发布的账号各被读取过多少次。
     private(set) var readCounts: [String: CodexWatchReadCount] = [:]
 
@@ -119,15 +125,20 @@ final class CodexWatchStore {
                     continue
                 }
                 let name = model.modelName
-                let sampled = model.sampledAt ?? model.endTime
+                // 采样时间只能来自「这条数据是什么时候量的」。endTime 是窗口边界
+                // （周窗口就是 resetsAt，可能在几天之后），拿它兜底会把一个未来的
+                // 时刻发布出去，读侧菜单显示「更新于 10/11 23:59」—— 数据是新的，
+                // 时间却是错的。宁可没有时间，也不要一个错的时间。
+                let sampled = model.sampledAt ?? usageData.timestamp
                 if let existing = windows[name],
                    let existingDate = existing.sampledAt,
-                   let newDate = sampled, newDate < existingDate { continue }
+                   sampled < existingDate { continue }
                 windows[name] = CodexWatchWindow(
                     name: name,
                     remainingPercent: percent,
                     resetsAt: model.endTime,
-                    sampledAt: sampled)
+                    sampledAt: sampled,
+                    startsAt: model.startTime)
             }
             guard !windows.isEmpty else { continue }
             result.append(CodexWatchAccountSnapshot(
@@ -158,6 +169,7 @@ final class CodexWatchStore {
         } else {
             readCounts = [:]
         }
+        freshlyFetchedAccountNames = []
         for account in watchedAccountNames {
             await refreshOne(account)
         }
@@ -239,9 +251,22 @@ final class CodexWatchStore {
     /// 这些行**永远不会**被再发布出去：发布源是本机登录的账号仓库，不是菜单
     /// 这份合并后的数据，所以不存在把别人的额度当自己的转发。
     var watchedModels: [ModelUsageData] {
+        watchedModels(onlyFreshlyFetched: false)
+    }
+
+    /// 只包含**这一轮真的拉回来**的那些账号。
+    ///
+    /// 采样专用：曲线是「用量随时间怎么走」的证据，把一次没读回来的旧数字
+    /// 记成新点，得到的线会比真实情况平 —— 那是在编数据，不是缺数据。
+    var freshlyFetchedModels: [ModelUsageData] {
+        watchedModels(onlyFreshlyFetched: true)
+    }
+
+    private func watchedModels(onlyFreshlyFetched: Bool) -> [ModelUsageData] {
         var result: [ModelUsageData] = []
         for account in watchedAccountNames {
             let key = Self.normalize(account)
+            if onlyFreshlyFetched, !freshlyFetchedAccountNames.contains(key) { continue }
             guard let snapshot = snapshots[key] else { continue }
             for window in snapshot.windows {
                 result.append(Self.model(for: snapshot, window: window))
@@ -274,6 +299,10 @@ final class CodexWatchStore {
         case let .available(snapshot):
             snapshots[key] = snapshot
             lastErrors.removeValue(forKey: key)
+            // Only a 200 counts as a reading. `.stale` keeps the row but its
+            // numbers are older than `staleAfter`, and `.unreachable` means we
+            // never got an answer at all.
+            freshlyFetchedAccountNames.insert(key)
         case let .stale(snapshot):
             // 保留上一份数据并标 stale，而不是让行凭空消失：用户明确点名了这个
             // 账号，数字过期不等于额度清零。
@@ -295,6 +324,15 @@ final class CodexWatchStore {
         let resetsAt = window.resetsAt
         let remainingMs = resetsAt.map { $0.timeIntervalSinceNow * 1000 }
         let plan = snapshot.plan ?? "Codex"
+        // The window start is what turns a bare percentage into a real window:
+        // pace, curve bounds and "is this row still in its cycle" all read it.
+        // A start that is in the future or after the reset is not a window at
+        // all, and adopting it would make the row render as out-of-cycle --
+        // i.e. invisible. Drop it and keep the bare percentage instead.
+        let startsAt = window.startsAt.flatMap { start -> Date? in
+            guard start < Date(), start < (resetsAt ?? .distantFuture) else { return nil }
+            return start
+        } ?? Self.derivedWeeklyWindowStart(name: window.name, resetsAt: resetsAt)
         return ModelUsageData(
             provider: .codex,
             accountName: snapshot.account,
@@ -304,7 +342,7 @@ final class CodexWatchStore {
             weeklyTotal: 0,
             weeklyUsed: 0,
             remainsTime: Int(max(0, remainingMs ?? 0)),
-            startTime: nil,
+            startTime: startsAt,
             endTime: resetsAt,
             weeklyStartTime: nil,
             weeklyEndTime: nil,
@@ -316,11 +354,40 @@ final class CodexWatchStore {
             weeklyRemainingPercent: nil,
             progressBarPercentOverride: nil,
             progressBarRightText: nil,
-            sampledAt: window.sampledAt ?? snapshot.publishedAt)
+            sampledAt: Self.coherentSampleTime(window.sampledAt, publishedAt: snapshot.publishedAt))
     }
 
-    private static func planName(from model: ModelUsageData) -> String? {
-        guard let detail = model.parsedDetail.plan else { return nil }
+    /// 采样时间不能晚于「云端收到这条数据的那一刻」。
+    ///
+    /// 发布方早于 v1.34.1 时把窗口结束时刻当采样时刻发上来（周窗口就是几天后的
+    /// resetsAt）。菜单右端据此显示「更新于 10/11 23:59」—— 一个未来的时刻，
+    /// 读起来像"五天后才更新"，实际数据是几分钟前的。这种时间比没有时间更糟：
+    /// 用户会去判断是不是坏了。
+    ///
+    /// 所以未来的采样时刻按不可信处理，退回发布时刻（服务端自己打的时刻，一定
+    /// 不晚于现在）。这样**对方不升级 app**，读侧也能立刻显示正确时间。
+    nonisolated static func coherentSampleTime(_ sampledAt: Date?, publishedAt: Date?) -> Date? {
+        guard let sampledAt else { return publishedAt }
+        guard sampledAt <= Date() else { return publishedAt }
+        return sampledAt
+    }
+
+    /// 发布方还没带窗口起点时，按周窗口的长度反推一个。
+    ///
+    /// 只有名字明确是周/7 天窗口才这么做 —— 5h 窗口的长度取决于那台 Mac 什么时候
+    /// 开的窗口，从重置时间反推会把节奏算错，而 7 天是周窗口定义上的长度，
+    /// 配合同一个 `resetsAt` 就是它真实的起点。这条推导让**还没升级发布方**的
+    /// 账号也能立刻拿到曲线，而不是等对方发版之后再重新累积历史。
+    nonisolated static func derivedWeeklyWindowStart(name: String, resetsAt: Date?) -> Date? {
+        guard let resetsAt else { return nil }
+        let normalized = name.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        let isWeekly = normalized.contains("weekly") || normalized == "7d"
+        guard isWeekly else { return nil }
+        let start = resetsAt.addingTimeInterval(-7 * 86_400)
+        return start < Date() ? start : nil
+    }
+
+    private static func planName(from model: ModelUsageData) -> String? {        guard let detail = model.parsedDetail.plan else { return nil }
         return detail.isEmpty ? nil : detail
     }
 

@@ -1431,14 +1431,43 @@ enum AppLanguage: String, CaseIterable, Codable, Identifiable {
         self == .english ? "Menu bar placeholder" : "菜单栏占位图标"
     }
 
-    var menuBarPlaceholderCountLabel: String {
-        self == .english ? "Show provider count in placeholder" : "占位时显示供应商数量"
+    var menuBarPlaceholderStyleLabel: String {
+        self == .english ? "Placeholder style" : "占位图标形态"
     }
 
-    var menuBarPlaceholderCountDescription: String {
+    var menuBarPlaceholderStyleDescription: String {
         self == .english
-            ? "When every provider is hidden (follow running apps, or display manually paused), show the number of enabled providers instead of the brand mark."
-            : "当所有供应商都被隐藏（跟随模式下无应用运行，或显示被手动暂停）时，菜单栏占位图标显示已启用的供应商数量，而不是品牌字母标。"
+            ? "What the menu bar shows when every provider is hidden (follow running apps with nothing open, or display manually paused)."
+            : "当所有供应商都被隐藏（跟随模式下无应用运行，或显示被手动暂停）时，菜单栏显示什么。"
+    }
+
+    func menuBarPlaceholderStyleDisplayName(_ style: MenuBarPlaceholderStyle) -> String {
+        switch (self, style) {
+        case (.english, .openAIConnectivity): return "OpenAI connectivity"
+        case (.simplifiedChinese, .openAIConnectivity): return "OpenAI 连通性"
+        case (.english, .providerCount): return "Provider count"
+        case (.simplifiedChinese, .providerCount): return "供应商数量"
+        case (.english, .brandMark): return "Brand mark"
+        case (.simplifiedChinese, .brandMark): return "品牌字母标"
+        }
+    }
+
+    /// 占位用连通性形态时的 tooltip 追加行。勾和叉都写，否则菜单栏那二十几
+    /// 像素里的记号没人解释；「探测中」也要说，否则启动那一两秒看着像卡住。
+    func placeholderConnectivityTooltip(
+        base: String,
+        connectivity: CodexConnectivityState
+    ) -> String {
+        let line: String
+        switch (self, connectivity) {
+        case (_, .reachable):
+            line = self == .english ? "OpenAI reachable" : "OpenAI 可达"
+        case (_, .unreachable):
+            line = self == .english ? "OpenAI unreachable" : "OpenAI 不可达"
+        case (_, .unknown):
+            line = self == .english ? "Probing OpenAI…" : "正在探测 OpenAI…"
+        }
+        return "\(base)\n\(line)"
     }
 
     func providerCollapseHint(isCollapsed: Bool) -> String {

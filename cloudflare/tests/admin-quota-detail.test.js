@@ -9,6 +9,8 @@ const p2=n=>String(n).padStart(2,'0');
 const md=t=>{const d=new Date(t+8*3600000);return p2(d.getUTCMonth()+1)+'/'+p2(d.getUTCDate());};
 // 中文界面按 UTC+8 展示（admin-quota.js 的展示时区）。
 const clockOf=t=>{const d=new Date(t+8*3600000);return p2(d.getUTCHours())+':'+p2(d.getUTCMinutes());};
+// 日期不补零 —— 与 App 的 shortClockText 一致（admin-quota.js 的 clockShort）。
+const mdShortOf=t=>{const d=new Date(t+8*3600000);return (d.getUTCMonth()+1)+'/'+d.getUTCDate();};
 const resetRange=(start,end)=>`${md(start)} ${clockOf(start)}-${clockOf(end)}`;
 
 // Shared vm harness: DOM shim + fetch mock. The console loads the same three
@@ -124,6 +126,10 @@ const svgOf=node=>byClass(node,'qm-plot')[0].children.find(child=>child.tag==='s
 const cycleRow=node=>{const box=byClass(node,'qm-cycles')[0];
  return box&&box.children.find(child=>(child.className||'')==='cycle-row');};
 const modelRows=row=>byClass(row,'qm-model');
+const accountByName=(sections,provider,account)=>{
+ const section=sections.find(node=>byClass(node,'qm-provider-name')[0].textContent===provider);
+ return accountRows(section).find(row=>byClass(accountHead(row),'qm-account-name')[0].children[0].textContent===account);
+};
 const metaRow=row=>byClass(modelRows(row)[0],'qm-meta')[0];
 
 test('console lists providers → accounts → models like the app menu, tightest account open by default',async()=>{
@@ -177,6 +183,25 @@ test('console lists providers → accounts → models like the app menu, tightes
  // 45% 剩余仍属健康区间 —— 与 App 的 tint 阈值一致（橙线在 20%）。
  assert.equal(byClass(codexMeta,'qm-worst')[0].style.color,'#507a59');
  assert.equal(modelRows(codexAccount).length,0);
+});
+
+test('an account last reported on an earlier day carries its date, not a bare clock',async()=>{
+ const DAY=86400000,NOW=Date.now(),iso=t=>new Date(t).toISOString();
+ // 30 小时前必然落在更早的一天（没有哪一天能超过 24h），断言不依赖运行时刻。
+ const staleAt=NOW-30*HOUR;
+ const {element}=buildConsole({extraItems:[
+  // 纯 Cloud 账号昨天就没再上报：窗口仍在，但上报时间跨天。
+  {team_id:'t4',team_name:'Team D',provider:'codex',account_name:'stale@example.test',model_id:'weekly',model_name:'Weekly',
+   current_interval_total:100,current_interval_remaining:55,weekly_total:100,weekly_remaining:55,value_suffix:'%',
+   reset_start_time:iso(NOW-3*DAY),reset_end_time:iso(NOW+4*DAY),device_id:'deadbeef1234',sampled_at:iso(staleAt)},
+ ]});
+ await flush();
+ const stale=accountByName(providers(element),'codex','stale@example.test');
+ const source=byClass(accountHead(stale),'qm-source')[0];
+ // 与 App 的 shortClockText 同源：只给 "11:50" 读不出是哪天的快照，跨天要落成 "9/28 11:50"。
+ assert.equal(source.textContent,'Cloud · '+mdShortOf(staleAt)+' '+clockOf(staleAt));
+ // 过期标记是另一条独立信号，不能因为补了日期就丢掉。
+ assert.ok(source.className.includes('is-stale'));
 });
 
 test('expanding an account lazily loads its history and draws the app-shaped rows',async()=>{

@@ -58,8 +58,9 @@ struct CodexWatchCloudClient: Sendable {
                         [
                             "name": window.name,
                             "remainingPercent": window.remainingPercent,
-                            "resetsAt": (window.resetsAt.map { ISO8601DateFormatter().string(from: $0) }) ?? NSNull(),
-                            "sampledAt": (window.sampledAt.map { ISO8601DateFormatter().string(from: $0) }) ?? NSNull(),
+                            "resetsAt": (window.resetsAt.map { Self.formatDate($0) }) ?? NSNull(),
+                            "sampledAt": (window.sampledAt.map { Self.formatDate($0) }) ?? NSNull(),
+                            "startsAt": (window.startsAt.map { Self.formatDate($0) }) ?? NSNull(),
                         ] as [String: Any]
                     },
                 ] as [String: Any]
@@ -161,7 +162,8 @@ struct CodexWatchCloudClient: Sendable {
                     name: window.name,
                     remainingPercent: window.remainingPercent,
                     resetsAt: Self.parseDate(window.resetsAt),
-                    sampledAt: Self.parseDate(window.sampledAt))
+                    sampledAt: Self.parseDate(window.sampledAt),
+                    startsAt: Self.parseDate(window.startsAt))
             },
             publishedAt: Self.parseDate(payload.updatedAt))
     }
@@ -184,9 +186,27 @@ struct CodexWatchCloudClient: Sendable {
         value.addingPercentEncoding(withAllowedCharacters: .alphanumerics) ?? value
     }
 
-    private static func parseDate(_ value: String?) -> Date? {
+    /// 服务端一律用 `Date#toISOString()` 回包，**总是带毫秒**。
+    ///
+    /// 而 `ISO8601DateFormatter()` 的默认 options 只有 `.withInternetDateTime`，
+    /// 遇到 `.000Z` 直接返回 nil —— 不报错、不抛异常，关注链路上的每一个
+    /// `resetsAt` / `sampledAt` / `startsAt` 都会静默变成 nil。少了窗口起点，
+    /// 关注来的行就只剩一个百分比：没有重置时间、没有节奏、没有曲线窗口。
+    /// 所以这里两种格式都试，发包也统一用带毫秒的，跟服务端对齐。
+    private static let fractionalFormatter: ISO8601DateFormatter = {
+        let formatter = ISO8601DateFormatter()
+        formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        return formatter
+    }()
+    private static let plainFormatter = ISO8601DateFormatter()
+
+    nonisolated static func formatDate(_ value: Date) -> String {
+        fractionalFormatter.string(from: value)
+    }
+
+    nonisolated static func parseDate(_ value: String?) -> Date? {
         guard let value, !value.isEmpty else { return nil }
-        return ISO8601DateFormatter().date(from: value)
+        return fractionalFormatter.date(from: value) ?? plainFormatter.date(from: value)
     }
 
     /// 与服务端 `accountKey` 逐字一致的归一 + SHA-256（小写十六进制）。
@@ -218,6 +238,8 @@ struct CodexWatchCloudClient: Sendable {
         let remainingPercent: Int
         let resetsAt: String?
         let sampledAt: String?
+        /// 老版本发布方不带这个字段，按缺省处理而不是整份快照解码失败。
+        let startsAt: String?
     }
 
     private struct ReadsResponse: Decodable {
@@ -268,6 +290,11 @@ struct CodexWatchWindow: Equatable, Sendable {
     let remainingPercent: Int
     let resetsAt: Date?
     let sampledAt: Date?
+    /// 窗口起点。缺了它就只剩一个「还剩多少」，没有「这个窗口走了多久」：
+    /// 节奏（匀速应该用了多少）算不出来，曲线也定位不到窗口区间，
+    /// 只有 Weekly 没有 5h 的账号就会退化成一个光秃秃的百分比。
+    /// 由发布方从本机真实窗口带出，老发布方缺这个字段时读侧按 nil 兼容。
+    let startsAt: Date?
 }
 
 struct CodexWatchReadCount: Equatable, Sendable {

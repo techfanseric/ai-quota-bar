@@ -26,6 +26,13 @@ const localDate=t=>new Date(t+tzOffset()*60000);
 const md=t=>{const d=localDate(t);return p2(d.getUTCMonth()+1)+'/'+p2(d.getUTCDate());};
 const hm=t=>{const d=localDate(t);return p2(d.getUTCHours())+':'+p2(d.getUTCMinutes());};
 const mh=t=>md(t)+' '+hm(t);
+// 账号头的时间戳：与 App 的 MenuView.shortClockText 同源 —— 当天只给时刻，
+// 跨天补上日期（日期不补零，和 App 一致）。只给 "11:50" 读不出是哪天的快照，
+// 跨天必须落成 "9/28 11:50"。"天"的切分跟着展示时区走。
+const dayKey=t=>{const d=localDate(t);return d.getUTCFullYear()+'-'+d.getUTCMonth()+'-'+d.getUTCDate();};
+const clockShort=t=>dayKey(t)===dayKey(Date.now())
+ ?hm(t)
+ :localDate(t).getUTCMonth()+1+'/'+localDate(t).getUTCDate()+' '+hm(t);
 const hourStart=t=>Math.floor((t+tzOffset()*60000)/HOUR)*HOUR-tzOffset()*60000;
 const nextMidnight=t=>Math.floor((t+tzOffset()*60000)/DAY)*DAY+DAY-tzOffset()*60000;
 const T={
@@ -524,7 +531,7 @@ function accountRow(account,now){
  // 收起态把来源 · 时间 · 最低剩余放在一行右侧：不展开也能横向比较。
  const meta=el('span','qm-account-meta');
  const stale=account.stale&&account.latest!=null;
- const source=el('span','qm-source'+(stale?' is-stale':''),account.source+' · '+(account.latest!=null?hm(account.latest):'—'));
+ const source=el('span','qm-source'+(stale?' is-stale':''),account.source+' · '+(account.latest!=null?clockShort(account.latest):'—'));
  meta.append(source);
  if(!open&&account.worst!=null){
   const worst=el('span','qm-worst',T.minLeft(account.worst));

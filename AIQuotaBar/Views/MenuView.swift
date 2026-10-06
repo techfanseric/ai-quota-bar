@@ -663,7 +663,9 @@ private struct ProviderModelsSection: View {
                             .font(.system(size: 10, weight: .medium, design: .rounded))
                             .foregroundStyle(.secondary)
                             .lineLimit(1)
-                            .minimumScaleFactor(0.8)
+                            // 放不下就省略，不缩字号：账号名一缩，同一区块里
+                            // 各行字号就不一致了（远看像某个账号"特殊"）。
+                            .truncationMode(.tail)
 
                         if let plan = accountPlanSummary(group.models) {
                             Text("·")
@@ -672,15 +674,20 @@ private struct ProviderModelsSection: View {
                                 .font(.system(size: 10, weight: .medium, design: .rounded))
                                 .foregroundStyle(.tertiary)
                                 .lineLimit(1)
+                                // 套餐名是装饰，账号名才是身份 —— 宽度不够时先让套餐名让位。
+                                .layoutPriority(-1)
                         }
                     }
 
                     Spacer()
 
+                    // 时间戳短且原子，被截断就失去意义（半个 "10/5 11:1"）；
+                    // 宽度压力全部由左侧账号名吸收。
                     Text(nonCurrentAccountTrailingSummary(group, isCurrent: isCurrent))
                         .font(.system(size: 10, weight: .semibold))
                         .foregroundStyle(.tertiary)
                         .lineLimit(1)
+                        .fixedSize()
                 }
                 .padding(.horizontal, 8)
                 .padding(.top, 8)
@@ -808,6 +815,10 @@ private struct ProviderModelsSection: View {
         if sources.contains("OAuth") { return "OAuth" }
         if sources.contains("Codex CLI") { return "Codex CLI" }
         if sources.contains("OpenAI Web") { return "OpenAI Web" }
+        // A watched account is not a local one. Without this it falls through to
+        // the "Local" fallback below and the row claims to be this Mac's own
+        // quota -- the exact opposite of what watching means.
+        if sources.contains("Watch") { return "Watch" }
         if sources.contains("Cloud") { return "Cloud" }
         return nil
     }
@@ -830,10 +841,15 @@ private struct ProviderModelsSection: View {
         }
     }
 
+    /// 非当前账号的「最后更新时间」：当天只显示时刻，跨天补上日期。
+    /// 非当前账号可能是几天前的快照，只有 "11:50" 读不出是哪天，
+    /// 所以跨天必须落成 "9/28 11:50" 才有参考价值。
     private func shortClockText(from date: Date) -> String {
         let formatter = DateFormatter()
         formatter.locale = Locale(identifier: "en_US_POSIX")
-        formatter.dateFormat = "HH:mm"
+        formatter.dateFormat = Calendar.current.isDateInToday(date)
+            ? "HH:mm"
+            : "M/d HH:mm"
         return formatter.string(from: date)
     }
 }
@@ -1214,7 +1230,7 @@ private struct ModelRow: View {
     }
 
     /// 云端账号的过期快照仍按完整行渲染（行头 + 胶囊条 + 元数据），
-    /// 不退化成「只剩周期行」；新旧程度由账号头的「Cloud · HH:mm」表达。
+    /// 不退化成「只剩周期行」；新旧程度由账号头的「Cloud · HH:mm」（跨天补日期）表达。
     private var showsSnapshotLayout: Bool {
         isCloudModel && !isCurrentWindow
     }
