@@ -1859,6 +1859,18 @@ private struct QuotaAreaChart: View {
         }
     }
 
+    /// 当前这个 cycle 是不是已经烧超前了（deficit）。
+    ///
+    /// 只看 stage：ahead 三档才是"用得比匀速快"，也就是提前透支。onTrack
+    /// 不算 —— 还在节奏内，画一条参考线只会让人以为出事了。
+    private var isInDeficit: Bool {
+        guard let stage = model.currentIntervalPace?.stage else { return false }
+        switch stage {
+        case .slightlyAhead, .ahead, .farAhead: return true
+        case .onTrack, .slightlyBehind, .behind, .farBehind: return false
+        }
+    }
+
     private func drawHoveredGuide(context: inout GraphicsContext, layout: QuotaChartLayout) {
         guard let hoveredSample = hoveredSample(in: layout) else { return }
 
@@ -1868,6 +1880,28 @@ private struct QuotaAreaChart: View {
         guide.move(to: CGPoint(x: point.x, y: layout.plotRect.minY))
         guide.addLine(to: CGPoint(x: point.x, y: layout.plotRect.maxY))
         context.stroke(guide, with: .color(tint.opacity(0.35)), style: StrokeStyle(lineWidth: 1, dash: [4, 4]))
+
+        // 超额时补一条水平参考线：从当前点一路拉到右边界。
+        //
+        // 它和那条斜向的匀速虚线是一对 —— 斜线说"按匀速你本该在这儿"，横线说
+        // "你现在实际在这儿"，两条线之间的横向距离就是提前透支掉的时间窗。
+        // 只画斜线的话，那个交叉点要靠眼睛在图上比；画了横线，交叉位置直接
+        // 落在实线上，一眼能读出"我提前用了多少"。
+        //
+        // 用 tint 而不是写死绿色：这条线属于预测线那一族，用同族的颜色才不会
+        // 被当成数据；而曲线本身在重度超额时会变成橙色/红色，这时候一根绿线
+        // 反而和它对不上。用 stage 判定而不是 deltaPercent 的正负 —— 这两个
+        // 符号约定在代码里是相反的（见 AppLanguage.paceLabel 与
+        // currentIntervalPaceDeltaPercent），看 stage 不会踩错。
+        if isInDeficit {
+            var reference = Path()
+            reference.move(to: CGPoint(x: point.x, y: point.y))
+            reference.addLine(to: CGPoint(x: layout.plotRect.maxX, y: point.y))
+            context.stroke(
+                reference,
+                with: .color(tint.opacity(0.55)),
+                style: StrokeStyle(lineWidth: 1, lineCap: .round, dash: [5, 4]))
+        }
 
         let markerRect = CGRect(x: point.x - 4, y: point.y - 4, width: 8, height: 8)
         context.fill(Path(ellipseIn: markerRect), with: .color(.white))
