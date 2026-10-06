@@ -32,6 +32,9 @@ final class UsageService {
     }
 
     private func decodeMiniMaxUsageData(from data: Data, subscribe: MiniMaxCurrentSubscribe? = nil) throws -> UsageData {
+        // 这两个接口都不带服务端时间戳,所以「什么时候量的」只能取解码这一刻。
+        // 取一次给两处用,免得行上的时间和数据整体的时间差出毫秒级偏差。
+        let sampledAt = Date()
         let decoder = JSONDecoder()
         let response = try decoder.decode(MiniMaxUsageAPIResponse.self, from: data)
 
@@ -59,7 +62,9 @@ final class UsageService {
                 weeklyRemainingPercent: model.currentWeeklyRemainingPercent,
                 progressBarPercentOverride: nil,
                 progressBarRightText: nil,
-                sampledAt: nil
+                // 抓取时刻。它决定合并时「本机 vs 云端」选哪一行;缺了它就只能
+                // 永远本机优先,云端明明刚上报的快照会被本机旧值盖掉。
+                sampledAt: sampledAt
             )
         }
         let trackedModelCount = max(models.count, 1)
@@ -77,7 +82,7 @@ final class UsageService {
             provider: .miniMax,
             remains: readyModelsCount,
             total: trackedModelCount,
-            timestamp: Date(),
+            timestamp: sampledAt,
             models: models,
             subscribeTitle: subscribeTitle,
             subscribeEndTime: subscribeEndTime
@@ -85,6 +90,8 @@ final class UsageService {
     }
 
     func decodeGLMUsageData(from data: Data, subscriptionResetTime: Date? = nil) throws -> UsageData {
+        // 同 MiniMax:接口不带时间戳,解码时刻就是这份数据的采样时刻。
+        let sampledAt = Date()
         let decoder = JSONDecoder()
         let response = try decoder.decode(GLMQuotaLimitResponse.self, from: data)
 
@@ -93,7 +100,7 @@ final class UsageService {
         }
 
         let models = response.data?.limits.compactMap {
-            glmModel(from: $0, subscriptionResetTime: subscriptionResetTime)
+            glmModel(from: $0, subscriptionResetTime: subscriptionResetTime, sampledAt: sampledAt)
         } ?? []
         guard !models.isEmpty else { throw UsageError.invalidResponse }
         let trackedModelCount = models.count
@@ -103,14 +110,16 @@ final class UsageService {
             provider: .glm,
             remains: readyModelsCount,
             total: trackedModelCount,
-            timestamp: Date(),
+            timestamp: sampledAt,
             models: models,
             subscribeTitle: response.data?.level,
             subscribeEndTime: nil
         )
     }
 
-    private func glmModel(from limit: GLMUsageLimitItem, subscriptionResetTime: Date?) -> ModelUsageData? {
+    private func glmModel(
+        from limit: GLMUsageLimitItem, subscriptionResetTime: Date?, sampledAt: Date
+    ) -> ModelUsageData? {
         let normalized = normalizedGLMQuotaValues(for: limit)
         guard normalized.total > 0 else { return nil }
 
@@ -139,7 +148,7 @@ final class UsageService {
             weeklyRemainingPercent: nil,
             progressBarPercentOverride: nil,
             progressBarRightText: nil,
-            sampledAt: nil
+            sampledAt: sampledAt
         )
     }
 

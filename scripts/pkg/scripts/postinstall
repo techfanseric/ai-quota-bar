@@ -59,9 +59,6 @@ relaunch_app() {
         echo "$SCRIPT_NAME: relaunch failed, open $APP_NAME from the Dock" >&2
 }
 
-relaunch_app
-/bin/rm -f "$RELAUNCH_FLAG"
-
 # Which package files to delete once the install is done:
 #   - the package Installer was handed, which is the user's original file when
 #     installed from a terminal and a throwaway copy when opened in Finder
@@ -103,10 +100,33 @@ fi
 
 if [ -z "$handled_package" ] && [ -z "$handled_downloads" ]; then
     echo "$SCRIPT_NAME: no installer file to remove"
+    /bin/rm -f "$RELAUNCH_FLAG"
     exit 0
 fi
 
-echo "$SCRIPT_NAME: scheduling installer removal for${handled_package:+ $handled_package}${handled_downloads:+ $handled_downloads}"
+echo "$SCRIPT_NAME: removing installer${handled_package:+ $handled_package}${handled_downloads:+ $handled_downloads}"
+
+# Hand the files to the app first. Only a process inside the user's session can
+# unlink anything in ~/Downloads, and the app is about to be running there. The
+# record is owned by that user so it can read it and remove it again; the app
+# also expires records it finds too old.
+if [ -n "$console_user" ]; then
+    {
+        /bin/date +%s
+        [ -n "$handled_package" ] && echo "$handled_package"
+        [ -n "$handled_downloads" ] && echo "$handled_downloads"
+    } > "$PENDING_RECORD" 2>/dev/null
+    /usr/sbin/chown "$console_user" "$PENDING_RECORD" 2>/dev/null
+    /bin/chmod 600 "$PENDING_RECORD" 2>/dev/null
+fi
+
+# Now the app can go back up: it performs the removals that need its session.
+relaunch_app
+/bin/rm -f "$RELAUNCH_FLAG"
+
+# And as a best effort, remove from here too, so the file is gone even if the
+# app is never launched. This handles the terminal-installed package and any
+# path outside the protected user folders.
 
 # Every path below is expanded now, while the installer script runs, so the
 # generated file carries no state of its own. \$0 is the one exception: it has
@@ -114,23 +134,16 @@ echo "$SCRIPT_NAME: scheduling installer removal for${handled_package:+ $handled
 # time rather than joined into a list, because a list would have to be split
 # again on whitespace and a package path may well contain a space.
 #
-# ~/Downloads carries a "group:everyone deny delete" ACL, which root does not
-# reliably get past, so anything inside the console user's home is unlinked in
-# that user's own session and only falls back to root if that fails.
+# These removals are best effort. ~/Downloads has a deny-delete ACL that root
+# cannot get past, so that file is the app's job; this still cleans up the
+# terminal-installed package and anything outside the protected folders even if
+# the app never launches.
 write_cleanup_for() {
     target_path="$1"
     [ -n "$target_path" ] || return 0
     [ -f "$target_path" ] || return 0
     echo "if [ -f \"$target_path\" ]; then"
-    case "$target_path" in
-        "${console_home:-/nonexistent}"/*)
-            echo "    /bin/launchctl asuser \"$console_uid\" /usr/bin/sudo -u \"$console_user\" /bin/rm -f \"$target_path\" >/dev/null 2>&1 || \\"
-            echo "        /bin/rm -f \"$target_path\" >/dev/null 2>&1"
-            ;;
-        *)
-            echo "    /bin/rm -f \"$target_path\""
-            ;;
-    esac
+    echo "    /bin/rm -f \"$target_path\" >/dev/null 2>&1"
     echo "    /usr/bin/logger -t aiquotabar.installer \"removed $target_path\""
     echo "fi"
 }

@@ -530,6 +530,9 @@ private struct ProviderModelsSection: View {
                     accountHeader(group, isCurrent: false)
                 }
                 if !isAccountCollapsed(group, isCurrent: isCurrentGroup) {
+                    if data.provider == .codex, selectableCycles(group).count > 1 {
+                        accountCycleSwitcher(group)
+                    }
                     ForEach(Array(rows.enumerated()), id: \.element.id) { index, model in
                         ModelRow(
                             model: model,
@@ -681,13 +684,10 @@ private struct ProviderModelsSection: View {
 
                     Spacer()
 
-                    // 时间戳短且原子，被截断就失去意义（半个 "10/5 11:1"）；
-                    // 宽度压力全部由左侧账号名吸收。
-                    Text(nonCurrentAccountTrailingSummary(group, isCurrent: isCurrent))
-                        .font(.system(size: 10, weight: .semibold))
-                        .foregroundStyle(.tertiary)
-                        .lineLimit(1)
-                        .fixedSize()
+                    // 图标 + 标签 + 时间 + 剩余量。四段都是原子的，宽度压力全部
+                    // 由左侧账号名吸收 —— 截掉半个 "10/5 11:1" 或半个 "43%"
+                    // 比账号名少几个字符糟糕得多。
+                    accountTrailingSummary(group, isCurrent: isCurrent)
                 }
                 .padding(.horizontal, 8)
                 .padding(.top, 8)
@@ -725,8 +725,164 @@ private struct ProviderModelsSection: View {
         }
     }
 
-    /// 右侧摘要：当前账号显示来源；其余账号补「最后更新时间」，
-    /// 提示这是它上次活跃期间的数据快照。
+    /// 账号下面的 cycle 切换。**只有一个 cycle 时不画** —— 一个只能选中的
+    /// 按钮按下去什么也不会变，只是骗人；而且那种情况下（通常就是 Weekly）
+    /// 头部已经直接显示它的数字了。
+    ///
+    /// 选择按账号记住，不是全局：两个账号想看的窗口经常不一样。
+    @ViewBuilder
+    private func accountCycleSwitcher(_ group: AccountModelGroup) -> some View {
+        let cycles = selectableCycles(group)
+        let selectedID = selectedCycleRow(group)?.id
+        HStack(spacing: 6) {
+            ForEach(cycles, id: \.id) { cycle in
+                let isSelected = cycle.id == selectedID
+                Button {
+                    viewModel.setCycleChoice(
+                        cycle.modelName, provider: data.provider, accountName: group.accountName)
+                } label: {
+                    Text(cycle.modelName)
+                        .font(.system(size: 9, weight: isSelected ? .bold : .regular, design: .rounded))
+                        .foregroundStyle(isSelected ? Color.primary : Color.secondary)
+                        .padding(.horizontal, 6)
+                        .padding(.vertical, 2)
+                        .background(
+                            Capsule().fill(isSelected ? Color.primary.opacity(0.12) : Color.clear))
+                        .overlay(
+                            Capsule().strokeBorder(
+                                Color.primary.opacity(isSelected ? 0.35 : 0.12), lineWidth: 1))
+                }
+                .buttonStyle(.plain)
+                .help(isSelected
+                    ? "头部正在显示这个 cycle 的剩余量"
+                    : "点头部改看这个 cycle")
+            }
+            Spacer()
+        }
+        .padding(.horizontal, 8)
+        .padding(.bottom, 2)
+    }
+
+    /// 账号头部右侧那一串：状态图标 + 标签 + 最后采样时间 + 剩余量。
+    ///
+    /// 标签的规则只有一条线：**只有本机** → 照旧显示来源（OAuth / Codex CLI /
+    /// Local），**只有一种远端** → `Latest`（这一行展示的是"最近一次采样"，
+    /// 不是一个来源的名字），**本机和远端都有、或两种远端都有** → `Mix`。
+    /// 图标负责说明是哪几种：云朵是团队云端，眼睛是按邮箱关注的，本机不带图标。
+    ///
+    /// 折叠时就把剩余量放在这里，是为了不用展开也能读到数字 —— 展开只留给
+    /// "想看全部 cycle" 和 "想换一个 cycle 看" 这两件事。
+    @ViewBuilder
+    private func accountTrailingSummary(
+        _ group: AccountModelGroup,
+        isCurrent: Bool
+    ) -> some View {
+        let summary = accountTrailing(group, isCurrent: isCurrent)
+        HStack(spacing: 3) {
+            ForEach(summary.symbols, id: \.self) { symbol in
+                Image(systemName: symbol)
+                    .font(.system(size: 8, weight: .semibold))
+                    .foregroundStyle(.tertiary)
+            }
+            if !summary.symbols.isEmpty, !summary.label.isEmpty {
+                Text("·").foregroundStyle(.quaternary)
+            }
+            Text(summary.label)
+                .font(.system(size: 10, weight: .semibold))
+                .foregroundStyle(.tertiary)
+            if let sampledAt = summary.sampledAt {
+                Text("·")
+                    .foregroundStyle(.quaternary)
+                Text(shortClockText(from: sampledAt))
+                    .font(.system(size: 10, weight: .semibold))
+                    .foregroundStyle(.tertiary)
+            }
+            if let percent = summary.percent {
+                Text("·")
+                    .foregroundStyle(.quaternary)
+                Text("\(percent)%")
+                    .font(.system(size: 10, weight: .bold, design: .rounded))
+                    .foregroundStyle(percentColor(percent))
+            }
+        }
+        .lineLimit(1)
+        .fixedSize()
+    }
+
+    private func percentColor(_ percent: Int) -> Color {
+        switch percent {
+        case ..<10: return .red
+        case ..<25: return .orange
+        default: return .secondary
+        }
+    }
+
+    /// 折叠状态下这一行要显示的剩余量，取自**用户选中的那个 cycle**。
+    ///
+    /// 只有一个 cycle 时没得选，直接用它（通常就是 Weekly）；有两个时读用户
+    /// 之前的选择，没有选择过就先落在"当前正在跑的那个窗口"上 —— 与其空着
+    /// 让用户猜，不如给一个会随时间自己变对的初值，之后点一下就能换。
+    private func selectedCycleRow(_ group: AccountModelGroup) -> ModelUsageData? {
+        let rows = selectableCycles(group)
+        guard !rows.isEmpty else { return group.models.first }
+        if let stored = viewModel.cycleChoice(provider: data.provider, accountName: group.accountName),
+           let hit = rows.first(where: { $0.modelName == stored }) {
+            return hit
+        }
+        return rows.first(where: { isWindowRunningNow($0) }) ?? rows.first
+    }
+
+    /// 这个窗口此刻是不是正在跑。用来在用户还没选过 cycle 时给一个会自己变对的
+    /// 初值 —— 过了重置点，Weekly 才是"正在跑"的那个，5h 已经不是了。
+    private func isWindowRunningNow(_ model: ModelUsageData) -> Bool {
+        let now = Date()
+        if let start = model.startTime, let end = model.endTime {
+            return start <= now && now <= end
+        }
+        if let end = model.endTime { return end > now }
+        return true
+    }
+
+    /// 这个账号可以切换的 cycle 行。只有一个就没有"选择"这回事 —— 一个按钮
+    /// 只有一个选项，按下去什么也不会变，只是骗人。
+    private func selectableCycles(_ group: AccountModelGroup) -> [ModelUsageData] {
+        group.models.count > 1 ? group.models : []
+    }
+
+    private struct AccountTrailing {
+        let symbols: [String]
+        let label: String
+        let sampledAt: Date?
+        let percent: Int?
+    }
+
+    private func accountTrailing(
+        _ group: AccountModelGroup, isCurrent: Bool
+    ) -> AccountTrailing {
+        let kinds = group.models.reduce(into: Set<AccountSourceKind>()) {
+            $0.formUnion($1.accountSourceKinds)
+        }
+        let remote = kinds.subtracting([.local])
+        let symbols = AccountSourceKind.ordered(remote).compactMap(\.symbolName)
+        let row = selectedCycleRow(group)
+        let label: String
+        if kinds.isSubset(of: [.local]) {
+            // 只有本机：来源名本身就是答案（OAuth / Codex CLI / Local）
+            label = accountSourceSummary(group.models)
+        } else if kinds.count == 1 {
+            label = "Latest"
+        } else {
+            label = "Mix"
+        }
+        let sampledAt: Date? = isCurrent ? nil : row?.sampledAt ?? group.models.compactMap(\.sampledAt).max()
+        return AccountTrailing(
+            symbols: symbols,
+            label: label,
+            sampledAt: sampledAt,
+            percent: row.map { Int($0.currentIntervalPercentageRemaining.rounded()) })
+    }
+
+    /// 旧的纯文本摘要，仅保留给"只有一行"的老布局使用。
     private func nonCurrentAccountTrailingSummary(
         _ group: AccountModelGroup,
         isCurrent: Bool
