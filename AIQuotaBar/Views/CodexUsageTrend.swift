@@ -117,7 +117,10 @@ struct UsageSourceSwitch: View {
     let onSelectMember: (String?) -> Void
     private func t(_ zh: String, _ en: String) -> String { language == .simplifiedChinese ? zh : en }
     private var selectedMemberLabel: String {
-        guard let selectedMemberID else { return t("整个团队", "Whole team") }
+        // 菜单栏宽度就那么多："整个团队 / Whole team" 放不下，会把成员名挤到
+        // 看不见。取 "Whole" —— 这个下拉紧跟在「团队」按钮后面，读者知道
+        // 它指的是团队而不是别的。设置页的 Picker 有空间，仍用完整的说法。
+        guard let selectedMemberID else { return t("全部", "Whole") }
         return members.first(where: { $0.id == selectedMemberID })?.name ?? String(selectedMemberID.prefix(12))
     }
     var body: some View {
@@ -126,13 +129,17 @@ struct UsageSourceSwitch: View {
             if showsTeam { sourceButton(.team, t("团队", "Team")) }
             if source == .team && showsTeam {
                 Menu {
-                    Button(t("整个团队", "Whole team")) { onSelectMember(nil) }
+                    Button(t("全部", "Whole")) { onSelectMember(nil) }
                     ForEach(members) { row in
                         Button((row.id == selectedMemberID ? "✓ " : "") + row.name) { onSelectMember(row.id) }
                     }
                 } label: {
                     HStack(spacing: 3) {
-                        Text(selectedMemberLabel).lineLimit(1)
+                        // 成员名可能是邮箱，很长。放不下就省略，不要缩字号——
+                        // 缩了之后这一栏和上下几行字号不一致，远看像某个成员特殊。
+                        Text(selectedMemberLabel)
+                            .lineLimit(1)
+                            .truncationMode(.tail)
                         Image(systemName: "chevron.down").font(.system(size: 7, weight: .semibold))
                     }
                     .font(.system(size: 9))
