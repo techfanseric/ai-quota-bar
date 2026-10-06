@@ -15,6 +15,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         AppMigration.runCodexMigrationIfNeeded()
         KeychainService.shared.preloadCredentialVault()
 
+        // The installer leaves the downloaded package behind on purpose: only a
+        // process in this session can unlink it from ~/Downloads.
+        let removedInstaller = InstallerCleanup.performPendingRemoval()
+        if !removedInstaller.isEmpty {
+            NSLog("aiquotabar: removed installer %@", removedInstaller.joined(separator: ", "))
+        }
+
         UNUserNotificationCenter.current().delegate = self
 
         // Initialize status bar

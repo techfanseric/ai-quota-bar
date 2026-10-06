@@ -24,6 +24,7 @@ CLEANUP_DIR="/private/var/tmp"
 CLEANUP_SCRIPT="$CLEANUP_DIR/aiquotabar-installer-cleanup.sh"
 CLEANUP_PLIST="/Library/LaunchDaemons/com.techfanseric.aiquotabar.installer-cleanup.plist"
 CLEANUP_LABEL="com.techfanseric.aiquotabar.installer-cleanup"
+PENDING_RECORD="$CLEANUP_DIR/aiquotabar-installer-pending"
 
 echo "$SCRIPT_NAME: installed $APP_NAME to $2"
 
@@ -112,12 +113,25 @@ echo "$SCRIPT_NAME: scheduling installer removal for${handled_package:+ $handled
 # to stay a runtime reference for the self-delete. Paths are emitted one at a
 # time rather than joined into a list, because a list would have to be split
 # again on whitespace and a package path may well contain a space.
+#
+# ~/Downloads carries a "group:everyone deny delete" ACL, which root does not
+# reliably get past, so anything inside the console user's home is unlinked in
+# that user's own session and only falls back to root if that fails.
 write_cleanup_for() {
-    [ -n "$1" ] || return 0
-    [ -f "$1" ] || return 0
-    echo "if [ -f \"$1\" ]; then"
-    echo "    /bin/rm -f \"$1\""
-    echo "    /usr/bin/logger -t aiquotabar.installer \"removed $1\""
+    target_path="$1"
+    [ -n "$target_path" ] || return 0
+    [ -f "$target_path" ] || return 0
+    echo "if [ -f \"$target_path\" ]; then"
+    case "$target_path" in
+        "${console_home:-/nonexistent}"/*)
+            echo "    /bin/launchctl asuser \"$console_uid\" /usr/bin/sudo -u \"$console_user\" /bin/rm -f \"$target_path\" >/dev/null 2>&1 || \\"
+            echo "        /bin/rm -f \"$target_path\" >/dev/null 2>&1"
+            ;;
+        *)
+            echo "    /bin/rm -f \"$target_path\""
+            ;;
+    esac
+    echo "    /usr/bin/logger -t aiquotabar.installer \"removed $target_path\""
     echo "fi"
 }
 
