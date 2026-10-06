@@ -21,7 +21,36 @@ final class UpdateCheckerTests: XCTestCase {
         XCTAssertNotNil(checker.lastCheckedAt)
         XCTAssertEqual(UpdateChecker(defaults: defaults, currentVersion: { "1.17.1" }).availableRelease?.version, "1.18.0")
         XCTAssertNil(UpdateChecker(defaults: defaults, currentVersion: { "1.18.0" }).availableRelease)
-        XCTAssertEqual(release.downloadURL.absoluteString, "https://github.com/techfanseric/ai-quota-bar/releases/download/v1.18.0/AIQuotaBar.dmg")
+        XCTAssertEqual(release.downloadURL.absoluteString, "https://github.com/techfanseric/ai-quota-bar/releases/download/v1.18.0/AIQuotaBar.pkg")
+    }
+
+    func testReportedInstallerAssetWinsOverTheHardcodedName() throws {
+        let diskImage = UpdateRelease(
+            version: "1.34.0",
+            releaseURL: URL(string: "https://github.com/techfanseric/ai-quota-bar/releases/tag/v1.34.0")!,
+            assetURL: URL(string: "https://github.com/techfanseric/ai-quota-bar/releases/download/v1.34.0/AIQuotaBar.dmg"))
+        XCTAssertEqual(diskImage.downloadURL.absoluteString, "https://github.com/techfanseric/ai-quota-bar/releases/download/v1.34.0/AIQuotaBar.dmg")
+
+        let installer = UpdateRelease(
+            version: "1.35.0",
+            releaseURL: URL(string: "https://github.com/techfanseric/ai-quota-bar/releases/tag/v1.35.0")!,
+            assetURL: URL(string: "https://github.com/techfanseric/ai-quota-bar/releases/download/v1.35.0/AIQuotaBar.pkg"))
+        XCTAssertEqual(installer.downloadURL.absoluteString, "https://github.com/techfanseric/ai-quota-bar/releases/download/v1.35.0/AIQuotaBar.pkg")
+    }
+
+    func testInstallerAssetFromAnotherHostIsIgnored() throws {
+        let release = UpdateRelease(
+            version: "1.35.0",
+            releaseURL: URL(string: "https://github.com/techfanseric/ai-quota-bar/releases/tag/v1.35.0")!,
+            assetURL: URL(string: "https://malware.example/AIQuotaBar.pkg"))
+        XCTAssertEqual(release.downloadURL.absoluteString, "https://github.com/techfanseric/ai-quota-bar/releases/download/v1.35.0/AIQuotaBar.pkg")
+    }
+
+    func testReleaseCachedBeforeTheAssetFieldExistedStillDecodes() throws {
+        let legacy = Data(#"{"version":"1.34.0","releaseURL":"https://github.com/techfanseric/ai-quota-bar/releases/tag/v1.34.0"}"#.utf8)
+        let release = try JSONDecoder().decode(UpdateRelease.self, from: legacy)
+        XCTAssertNil(release.assetURL)
+        XCTAssertEqual(release.downloadURL.absoluteString, "https://github.com/techfanseric/ai-quota-bar/releases/download/v1.34.0/AIQuotaBar.pkg")
     }
 
     func testFailureRetriesAfterFifteenMinutesNotOneDay() async {

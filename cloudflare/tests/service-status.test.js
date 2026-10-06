@@ -76,3 +76,18 @@ test('changelog is public read-only content with no API connections', async () =
   assert.equal(cached.version,'1.19.0');
   assert.equal(cached.source,'worker-fallback');
  });
+
+test('app update prefers the pkg installer and still serves disk-image-only releases', async (t) => {
+  const request=new Request('https://example.com/v1/app-update');
+  const assets=[
+    {name:'AIQuotaBar.dmg',browser_download_url:'https://github.com/download/AIQuotaBar.dmg'},
+    {name:'AIQuotaBar.pkg',browser_download_url:'https://github.com/download/AIQuotaBar.pkg'},
+  ];
+  t.mock.method(globalThis,'fetch',async()=>new Response(JSON.stringify({tag_name:'v1.20.0',html_url:'https://github.com/release',assets})));
+  const withPkg=await (await worker.fetch(request,{})).json();
+  assert.equal(withPkg.download_url,'https://github.com/download/AIQuotaBar.pkg');
+
+  t.mock.method(globalThis,'fetch',async()=>new Response(JSON.stringify({tag_name:'v1.19.0',html_url:'https://github.com/release',assets:[assets[0]]})));
+  const diskImageOnly=await (await worker.fetch(request,{})).json();
+  assert.equal(diskImageOnly.download_url,'https://github.com/download/AIQuotaBar.dmg');
+ });

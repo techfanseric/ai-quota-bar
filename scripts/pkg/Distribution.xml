@@ -1,0 +1,30 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Installer wizard for AI Quota Bar.
+
+  Two tokens below are filled in by `make pkg`: the short version string, and
+  the component package file name. Both live only in the title and in the
+  pkg-ref; keep this comment free of the token spellings so the substitution
+  cannot rewrite it.
+-->
+<installer-gui-script minSpecVersion="2">
+    <title>AI Quota Bar @VERSION@</title>
+    <organization>com.techfanseric</organization>
+    <options customize="never" require-scripts="true" rootVolumeOnly="true"/>
+    <domains enable_anywhere="false" enable_currentUserHome="false" enable_localSystem="true"/>
+    <allowed-os-versions>
+        <os-version min="14.0"/>
+    </allowed-os-versions>
+    <volume-check>
+        <allowed-os-versions>
+            <os-version min="14.0"/>
+        </allowed-os-versions>
+    </volume-check>
+    <choices-outline>
+        <line choice="com.techfanseric.aiquotabar"/>
+    </choices-outline>
+    <choice id="com.techfanseric.aiquotabar" visible="false">
+        <pkg-ref id="com.techfanseric.aiquotabar"/>
+    </choice>
+    <pkg-ref id="com.techfanseric.aiquotabar" version="@VERSION@" onConclusion="none">Packages/@COMPONENT@</pkg-ref>
+</installer-gui-script>

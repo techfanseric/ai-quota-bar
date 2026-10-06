@@ -1,0 +1,55 @@
+#!/bin/sh
+#
+# preinstall — stop the running app before its bundle gets replaced.
+#
+# This runs as root inside macOS Installer, while the app runs in the console
+# user's login session. The quit is therefore delivered by pid, never by Apple
+# Events: a root osascript cannot reach the user's Aqua session, and TCC would
+# either deny it or block it on a permission dialog — which would hang the
+# installer instead of closing the app.
+#
+# Arguments (per Apple's installer scripting guide):
+#   $1 package path  $2 target location  $3 target volume  $4 root volume
+# Environment: $SCRIPT_NAME $PACKAGE_PATH $INSTALLER_TEMP
+
+APP_NAME="AIQuotaBar"
+RELAUNCH_FLAG="/private/var/tmp/aiquotabar-installer-relaunch"
+
+# Drop a flag left behind by an install that never reached postinstall.
+/bin/rm -f "$RELAUNCH_FLAG"
+
+if ! /usr/bin/pgrep -x "$APP_NAME" >/dev/null 2>&1; then
+    exit 0
+fi
+
+pids=$(/usr/bin/pgrep -x "$APP_NAME" | /usr/bin/tr '\n' ' ')
+echo "$SCRIPT_NAME: closing $APP_NAME (pid: $pids)"
+
+/usr/bin/pkill -TERM -x "$APP_NAME" >/dev/null 2>&1 || true
+
+waited=0
+while [ "$waited" -lt 50 ]; do
+    /usr/bin/pgrep -x "$APP_NAME" >/dev/null 2>&1 || break
+    /bin/sleep 0.2
+    waited=$((waited + 1))
+done
+
+if /usr/bin/pgrep -x "$APP_NAME" >/dev/null 2>&1; then
+    echo "$SCRIPT_NAME: $APP_NAME ignored SIGTERM, sending SIGKILL"
+    /usr/bin/pkill -KILL -x "$APP_NAME" >/dev/null 2>&1 || true
+    /bin/sleep 0.5
+fi
+
+if /usr/bin/pgrep -x "$APP_NAME" >/dev/null 2>&1; then
+    echo "$SCRIPT_NAME: $APP_NAME is still running, refusing to install over it" >&2
+    exit 1
+fi
+
+# Tell postinstall to bring the app back: it was on screen a moment ago.
+# The age is checked there so a flag left by an aborted install cannot
+# relaunch the app days later.
+printf '%s\n' "$pids" > "$RELAUNCH_FLAG" 2>/dev/null || true
+/usr/sbin/chown root:wheel "$RELAUNCH_FLAG" 2>/dev/null || true
+/bin/chmod 600 "$RELAUNCH_FLAG" 2>/dev/null || true
+
+exit 0
