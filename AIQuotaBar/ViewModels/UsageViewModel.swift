@@ -352,6 +352,36 @@ final class UsageViewModel {
     private static let cloudDataRetentionLimitKey = CloudDataRetentionLimit.storageKey
     static let pausedProvidersKey = "pausedUsageProviders"
     static let followRunningAppsKey = "menuFollowsRunningApps"
+    /// 账号 → 选中的 cycle（窗口名）。折叠状态下头部直接显示这个 cycle 的
+    /// 剩余量，所以用户要能记住自己选的是 5h 还是 Weekly。
+    ///
+    /// 按**账号**存而不是全局存：一个账号想看 5h、另一个想看 Weekly 是常事，
+    /// 全局一个值会让用户在账号之间反复切。
+    static let accountCycleChoicesKey = "accountQuotaCycleChoices.v1"
+
+    /// 账号 cycle 选择。读时容忍脏值：窗口名是对方 app 写的字符串，改名或
+    /// 换供应商之后留下的旧选择会让头部空掉，所以调用方要自己校验命中。
+    var accountCycleChoices: [String: String] {
+        get { UserDefaults.standard.dictionary(forKey: Self.accountCycleChoicesKey) as? [String: String] ?? [:] }
+        set { UserDefaults.standard.set(newValue, forKey: Self.accountCycleChoicesKey) }
+    }
+
+    /// 账号在菜单里的稳定键。跨登录、跨重启都指向同一个账号。
+    func accountCycleKey(provider: UsageProvider, accountName: String?) -> String {
+        let account = (accountName ?? "").trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        return "\(provider.rawValue):\(account)"
+    }
+
+    func cycleChoice(provider: UsageProvider, accountName: String?) -> String? {
+        accountCycleChoices[accountCycleKey(provider: provider, accountName: accountName)]
+    }
+
+    func setCycleChoice(_ cycle: String, provider: UsageProvider, accountName: String?) {
+        let key = accountCycleKey(provider: provider, accountName: accountName)
+        var choices = accountCycleChoices
+        choices[key] = cycle
+        accountCycleChoices = choices
+    }
 
     // MARK: - Computed Properties
 
@@ -1074,6 +1104,29 @@ final class UsageViewModel {
     /// 未登录的新设备保持未配置；供应商设置入口始终可用。
     @ObservationIgnored private var providerPresenceOverride: ((UsageProvider) -> Bool)?
 
+    /// 本机行与云端行撞上同一个 cycle 时选哪一条。
+    ///
+    /// 只在**两边都带采样时间**时比较。有一边没有（老发布方、或某个接口不
+    /// 返回时间戳）就本机优先 —— "无法比较"不等于"云端更新"，而把一份可能
+    /// 很旧的云端值当成现值展示，比一直本机优先更难解释。
+    nonisolated static func newerOfLocalAndCloud(local: ModelUsageData, cloud: ModelUsageData) -> ModelUsageData {
+        guard let localAt = local.sampledAt, let cloudAt = cloud.sampledAt else {
+            return markMixed(local, cloud: cloud)
+        }
+        return markMixed(cloudAt > localAt ? cloud : local, cloud: cloud)
+    }
+
+    /// 合并后的赢家仍然标 Mix（这是既有语义：本机登录着的账号，数字可能来自
+    /// 云端），并把两侧的来源都记在行上 —— 只渲染一行时，光看赢家分不出
+    /// "本机独一份"和"本机 + 云端"。
+    nonisolated private static func markMixed(
+        _ winner: ModelUsageData, cloud: ModelUsageData
+    ) -> ModelUsageData {
+        winner
+            .withDetailSource("Mix")
+            .withMergedSourceKinds(winner.accountSourceKinds.union([.local, .cloud]))
+    }
+
     private func isConfigured(_ provider: UsageProvider) -> Bool {
         if let providerPresenceOverride { return providerPresenceOverride(provider) }
         switch provider {
@@ -1113,10 +1166,16 @@ final class UsageViewModel {
         return UsageProvider.allCases
             .filter(isProviderEnabled)
             .compactMap { provider -> UsageData? in
+                let providerCloudByKey = Dictionary(
+                    cloudModels.filter { $0.provider == provider }
+                        .map { ($0.quotaIdentityKey, $0) },
+                    uniquingKeysWith: { first, _ in first })
+                // 同一个 cycle 本机和云端都有时，显示采样更晚的那一份。
+                // 原来是本机永远赢：云端刚上报的快照会被本机一份旧值盖住，
+                // 表现就是"一直显示旧数字"，而云端那边明明是新的。
                 let localModels = (localDataByProvider[provider]?.models ?? []).map { model in
-                    cloudModelKeys.contains(model.quotaIdentityKey)
-                        ? model.withDetailSource("Mix")
-                        : model
+                    guard let cloud = providerCloudByKey[model.quotaIdentityKey] else { return model }
+                    return Self.newerOfLocalAndCloud(local: model, cloud: cloud)
                 }
                 let providerCloudModels = cloudModels.filter { $0.provider == provider }
                 let cloudOnlyModels = providerCloudModels.filter { model in

@@ -96,6 +96,49 @@ struct UsageData: Codable {
     }
 }
 
+/// 一行额度的来源种类。
+///
+/// 只认 `detailText` 里的来源段（`ModelUsageData.parsedDetail.source`）—— 那是
+/// 各写入方在写这一行时就定死的标记。靠猜（"这账号看着像云端的"）会在新增
+/// 供应商时静默错标，而错标的代价是用户点开发现数字和来源对不上。
+enum AccountSourceKind: String, Codable, CaseIterable, Hashable {
+    /// 本机登录着、刚抓回来的
+    case local
+    /// 团队云端上报的
+    case cloud
+    /// 按邮箱关注来的
+    case watch
+
+    /// 状态图标。local 刻意没有图标 —— 没有图标本身就是"这就是本机"的说法，
+    /// 再给它画一枚会变成两套语法。
+    var symbolName: String? {
+        switch self {
+        case .local: return nil
+        case .cloud: return "icloud"
+        case .watch: return "eye"
+        }
+    }
+
+    /// 来源段 → 种类。
+    ///
+    /// 认不出来的一律当本机：老数据、或将来新增的来源，宁可少画一枚图标，
+    /// 也不能凭空给一行安上"来自云端"。`Mix` 刻意不在这个表里 —— 它是合并的
+    /// **结果**（同一账号本机和远端都有），不是一种来源。
+    static func kind(forSource source: String?) -> AccountSourceKind {
+        switch source?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() {
+        case "cloud": return .cloud
+        case "watch": return .watch
+        default: return .local
+        }
+    }
+
+    /// 稳定顺序：云在眼前。同一组图标每次刷新顺序必须一致，否则会在两次
+    /// 渲染之间左右跳动，看起来像数据在动。
+    static func ordered(_ kinds: Set<AccountSourceKind>) -> [AccountSourceKind] {
+        allCases.filter { kinds.contains($0) }
+    }
+}
+
 struct ModelUsageData: Codable, Identifiable {
     let provider: UsageProvider
     let accountName: String?
@@ -121,8 +164,17 @@ struct ModelUsageData: Codable, Identifiable {
     /// 覆盖进度条右侧文本。默认按 `currentIntervalUsageRatioText` 渲染；
     /// 设置后用于显示"1K tokens"等固定刻度信息。
     let progressBarRightText: String?
-    /// 该条 quota 数据的采样时间。实时本机数据为 nil；Cloud/历史补全数据用于判断新鲜度。
+    /// 该条 quota 数据的采样时间。**这是"什么时候量的"，不是窗口边界** ——
+    /// 曾经这里给本机行写 nil，合并层只好拿 endTime（周窗口就是几天后的
+    /// resetsAt）去兜底，于是关注方看到「更新于 10/11 23:59」，一个未来的时刻。
     let sampledAt: Date?
+    /// 这一行所属账号**参与过**哪些来源。
+    ///
+    /// 空 = 没经过合并，按本行自己的来源段判定。只有「同一个 cycle 本机和
+    /// 云端都有」时合并层才会写它：那种情况最终只渲染一行，赢家是本机还是
+    /// 云端由采样时间决定，而两边的存在都得留着 —— 图标要画的是"参与过哪些"，
+    /// 不是"这一行来自哪里"。
+    var mergedSourceKinds: Set<AccountSourceKind> = []
 
     var id: String {
         guard let accountName, !accountName.isEmpty else {
@@ -138,6 +190,18 @@ struct ModelUsageData: Codable, Identifiable {
 
     var normalizedAccountName: String {
         (accountName ?? "").trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+    }
+
+    /// 本行自己的来源种类。合并写入的 `mergedSourceKinds` 优先于它。
+    var sourceKind: AccountSourceKind {
+        mergedSourceKinds.isEmpty
+            ? AccountSourceKind.kind(forSource: parsedDetail.source)
+            : AccountSourceKind.ordered(mergedSourceKinds).first ?? .local
+    }
+
+    /// 账号参与过的全部来源。渲染时按账号聚合用。
+    var accountSourceKinds: Set<AccountSourceKind> {
+        mergedSourceKinds.isEmpty ? [sourceKind] : mergedSourceKinds
     }
 
     var quotaIdentityKey: String {
@@ -166,7 +230,11 @@ struct ModelUsageData: Codable, Identifiable {
         copy(accountName: nextAccountName, detailText: detailText)
     }
 
-    private func copy(accountName nextAccountName: String?, detailText nextDetailText: String?) -> ModelUsageData {
+    private func copy(
+        accountName nextAccountName: String?,
+        detailText nextDetailText: String?,
+        mergedSourceKinds nextKinds: Set<AccountSourceKind>? = nil
+    ) -> ModelUsageData {
         return ModelUsageData(
             provider: provider,
             accountName: nextAccountName,
@@ -186,7 +254,14 @@ struct ModelUsageData: Codable, Identifiable {
             weeklyRemainingPercent: weeklyRemainingPercent,
             progressBarPercentOverride: progressBarPercentOverride,
             progressBarRightText: progressBarRightText,
-            sampledAt: sampledAt)
+            sampledAt: sampledAt,
+            mergedSourceKinds: nextKinds ?? mergedSourceKinds)
+    }
+
+    /// 记下"这个账号参与过哪些来源"。合并层用它保住落选那一侧的存在 ——
+    /// 只渲染赢家那一行时，光看赢家就分不出是"本机独一份"还是"本机+云端"。
+    func withMergedSourceKinds(_ kinds: Set<AccountSourceKind>) -> ModelUsageData {
+        copy(accountName: accountName, detailText: detailText, mergedSourceKinds: kinds)
     }
 
     private func detailTextWithSource(_ source: String) -> String? {
