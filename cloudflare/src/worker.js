@@ -327,10 +327,13 @@ async function d1Usage(env) {
   return response;
 }
 
+const PREFERRED_INSTALLER = "AIQuotaBar.pkg";
+const INSTALLER_ASSET_NAMES = [PREFERRED_INSTALLER, "AIQuotaBar.dmg"];
+
 async function appUpdateManifest(env) {
   const fallbackVersion = env.APP_LATEST_VERSION || "1.19.0";
   const fallbackURL = env.APP_RELEASE_URL || `https://github.com/techfanseric/ai-quota-bar/releases/tag/v${fallbackVersion}`;
-  const fallbackDownloadURL = env.APP_DOWNLOAD_URL || `https://github.com/techfanseric/ai-quota-bar/releases/download/v${fallbackVersion}/AIQuotaBar.dmg`;
+  const fallbackDownloadURL = env.APP_DOWNLOAD_URL || `https://github.com/techfanseric/ai-quota-bar/releases/download/v${fallbackVersion}/${PREFERRED_INSTALLER}`;
 
   try {
     const response = await fetch("https://api.github.com/repos/techfanseric/ai-quota-bar/releases/latest", {
@@ -350,9 +353,12 @@ async function appUpdateManifest(env) {
 
     const release = await response.json();
     const version = normalizeVersion(release.tag_name || fallbackVersion);
-    const asset = Array.isArray(release.assets)
-      ? release.assets.find((item) => item && item.name === "AIQuotaBar.dmg")
-      : null;
+    const assets = Array.isArray(release.assets) ? release.assets : [];
+    // Releases published before the switch to pkg only carry a disk image, so
+    // keep looking for one instead of handing out a 404 download link.
+    const asset = INSTALLER_ASSET_NAMES
+      .map((name) => assets.find((item) => item && item.name === name))
+      .find(Boolean) || null;
 
     return json({
       ok: true,

@@ -5,6 +5,9 @@
 dist/
 dist-debug/
 *.dmg
+*.pkg
+*.component.pkg
+*.pkg.sha256
 
 # Local QA artifacts
 /tmp/

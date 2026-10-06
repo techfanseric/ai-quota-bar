@@ -168,7 +168,10 @@ final class UpdateChecker {
         guard let releaseURL = URL(string: manifest.releaseURL) else {
             throw UpdateCheckError.invalidReleaseURL
         }
-        return UpdateRelease(version: manifest.version, releaseURL: releaseURL)
+        return UpdateRelease(
+            version: manifest.version,
+            releaseURL: releaseURL,
+            assetURL: manifest.downloadURL.flatMap(URL.init(string:)))
     }
 
     private func fetchGitHubAPIRelease() async throws -> UpdateRelease {
@@ -240,7 +243,20 @@ final class UpdateChecker {
 struct UpdateRelease: Codable {
     let version: String
     let releaseURL: URL
-    var downloadURL: URL { URL(string: "https://github.com/techfanseric/ai-quota-bar/releases/download/")!.appendingPathComponent(releaseURL.lastPathComponent).appendingPathComponent("AIQuotaBar.dmg") }
+    /// The installer asset the release actually published, when the cloud
+    /// manifest could tell us. Releases from before the switch to pkg still
+    /// carry a disk image, so the asset name cannot just be hardcoded.
+    var assetURL: URL? = nil
+
+    var downloadURL: URL {
+        if let assetURL,
+           assetURL.scheme == "https",
+           assetURL.host == "github.com",
+           assetURL.path.hasPrefix("/techfanseric/ai-quota-bar/releases/download/") {
+            return assetURL
+        }
+        return URL(string: "https://github.com/techfanseric/ai-quota-bar/releases/download/")!.appendingPathComponent(releaseURL.lastPathComponent).appendingPathComponent("AIQuotaBar.pkg")
+    }
     var changelogURL: URL { URL(string: "https://ai-quota-bar.pages.dev/changelog#\(version.hasPrefix("v") ? version : "v" + version)")! }
     var hasTrustedURLs: Bool {
         releaseURL.scheme == "https" && releaseURL.host == "github.com"
@@ -251,10 +267,12 @@ struct UpdateRelease: Codable {
 private struct CloudUpdateManifest: Decodable {
     let version: String
     let releaseURL: String
+    let downloadURL: String?
 
     enum CodingKeys: String, CodingKey {
         case version
         case releaseURL = "release_url"
+        case downloadURL = "download_url"
     }
 }
 

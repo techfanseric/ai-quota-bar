@@ -15,7 +15,7 @@
 
 <p align="center">
   <a href="./README.zh-CN.md">简体中文</a> ·
-  <a href="https://github.com/techfanseric/ai-quota-bar/releases/latest/download/AIQuotaBar.dmg">Download DMG</a> ·
+  <a href="https://github.com/techfanseric/ai-quota-bar/releases/latest/download/AIQuotaBar.pkg">Download installer</a> ·
   <a href="https://github.com/techfanseric/ai-quota-bar/releases">Release notes</a>
 </p>
 
@@ -130,7 +130,7 @@ Create or join a team, inspect member and device summaries, and control local us
 ## Requirements
 
 - macOS 14 Sonoma or later.
-- Apple Silicon for the prebuilt DMG. Source builds target the architecture of the build Mac.
+- Apple Silicon for the prebuilt installer. Source builds target the architecture of the build Mac.
 - At least one quota provider:
   - Codex CLI installed and signed in.
   - A Kimi Desktop sign-in, web session, Kimi Code CLI sign-in, or Kimi Code API key.
@@ -150,13 +150,13 @@ No source setup is needed. Auto detects a saved API key → valid Desktop sign-i
 
 ## Install
 
-1. Download the latest [`AIQuotaBar.dmg`](https://github.com/techfanseric/ai-quota-bar/releases/latest/download/AIQuotaBar.dmg).
-2. Open the image and drag **AI Quota Bar** into **Applications**.
+1. Download the latest [`AIQuotaBar.pkg`](https://github.com/techfanseric/ai-quota-bar/releases/latest/download/AIQuotaBar.pkg).
+2. Open it and follow the installer. It quits the running app, installs the new version in its place, and removes the package once it is done — there is nothing left to drag and no second step.
 3. Launch the app and choose **Settings** from the left-click menu.
 
 ### Gatekeeper note
 
-The public build is ad-hoc signed because the project does not currently use a paid Apple Developer certificate. It is not Apple-notarized. On first launch, macOS may require Control-clicking the app and choosing **Open**, or allowing it in **System Settings → Privacy & Security**. Do not disable Gatekeeper globally.
+The public build is ad-hoc signed because the project does not currently use a paid Apple Developer certificate. It is not Apple-notarized. macOS will flag both the installer package and the app: Control-click `AIQuotaBar.pkg` and choose **Open** to start the install, and if the app is blocked on first launch, allow it in **System Settings → Privacy & Security**. Do not disable Gatekeeper globally.
 
 ## Quick start
 
@@ -327,7 +327,7 @@ Build requirements:
 
 - Xcode Command Line Tools with Swift 5.9 or later.
 - macOS 14 SDK or later.
-- `hdiutil`, `iconutil`, `sips`, and `codesign`, which ship with macOS/Xcode tools.
+- `hdiutil`, `iconutil`, `sips`, `pkgbuild`, `productbuild`, and `codesign`, which ship with macOS/Xcode tools.
 
 Useful commands:
 
@@ -336,10 +336,11 @@ swift test       # run the test suite
 make build       # release binaries
 make app         # assemble dist/AIQuotaBar.app
 make install     # replace /Applications/AIQuotaBar.app and relaunch
-make package     # create dist/AIQuotaBar.dmg
+make pkg         # create dist/AIQuotaBar.pkg (the release artifact)
+make dmg         # optional fallback: create dist/AIQuotaBar.dmg
 ```
 
-By default, `make package` uses ad-hoc signing. Set `CODESIGN_IDENTITY` to a suitable Developer ID identity if you maintain a signed/notarized distribution pipeline.
+`make pkg` uses ad-hoc signing by default. Set `CODESIGN_IDENTITY` to a suitable Developer ID identity if you maintain a signed/notarized distribution pipeline, and `PKG_CODESIGN_IDENTITY` to a Developer ID Installer identity to sign the installer package itself.
 
 ## Troubleshooting
 

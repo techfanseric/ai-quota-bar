@@ -15,7 +15,7 @@
 
 <p align="center">
   <a href="./README.md">English</a> ·
-  <a href="https://github.com/techfanseric/ai-quota-bar/releases/latest/download/AIQuotaBar.dmg">下载 DMG</a> ·
+  <a href="https://github.com/techfanseric/ai-quota-bar/releases/latest/download/AIQuotaBar.pkg">下载安装包</a> ·
   <a href="https://github.com/techfanseric/ai-quota-bar/releases">版本记录</a>
 </p>
 
@@ -130,7 +130,7 @@ Codex 用量改为 30 天矩阵，完善新手引导、钥匙串缓存与低打�
 ## 系统要求
 
 - macOS 14 Sonoma 或更高版本。
-- 预编译 DMG 当前面向 Apple Silicon；源码构建会使用构建 Mac 的架构。
+- 预编译安装包当前面向 Apple Silicon；源码构建会使用构建 Mac 的架构。
 - 至少配置一个配额来源：
   - 已安装并登录的 Codex CLI。
   - 已登录的 Kimi 桌面端、Kimi 网页登录、Kimi Code CLI，或 Kimi Code API Key。
@@ -150,13 +150,13 @@ Codex 用量改为 30 天矩阵，完善新手引导、钥匙串缓存与低打�
 
 ## 安装
 
-1. 下载最新的 [`AIQuotaBar.dmg`](https://github.com/techfanseric/ai-quota-bar/releases/latest/download/AIQuotaBar.dmg)。
-2. 打开镜像，将 **AI Quota Bar** 拖入 **Applications**。
+1. 下载最新的 [`AIQuotaBar.pkg`](https://github.com/techfanseric/ai-quota-bar/releases/latest/download/AIQuotaBar.pkg)。
+2. 打开安装包并按向导完成安装。它会先退出正在运行的旧版，把新版装到原位置，装完自动删掉安装包——不用再拖拽，也没有第二步。
 3. 启动应用，在左键菜单底部打开 **Settings**。
 
 ### Gatekeeper 提示
 
-项目目前没有使用付费 Apple Developer 证书，公开版本采用 ad-hoc 签名，未经过 Apple 公证。首次启动时，macOS 可能要求按住 Control 点击应用并选择“打开”，或在“系统设置 → 隐私与安全性”中允许打开。不要全局关闭 Gatekeeper。
+项目目前没有使用付费 Apple Developer 证书，公开版本采用 ad-hoc 签名，未经过 Apple 公证。macOS 因此会同时提示安装包和应用：按住 Control 点击 `AIQuotaBar.pkg` 选择“打开”开始安装；若首次启动应用被拦截，可在“系统设置 → 隐私与安全性”中允许打开。不要全局关闭 Gatekeeper。
 
 ## 快速开始
 
@@ -327,7 +327,7 @@ make install
 
 - Xcode Command Line Tools，Swift 5.9 或更高版本。
 - macOS 14 SDK 或更高版本。
-- macOS/Xcode 自带的 `hdiutil`、`iconutil`、`sips` 与 `codesign`。
+- macOS/Xcode 自带的 `hdiutil`、`iconutil`、`sips`、`pkgbuild`、`productbuild` 与 `codesign`。
 
 常用命令：
 
@@ -336,10 +336,11 @@ swift test       # 运行测试
 make build       # 构建 release 二进制
 make app         # 组装 dist/AIQuotaBar.app
 make install     # 替换 Applications 中的应用并重启
-make package     # 生成 dist/AIQuotaBar.dmg
+make pkg         # 生成 dist/AIQuotaBar.pkg（发布制品）
+make dmg         # 可选：生成 dist/AIQuotaBar.dmg 作为备用
 ```
 
-`make package` 默认使用 ad-hoc 签名。如果维护者具备 Developer ID，可通过 `CODESIGN_IDENTITY` 指定签名身份，并在单独的发布流水线中完成公证。
+`make pkg` 默认使用 ad-hoc 签名。如果维护者具备 Developer ID，可通过 `CODESIGN_IDENTITY` 指定应用签名身份、通过 `PKG_CODESIGN_IDENTITY` 指定安装包签名身份，并在单独的发布流水线中完成公证。
 
 ## 常见问题
 

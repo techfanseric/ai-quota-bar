@@ -1,4 +1,4 @@
-.PHONY: build run app sign stable-sign install stable-install package clean
+.PHONY: build run app sign stable-sign install stable-install pkg dmg package clean
 
 BUILD_DIR = .build
 PRODUCT = AIQuotaBar.app
@@ -6,12 +6,15 @@ APP_NAME = AIQuotaBar
 APP_DISPLAY_NAME = AI Quota Bar
 APP_BUNDLE_ID = com.techfanseric.aiquotabar
 SLEEP_HELPER_BUNDLE_ID = com.techfanseric.aiquotabar.sleep-helper
-APP_VERSION ?= 1.34.0
-APP_BUILD ?= 64
+APP_VERSION ?= 1.35.0
+APP_BUILD ?= 68
 CODESIGN_IDENTITY ?= -
 EXPECTED_TEAM_ID ?=
 STABLE_CODESIGN_IDENTITY ?=
 STABLE_TEAM_ID ?=
+PKG_CODESIGN_IDENTITY ?=
+PKG_SCRIPTS = scripts/pkg/scripts
+PKG_DISTRIBUTION = scripts/pkg/Distribution.xml
 
 build:
 	swift build -c release --product $(APP_NAME)
@@ -108,13 +111,45 @@ stable-install: stable-sign
 		CODESIGN_IDENTITY="$(STABLE_CODESIGN_IDENTITY)" \
 		EXPECTED_TEAM_ID="$(STABLE_TEAM_ID)"
 
-package: sign
+pkg: sign
+	@rm -rf dist/pkg-root dist/pkg-dist.xml dist/$(APP_NAME).component.pkg
+	@mkdir -p dist/pkg-root/Applications
+	@cp -R dist/$(PRODUCT) dist/pkg-root/Applications/
+	@pkgbuild --root dist/pkg-root \
+		--scripts $(PKG_SCRIPTS) \
+		--identifier $(APP_BUNDLE_ID) \
+		--version $(APP_VERSION) \
+		--install-location / \
+		dist/$(APP_NAME).component.pkg
+	@sed -e 's/@VERSION@/$(APP_VERSION)/g' \
+		-e 's|@COMPONENT@|$(APP_NAME).component.pkg|g' \
+		$(PKG_DISTRIBUTION) > dist/pkg-dist.xml
+	@if [ -n "$(PKG_CODESIGN_IDENTITY)" ]; then \
+		echo "Signing installer package with identity: $(PKG_CODESIGN_IDENTITY)"; \
+		productbuild --distribution dist/pkg-dist.xml --package-path dist \
+			--sign "$(PKG_CODESIGN_IDENTITY)" dist/$(APP_NAME).pkg; \
+	else \
+		echo "No PKG_CODESIGN_IDENTITY given: the installer package stays unsigned."; \
+		productbuild --distribution dist/pkg-dist.xml --package-path dist \
+			dist/$(APP_NAME).pkg; \
+	fi
+	@rm -rf dist/pkg-root dist/pkg-dist.xml dist/$(APP_NAME).component.pkg
+	@rm -f dist/$(APP_NAME).pkg.sha256
+	@cd dist && /usr/bin/shasum -a 256 $(APP_NAME).pkg > $(APP_NAME).pkg.sha256
+	@echo "Wrote dist/$(APP_NAME).pkg"
+
+dmg: sign
 	@rm -rf dist/dmg-root
 	@mkdir -p dist/dmg-root
 	@cp -R dist/$(PRODUCT) dist/dmg-root/$(PRODUCT)
 	@ln -s /Applications dist/dmg-root/Applications
 	@hdiutil create dist/$(APP_NAME).dmg -volname "$(APP_DISPLAY_NAME)" -fs APFS -srcfolder dist/dmg-root -ov -format UDZO
 	@rm -rf dist/dmg-root
+
+# The drag-and-drop disk image is no longer the release artifact. Kept as a
+# fallback for anyone who prefers it; `make pkg` is what gets uploaded.
+package: dmg
+	@echo "The release artifact is now dist/$(APP_NAME).pkg (make pkg). This built the fallback DMG."
 
 clean:
 	swift package reset

@@ -99,5 +99,6 @@ AI Quota Bar 是一个 macOS 14+ 菜单栏应用，用于集中查看 AI 编程�
 
 - Swift Package Manager，Swift tools 5.9，macOS 14 SDK。
 - 本仓库依赖同级目录中的 CodexBar checkout。
-- `make build` 构建 release 二进制；`make app` 组装应用；`make install` 安装并重启；`make package` 生成 DMG。
-- 公开 Apple Silicon DMG 使用 ad-hoc runtime 签名，当前未经过 Apple 公证。
+- `make build` 构建 release 二进制；`make app` 组装应用；`make install` 安装并重启；`make pkg` 生成安装包（发布制品）；`make dmg` 备用磁盘映像。
+- 发布制品是 `AIQuotaBar.pkg`：preinstall 退出正在运行的旧版，postinstall 在装完后拉起应用并删除安装包本身。脚本在 `scripts/pkg/`。
+- 公开 Apple Silicon 安装包内的应用使用 ad-hoc runtime 签名，安装包本身未签名，当前未经过 Apple 公证。
