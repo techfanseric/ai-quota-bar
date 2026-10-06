@@ -87,7 +87,13 @@ function cleanWindow(raw) {
   const resetsAt = cleanDate(raw.resetsAt);
   const sampledAt = cleanDate(raw.sampledAt);
   if (resetsAt === undefined || sampledAt === undefined) return undefined;
-  return { name, remainingPercent: percent, resetsAt, sampledAt };
+  // The window start is optional (publishers before it existed omit it) but must
+  // be coherent when present: a start at or after the reset is not a window, and
+  // readers turn it into a row that is permanently "out of cycle".
+  const startsAt = cleanDate(raw.startsAt);
+  if (startsAt === undefined) return undefined;
+  if (startsAt !== null && Date.parse(startsAt) >= Date.parse(resetsAt)) return undefined;
+  return { name, remainingPercent: percent, resetsAt, sampledAt, startsAt };
 }
 
 function cleanAccount(raw) {
@@ -135,6 +141,18 @@ function authorized(request, env) {
 
 const clientKey = request => request.headers.get('cf-connecting-ip') || 'local';
 
+// A sample time is when a number was *measured*, so it can never be later than the
+// moment the service received it. Publishers before v1.34.1 sent the window's reset
+// time instead (a weekly window resets days out), and readers rendered that as
+// "updated 10/11 23:59" -- a future timestamp for data that was minutes old, which
+// reads worse than no timestamp at all. Clamping here fixes every reader at once,
+// including ones we cannot make upgrade.
+function clampWindowSamples(windows, now) {
+  return windows.map(window => Date.parse(window.sampledAt) > Date.parse(now)
+    ? { ...window, sampledAt: now }
+    : window);
+}
+
 async function publish(request, env) {
   let payload;
   try { payload = await readBody(request); } catch (error) {
@@ -178,7 +196,7 @@ async function publish(request, env) {
     const key = await digestKey(entry.account);
     statements.push(env.DB.prepare(
       'INSERT INTO watch_shared_quota(account_key,publisher_id,payload,updated_at) VALUES(?,?,?,?)')
-      .bind(key, publisher, JSON.stringify({ plan: entry.plan, windows: entry.windows, sampled_at: now }), now));
+      .bind(key, publisher, JSON.stringify({ plan: entry.plan, windows: clampWindowSamples(entry.windows, now), sampled_at: now }), now));
   }
   await env.DB.batch(statements);
   return json({ ok: true, published: accounts.length, updated_at: now });

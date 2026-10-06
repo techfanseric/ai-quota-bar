@@ -15,7 +15,7 @@ struct CompactStatusRenderState: Equatable {
     let scale: CGFloat
     let height: CGFloat
     let reduceMotion: Bool
-    let placeholderShowsCount: Bool
+    let placeholderStyle: MenuBarPlaceholderStyle
 
     static func == (lhs: Self, rhs: Self) -> Bool {
         lhs.snapshots.count == rhs.snapshots.count
@@ -23,6 +23,11 @@ struct CompactStatusRenderState: Equatable {
                 a.provider == b.provider && a.ringPercent == b.ringPercent
                     && a.paceDeltaPercent == b.paceDeltaPercent && a.state == b.state
                     && a.isLowQuota == b.isLowQuota
+                    // The inner disc is drawn from the trend when one exists, so a
+                    // new sample has to invalidate the raster even though ring and
+                    // pace are both unchanged. Without this the curve would freeze
+                    // on the first snapshot that cleared the minimum point count.
+                    && a.ringTrend == b.ringTrend
             }
             && lhs.connectivity == rhs.connectivity && lhs.pace == rhs.pace
             && lhs.taskWaveLayout == rhs.taskWaveLayout
@@ -30,7 +35,7 @@ struct CompactStatusRenderState: Equatable {
             && lhs.padding == rhs.padding && lhs.spacing == rhs.spacing
             && lhs.appearance == rhs.appearance && lhs.scale == rhs.scale
             && lhs.height == rhs.height && lhs.reduceMotion == rhs.reduceMotion
-            && lhs.placeholderShowsCount == rhs.placeholderShowsCount
+            && lhs.placeholderStyle == rhs.placeholderStyle
     }
 }
 
@@ -265,6 +270,7 @@ final class StatusBarController {
             _ = viewModel.menuBarCompactHorizontalPadding
             _ = viewModel.menuBarCompactRingSpacing
             _ = viewModel.isMenuBarSelfTesting
+            _ = viewModel.menuBarPlaceholderStyle
         } onChange: { [weak self] in
             self?.updateStatusItem()
         }
@@ -690,7 +696,7 @@ final class StatusBarController {
                 taskWaveLayout: viewModel.menuBarTaskWaveLayout,
                 isSelfTesting: viewModel.isMenuBarSelfTesting,
                 activeTaskCounts: sleepProtectionCoordinator.activeTaskCounts,
-                placeholderShowsCount: viewModel.menuBarPlaceholderShowsCount,
+                placeholderStyle: viewModel.menuBarPlaceholderStyle,
                 horizontalPadding: viewModel.menuBarCompactHorizontalPadding,
                 ringSpacing: viewModel.menuBarCompactRingSpacing,
                 accessibilityLabel: statusItemTooltip)
@@ -723,7 +729,7 @@ final class StatusBarController {
             appearance: button.effectiveAppearance.bestMatch(from: [.accessibilityHighContrastDarkAqua, .accessibilityHighContrastAqua, .darkAqua, .aqua])?.rawValue ?? "",
             scale: scale, height: statusView.frame.height,
             reduceMotion: NSWorkspace.shared.accessibilityDisplayShouldReduceMotion,
-            placeholderShowsCount: viewModel.menuBarPlaceholderShowsCount)
+            placeholderStyle: viewModel.menuBarPlaceholderStyle)
     }
 
     private func presentCompactButtonImages() {
@@ -794,8 +800,30 @@ final class StatusBarController {
             return viewModel.appLanguage.menuBarSelfTestTooltip()
         }
         guard displayedSnapshots.contains(where: { $0.provider == .codex }),
-              connectivityMonitor.state == .unreachable else { return base }
+              connectivityMonitor.state == .unreachable else {
+            return placeholderConnectivityTooltipSuffix(base) ?? base
+        }
         return viewModel.appLanguage.codexConnectivityUnavailableTooltip(base: base)
+    }
+
+    /// 占位用连通性形态时的 tooltip 追加行。
+    ///
+    /// 只认「快照是占位 + 偏好是连通性形态」，**不**认 provider —— 占位快照的
+    /// provider 只是文案占位，把它当门禁会出现「占位图标画着叉、tooltip 却说
+    /// 不了原因」的情况。连通性那一句也不设门禁：紧凑形态是图标、文字形态是
+    /// 标题行，两边都值得知道。
+    private func placeholderConnectivityTooltipSuffix(_ base: String) -> String? {
+        guard viewModel.menuBarPlaceholderStyle == .openAIConnectivity,
+              displayedCompactOrSingleSnapshots.contains(where: { $0.state == .placeholder })
+        else { return nil }
+        return viewModel.appLanguage.placeholderConnectivityTooltip(
+            base: base, connectivity: connectivityMonitor.state)
+    }
+
+    private var displayedCompactOrSingleSnapshots: [MenuBarSnapshot] {
+        viewModel.menuBarAppearance == .compactRing
+            ? displayedCompactSnapshots
+            : [viewModel.menuBarSnapshot]
     }
 
     private var displayedCompactSnapshots: [MenuBarSnapshot] {
@@ -911,7 +939,7 @@ private final class StatusBarContentView: NSView {
         taskWaveLayout: MenuBarTaskWaveLayout = .evenlySpaced,
         isSelfTesting: Bool,
         activeTaskCounts: [UsageProvider: Int],
-        placeholderShowsCount: Bool,
+        placeholderStyle: MenuBarPlaceholderStyle,
         horizontalPadding: Double,
         ringSpacing: Double,
         accessibilityLabel: String
@@ -924,7 +952,7 @@ private final class StatusBarContentView: NSView {
             taskWaveLayout: taskWaveLayout,
             isSelfTesting: isSelfTesting,
             activeTaskCounts: activeTaskCounts,
-            placeholderShowsCount: placeholderShowsCount,
+            placeholderStyle: placeholderStyle,
             horizontalPadding: horizontalPadding,
             ringSpacing: ringSpacing,
             accessibilityLabel: accessibilityLabel)
@@ -986,7 +1014,7 @@ final class StatusBarCompactRingsView: NSView {
         taskWaveLayout: MenuBarTaskWaveLayout = .evenlySpaced,
         isSelfTesting: Bool,
         activeTaskCounts: [UsageProvider: Int],
-        placeholderShowsCount: Bool = false,
+        placeholderStyle: MenuBarPlaceholderStyle = .openAIConnectivity,
         horizontalPadding: Double =
             MenuBarCompactLayoutPreferences.defaultHorizontalPadding,
         ringSpacing: Double =
@@ -1013,15 +1041,18 @@ final class StatusBarCompactRingsView: NSView {
         for (ringView, snapshot) in zip(ringViews, displayedSnapshots) {
             ringView.setSnapshot(
                 snapshot,
+                // 占位形态要看的恰恰是 OpenAI 连通性本身，跟这个占位快照标着
+                // 哪家供应商无关 —— provider 只是文案占位，不能拿来当门禁，
+                // 否则占位落在非 Codex 供应商上时记号会永远停在「探测中」。
                 connectivity:
-                    snapshot.provider == .codex
+                    snapshot.provider == .codex || snapshot.state == .placeholder
                         ? codexConnectivity
                         : .unknown,
                 paceDisplayMode: paceDisplayMode,
                 taskWaveLayout: taskWaveLayout,
                 isSelfTesting: isSelfTesting,
                 activeTaskCount: activeTaskCounts[snapshot.provider] ?? 0,
-                placeholderShowsCount: placeholderShowsCount,
+                placeholderStyle: placeholderStyle,
                 accessibilityLabel: snapshot.tooltip)
             ringView.setHovered(isHovered)
         }
@@ -1345,6 +1376,7 @@ final class StatusBarCompactRingView: NSView {
         remainingPercent: nil,
         ringPercent: nil,
         paceDeltaPercent: nil,
+        ringTrend: nil,
         resetsAt: nil,
         state: .loading,
         isLowQuota: false,
@@ -1361,7 +1393,7 @@ final class StatusBarCompactRingView: NSView {
     private var selfTestTask: Task<Void, Never>?
     private var taskEnergyTask: Task<Void, Never>?
     private var isHovered = false
-    private var placeholderShowsCount = false
+    private var placeholderStyle: MenuBarPlaceholderStyle = .openAIConnectivity
 
     override var isFlipped: Bool { false }
 
@@ -1390,7 +1422,7 @@ final class StatusBarCompactRingView: NSView {
         taskWaveLayout: MenuBarTaskWaveLayout = .evenlySpaced,
         isSelfTesting: Bool = false,
         activeTaskCount: Int = 0,
-        placeholderShowsCount: Bool = false,
+        placeholderStyle: MenuBarPlaceholderStyle = .openAIConnectivity,
         accessibilityLabel: String
     ) {
         let normalizedTaskCount = max(0, activeTaskCount)
@@ -1401,7 +1433,7 @@ final class StatusBarCompactRingView: NSView {
             || self.taskWaveLayout != taskWaveLayout
             || self.isSelfTesting != normalizedSelfTesting
             || self.activeTaskCount != normalizedTaskCount
-            || self.placeholderShowsCount != placeholderShowsCount
+            || self.placeholderStyle != placeholderStyle
 
         setAccessibilityLabel(accessibilityLabel)
         guard stateChanged else { return }
@@ -1412,7 +1444,7 @@ final class StatusBarCompactRingView: NSView {
         self.taskWaveLayout = taskWaveLayout
         self.isSelfTesting = normalizedSelfTesting
         self.activeTaskCount = normalizedTaskCount
-        self.placeholderShowsCount = placeholderShowsCount
+        self.placeholderStyle = placeholderStyle
         updateOfflinePulseAnimation()
         updateSelfTestAnimation()
         updateTaskEnergyAnimation()
@@ -1427,11 +1459,15 @@ final class StatusBarCompactRingView: NSView {
         let delta = selfTestFrame?.paceDeltaPercent ?? snapshot.paceDeltaPercent
         let glyph = MenuBarPaceGlyph(deltaPercent: delta, mode: paceDisplayMode)
         if state == .placeholder {
-            QuotaSymbolRenderer.drawBrandMark(
-                in: bounds.insetBy(dx: 1, dy: 1),
-                count: placeholderShowsCount
-                    ? snapshot.placeholderProviderCount
-                    : nil)
+            let rect = bounds.insetBy(dx: 1, dy: 1)
+            switch placeholderStyle {
+            case .openAIConnectivity:
+                QuotaSymbolRenderer.drawConnectivityMark(in: rect, connectivity: connectivity)
+            case .providerCount:
+                QuotaSymbolRenderer.drawBrandMark(in: rect, count: snapshot.placeholderProviderCount)
+            case .brandMark:
+                QuotaSymbolRenderer.drawBrandMark(in: rect)
+            }
             return
         }
         let status: QuotaSymbolRenderer.Status
@@ -1454,7 +1490,9 @@ final class StatusBarCompactRingView: NSView {
             status: status,
             lowQuota: selfTestFrame == nil ? snapshot.isLowQuota : (percent ?? 100) <= 20,
             offlineOpacity: offlinePulseOpacity,
-            liveOpacity: showsTaskEnergy ? Self.activeLiveRingOpacity : 1)
+            liveOpacity: showsTaskEnergy ? Self.activeLiveRingOpacity : 1,
+            // A self-test frame is a scripted demo of the fan, so it keeps the fan.
+            trend: selfTestFrame == nil ? snapshot.ringTrend : nil)
         if showsTaskEnergy {
             let scale = min(symbolRect.width / 367, symbolRect.height / 410)
             switch taskWaveLayout {

@@ -355,6 +355,10 @@ final class MenuBarPresentationTests: XCTestCase {
             MenuBarPaceDisplayMode.storageKey,
             MenuBarRingQuotaWindow.storageKey,
             MenuBarReserveQuotaWindow.storageKey,
+            // Per-provider overrides outrank the global defaults and persist in
+            // UserDefaults; without this key a sibling test's setRingCenterWindow
+            // silently decides which window the center resolves to here.
+            MenuBarProviderRingWindows.storageKey,
             CloudSyncSettings.enabledKey,
         ]
         let previousValues = keys.map { key in
@@ -411,6 +415,18 @@ final class MenuBarPresentationTests: XCTestCase {
             subscribeEndTime: nil)
 
         XCTAssertEqual(viewModel.menuBarSnapshot.ringPercent, 0)
+        // The center is `synchronized`, so it reads whatever the outer ring
+        // reads: the weekly window. That window is exhausted, so the fan is in
+        // deficit no matter which row is primary.
+        viewModel.setRingCenterWindow(.synchronized, for: .codex)
+        viewModel.usageData = UsageData(
+            provider: .codex,
+            remains: 1,
+            total: 2,
+            timestamp: now,
+            models: [fiveHour, exhaustedWeekly],
+            subscribeTitle: nil,
+            subscribeEndTime: nil)
         XCTAssertLessThan(viewModel.menuBarSnapshot.paceDeltaPercent ?? 0, 0)
     }
 
@@ -424,6 +440,10 @@ final class MenuBarPresentationTests: XCTestCase {
             MenuBarAppearance.storageKey,
             MenuBarRingQuotaWindow.storageKey,
             MenuBarReserveQuotaWindow.storageKey,
+            // Per-provider overrides outrank the global defaults and persist in
+            // UserDefaults; without this key a sibling test's setRingCenterWindow
+            // silently decides which window the center resolves to here.
+            MenuBarProviderRingWindows.storageKey,
             CloudSyncSettings.enabledKey,
         ]
         let previousValues = keys.map { key in
@@ -594,6 +614,7 @@ final class MenuBarPresentationTests: XCTestCase {
             MenuBarAppearance.storageKey,
             MenuBarPaceDisplayMode.storageKey,
             MenuBarReserveQuotaWindow.storageKey,
+            MenuBarProviderRingWindows.storageKey,
             CloudSyncSettings.enabledKey,
         ]
         let previousValues = keys.map { key in
@@ -991,6 +1012,7 @@ final class MenuBarPresentationTests: XCTestCase {
             remainingPercent: ringPercent,
             ringPercent: ringPercent,
             paceDeltaPercent: 0,
+            ringTrend: nil,
             resetsAt: nil,
             state: .ready,
             isLowQuota: false,

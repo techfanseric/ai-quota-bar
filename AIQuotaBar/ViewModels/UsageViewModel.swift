@@ -328,13 +328,14 @@ final class UsageViewModel {
         }
     }
 
-    /// 菜单栏占位（跟随模式无活动窗口 / 全部暂停）是否显示已启用的
-    /// 供应商数量，而不是默认的品牌字母标。
-    var menuBarPlaceholderShowsCount: Bool {
+    /// 一个 AI 都没开时（跟随模式无活动窗口 / 全部暂停）菜单栏占位显示什么。
+    /// 三选一，默认连通性。
+    var menuBarPlaceholderStyle: MenuBarPlaceholderStyle {
         didSet {
+            guard menuBarPlaceholderStyle != oldValue else { return }
             UserDefaults.standard.set(
-                menuBarPlaceholderShowsCount,
-                forKey: Self.menuBarPlaceholderShowsCountKey)
+                menuBarPlaceholderStyle.rawValue,
+                forKey: MenuBarPlaceholderStyle.storageKey)
             updateStatusBarText()
         }
     }
@@ -351,7 +352,6 @@ final class UsageViewModel {
     private static let cloudDataRetentionLimitKey = CloudDataRetentionLimit.storageKey
     static let pausedProvidersKey = "pausedUsageProviders"
     static let followRunningAppsKey = "menuFollowsRunningApps"
-    static let menuBarPlaceholderShowsCountKey = "menuBarPlaceholderShowsCount"
 
     // MARK: - Computed Properties
 
@@ -362,6 +362,7 @@ final class UsageViewModel {
         remainingPercent: nil,
         ringPercent: nil,
         paceDeltaPercent: nil,
+        ringTrend: nil,
         resetsAt: nil,
         state: .loading,
         isLowQuota: false,
@@ -372,6 +373,7 @@ final class UsageViewModel {
         remainingPercent: nil,
         ringPercent: nil,
         paceDeltaPercent: nil,
+        ringTrend: nil,
         resetsAt: nil,
         state: .loading,
         isLowQuota: false,
@@ -527,6 +529,7 @@ final class UsageViewModel {
             remainingPercent: nil,
             ringPercent: nil,
             paceDeltaPercent: nil,
+            ringTrend: nil,
             resetsAt: nil,
             state: state,
             isLowQuota: false,
@@ -571,11 +574,39 @@ final class UsageViewModel {
         primary: ModelUsageData,
         models: [ModelUsageData]
     ) -> MenuBarSnapshot {
-        let paceSource = menuBarPaceSource(for: primary, models: models)
-        let paceDelta = paceSource.currentIntervalPaceDeltaPercent
+        // 「只有 Weekly、没有 5h」是可判定的：同一 provider、同一账号下找 5h，
+        // 找不到就是周窗口独苗（关注来的快照、只报了周额度的账号都会这样）。
+        // 这时环与环内一律按 Weekly 计算 —— 用户设的是「环显示 5h」，但根本没有
+        // 5h 可显示，退回 Weekly 才是他真正想问的额度。
+        let weeklyOnly = hasFiveHourWindow(for: primary, in: models) == false
+        let accountModels = models.filter {
+            $0.normalizedAccountName == primary.normalizedAccountName
+        }
+        let weeklySource = weeklyOnly ? weeklyModel(for: primary.provider, in: accountModels) : nil
+        // 环内节奏从「谁真的算得出」里挑，而不是「谁被选中了」。一个只带百分比、
+        // 没有起止时间的周窗口会被顺利选中，然后让环内空掉 —— 用户看到的是
+        // 「选了周就没节奏」，而当前窗口明明是同一个窗口。
+        let paceDelta = Self.firstPaceCapable([
+            weeklySource,
+            menuBarPaceSource(for: primary, models: models),
+            primary,
+        ]) { $0.currentIntervalPaceDeltaPercent }
         let remaining = primary.currentIntervalPercentageRemaining
-        let ringPercent = menuBarRingPercent(for: primary, models: models)
+        let ringPercent = weeklySource?.currentIntervalPercentageRemaining
+            ?? menuBarRingPercent(for: primary, models: models)
         let warningLimit = warningThresholdEnabled ? warningThreshold : 20
+
+        // 趋势曲线和节奏扇形抢同一个内圈（QuotaSymbolRenderer 里趋势一旦成立就
+        // 直接 return，扇形没机会画），所以「有没有 5h」这个数据事实不能单方面
+        // 决定内圈归谁 —— 那会让「只有周窗口」的账号永远丢掉 deficit 视觉通道，
+        // 而 10% 超额恰恰是周窗口最该被看见的信号。
+        //
+        // 内环是独立设置项：synchronized（默认）跟随外环，也可以显式选周 /
+        // 短窗口 / 月度。趋势只在**内环确实落在周窗口**时才画；内环被指向别的
+        // 窗口，就说明用户想看那个窗口的节奏，内圈交还给扇形。
+        let centerWindow = reserveQuotaWindow(for: primary.provider)
+            .resolved(outerRing: ringQuotaWindow(for: primary.provider))
+        let centerUsesWeekly = centerWindow == .weekly
 
         return MenuBarSnapshot(
             provider: primary.provider,
@@ -583,6 +614,7 @@ final class UsageViewModel {
             remainingPercent: remaining,
             ringPercent: ringPercent,
             paceDeltaPercent: paceDelta,
+            ringTrend: weeklyOnly && centerUsesWeekly ? ringTrendPoints(for: weeklySource) : nil,
             resetsAt: primary.endTime,
             state: .ready,
             isLowQuota: remaining <= warningLimit,
@@ -593,6 +625,83 @@ final class UsageViewModel {
                         ? ringPercent
                         : nil,
                 paceDelta: paceDelta))
+    }
+
+    /// 这条 model 所属的账号还有没有 5h 短窗口。
+    ///
+    /// 两个判据取并集：窗口**名**里带 5h（发布方直接给的稳定事实，GLM 叫
+    /// `GLM Credits (5h)`、Codex Spark 叫 `Codex Spark 5-hour`，都不是恰好等于
+    /// `5h`），以及窗口**时长**落在 5 小时上下。只判名字会漏掉带前缀的写法，
+    /// 只判时长又会在云端快照缺 start/end 时全部落空。
+    private func hasFiveHourWindow(
+        for primary: ModelUsageData, in models: [ModelUsageData]
+    ) -> Bool {
+        // 只有真正支持「周窗口做环」的 provider 才走这条判定。MiniMax 压根没有
+        // 周窗口，硬套只会得到一个空 weekly，然后退回原有行为 —— 与其绕一圈
+        // 证明自己没变化，不如一开始就不参与。
+        guard primary.provider == .codex || primary.provider == .kimi || primary.provider == .glm
+        else { return true }
+        return models.contains { model in
+            guard model.provider == primary.provider,
+                  model.normalizedAccountName == primary.normalizedAccountName
+            else { return false }
+            return model.isShortCurrentInterval
+                || Self.looksLikeFiveHourWindowName(model.modelName)
+        }
+    }
+
+    /// 按顺序挑第一个真能给出这个值的候选。
+    ///
+    /// 存在的候选 ≠ 可用的候选：云端补全、关注快照、缺 start/end 的历史行都只有
+    /// 一个百分比，选中它们只会得到 nil，而 nil 会让整块 UI 消失（环内空掉、
+    /// tooltip 少一段）。所以这里按「能不能算出」排序，而不是按「谁被选中」。
+    nonisolated static func firstPaceCapable(
+        _ candidates: [ModelUsageData?],
+        _ value: (ModelUsageData) -> Double?
+    ) -> Double? {
+        for candidate in candidates {
+            guard let candidate, let result = value(candidate) else { continue }
+            return result
+        }
+        return nil
+    }
+
+    nonisolated static func looksLikeFiveHourWindowName(_ raw: String) -> Bool {        let name = raw.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        return name.contains("5h") || name.contains("5-hour") || name.contains("5 hour")
+    }
+
+    /// 环内趋势曲线的数据源：本机记下的这条窗口的剩余百分比序列。
+    func ringTrendPoints(for model: ModelUsageData?) -> [MenuBarRingTrendPoint]? {
+        guard let model else { return nil }
+        return Self.ringTrendPoints(for: model, samples: modelQuotaSamples[model.id] ?? [])
+    }
+
+    /// 只取**当前窗口内**的样本：上一个周期剩下的数字画在今天的坐标里是一条
+    /// 从 0 陡起的假趋势，比不画更误导。
+    nonisolated static func ringTrendPoints(
+        for model: ModelUsageData, samples: [ModelQuotaSample]
+    ) -> [MenuBarRingTrendPoint]? {
+        guard let window = model.quotaChartWindow() else { return nil }
+        let span = window.end.timeIntervalSince(window.start)
+        guard span > 0 else { return nil }
+        let inWindow = samples
+            .filter { $0.timestamp >= window.start && $0.timestamp <= window.end }
+            .sorted { $0.timestamp < $1.timestamp }
+        let points = inWindow.suffix(MenuBarRingTrend.maximumPoints).compactMap {
+            sample -> MenuBarRingTrendPoint? in
+            guard let percent = sample.percent else { return nil }
+            return MenuBarRingTrendPoint(
+                x: min(1, max(0, sample.timestamp.timeIntervalSince(window.start) / span)),
+                y: min(1, max(0, Double(percent) / 100)))
+        }
+        guard points.count >= MenuBarRingTrend.minimumPoints else { return nil }
+        return points
+    }
+
+    /// 只给测试用：塞本机样本，绕开真实刷新。
+    func seedQuotaSamplesForTesting(_ samples: [String: [ModelQuotaSample]]) {
+        modelQuotaSamples = samples
+        updateStatusBarText()
     }
 
     /// Detailed + Automatic 有足够数据时每行显示一家。
@@ -723,13 +832,22 @@ final class UsageViewModel {
         let resolved = reserveQuotaWindow(for: primary.provider)
             .resolved(outerRing: ringQuotaWindow(for: primary.provider))
         guard resolved != .current else { return primary }
-        return windowModel(
+        let candidate = windowModel(
             resolved,
             for: primary.provider,
             in: models.filter {
                 $0.normalizedAccountName == primary.normalizedAccountName
-            })
-            ?? primary
+            }) ?? primary
+        // 「这个窗口存在」不等于「这个窗口算得出节奏」。只带百分比的行（云端补全、
+        // 关注快照、缺 start/end 的历史行）会被 weeklyModel 顺利找到，却算不出
+        // 匀速应该用了多少 —— 于是环内直接空掉。旧代码只在**找不到**窗口时回退，
+        // 找不到的回退是够的，找到一个废窗口的就漏了：那正是「选当前正常、选周
+        // 不正常」的不对称来源，而这两者本来就是同一个窗口。
+        if candidate.currentIntervalPaceDeltaPercent == nil,
+           primary.currentIntervalPaceDeltaPercent != nil {
+            return primary
+        }
+        return candidate
     }
 
     /// Codex, Kimi and GLM can source the outer arc from their weekly quota,
@@ -1137,8 +1255,7 @@ final class UsageViewModel {
                 .compactMap(UsageProvider.init(rawValue:)))
         self.followRunningApps =
             UserDefaults.standard.bool(forKey: Self.followRunningAppsKey)
-        self.menuBarPlaceholderShowsCount = UserDefaults.standard.bool(
-            forKey: Self.menuBarPlaceholderShowsCountKey)
+        self.menuBarPlaceholderStyle = MenuBarPlaceholderStyle.stored()
 
         if providerPresence == nil {
             teamObserver = NotificationCenter.default.publisher(for: .teamConnectionChanged).sink { [weak self] _ in
@@ -1930,6 +2047,34 @@ final class UsageViewModel {
             await refresh(showIconSelfTest: false)
         }
         await store.refresh(usageData: providerUsageData[.codex])
+        recordWatchSamples(at: Date())
+    }
+
+    /// 把关注来的窗口也写进本机采样。
+    ///
+    /// 曲线是**本机历史**画出来的：只有被本机 `recordSamples` 记过的 model id 才有
+    /// 曲线数据。关注来的行如果只停在 `providerUsageSections` 里当一行百分比，
+    /// 它就永远没有曲线 —— 而「只有 Weekly、没有 5h」的账号恰恰是最需要曲线来
+    /// 表达趋势的那个（5h 那种短窗口的柱状节奏对它没有意义）。
+    ///
+    /// 采样是按 model id（provider + 邮箱 + 窗口名）归档的，关注来的 id 与本机
+    /// 账号不冲突，所以两边共用同一份样本库、各自累积各自的曲线。
+    ///
+    /// 只取**这一轮真的读回来**的账号。拉取失败或数据过期时，缓存里的旧快照会
+    /// 继续显示（行不能凭空消失），但它不是一次新读数 —— 拿它去采样等于把同一个
+    /// 旧数字反复记进曲线，画出来比真实情况平得多。宁可这段曲线不增长。
+    private func recordWatchSamples(at timestamp: Date) {
+        let models = CodexWatchStore.shared.freshlyFetchedModels
+        guard !models.isEmpty else { return }
+        let data = UsageData(
+            provider: .codex,
+            remains: models.filter(\.isCurrentIntervalAvailable).count,
+            total: models.count,
+            timestamp: timestamp,
+            models: models,
+            subscribeTitle: nil,
+            subscribeEndTime: nil)
+        recordSamples(from: data, timestamp: timestamp)
     }
 
     @ObservationIgnored private var isRunningCodexWatchRefresh = false
@@ -2043,7 +2188,7 @@ final class UsageViewModel {
         let curveModelIDs = QuotaCurveModelSelector.curveModelIDs(
             in: data.models,
             renderableModelIDs: renderableModelIDs,
-            preferences: quotaChartDisplayPreferences)
+            preferences: self.quotaChartDisplayPreferences)
         let sampledModelIDs = Self.sampledModelIDs(
             curveModelIDs: curveModelIDs,
             models: data.models,

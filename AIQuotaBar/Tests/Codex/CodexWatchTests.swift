@@ -20,13 +20,14 @@ final class CodexWatchTests: XCTestCase {
         _ name: String = "5h",
         percent: Int = 50,
         sampledAt: Date? = nil,
+        endTime: Date? = nil,
         plan: String? = "Plus"
     ) -> ModelUsageData {
         ModelUsageData(
             provider: .codex, accountName: account, modelName: name,
             currentIntervalTotal: 100, currentIntervalUsed: percent,
             weeklyTotal: 0, weeklyUsed: 0, remainsTime: 3_600_000,
-            startTime: nil, endTime: Date().addingTimeInterval(3600),
+            startTime: nil, endTime: endTime ?? Date().addingTimeInterval(3600),
             weeklyStartTime: nil, weeklyEndTime: nil,
             valueSuffix: "%",
             detailText: plan.map { "\($0) · Codex" },
@@ -112,6 +113,25 @@ final class CodexWatchTests: XCTestCase {
         // 百分比是额度唯一的对外形状：绝对量会暴露这个人真实烧了多少。
         XCTAssertEqual(window.remainingPercent, 37)
         XCTAssertNotEqual(window.remainingPercent, 63)
+    }
+
+    func testPublishedSampleTimeIsNeverTheWindowResetTime() {
+        let (store, _) = makeStore()
+        store.isSharing = true
+        store.setShared(true, for: "a@example.com")
+        // 这一行没有任何采样时刻，而它的 endTime 在 5 天之后（周窗口的 resetsAt）。
+        let weeklyReset = Date().addingTimeInterval(5 * 86_400)
+        let usage = codexUsage([
+            model("a@example.com", "Weekly", percent: 43, endTime: weeklyReset),
+        ])
+        let window = store.publishableSnapshots(from: usage)[0].windows[0]
+        // 兜底曾经是 model.endTime，于是发布出去的是一个未来的时刻：读侧菜单显示
+        // 「更新于 10/11 23:59」，而数据是几分钟前的。没有时间可以，未来的时间不行。
+        XCTAssertNotEqual(window.sampledAt, weeklyReset,
+                          "a sample time is never a window boundary")
+        XCTAssertLessThanOrEqual(window.sampledAt ?? .distantFuture, Date())
+        XCTAssertEqual(window.sampledAt, usage.timestamp,
+                       "no per-model sample time means the fetch time, not the reset time")
     }
 
     func testDuplicateWindowsKeepTheFreshestSample() {
@@ -240,7 +260,8 @@ final class CodexWatchTests: XCTestCase {
                 account: "a@example.com", plan: "Plus",
                 windows: [CodexWatchWindow(
                     name: "5h", remainingPercent: 40,
-                    resetsAt: Date(), sampledAt: Date().addingTimeInterval(-9000))],
+                    resetsAt: Date(), sampledAt: Date().addingTimeInterval(-9000),
+                    startsAt: Date().addingTimeInterval(-5 * 3600))],
                 publishedAt: Date().addingTimeInterval(-9000)))
         if case .available = store.status(for: "a@example.com") {} else {
             XCTFail("a fresh snapshot should read as available")
@@ -263,7 +284,8 @@ final class CodexWatchTests: XCTestCase {
                 account: "a@example.com", plan: "Plus",
                 windows: [CodexWatchWindow(
                     name: "5h", remainingPercent: 40,
-                    resetsAt: Date().addingTimeInterval(3600), sampledAt: Date())],
+                    resetsAt: Date().addingTimeInterval(3600), sampledAt: Date(),
+                    startsAt: Date().addingTimeInterval(-5 * 3600))],
                 publishedAt: Date()))
         let rows = store.watchedModels
         XCTAssertEqual(rows.count, 1)
@@ -272,6 +294,30 @@ final class CodexWatchTests: XCTestCase {
         XCTAssertEqual(rows[0].currentIntervalRemainingPercent, 40)
         XCTAssertEqual(rows[0].currentIntervalTotal, 100,
                        "the shareable shape is a percentage, never an absolute count")
+    }
+
+    func testFutureSampleTimeFromAnOldPublisherFallsBackToPublishedAt() {
+        let (store, _) = makeStore()
+        store.watch("a@example.com")
+        // 线上真实存着的一条：发布方把周窗口的结束时刻当成了采样时刻。
+        let publishedAt = Date().addingTimeInterval(-300)
+        let reset = Date().addingTimeInterval(5 * 86_400)
+        store.seedSnapshotForTesting(
+            account: "a@example.com",
+            snapshot: CodexWatchSnapshot(
+                account: "a@example.com", plan: "Pro 5x",
+                windows: [CodexWatchWindow(
+                    name: "Weekly", remainingPercent: 43,
+                    resetsAt: reset, sampledAt: reset,
+                    startsAt: Date().addingTimeInterval(-2 * 86_400))],
+                publishedAt: publishedAt))
+        let row = store.watchedModels[0]
+        // 菜单右端显示的「更新于」读的是 sampledAt。未来的时刻读起来像
+        // 「五天后才更新」，会去判断是不是坏了 —— 退回发布时刻才对。
+        XCTAssertEqual(row.sampledAt, publishedAt,
+                       "a future sample time is not a time, it is a bug report")
+        XCTAssertEqual(row.endTime, reset,
+                       "the reset time is still shown as the reset time")
     }
 
     // MARK: - 地址 → 云端查找键

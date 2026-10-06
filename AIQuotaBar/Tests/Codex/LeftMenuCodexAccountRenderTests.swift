@@ -47,6 +47,18 @@ final class LeftMenuCodexAccountRenderTests: XCTestCase {
                         sampledAt: now.addingTimeInterval(-2 * 3_600),
                         windowStart: now.addingTimeInterval(-5 * 86_400),
                         windowEnd: now.addingTimeInterval(2 * 86_400)),
+                    // 跨天快照：右侧摘要必须落成「M/d HH:mm」而不是裸时刻，
+                    // 否则读不出这条数据是哪天的。窗口仍在（Weekly），只是
+                    // 账号昨天就没再上报 —— 这正是需要日期的形态。
+                    makeModel(
+                        account: "archive-2026@gmail.com",
+                        name: "Weekly",
+                        detail: "Cloud · resets 10/08 09:00",
+                        remainingPercent: 12,
+                        weeklyRemainingPercent: 12,
+                        sampledAt: now.addingTimeInterval(-1 * 86_400 - 3_600),
+                        windowStart: now.addingTimeInterval(-5 * 86_400),
+                        windowEnd: now.addingTimeInterval(2 * 86_400)),
                 ],
                 subscribeTitle: nil,
                 subscribeEndTime: nil),

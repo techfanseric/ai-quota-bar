@@ -22,10 +22,17 @@ struct DisplayPane: View {
                     title: viewModel.appLanguage.menuBarPlaceholderSectionTitle,
                     contentSpacing: 12
                 ) {
-                    PreferenceToggleRow(
-                        title: viewModel.appLanguage.menuBarPlaceholderCountLabel,
-                        subtitle: viewModel.appLanguage.menuBarPlaceholderCountDescription,
-                        isOn: $viewModel.menuBarPlaceholderShowsCount)
+                    PreferencePickerRow(
+                        title: viewModel.appLanguage.menuBarPlaceholderStyleLabel,
+                        subtitle: viewModel.appLanguage.menuBarPlaceholderStyleDescription,
+                        selection: $viewModel.menuBarPlaceholderStyle,
+                        maxWidth: 180
+                    ) {
+                        ForEach(MenuBarPlaceholderStyle.allCases) { style in
+                            Text(viewModel.appLanguage.menuBarPlaceholderStyleDisplayName(style))
+                                .tag(style)
+                        }
+                    }
                 }
                 Divider()
                 LeftClickMenuProviderOrderSection(

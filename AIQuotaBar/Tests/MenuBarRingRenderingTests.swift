@@ -8,15 +8,16 @@ final class MenuBarRingRenderingTests: XCTestCase {
     func testRasterCacheIgnoresTooltipButInvalidatesVisibleInputs() {
         func key(tooltip: String = "one", percent: Double = 50, appearance: String = "dark",
                  scale: CGFloat = 2, tasks: Int = 1, reduceMotion: Bool = false,
-                 placeholderShowsCount: Bool = false,
+                 placeholderStyle: MenuBarPlaceholderStyle = .openAIConnectivity,
                  taskWaveLayout: MenuBarTaskWaveLayout = .evenlySpaced) -> CompactStatusRenderState {
             CompactStatusRenderState(snapshots: [MenuBarSnapshot(provider: .codex, modelName: nil,
                 remainingPercent: percent, ringPercent: percent, paceDeltaPercent: 0,
+                ringTrend: nil,
                 resetsAt: nil, state: .ready, isLowQuota: false, tooltip: tooltip)],
                 connectivity: .reachable, pace: .staged, taskWaveLayout: taskWaveLayout,
                 selfTesting: false, tasks: [.codex: tasks],
                 padding: 4, spacing: 4, appearance: appearance, scale: scale, height: 22, reduceMotion: reduceMotion,
-                placeholderShowsCount: placeholderShowsCount)
+                placeholderStyle: placeholderStyle)
         }
         XCTAssertEqual(key(), key(tooltip: "countdown changed"))
         XCTAssertNotEqual(key(), key(percent: 49))
@@ -24,7 +25,8 @@ final class MenuBarRingRenderingTests: XCTestCase {
         XCTAssertNotEqual(key(), key(scale: 1))
         XCTAssertNotEqual(key(), key(tasks: 2))
         XCTAssertNotEqual(key(), key(reduceMotion: true))
-        XCTAssertNotEqual(key(), key(placeholderShowsCount: true))
+        XCTAssertNotEqual(key(), key(placeholderStyle: .providerCount))
+        XCTAssertNotEqual(key(), key(placeholderStyle: .brandMark))
         XCTAssertNotEqual(key(), key(taskWaveLayout: .chaseQueue))
     }
 
@@ -374,6 +376,7 @@ final class MenuBarRingRenderingTests: XCTestCase {
                 remainingPercent: 72,
                 ringPercent: state.ring,
                 paceDeltaPercent: state.delta,
+                ringTrend: nil,
                 resetsAt: Date().addingTimeInterval(3600),
                 state: .ready,
                 isLowQuota: false,
@@ -445,6 +448,7 @@ final class MenuBarRingRenderingTests: XCTestCase {
             remainingPercent: 42,
             ringPercent: 42,
             paceDeltaPercent: -12,
+            ringTrend: nil,
             resetsAt: nil,
             state: .ready,
             isLowQuota: false,
@@ -475,6 +479,7 @@ final class MenuBarRingRenderingTests: XCTestCase {
                 remainingPercent: 50,
                 ringPercent: 50,
                 paceDeltaPercent: 0,
+                ringTrend: nil,
                 resetsAt: nil,
                 state: .ready,
                 isLowQuota: false,
@@ -505,6 +510,7 @@ final class MenuBarRingRenderingTests: XCTestCase {
                 remainingPercent: 50,
                 ringPercent: 50,
                 paceDeltaPercent: 0,
+                ringTrend: nil,
                 resetsAt: nil,
                 state: .ready,
                 isLowQuota: false,
@@ -531,6 +537,7 @@ final class MenuBarRingRenderingTests: XCTestCase {
             remainingPercent: 65,
             ringPercent: 65,
             paceDeltaPercent: 5,
+            ringTrend: nil,
             resetsAt: nil,
             state: .ready,
             isLowQuota: false,
@@ -618,6 +625,7 @@ final class MenuBarRingRenderingTests: XCTestCase {
                 remainingPercent: ringPercent,
                 ringPercent: ringPercent,
                 paceDeltaPercent: 0,
+                ringTrend: nil,
                 resetsAt: Date().addingTimeInterval(3_600),
                 state: .ready,
                 isLowQuota: false,
