@@ -5,6 +5,9 @@ import SwiftUI
 struct MenuView: View {
     @State private var showsUsagePreview = false
     @State private var updates = UpdateChecker.shared
+    /// 当前悬停着、等着出气泡的行。footer 里的按钮不在 ProviderModelsSection 里，
+    /// 自己记一份；同一时刻只可能有一行被悬停，所以一个 id 就够。
+    @State private var hoveredTooltipID: String?
     @Bindable var viewModel: UsageViewModel
     @Bindable var presentationSizing: MenuPresentationSizing
     var onOpenSettings: () -> Void
@@ -28,6 +31,9 @@ struct MenuView: View {
         .frame(width: MenuBarPanelLayout.width)
         .task { await updates.checkIfNeeded() }
         .onChange(of: showsUsagePreview) { _, _ in onLayoutChange() }
+        // 必须挂最后：它要拿到整棵树的锚点并在最外层画气泡，且自己定义的
+        // 坐标系得覆盖到所有锚点上报的位置。
+        .modifier(MenuTooltipLayer())
     }
 
     private var language: AppLanguage {
@@ -216,7 +222,11 @@ struct MenuView: View {
                         .truncationMode(.middle)
                 }
                 .buttonStyle(.plain)
-                .help(language == .simplifiedChinese ? "查看更新日志与下载新版" : "View release notes and download")
+                .onHover { over in hoverTooltip(over, id: footerReleaseTooltipID) }
+                .menuTooltipAnchor(
+                    id: footerReleaseTooltipID,
+                    lines: footerReleaseTooltipLines,
+                    isHovered: hoveredTooltipID == footerReleaseTooltipID)
             }
 
             Spacer(minLength: 4)
@@ -231,6 +241,23 @@ struct MenuView: View {
             .buttonStyle(.plain)
         }
         .padding(.horizontal, 4)
+    }
+
+    private var footerReleaseTooltipID: String { "footer-release" }
+
+    private var footerReleaseTooltipLines: [String] {
+        [language == .simplifiedChinese ? "查看更新日志与下载新版" : "View release notes and download"]
+    }
+
+    /// 悬停进/出时登记自己。退出时只清**自己**登记的那个 id —— 鼠标从上一行快速
+    /// 划到下一行时，两个 onHover 的到达顺序不保证，而无脑清空会把已经划过的那一行
+    /// 的悬停状态抹掉，气泡于是"指针明明停着却没出现"。
+    func hoverTooltip(_ isOver: Bool, id: String) {
+        if isOver {
+            hoveredTooltipID = id
+        } else if hoveredTooltipID == id {
+            hoveredTooltipID = nil
+        }
     }
 
     /// 当 Codex 是唯一已配置且尚未拉到数据时，触发 codex 专属占位
@@ -341,6 +368,24 @@ private struct ProviderModelsSection: View {
     /// 账号分组折叠状态的用户覆盖；未覆盖时默认「当前账号展开、其余收起」，
     /// 切换登录账号后清空，让默认规则对新账号重新生效。
     @State private var accountCollapseOverrides: [String: Bool] = [:]
+    /// 本 section 内当前悬停的行。整个 section 一个就够：鼠标同时只可能在
+    /// 一行上，而每行各自一份 @State 是做不到的（这些行都是本 View 的方法返回值，
+    /// 共享同一份状态存储）。
+    @State private var hoveredTooltipID: String?
+
+    /// 锚点名带上前缀和 provider。同名账号在两个 provider 下都可能出现，
+    /// id 撞了根层那份表就会后写覆盖先写，气泡会显示成另一个供应商的账号。
+    func hoverTooltip(_ isOver: Bool, id: String) {
+        if isOver {
+            hoveredTooltipID = id
+        } else if hoveredTooltipID == id {
+            hoveredTooltipID = nil
+        }
+    }
+
+    private func accountTooltipID(_ accountName: String?) -> String {
+        "account-\(data.provider.rawValue)-\(accountName ?? "unknown")"
+    }
 
     private var visibleModels: [ModelUsageData] {
         return sortedMenuModels(data.models).filter {
@@ -652,11 +697,18 @@ private struct ProviderModelsSection: View {
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
-        .help(language.providerCollapseHint(isCollapsed: isCollapsed))
+        .onHover { over in hoverTooltip(over, id: providerTooltipID) }
+        .menuTooltipAnchor(
+            id: providerTooltipID,
+            lines: [language.providerCollapseHint(isCollapsed: isCollapsed)],
+            isHovered: hoveredTooltipID == providerTooltipID)
     }
+
+    private var providerTooltipID: String { "provider-header-\(data.provider.rawValue)" }
 
     @ViewBuilder
     private func accountHeader(_ group: AccountModelGroup, isCurrent: Bool) -> some View {
+        let tooltipID = accountTooltipID(group.accountName)
         if data.provider == .codex {
             Button {
                 toggleAccountCollapsed(group)
@@ -702,9 +754,13 @@ private struct ProviderModelsSection: View {
                 .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
-            // tooltip 挂在整个头部上，不挂在右侧那几段上：Button 内部的子视图
+            // 悬停挂在整个头部上，不挂在右侧那几段上：Button 内部的子视图
             // 拿不到 hover，挂在它上面等于白写。
-            .help(accountTrailingHelp(group, isCurrent: isCurrent))
+            .onHover { over in hoverTooltip(over, id: tooltipID) }
+            .menuTooltipAnchor(
+                id: tooltipID,
+                lines: accountTrailingHelpLines(group, isCurrent: isCurrent),
+                isHovered: hoveredTooltipID == tooltipID)
         } else {
             HStack(alignment: .firstTextBaseline, spacing: 6) {
                 Text(accountSourceSummary(group.models))
@@ -747,6 +803,8 @@ private struct ProviderModelsSection: View {
         HStack(spacing: 6) {
             ForEach(cycles, id: \.id) { cycle in
                 let isSelected = cycle.id == selectedID
+                let cycleTooltipID =
+                    "cycle-\(data.provider.rawValue)-\(group.accountName ?? "unknown")-\(cycle.id)"
                 Button {
                     viewModel.setCycleChoice(
                         cycle.modelName, provider: data.provider, accountName: group.accountName)
@@ -763,9 +821,11 @@ private struct ProviderModelsSection: View {
                                 Color.primary.opacity(isSelected ? 0.35 : 0.12), lineWidth: 1))
                 }
                 .buttonStyle(.plain)
-                .help(isSelected
-                    ? "头部正在显示这个 cycle 的剩余量"
-                    : "点头部改看这个 cycle")
+                .onHover { over in hoverTooltip(over, id: cycleTooltipID) }
+                .menuTooltipAnchor(
+                    id: cycleTooltipID,
+                    lines: [isSelected ? "头部正在显示这个 cycle 的剩余量" : "点头部改看这个 cycle"],
+                    isHovered: hoveredTooltipID == cycleTooltipID)
             }
             Spacer()
         }
@@ -818,16 +878,18 @@ private struct ProviderModelsSection: View {
 
     /// 悬停头部时解释这个数字的来历。
     ///
-    /// 一句话说完"来自哪里"和"什么时候量的"，再在多于一个来源时补一句为什么
-    /// —— 一个账号同时有本机和云端数据时，显示的是其中较新的一次，这个取舍
-    /// 不写出来就会让人以为数字对不上。
-    private func accountTrailingHelp(
+    /// 一行说清"来自哪里"，再多于一个来源时补一行为什么 —— 一个账号同时有本机
+    /// 和云端数据时，显示的是其中较新的一次，这个取舍不写出来就会让人以为数字
+    /// 对不上。最后一行是采样时间。
+    ///
+    /// 返回**行数组**而不是拼好的字符串：气泡自己按行排版（每行独立 Text），
+    /// 拿到一个用 `\n` 拼好的串再拆回来等于凭空引入一次拆分规则。
+    private func accountTrailingHelpLines(
         _ group: AccountModelGroup, isCurrent: Bool
-    ) -> String {
+    ) -> [String] {
         let summary = accountTrailing(group, isCurrent: isCurrent)
         let kinds = AccountSourceKind.ordered(summary.kinds)
         let remote = kinds.filter { $0 != .local }
-        let time = summary.sampledAt.map { language.updatedAgoText(from: $0) } ?? ""
         let lang = language
 
         var lines: [String] = []
@@ -844,8 +906,10 @@ private struct ProviderModelsSection: View {
             case .local: break
             }
         }
-        let body = lines.joined(separator: "\n")
-        return time.isEmpty ? body : body + "\n" + time
+        if let sampledAt = summary.sampledAt {
+            lines.append(lang.updatedAgoText(from: sampledAt))
+        }
+        return lines
     }
 
     private func percentColor(_ percent: Int) -> Color {
