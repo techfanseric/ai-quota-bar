@@ -134,6 +134,75 @@ final class QuotaSourceMergeTests: XCTestCase {
         XCTAssertEqual(row.parsedDetail.source, "Mix")
     }
 
+    // MARK: - 关注行 vs 本机/云端行
+
+    /// 线上真实发生过的一次：同一个邮箱既是本机托管账号、又进了团队云端，
+    /// 于是同一个 cycle 上既有 Cloud 行也有 Watch 行。老实说那个 Watch 行
+    /// 是几秒前刚拉回来的，Cloud 行可能是两天前的 —— 结果显示的是旧值，
+    /// 而且眼睛图标整个消失，读起来像"这个邮箱没关注上"。
+    func testAFreshWatchedRowReplacesAnOlderCloudRowForTheSameCycle() {
+        let staleCloud = model(
+            percent: 84, sampledAt: Date().addingTimeInterval(-2 * 86_400),
+            source: "Cloud")
+        let freshWatch = model(percent: 69, sampledAt: Date(), source: "Watch")
+        let merged = UsageViewModel.mergingWatchedRows(
+            into: [staleCloud], watched: [freshWatch])
+        XCTAssertEqual(merged.count, 1, "同一个 cycle 只能出一行")
+        XCTAssertEqual(merged[0].currentIntervalRemainingPercent, 69,
+                       "更近的那次采样才配得上显示")
+    }
+
+    func testAWatchedAccountThatIsAlsoCloudReportedShowsBothIcons() {
+        let cloud = model(percent: 84, sampledAt: Date(), source: "Cloud")
+        let watch = model(percent: 69, sampledAt: Date(), source: "Watch")
+        let merged = UsageViewModel.mergingWatchedRows(
+            into: [cloud], watched: [watch])
+        XCTAssertEqual(merged[0].accountSourceKinds, Set([.cloud, .watch]))
+        let symbols = AccountSourceKind.ordered(merged[0].accountSourceKinds)
+            .compactMap(\.symbolName)
+        XCTAssertEqual(symbols, ["icloud", "eye"],
+                       "既被关注又在云端有数据，两枚图标都该在，不是二选一")
+    }
+
+    func testMergingAWatchedRowKeepsTheWinnerSourceSegment() {
+        // "Cloud" 这一段还管着跨天快照的 M/d HH:mm 和云端可见周期上限。
+        // 合成一行不该顺手把这些规则关掉。
+        let cloud = model(percent: 84, sampledAt: Date(), source: "Cloud")
+        let watch = model(percent: 69, sampledAt: Date().addingTimeInterval(-60), source: "Watch")
+        let merged = UsageViewModel.mergingWatchedRows(
+            into: [cloud], watched: [watch])
+        XCTAssertEqual(merged[0].parsedDetail.source, "Cloud")
+        XCTAssertEqual(merged[0].currentIntervalRemainingPercent, 84)
+    }
+
+    func testAWatchedRowWithNothingToMergeIntoIsAppendedAsIs() {
+        let cloud = model(account: "other@example.com", source: "Cloud")
+        let watch = model(percent: 85, sampledAt: Date(), source: "Watch")
+        let merged = UsageViewModel.mergingWatchedRows(
+            into: [cloud], watched: [watch])
+        XCTAssertEqual(merged.count, 2)
+        XCTAssertEqual(merged.map(\.currentIntervalRemainingPercent), [50, 85])
+        XCTAssertEqual(merged[1].accountSourceKinds, Set([.watch]))
+    }
+
+    func testTwoWatchedRowsNeverCollapseIntoOne() {
+        let weekly = model(name: "Weekly", percent: 69, sampledAt: Date(), source: "Watch")
+        let fiveHour = model(name: "5h", percent: 40, sampledAt: Date(), source: "Watch")
+        let merged = UsageViewModel.mergingWatchedRows(
+            into: [], watched: [weekly, fiveHour])
+        XCTAssertEqual(merged.count, 2, "cycle 名不同就是两行")
+    }
+
+    func testAMissingSampleTimeDoesNotLetTheWatchedRowWinByDefault() {
+        // "无法比较"不等于"关注那一路更新" —— 那是在替数据编先后。
+        let cloud = model(percent: 84, sampledAt: Date(), source: "Cloud")
+        let watch = model(percent: 69, sampledAt: nil, source: "Watch")
+        let merged = UsageViewModel.mergingWatchedRows(
+            into: [cloud], watched: [watch])
+        XCTAssertEqual(merged[0].currentIntervalRemainingPercent, 84)
+        XCTAssertEqual(merged[0].accountSourceKinds, Set([.cloud, .watch]))
+    }
+
     // MARK: - 采样时间不是窗口边界
 
     func testTheProvidersThatUsedToCarryNoSampleTimeNowDo() {

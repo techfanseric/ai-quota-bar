@@ -1127,6 +1127,54 @@ final class UsageViewModel {
             .withMergedSourceKinds(winner.accountSourceKinds.union([.local, .cloud]))
     }
 
+    /// 关注行落到已有的本机/云端行上时的合成规则。
+    ///
+    /// 和 `newerOfLocalAndCloud` 是同一件事：**采样更晚的那份数字赢**，两侧的
+    /// 来源都留在行上 —— 图标要画的是"这个账号参与过哪些来源"，所以一个既被
+    /// 关注、也在云端有数据的账号应该同时画出眼睛和云朵，而不是二选一。
+    ///
+    /// 刻意**不改写**胜出方的来源段。`"Cloud"` 这个段还决定着一批过期展示规则
+    /// （跨天快照的 `M/d HH:mm`、云端的可见周期上限），合成一行不该顺手把
+    /// 这些规则关掉；图标读的是 `accountSourceKinds`，那一层已经够用。
+    nonisolated static func mergedKeepingBothSources(
+        _ lhs: ModelUsageData, _ rhs: ModelUsageData
+    ) -> ModelUsageData {
+        let winner: ModelUsageData
+        switch (lhs.sampledAt, rhs.sampledAt) {
+        case let (left?, right?):
+            // 同一时刻两边都有就保持先到的那份，和本机/云端的平局规则一致。
+            winner = right > left ? rhs : lhs
+        default:
+            // 缺时间戳时不能说"另一份更新" —— 那是在替数据编先后。
+            winner = lhs
+        }
+        return winner.withMergedSourceKinds(
+            lhs.accountSourceKinds.union(rhs.accountSourceKinds))
+    }
+
+    /// 把关注行按 cycle 合进已有的模型行；没有对应行就原样追加在末尾。
+    ///
+    /// 顺序保持不变（关注行仍然排在最后），菜单里账号的排列不会因为这次改动跳动。
+    nonisolated static func mergingWatchedRows(
+        into models: [ModelUsageData], watched: [ModelUsageData]
+    ) -> [ModelUsageData] {
+        guard !watched.isEmpty else { return models }
+        var merged = models
+        var indexByKey: [String: Int] = [:]
+        for (index, model) in merged.enumerated() {
+            indexByKey[model.quotaIdentityKey] = index
+        }
+        for watchedRow in watched {
+            if let index = indexByKey[watchedRow.quotaIdentityKey] {
+                merged[index] = mergedKeepingBothSources(merged[index], watchedRow)
+            } else {
+                indexByKey[watchedRow.quotaIdentityKey] = merged.count
+                merged.append(watchedRow)
+            }
+        }
+        return merged
+    }
+
     private func isConfigured(_ provider: UsageProvider) -> Bool {
         if let providerPresenceOverride { return providerPresenceOverride(provider) }
         switch provider {
@@ -1154,14 +1202,17 @@ final class UsageViewModel {
         let localModelKeys = Set(localDataByProvider.values.flatMap(\.models).map(\.quotaIdentityKey))
         let historyCloudModels = supplementalCloudModelsFromHistory(excluding: localModelKeys.union(remoteCloudModelKeys))
         let cloudModels = remoteCloudModels + historyCloudModels
-        let cloudModelKeys = Set(cloudModels.map(\.quotaIdentityKey))
         // 关注来的账号走自己的通道（按邮箱公开查），不是团队云端数据 —— 两者失效
         // 原因完全不同（云端是团队上报停了，这里是对方没分享或没在跑），所以单列
         // 一路而不是混进 cloudModels。
-        let existingModelKeys = localModelKeys.union(cloudModelKeys)
-        let watchModels = CodexWatchStore.shared.watchedModels.filter {
-            !existingModelKeys.contains($0.quotaIdentityKey)
-        }
+        //
+        // 但**不能**因为同 key 已经有一行就把关注行丢掉：同一个邮箱往往同时是本机
+        // 托管的账号（~/.codex/accounts/<邮箱>.json）或团队里另一台设备上报的账号，
+        // 于是同一个 cycle 上会同时存在本机/云端行和关注行。丢掉关注行的后果是
+        // 几秒前刚拉回来的数字被一行可能更旧的 Cloud 行顶掉，图标也跟着从
+        // 「关注」变成「云端」—— 被顶掉的恰恰是用户自己勾出来要看的那一路。
+        // 所以关注行一律带上，合并交给下面按新鲜度裁决。
+        let watchModels = CodexWatchStore.shared.watchedModels
 
         return UsageProvider.allCases
             .filter(isProviderEnabled)
@@ -1182,8 +1233,9 @@ final class UsageViewModel {
                     !localModelKeys.contains(model.quotaIdentityKey)
                         && !model.isCloudNoiseModel
                 }
-                let models = localModels + cloudOnlyModels
-                    + watchModels.filter { $0.provider == provider }
+                let models = Self.mergingWatchedRows(
+                    into: localModels + cloudOnlyModels,
+                    watched: watchModels.filter { $0.provider == provider })
                 guard !models.isEmpty else { return nil }
 
                 let baseData = localDataByProvider[provider]
