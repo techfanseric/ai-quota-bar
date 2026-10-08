@@ -682,21 +682,68 @@ enum AppLanguage: String, CaseIterable, Codable, Identifiable {
             : "显示的是采样更晚的那一份"
     }
 
+    /// "多久之前"会退化成一个越来越难读的数：888m 到底是 15 小时还是 3 天，
+    /// 得读者自己在心里换算，而"这个数是我半小时前看的"和"这是我昨天下午看的"
+    /// 要做的动作完全不同。所以按尺度换挡：
+    /// 一小时内说分钟，一到 24 小时改说小时，再往后直接给日期+时刻 ——
+    /// 这时候"多久"已经不重要，"是哪一刻"才重要。
     func updatedAgoText(from date: Date, now: Date = Date()) -> String {
-        let minutes = Int((now.timeIntervalSince(date) / 60).rounded(.down))
+        let seconds = max(0, now.timeIntervalSince(date))
+        let minutes = Int((seconds / 60).rounded(.down))
+        if minutes < 1 {
+            switch self {
+            case .english: return "Updated just now"
+            case .simplifiedChinese: return "刚刚更新"
+            }
+        }
+        if minutes < 60 {
+            switch self {
+            case .english: return "Updated \(minutes)m ago"
+            case .simplifiedChinese: return "\(minutes) 分钟前更新"
+            }
+        }
+        let hours = Int((seconds / 3600).rounded(.down))
+        if hours < 24 {
+            switch self {
+            case .english: return "Updated \(hours)h ago"
+            case .simplifiedChinese: return "\(hours) 小时前更新"
+            }
+        }
+        let stamp = Self.dayStampFormatter(for: self).string(from: date)
         switch self {
-        case .english:
-            if minutes < 1 {
-                return "Updated just now"
-            }
-            return "Updated \(minutes)m ago"
-        case .simplifiedChinese:
-            if minutes < 1 {
-                return "刚刚更新"
-            }
-            return "\(minutes) 分钟前更新"
+        case .english: return "Updated \(stamp)"
+        case .simplifiedChinese: return "\(stamp) 更新"
         }
     }
+
+    /// 超过一天的档位只差一个"月/日 + 时:分"，用显式格式串而不是
+    /// `dateStyle = .short`：后者跟着系统语言走，一个中文界面上会冒出
+    /// "10/5/26, 2:32 PM" 这种半中半英的串，而且长度随地区变。
+    ///
+    /// 语言写死在 locale 上（而不是 `.current`）正是为了不跟系统语言跑 ——
+    /// 这里显示的是界面的语言，不是系统的语言。
+    private static func dayStampFormatter(for language: AppLanguage) -> DateFormatter {
+        switch language {
+        case .english: return englishDayStampFormatter
+        case .simplifiedChinese: return chineseDayStampFormatter
+        }
+    }
+
+    private static let englishDayStampFormatter: DateFormatter = {
+        let formatter = DateFormatter()
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        formatter.timeZone = .current
+        formatter.dateFormat = "MMM d, HH:mm"
+        return formatter
+    }()
+
+    private static let chineseDayStampFormatter: DateFormatter = {
+        let formatter = DateFormatter()
+        formatter.locale = Locale(identifier: "zh_Hans_CN")
+        formatter.timeZone = .current
+        formatter.dateFormat = "M月d日 HH:mm"
+        return formatter
+    }()
 
     func updateCheckFailedText(_ message: String) -> String {
         switch self {
