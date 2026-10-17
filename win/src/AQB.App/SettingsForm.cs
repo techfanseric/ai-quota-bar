@@ -17,9 +17,15 @@ internal sealed class SettingsForm : Form
 
         Text = "AI Quota Bar — Settings";
         StartPosition = FormStartPosition.CenterScreen;
-        MinimumSize = new Size(560, 520);
         AutoScaleMode = AutoScaleMode.Dpi;
         Font = new Font("Segoe UI", 9f);
+
+        // Size to a comfortable share of the working area instead of a fixed small box.
+        var area = Screen.PrimaryScreen?.WorkingArea ?? SystemInformation.WorkingArea;
+        var width = Math.Clamp((int)(area.Width * 0.52), 760, 1040);
+        var height = Math.Clamp((int)(area.Height * 0.74), 600, 900);
+        Size = new Size(width, height);
+        MinimumSize = new Size(700, 560);
 
         var tabs = new TabControl { Dock = DockStyle.Fill };
         tabs.TabPages.Add(BuildGeneralTab());
@@ -46,6 +52,27 @@ internal sealed class SettingsForm : Form
 
         Controls.Add(tabs);
         Controls.Add(footer);
+
+        // Stretch the fixed-position inputs/checkboxes horizontally with the window.
+        Shown += (_, _) =>
+        {
+            foreach (TabPage page in tabs.TabPages)
+            {
+                foreach (Control control in page.Controls)
+                {
+                    switch (control)
+                    {
+                        case TextBox or ComboBox or NumericUpDown:
+                            control.Width = Math.Max(control.Width, page.ClientSize.Width - 48);
+                            control.Anchor = AnchorStyles.Top | AnchorStyles.Left | AnchorStyles.Right;
+                            break;
+                        case CheckBox { Width: > 300 }:
+                            control.Anchor = AnchorStyles.Top | AnchorStyles.Left | AnchorStyles.Right;
+                            break;
+                    }
+                }
+            }
+        };
     }
 
     private TabPage BuildGeneralTab()
@@ -212,8 +239,8 @@ internal sealed class SettingsForm : Form
         var box = new TextBox
         {
             Multiline = true,
-            Height = 58,
-            Width = 420,
+            Height = 90,
+            Width = 560,
             Location = new Point(24, y),
             ScrollBars = ScrollBars.Vertical,
             Text = value,
