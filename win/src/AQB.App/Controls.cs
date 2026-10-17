@@ -57,7 +57,9 @@ internal sealed class CapsuleBar : Control
     }
 }
 
-/// <summary>Remaining-quota trend sparkline fed by <see cref="QuotaHistoryStore"/> points.</summary>
+/// <summary>Remaining-quota trend chart in the macOS QuotaAreaChart idiom: rounded plot,
+/// L axes + 100%/0 labels, warning-threshold guide, time-proportional polyline with a
+/// gradient area fill and end marker, first/last sample times underneath.</summary>
 internal sealed class Sparkline : Control
 {
     private IReadOnlyList<QuotaSamplePoint> _points = Array.Empty<QuotaSamplePoint>();
@@ -65,7 +67,7 @@ internal sealed class Sparkline : Control
     public Sparkline()
     {
         SetStyle(ControlStyles.AllPaintingInWmPaint | ControlStyles.OptimizedDoubleBuffer | ControlStyles.ResizeRedraw, true);
-        Height = 30;
+        Height = 80;
     }
 
     public NativePalette Palette { get; set; } = NativePalette.System();
@@ -91,40 +93,97 @@ internal sealed class Sparkline : Control
     {
         var g = e.Graphics;
         g.SmoothingMode = System.Drawing.Drawing2D.SmoothingMode.AntiAlias;
+        var s = DeviceDpi / 96f;
+        var strip = (int)Math.Round(13 * s);
+        var plot = new Rectangle(0, 0, Width - 1, Height - strip - 1);
 
-        // Faint 0/50/100 grid lines for orientation.
-        using (var grid = new Pen(Palette.Track, 1f))
+        // Rounded plot backdrop, subtle against the card.
+        using (var backdrop = new SolidBrush(Palette.IsDark ? Color.FromArgb(48, 48, 48) : Color.FromArgb(247, 247, 247)))
+        using (var backdropPath = Gdi.RoundedRect(plot, (int)Math.Round(6 * s)))
         {
-            for (var fraction = 0.25; fraction < 1.0; fraction += 0.25)
+            g.FillPath(backdrop, backdropPath);
+        }
+
+        using (var axis = new Pen(Palette.CardBorder, 1f))
+        {
+            g.DrawLine(axis, plot.Left, plot.Top, plot.Left, plot.Bottom);
+            g.DrawLine(axis, plot.Left, plot.Bottom, plot.Right, plot.Bottom);
+            using var grid = new Pen(Palette.Track, 1f);
+            for (var fraction = 0.25; fraction < 0.99; fraction += 0.25)
             {
-                var y = Height - 1 - (int)((Height - 2) * fraction);
-                g.DrawLine(grid, 0, y, Width, y);
+                var y = plot.Bottom - (int)Math.Round((plot.Bottom - plot.Top) * fraction);
+                g.DrawLine(grid, plot.Left + 1, y, plot.Right, y);
             }
         }
+
+        // Warning-threshold guide (25% remaining), orange dashed as on macOS.
+        var warnY = plot.Bottom - (int)Math.Round((plot.Bottom - plot.Top) * (QuotaThresholds.OrangeRemainingPercent / 100.0));
+        using (var warn = new Pen(Color.FromArgb(235, 170, 70), 1f) { DashStyle = System.Drawing.Drawing2D.DashStyle.Dash })
+        {
+            g.DrawLine(warn, plot.Left + 1, warnY, plot.Right, warnY);
+        }
+
+        using var labelFont = new Font("Segoe UI", 7f);
+        using var faint = new SolidBrush(Palette.TextFaint);
+        var labelSize = TextRenderer.MeasureText("100%", labelFont);
+        g.DrawString("100%", labelFont, faint, plot.Left + 3, plot.Top + 1);
+        g.DrawString("0", labelFont, faint, plot.Left + 3, plot.Bottom - labelSize.Height);
 
         if (_points.Count < 2)
         {
             using var font = new Font("Segoe UI", 8f);
-            using var brush = new SolidBrush(Palette.TextFaint);
-            g.DrawString("收集趋势中…", font, brush, 2, (Height - 14) / 2f);
+            g.DrawString("收集趋势中…", font, faint, 2 + 3 * s, (plot.Top + plot.Bottom - font.Height) / 2f);
             return;
         }
 
-        var latest = _points[^1].RemainingPercent;
-        using var line = new Pen(Palette.QuotaColor(latest), 1.6f);
-        var step = Width / (float)(_points.Count - 1);
-        var previous = new PointF(0, Y(_points[0].RemainingPercent));
-        for (var i = 1; i < _points.Count; i++)
+        // Time-proportional x positions across the observed sample range.
+        var t0 = _points[0].AtUtc;
+        var t1 = _points[^1].AtUtc;
+        var span = Math.Max((t1 - t0).TotalSeconds, 1);
+        var Y = (double remaining) => plot.Bottom - (remaining / 100.0 * (plot.Bottom - plot.Top));
+        var X = (DateTimeOffset t) => (float)(plot.Left + 1 + (t - t0).TotalSeconds / span * (plot.Right - plot.Left - 2));
+
+        var poly = new List<PointF>(_points.Count);
+        foreach (var point in _points)
         {
-            var point = new PointF(i * step, Y(_points[i].RemainingPercent));
-            g.DrawLine(line, previous, point);
-            previous = point;
+            poly.Add(new PointF(X(point.AtUtc), (float)Y(Math.Clamp(point.RemainingPercent, 0, 100))));
         }
 
-        using var dot = new SolidBrush(Palette.QuotaColor(latest));
-        g.FillEllipse(dot, previous.X - 2f, previous.Y - 2f, 4f, 4f);
-        return;
+        var tint = Palette.QuotaColor(_points[^1].RemainingPercent);
+        var area = new System.Drawing.Drawing2D.GraphicsPath();
+        area.AddLine(plot.Left + 1, plot.Bottom, poly[0].X, poly[0].Y);
+        for (var i = 1; i < poly.Count; i++)
+        {
+            area.AddLine(poly[i - 1].X, poly[i - 1].Y, poly[i].X, poly[i].Y);
+        }
 
-        float Y(double remainingPercent) => Height - 1 - (float)(Math.Clamp(remainingPercent, 0, 100) / 100.0 * (Height - 2));
+        area.AddLine(poly[^1].X, poly[^1].Y, poly[^1].X, plot.Bottom);
+        area.AddLine(poly[^1].X, plot.Bottom, plot.Left + 1, plot.Bottom);
+        area.CloseFigure();
+        var fillRect = new Rectangle(plot.Left + 1, plot.Top, plot.Right - plot.Left - 1, plot.Bottom - plot.Top);
+        if (fillRect.Width > 0 && fillRect.Height > 0)
+        {
+            using var gradient = new System.Drawing.Drawing2D.LinearGradientBrush(
+                fillRect,
+                Color.FromArgb(56, tint),
+                Color.FromArgb(8, tint),
+                System.Drawing.Drawing2D.LinearGradientMode.Vertical);
+            g.FillPath(gradient, area);
+        }
+
+        using (var line = new Pen(tint, 1.5f * s))
+        {
+            g.DrawLines(line, poly.ToArray());
+        }
+
+        var dotRadius = 2.5f * s;
+        using var dot = new SolidBrush(tint);
+        g.FillEllipse(dot, poly[^1].X - dotRadius, poly[^1].Y - dotRadius, dotRadius * 2, dotRadius * 2);
+
+        // First/last sample times under the plot (local time).
+        g.DrawString(t0.ToLocalTime().ToString("MM-dd HH:mm"), labelFont, faint, plot.Left + 3, plot.Bottom + 2);
+        var lastLabel = t1.ToLocalTime().ToString("MM-dd HH:mm");
+        var lastSize = TextRenderer.MeasureText(lastLabel, labelFont);
+        g.DrawString(lastLabel, labelFont, faint, plot.Right - lastSize.Width, plot.Bottom + 2);
     }
 }
