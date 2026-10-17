@@ -57,6 +57,7 @@ internal sealed class ControlCenterForm : Form
     }
 
     private readonly System.Windows.Forms.Timer _refreshTimer = new() { Interval = 30_000 };
+    private readonly ToolTip _tips = new();
     private readonly ScrollPill _pill = new();
     private bool _scrollable;
     private int _scrollOffset;
@@ -261,11 +262,31 @@ internal sealed class ControlCenterForm : Form
             .AddSeconds(ProgramSettings.Current.UsageRefreshIntervalSeconds) - DateTimeOffset.UtcNow).TotalMinutes);
 
         card.Controls.Add(Label("AI Quota Bar", new Font("Segoe UI Semibold", 10.5f), _palette.TextPrimary, 14, 8));
-        card.Controls.Add(Label($"更新于 {updatedText} · 下次约 {nextIn} 分钟后", Font, _palette.TextFaint, 14, 30));
-        var refresh = MakeLink("刷新", () => _ = _orchestrator.RefreshAsync(CancellationToken.None));
-        refresh.Location = new Point(card.Width - P(56), P(14));
-        refresh.Anchor = AnchorStyles.Top | AnchorStyles.Right;
+        var meta = Label($"更新于 {updatedText} · 下次约 {nextIn} 分钟后", Font, _palette.TextFaint, 14, 30);
+        meta.MaximumSize = new Size(card.Width - P(124), 0); // wraps before the icon buttons
+        card.Controls.Add(meta);
+
+        // Refresh + close as flat glyph buttons, Windows 11 flyout convention.
+        const string chromeClose = "\uE8BB";
+        const string refreshGlyph = "\uE72C";
+        var close = new IconButton(chromeClose)
+        {
+            Palette = _palette,
+            Bounds = new Rectangle(card.Width - P(16) - P(28), P(8), P(28), P(28)),
+            Anchor = AnchorStyles.Top | AnchorStyles.Right,
+        };
+        close.Click += (_, _) => Close();
+        var refresh = new IconButton(refreshGlyph)
+        {
+            Palette = _palette,
+            Bounds = new Rectangle(card.Width - P(16) - P(60), P(8), P(28), P(28)),
+            Anchor = AnchorStyles.Top | AnchorStyles.Right,
+        };
+        refresh.Click += (_, _) => _ = _orchestrator.RefreshAsync(CancellationToken.None);
+        card.Controls.Add(close);
         card.Controls.Add(refresh);
+        _tips.SetToolTip(close, "关闭");
+        _tips.SetToolTip(refresh, "立即刷新");
         return card;
     }
 
@@ -296,8 +317,6 @@ internal sealed class ControlCenterForm : Form
         }
 
         var account = snapshot.Accounts.FirstOrDefault();
-        var primary = account?.Windows.FirstOrDefault();
-        var secondary = account?.Windows.Skip(1).FirstOrDefault();
 
         if (account is { Label.Length: > 0 })
         {
@@ -318,7 +337,7 @@ internal sealed class ControlCenterForm : Form
 
         if (collapsed)
         {
-            if (primary is not null)
+            if (account?.Windows.FirstOrDefault() is { } primary)
             {
                 var big = Label($"{primary.RemainingPercent:0}%", new Font("Segoe UI", 11f, FontStyle.Bold), _palette.QuotaColor(primary.RemainingPercent), 0, 0);
                 big.Anchor = AnchorStyles.Top | AnchorStyles.Right;
@@ -336,52 +355,34 @@ internal sealed class ControlCenterForm : Form
             return card;
         }
 
-        if (primary is null)
+        // Quota rows in the macOS ModelRow shape: header (name + big tinted percent),
+        // then EITHER the cycle area chart (short window with in-window samples) OR a
+        // compact capsule — never both, one information one chart; a metadata line;
+        // cross-cycle bars last. MiniMax's interval+weekly windows describe one pool,
+        // so weekly folds into the 5h row's metadata like macOS does.
+        var windows = account?.Windows ?? Array.Empty<QuotaWindowSample>();
+        if (windows.Count == 0)
         {
             card.Controls.Add(WrappedLabel("暂无配额窗口 — 保存凭据后自动刷新", _palette.TextFaint, 14, headerBottom));
             return card;
         }
 
-        // Main row: big remaining + time left + pace chip (all coordinates in dips; only
-        // the direct-assignment controls convert via P() themselves).
-        card.Controls.Add(Label($"{primary.RemainingPercent:0}%", new Font("Segoe UI", 17f, FontStyle.Bold), _palette.QuotaColor(primary.RemainingPercent), 14, headerBottom - 4));
-        card.Controls.Add(Label(TimeText.FormatRemaining(primary.ResetsAtUtc - DateTimeOffset.UtcNow) + " 后重置", Font, _palette.TextSecondary, 96, headerBottom + 12));
-        var pace = PaceMath.Compute(primary, DateTimeOffset.UtcNow);
-        if (pace is not null)
-        {
-            var paceColor = pace.IsReserve
-                ? (_palette.IsDark ? Color.FromArgb(96, 200, 145) : Color.FromArgb(35, 150, 95))
-                : Color.FromArgb(235, 170, 70);
-            var chip = MakeChip((pace.IsReserve ? "结余 " : "亏空 ") + $"{pace.DeltaPercent:+0.0;-0.0}pp", paceColor);
-            chip.Anchor = AnchorStyles.Top | AnchorStyles.Right;
-            chip.Location = new Point(card.Width - P(16) - chip.PreferredWidth, P(headerBottom + 10));
-            card.Controls.Add(chip);
-        }
+        var foldWeeklyIntoMeta = kind == ProviderKind.MiniMax
+            && windows.Any(IsShortWindow)
+            && windows.Any(w => !IsShortWindow(w));
+        QuotaWindowSample? weeklyMeta = foldWeeklyIntoMeta
+            ? windows.FirstOrDefault(w => !IsShortWindow(w))
+            : null;
 
-        var top = headerBottom + 44;
-        top = AddWindowBar(card, primary, true, top);
-        if (secondary is not null)
+        var top = headerBottom + 10;
+        foreach (var window in windows)
         {
-            top = AddWindowBar(card, secondary, false, top);
-        }
-
-        // Trend chart for the primary window (hidden until two samples exist).
-        var series = state.History?.GetSeries(kind, primary.Name);
-        if (series is { Count: >= 2 })
-        {
-            card.Controls.Add(new Sparkline
+            if (foldWeeklyIntoMeta && !IsShortWindow(window))
             {
-                Palette = _palette,
-                Bounds = new Rectangle(P(16), P(top + 8), card.Width - P(32), P(80)),
-                Points = series,
-            });
-            card.Controls.Add(Label($"近 7 天剩余趋势 · {primary.Name}", Font, _palette.TextFaint, 16, top + 90));
-            top += 112;
-        }
-        else
-        {
-            card.Controls.Add(Label("趋势采集中 — 刷新几次后显示近 7 天剩余曲线", Font, _palette.TextFaint, 14, top));
-            top += 24;
+                continue;
+            }
+
+            top = AddQuotaRow(card, kind, window, IsShortWindow(window), weeklyMeta, state, top);
         }
 
         // Per-model usage rows (top 3): only models actually consumed — rows that
@@ -420,27 +421,141 @@ internal sealed class ControlCenterForm : Form
         return card;
     }
 
-    private int AddWindowBar(CardPanel card, QuotaWindowSample window, bool primary, int top)
+    /// <summary>Short cycle (&lt; 24h) — the chartable kind on macOS; detected from the
+    /// window span when known, otherwise from the name ("5h").</summary>
+    private static bool IsShortWindow(QuotaWindowSample window)
     {
-        card.Controls.Add(EllipsizedLabel($"{window.Name} · {window.RemainingPercent:0}% 剩余", Font,
-            primary ? _palette.TextSecondary : _palette.TextFaint, 14, top, card.Width / 2, hand: false));
-
-        var reset = EllipsizedLabel(window.ResetsAtUtc > DateTimeOffset.MinValue
-                ? "重置 " + window.ResetsAtUtc.ToLocalTime().ToString("MM-dd HH:mm")
-                : "无重置计划",
-            Font, _palette.TextFaint, 0, top, card.Width / 2 - P(30), hand: false);
-        reset.Anchor = AnchorStyles.Top | AnchorStyles.Right;
-        reset.TextAlign = ContentAlignment.MiddleRight;
-        reset.Location = new Point(card.Width / 2, P(top));
-        card.Controls.Add(reset);
-
-        card.Controls.Add(new CapsuleBar
+        if (window.ResetsAtUtc > DateTimeOffset.MinValue)
         {
-            Palette = _palette,
-            Bounds = new Rectangle(P(16), P(top + 20), card.Width - P(32), P(6)),
-            Percent = window.RemainingPercent,
-        });
-        return top + 30;
+            var span = window.ResetsAtUtc - window.WindowStartUtc;
+            if (span > TimeSpan.Zero)
+            {
+                return span < TimeSpan.FromHours(24);
+            }
+        }
+
+        var name = window.Name ?? "";
+        return name.Contains("5h", StringComparison.OrdinalIgnoreCase)
+            || name.Contains("5 小时", StringComparison.OrdinalIgnoreCase);
+    }
+
+    /// <summary>One quota window as a macOS-style row: header → chart-or-capsule →
+    /// metadata → cross-cycle bars. Returns the next free y (in dips).</summary>
+    private int AddQuotaRow(
+        CardPanel card,
+        ProviderKind kind,
+        QuotaWindowSample window,
+        bool isShort,
+        QuotaWindowSample? weeklyMeta,
+        HostState state,
+        int top)
+    {
+        var tint = _palette.QuotaColor(window.RemainingPercent);
+
+        // Header: window name left, big tinted remaining percent right.
+        card.Controls.Add(EllipsizedLabel(window.Name, new Font("Segoe UI", 9.5f), _palette.TextSecondary, 16, top, card.Width / 2, hand: false));
+        var percent = Label($"{window.RemainingPercent:0}%", new Font("Segoe UI", 12f, FontStyle.Bold), tint, 0, top - 3);
+        percent.Anchor = AnchorStyles.Top | AnchorStyles.Right;
+        percent.Location = new Point(card.Width - P(16) - percent.PreferredWidth, P(top - 3));
+        card.Controls.Add(percent);
+        top += 24;
+
+        var series = state.History?.GetSeries(kind, window.Name) ?? Array.Empty<QuotaSamplePoint>();
+
+        // Chart x axis = the cycle itself. Rolling windows (GLM 5h) anchor to
+        // (now-5h, now) exactly like macOS and never get a pace diagonal.
+        DateTimeOffset start, end;
+        bool rolling;
+        if (isShort && kind == ProviderKind.Glm)
+        {
+            end = DateTimeOffset.UtcNow;
+            start = end.AddHours(-5);
+            rolling = true;
+        }
+        else
+        {
+            end = window.ResetsAtUtc > DateTimeOffset.MinValue ? window.ResetsAtUtc : DateTimeOffset.UtcNow;
+            start = window.WindowStartUtc;
+            var span = end - start;
+            rolling = (window.WindowSeconds <= 0 && window.StartsAtUtc is null) || span <= TimeSpan.Zero;
+            if (rolling)
+            {
+                start = end.AddHours(-5);
+            }
+        }
+
+        var pace = rolling ? null : PaceMath.Compute(start, end, DateTimeOffset.UtcNow, window.UsedPercent);
+        var inWindow = series.Count(p => p.AtUtc >= start && p.AtUtc <= end);
+        if (isShort && inWindow >= 2)
+        {
+            card.Controls.Add(new QuotaAreaChart
+            {
+                Palette = _palette,
+                Bounds = new Rectangle(P(16), P(top), card.Width - P(32), P(80)),
+                Points = series,
+                WindowStart = start,
+                WindowEnd = end,
+                PaceIsReserve = pace?.IsReserve,
+            });
+            top += 84;
+        }
+        else
+        {
+            card.Controls.Add(new CapsuleBar
+            {
+                Palette = _palette,
+                Bounds = new Rectangle(P(16), P(top + 2), card.Width - P(32), P(6)),
+                Percent = window.RemainingPercent,
+            });
+            top += 12;
+        }
+
+        // Metadata line: pace deviation on short rows (only off schedule — macOS hides
+        // on-track pace), reset time on long rows, MiniMax's weekly info last.
+        var metaFont = new Font("Segoe UI", 8.5f);
+        var metaX = 16;
+        if (isShort && pace is { } p && p.Bucket != PaceBucket.OnTrack)
+        {
+            var paceColor = p.IsReserve
+                ? (_palette.IsDark ? Color.FromArgb(96, 200, 145) : Color.FromArgb(35, 150, 95))
+                : Color.FromArgb(235, 170, 70);
+            var paceLabel = Label((p.IsReserve ? "结余 " : "亏空 ") + $"{p.DeltaPercent:+0.0;-0.0}pp", metaFont, paceColor, metaX, top);
+            card.Controls.Add(paceLabel);
+            metaX += paceLabel.PreferredWidth + 8;
+        }
+
+        if (!isShort && window.ResetsAtUtc > DateTimeOffset.MinValue)
+        {
+            var resetText = "重置 " + window.ResetsAtUtc.ToLocalTime().ToString("MM-dd HH:mm");
+            card.Controls.Add(Label(resetText, metaFont, _palette.TextFaint, metaX, top));
+            metaX += TextRenderer.MeasureText(resetText, metaFont).Width + 8;
+        }
+
+        if (weeklyMeta is not null)
+        {
+            var weeklyText = $"周 {weeklyMeta.RemainingPercent:0}%"
+                + (weeklyMeta.ResetsAtUtc > DateTimeOffset.MinValue
+                    ? " · 重置 " + weeklyMeta.ResetsAtUtc.ToLocalTime().ToString("MM-dd HH:mm")
+                    : "");
+            card.Controls.Add(Label(weeklyText, metaFont, _palette.TextFaint, metaX, top));
+        }
+
+        top += 16;
+
+        // Cross-cycle utilization bars (mac ModelUtilizationBarsView): one bar per
+        // cycle, height = peak used percent; only meaningful under a chart row.
+        if (isShort && inWindow >= 2)
+        {
+            card.Controls.Add(new UtilizationBars
+            {
+                Palette = _palette,
+                Bounds = new Rectangle(P(16), P(top), card.Width - P(32), P(24)),
+                Cycles = CycleDetection.Detect(series),
+            });
+            top += 28;
+        }
+
+        return top + 8;
     }
 
     private CardPanel? BuildUsageCard(HostState state)
@@ -652,20 +767,6 @@ internal sealed class ControlCenterForm : Form
         return link;
     }
 
-    private Label MakeChip(string text, Color color)
-    {
-        var chip = new Label
-        {
-            Text = "  " + text + "  ",
-            ForeColor = color,
-            BackColor = _palette.IsDark ? Color.FromArgb(51, 51, 51) : Color.FromArgb(240, 240, 240),
-            AutoSize = true,
-            Height = P(22),
-            TextAlign = ContentAlignment.MiddleCenter,
-        };
-        return chip;
-    }
-
     private void PositionNearTray()
     {
         var screen = Screen.PrimaryScreen?.WorkingArea ?? SystemInformation.WorkingArea;
@@ -684,6 +785,7 @@ internal sealed class ControlCenterForm : Form
         {
             _orchestrator.SnapshotsChanged -= OnSnapshotsChanged;
             _refreshTimer.Stop();
+            _tips.Dispose();
         }
 
         base.Dispose(disposing);
