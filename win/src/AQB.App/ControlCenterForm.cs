@@ -41,13 +41,14 @@ internal sealed class ControlCenterForm : Form
         Size = new Size(P(360), P(60));
         Font = new Font("Segoe UI", 9f);
 
-        _flow.Dock = DockStyle.Fill;
+        _flow.Dock = DockStyle.None;
         _flow.BackColor = _palette.Background;
         _flow.FlowDirection = FlowDirection.TopDown;
         _flow.WrapContents = false;
-        _flow.AutoScroll = true;
-        _flow.Padding = new Padding(P(10), P(10), P(28), P(10));
+        _flow.Padding = new Padding(P(10));
         Controls.Add(_flow);
+        _pill.Palette = _palette;
+        Controls.Add(_pill);
 
         _orchestrator.SnapshotsChanged += OnSnapshotsChanged;
         _refreshTimer.Tick += (_, _) => Rebuild();
@@ -56,6 +57,46 @@ internal sealed class ControlCenterForm : Form
     }
 
     private readonly System.Windows.Forms.Timer _refreshTimer = new() { Interval = 30_000 };
+    private readonly ScrollPill _pill = new();
+    private bool _scrollable;
+    private int _scrollOffset;
+
+    protected override void OnMouseWheel(MouseEventArgs e)
+    {
+        base.OnMouseWheel(e);
+        if (_scrollable)
+        {
+            SetScrollOffset(_scrollOffset - e.Delta / 120 * P(56));
+        }
+    }
+
+    private void SetScrollOffset(int value)
+    {
+        var max = Math.Max(0, _flow.Height - ClientSize.Height);
+        var clamped = Math.Clamp(value, 0, max);
+        _scrollable = max > 0;
+        _scrollOffset = clamped;
+        _flow.Top = -clamped;
+        UpdatePill();
+    }
+
+    private void UpdatePill()
+    {
+        if (!_scrollable)
+        {
+            _pill.Visible = false;
+            return;
+        }
+
+        var trackTop = P(6);
+        var trackHeight = ClientSize.Height - P(12);
+        var content = _flow.Height;
+        var pillHeight = Math.Max(P(28), (int)((long)trackHeight * ClientSize.Height / content));
+        var y = trackTop + (int)((trackHeight - pillHeight) * (_scrollOffset / (double)Math.Max(1, content - ClientSize.Height)));
+        _pill.Bounds = new Rectangle(ClientSize.Width - P(8), y, P(4), pillHeight);
+        _pill.Visible = true;
+        _pill.Invalidate();
+    }
 
     /// <summary>Dip → pixel scale for the current monitor.</summary>
     private float Scale => DeviceDpi / 96f;
@@ -101,7 +142,7 @@ internal sealed class ControlCenterForm : Form
         }
     }
 
-    private int CardWidth => P(322);
+    private int CardWidth => P(340);
 
     private void Rebuild()
     {
@@ -161,8 +202,17 @@ internal sealed class ControlCenterForm : Form
 
         AddCard(BuildFooter());
         _flow.ResumeLayout();
-        var contentHeight = _flow.Controls.Cast<Control>().Sum(c => c.Height + c.Margin.Vertical + _flow.Padding.Vertical);
-        Height = Math.Min(P(780), Math.Max(P(320), contentHeight + P(20)));
+
+        // Adaptive height: content height clamped to the screen's usable area near
+        // the tray; overflow scrolls by wheel with a thin pill indicator (Win11
+        // flyout convention) instead of the classic scrollbar + reserved gutter.
+        var padding = _flow.Padding;
+        var contentHeight = padding.Vertical
+            + _flow.Controls.Cast<Control>().Sum(c => c.Height + c.Margin.Vertical);
+        var available = (Screen.PrimaryScreen?.WorkingArea ?? SystemInformation.WorkingArea).Height - P(24);
+        Height = Math.Clamp(contentHeight, P(320), Math.Max(P(320), available));
+        _flow.SetBounds(0, 0, ClientSize.Width, contentHeight);
+        SetScrollOffset(_scrollOffset);
         PositionNearTray();
     }
 
