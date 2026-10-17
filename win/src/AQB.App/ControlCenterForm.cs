@@ -289,18 +289,18 @@ internal sealed class ControlCenterForm : Form
             top = AddWindowBar(card, secondary, false, top);
         }
 
-        // Trend sparkline for the primary window (hidden until two samples exist).
+        // Trend chart for the primary window (hidden until two samples exist).
         var series = state.History?.GetSeries(kind, primary.Name);
         if (series is { Count: >= 2 })
         {
             card.Controls.Add(new Sparkline
             {
                 Palette = _palette,
-                Bounds = new Rectangle(P(16), P(top + 2), card.Width - P(32), P(36)),
+                Bounds = new Rectangle(P(16), P(top + 8), card.Width - P(32), P(80)),
                 Points = series,
             });
-            card.Controls.Add(Label($"近 7 天剩余趋势 · {primary.Name}", Font, _palette.TextFaint, 14, top + 40));
-            top += 62;
+            card.Controls.Add(Label($"近 7 天剩余趋势 · {primary.Name}", Font, _palette.TextFaint, 16, top + 90));
+            top += 112;
         }
         else
         {
