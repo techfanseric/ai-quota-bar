@@ -156,13 +156,30 @@ internal sealed class ControlCenterForm : Form
         _flow.Controls.Clear();
 
         AddCard(BuildHeader(state));
+        var providerCards = 0;
         foreach (var kind in OrderedKinds())
         {
+            if (!_orchestrator.IsConfigured(kind))
+            {
+                continue; // 未配置的供应商不显示卡片,与 macOS 菜单只显示已连接分区一致
+            }
+
             var snapshot = _orchestrator.Latest.GetValueOrDefault(kind);
             if (BuildProviderCard(kind, snapshot, state) is { } card)
             {
                 AddCard(card);
+                providerCards++;
             }
+        }
+
+        if (providerCards == 0)
+        {
+            var hint = MakeCard();
+            hint.Controls.Add(WrappedLabel("尚未连接任何服务商 — 添加 API key 或登录后,这里会显示额度、趋势和用量。", _palette.TextFaint, 14, 10));
+            var open = MakeLink("打开设置", () => _openSettings());
+            open.Location = new Point(P(14), P(44));
+            hint.Controls.Add(open);
+            AddCard(hint);
         }
 
         if (BuildUsageCard(state) is { } usageCard)
