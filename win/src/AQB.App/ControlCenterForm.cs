@@ -111,6 +111,15 @@ internal sealed class ControlCenterForm : Form
         PositionNearTray();
     }
 
+    protected override void OnShown(EventArgs e)
+    {
+        base.OnShown(e);
+        if (!SuppressAutoClose)
+        {
+            NativeChrome.ForceForeground(this);
+        }
+    }
+
     /// <summary>Set by the screenshot self-check so the flyout does not auto-close without focus.</summary>
     public bool SuppressAutoClose { get; set; }
 

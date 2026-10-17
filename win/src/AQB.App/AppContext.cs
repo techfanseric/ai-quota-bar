@@ -142,7 +142,8 @@ internal sealed class TrayHost : ApplicationContext
     {
         if (_controlCenter is { IsDisposed: false })
         {
-            _controlCenter.Activate();
+            // Second left-click toggles the flyout closed, matching the macOS menu bar.
+            _controlCenter.Close();
             return;
         }
 

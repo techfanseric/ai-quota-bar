@@ -103,6 +103,20 @@ internal static class NativeChrome
         _ = SetWindowLong(form.Handle, -16, style | csDropShadow);
     }
 
+    /// <summary>Tray flyouts shown from a background process get visibility but no
+    /// activation (foreground lock); without activation Deactivate never fires and
+    /// the flyout won't close on outside clicks. A click on our own tray icon grants
+    /// foreground rights, so claiming them right after show works.</summary>
+    public static void ForceForeground(Form form)
+    {
+        _ = form.Handle;
+        SetForegroundWindow(form.Handle);
+        form.Activate();
+    }
+
+    [DllImport("user32.dll")]
+    private static extern bool SetForegroundWindow(IntPtr hWnd);
+
     [DllImport("user32.dll", SetLastError = true)]
     private static extern int GetWindowLong(IntPtr hWnd, int nIndex);
 
