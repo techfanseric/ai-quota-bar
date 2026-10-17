@@ -24,6 +24,9 @@ public sealed class AppSettings
 
     public bool FollowRunningApps { get; set; }
 
+    /// <summary>Control-center sections the user collapsed (persisted, macOS parity).</summary>
+    public List<string> CollapsedSections { get; set; } = new();
+
     public List<string> CustomProviderOrder { get; set; } = new() { "codex", "kimi", "glm", "minimax" };
 
     // Power / sleep protection (macOS: codexSleepProtection*)

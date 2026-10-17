@@ -26,25 +26,25 @@ public static class TimeText
         return $"{remaining.TotalDays.ToString("0.0", CultureInfo.InvariantCulture)}d";
     }
 
-    /// <summary>Relative age like the macOS history rows: "just now", "3m ago", "2.1h ago", "1.2d ago".</summary>
+    /// <summary>Relative age like the macOS history rows (zh): 刚刚 / N分钟前 / N.N小时前 / N.N天前.</summary>
     public static string FormatRelativeAge(TimeSpan age)
     {
         if (age < TimeSpan.FromSeconds(45))
         {
-            return "just now";
+            return "刚刚";
         }
 
         if (age < TimeSpan.FromMinutes(60))
         {
-            return $"{(int)Math.Ceiling(age.TotalMinutes)}m ago";
+            return $"{(int)Math.Ceiling(age.TotalMinutes)}分钟前";
         }
 
         if (age < TimeSpan.FromHours(48))
         {
-            return $"{age.TotalHours:0.0}h ago";
+            return $"{age.TotalHours:0.0}小时前";
         }
 
-        return $"{age.TotalDays:0.0}d ago";
+        return $"{age.TotalDays:0.0}天前";
     }
 
     /// <summary>

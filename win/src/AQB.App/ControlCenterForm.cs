@@ -2,18 +2,21 @@ using AQB.Core;
 
 namespace AQB.App;
 
-/// <summary>Left-click control center: quota cards per provider, tasks, route, connections.</summary>
+/// <summary>
+/// Left-click control center, redesigned to the macOS panel's information dimensions on a
+/// native Windows flyout chassis: system dark/light palette, rounded cards, collapsible
+/// sections with persisted state, capsule bars + trend sparklines per window, account
+/// groups, local usage card, watched accounts, route/connection summary.
+/// All layout constants are expressed in 96-dip units and scaled by <see cref="P"/>.
+/// </summary>
 internal sealed class ControlCenterForm : Form
 {
     private readonly QuotaOrchestrator _orchestrator;
+    private readonly NativePalette _palette = NativePalette.System();
     private readonly Action _openSettings;
     private readonly Action _openClash;
     private readonly Action _openConnections;
-    private readonly Func<(string? group, string? selected, int? delayMs)> _routeInfo;
-    private readonly Func<(int count, double up, double down)> _connectionInfo;
-    private readonly Func<(string status, int tasks, string providers)> _protectionInfo;
-    private readonly Func<IReadOnlyList<WatchedRowView>> _watchedRows;
-    private readonly Func<AppUpdateBannerView?> _updateInfo;
+    private readonly Func<HostState> _state;
     private readonly FlowLayoutPanel _flow = new();
 
     public ControlCenterForm(
@@ -21,40 +24,31 @@ internal sealed class ControlCenterForm : Form
         Action openSettings,
         Action openClash,
         Action openConnections,
-        Func<(string?, string?, int?)> routeInfo,
-        Func<(int, double, double)> connectionInfo,
-        Func<(string, int, string)> protectionInfo,
-        Func<IReadOnlyList<WatchedRowView>>? watchedRows = null,
-        Func<AppUpdateBannerView?>? updateInfo = null)
+        Func<HostState> state)
     {
         _orchestrator = orchestrator;
         _openSettings = openSettings;
         _openClash = openClash;
         _openConnections = openConnections;
-        _routeInfo = routeInfo;
-        _connectionInfo = connectionInfo;
-        _protectionInfo = protectionInfo;
-        _watchedRows = watchedRows ?? (() => Array.Empty<WatchedRowView>());
-        _updateInfo = updateInfo ?? (() => null);
+        _state = state;
 
         FormBorderStyle = FormBorderStyle.None;
         ShowInTaskbar = false;
         StartPosition = FormStartPosition.Manual;
         TopMost = true;
-        AutoScaleMode = AutoScaleMode.Dpi;
-        BackColor = Color.FromArgb(32, 32, 36);
-        Size = new Size(340, 60);
+        AutoScaleMode = AutoScaleMode.None;
+        BackColor = _palette.Background;
+        Size = new Size(P(360), P(60));
         Font = new Font("Segoe UI", 9f);
 
         _flow.Dock = DockStyle.Fill;
         _flow.FlowDirection = FlowDirection.TopDown;
         _flow.WrapContents = false;
         _flow.AutoScroll = true;
-        _flow.Padding = new Padding(10);
+        _flow.Padding = new Padding(P(10), P(10), P(28), P(10));
         Controls.Add(_flow);
 
         _orchestrator.SnapshotsChanged += OnSnapshotsChanged;
-        // Watched rows and the update banner change independently of quota snapshots.
         _refreshTimer.Tick += (_, _) => Rebuild();
         _refreshTimer.Start();
         Rebuild();
@@ -62,16 +56,29 @@ internal sealed class ControlCenterForm : Form
 
     private readonly System.Windows.Forms.Timer _refreshTimer = new() { Interval = 30_000 };
 
+    /// <summary>Dip → pixel scale for the current monitor.</summary>
+    private float Scale => DeviceDpi / 96f;
+
+    private int P(int dip) => (int)Math.Round(dip * Scale);
+
     protected override void OnHandleCreated(EventArgs e)
     {
         base.OnHandleCreated(e);
+        NativeChrome.ApplyRounded(this);
+        NativeChrome.ApplyBorderlessShadow(this);
         PositionNearTray();
     }
+
+    /// <summary>Set by the screenshot self-check so the flyout does not auto-close without focus.</summary>
+    public bool SuppressAutoClose { get; set; }
 
     protected override void OnDeactivate(EventArgs e)
     {
         base.OnDeactivate(e);
-        Close();
+        if (!SuppressAutoClose)
+        {
+            Close();
+        }
     }
 
     protected override bool ProcessCmdKey(ref Message msg, Keys keyData)
@@ -85,8 +92,15 @@ internal sealed class ControlCenterForm : Form
         return base.ProcessCmdKey(ref msg, keyData);
     }
 
-    private void OnSnapshotsChanged() =>
-        BeginInvoke(() => Rebuild());
+    private void OnSnapshotsChanged()
+    {
+        if (IsHandleCreated)
+        {
+            BeginInvoke(Rebuild);
+        }
+    }
+
+    private int CardWidth => P(322);
 
     private void Rebuild()
     {
@@ -95,167 +109,398 @@ internal sealed class ControlCenterForm : Form
             return;
         }
 
+        var state = _state();
         _flow.SuspendLayout();
         _flow.Controls.Clear();
 
-        var snapshots = _orchestrator.Latest;
-        var height = 8;
-
+        AddCard(BuildHeader(state));
         foreach (var kind in OrderedKinds())
         {
-            var snapshot = snapshots.GetValueOrDefault(kind);
-            var card = BuildProviderCard(kind, snapshot);
-            _flow.Controls.Add(card);
-            height += card.Height + 6;
-        }
-
-        var (status, tasks, providers) = _protectionInfo();
-        var (group, selected, delayMs) = _routeInfo();
-        var (openAi, upBps, downBps) = _connectionInfo();
-
-        var statusCard = new Panel
-        {
-            Width = _flow.ClientSize.Width - _flow.Padding.Horizontal - 8,
-            Height = tasks > 0 || !string.IsNullOrEmpty(group) ? 64 : 30,
-            BackColor = Color.FromArgb(42, 42, 47),
-        };
-        if (tasks > 0)
-        {
-            statusCard.Controls.Add(new Label
+            var snapshot = _orchestrator.Latest.GetValueOrDefault(kind);
+            if (BuildProviderCard(kind, snapshot, state) is { } card)
             {
-                Text = $"Active tasks: {tasks} ({providers}) · sleep protection: {status}",
-                ForeColor = Color.FromArgb(120, 200, 150),
-                Dock = DockStyle.Top,
-                Height = 20,
-                TextAlign = ContentAlignment.MiddleLeft,
-                Padding = new Padding(8, 0, 0, 0),
-            });
-        }
-
-        if (!string.IsNullOrEmpty(group))
-        {
-            var routeLabel = new Label
-            {
-                Text = $"Route · {group}: {selected ?? "-"}{(delayMs is > 0 ? $" ({delayMs}ms)" : "")}",
-                ForeColor = Color.Gainsboro,
-                Dock = DockStyle.Top,
-                Height = 20,
-                TextAlign = ContentAlignment.MiddleLeft,
-                Padding = new Padding(8, 0, 0, 0),
-                Cursor = Cursors.Hand,
-            };
-            routeLabel.Click += (_, _) => { _openClash(); Close(); };
-            statusCard.Controls.Add(routeLabel);
-            statusCard.Controls.Add(new Label
-            {
-                Text = $"OpenAI connections: {openAi} · ↓{FormatBps(downBps)} ↑{FormatBps(upBps)}",
-                ForeColor = Color.Gray,
-                Dock = DockStyle.Top,
-                Height = 20,
-                TextAlign = ContentAlignment.MiddleLeft,
-                Padding = new Padding(8, 0, 0, 0),
-                Cursor = Cursors.Hand,
-            });
-        }
-        else
-        {
-            statusCard.Controls.Add(new Label
-            {
-                Text = "Clash controller not found · connections panel",
-                ForeColor = Color.Gray,
-                Dock = DockStyle.Top,
-                Height = 20,
-                TextAlign = ContentAlignment.MiddleLeft,
-                Padding = new Padding(8, 0, 0, 0),
-                Cursor = Cursors.Hand,
-            });
-        }
-        statusCard.Controls[^1].Click += (_, _) => { _openConnections(); Close(); };
-
-        _flow.Controls.Add(statusCard);
-        height += statusCard.Height + 6;
-
-        var watchedRows = _watchedRows();
-        if (watchedRows.Count > 0)
-        {
-            var watchedCard = new Panel
-            {
-                Width = statusCard.Width,
-                Height = 30 + 22 * watchedRows.Count,
-                BackColor = Color.FromArgb(42, 42, 47),
-            };
-            watchedCard.Controls.Add(new Label
-            {
-                Text = "Watched accounts",
-                ForeColor = Color.Gainsboro,
-                Font = new Font("Segoe UI Semibold", 9.5f),
-                Dock = DockStyle.Top,
-                Height = 22,
-                TextAlign = ContentAlignment.MiddleLeft,
-                Padding = new Padding(8, 4, 0, 0),
-            });
-            foreach (var row in watchedRows)
-            {
-                var detail = row.StatusText == "available" && row.RemainingPercent is { } remaining
-                    ? $"{remaining:0}% left · {row.WindowName ?? ""} · {row.ResetsAtText ?? ""}"
-                    : row.StatusText;
-                var color = row.StatusText switch
-                {
-                    "available" => Color.FromArgb(110, 200, 140),
-                    "stale" => Color.FromArgb(235, 170, 70),
-                    "not shared" => Color.Gray,
-                    _ => Color.FromArgb(230, 120, 120),
-                };
-                watchedCard.Controls.Add(new Label
-                {
-                    Text = $"{row.Email} — {detail}" + (row.ReadCount > 0 ? $" · read {row.ReadCount}×" : ""),
-                    ForeColor = color,
-                    Dock = DockStyle.Top,
-                    Height = 22,
-                    TextAlign = ContentAlignment.MiddleLeft,
-                    Padding = new Padding(8, 0, 0, 0),
-                });
+                AddCard(card);
             }
-
-            _flow.Controls.Add(watchedCard);
-            height += watchedCard.Height + 6;
         }
 
-        if (_updateInfo() is { } update)
+        if (BuildUsageCard(state) is { } usageCard)
         {
-            var banner = new LinkLabel
+            AddCard(usageCard);
+        }
+
+        if (BuildWatchedCard(state) is { } watchedCard)
+        {
+            AddCard(watchedCard);
+        }
+
+        AddCard(BuildStatusCard(state));
+
+        if (state.UpdateInfo is { } update)
+        {
+            var banner = MakeCard();
+            var link = new LinkLabel
             {
-                Text = $"New release available: v{update.Version} — view on GitHub",
-                LinkColor = Color.FromArgb(120, 170, 255),
-                Width = statusCard.Width,
-                Height = 24,
-                Padding = new Padding(8, 4, 0, 0),
-                BackColor = Color.FromArgb(42, 42, 47),
+                Text = $"新版本可用:v{update.Version} — 查看发布页",
+                LinkColor = _palette.IsDark ? Color.FromArgb(120, 170, 255) : Color.FromArgb(40, 110, 220),
+                ForeColor = _palette.TextPrimary,
+                Location = new Point(P(12), P(8)),
+                AutoSize = true,
+                Cursor = Cursors.Hand,
             };
-            banner.Click += (_, _) =>
+            link.Click += (_, _) =>
             {
                 if (update.ReleaseUrl is { } url)
                 {
-                    _ = url;
-                    System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo(url) { UseShellExecute = true });
+                    _ = System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo(url) { UseShellExecute = true });
                 }
             };
-            _flow.Controls.Add(banner);
-            height += banner.Height + 6;
+            banner.Controls.Add(link);
+            AddCard(banner);
         }
 
-        var footer = new Panel { Width = statusCard.Width, Height = 36, BackColor = Color.Transparent };
-        var settingsButton = MakeLink("Settings", 4, _openSettings);
-        var refreshButton = MakeLink("Refresh", 76, () => _ = _orchestrator.RefreshAsync(CancellationToken.None));
-        footer.Controls.Add(settingsButton);
-        footer.Controls.Add(refreshButton);
-        _flow.Controls.Add(footer);
-        height += footer.Height;
-
+        AddCard(BuildFooter());
         _flow.ResumeLayout();
-        Height = Math.Min(height + 12, 760);
+        var contentHeight = _flow.Controls.Cast<Control>().Sum(c => c.Height + c.Margin.Vertical + _flow.Padding.Vertical);
+        Height = Math.Min(P(780), Math.Max(P(320), contentHeight + P(20)));
         PositionNearTray();
     }
+
+    private void AddCard(CardPanel card)
+    {
+        card.FitToContent(Scale);
+        _flow.Controls.Add(card);
+    }
+
+    private CardPanel BuildHeader(HostState state)
+    {
+        var card = MakeCard();
+        var snapshots = _orchestrator.Latest;
+        var updated = snapshots.Values
+            .Where(s => s.LastUpdatedUtc is not null)
+            .OrderByDescending(s => s.LastUpdatedUtc)
+            .FirstOrDefault()?.LastUpdatedUtc;
+        var updatedText = updated is { } at ? TimeText.FormatRelativeAge(DateTimeOffset.UtcNow - at) : "—";
+        var nextIn = (int)Math.Ceiling(((updated ?? DateTimeOffset.UtcNow)
+            .AddSeconds(ProgramSettings.Current.UsageRefreshIntervalSeconds) - DateTimeOffset.UtcNow).TotalMinutes);
+
+        card.Controls.Add(Label("AI Quota Bar", new Font("Segoe UI Semibold", 10.5f), _palette.TextPrimary, 14, 8));
+        card.Controls.Add(Label($"更新于 {updatedText} · 下次约 {nextIn} 分钟后", Font, _palette.TextFaint, 14, 30));
+        var refresh = MakeLink("刷新", () => _ = _orchestrator.RefreshAsync(CancellationToken.None));
+        refresh.Location = new Point(card.Width - P(56), P(14));
+        refresh.Anchor = AnchorStyles.Top | AnchorStyles.Right;
+        card.Controls.Add(refresh);
+        return card;
+    }
+
+    private CardPanel? BuildProviderCard(ProviderKind kind, ProviderSnapshot? snapshot, HostState state)
+    {
+        var collapsed = IsCollapsed(kind.WireName());
+        var card = MakeCard();
+        const int headerBottom = 44;
+
+        var chevron = new Label
+        {
+            Text = collapsed ? "▸" : "▾",
+            Font = new Font("Segoe UI", 10f),
+            ForeColor = _palette.TextFaint,
+            Location = new Point(P(12), P(11)),
+            AutoSize = true,
+            Cursor = Cursors.Hand,
+        };
+        chevron.Click += (_, _) => ToggleCollapsed(kind.WireName());
+        card.Controls.Add(chevron);
+        card.Controls.Add(Label(kind.DisplayName(), new Font("Segoe UI Semibold", 10f), _palette.TextPrimary, 36, 8));
+
+        if (snapshot is null)
+        {
+            card.Controls.Add(Label("等待数据…", Font, _palette.TextFaint, 36, 26));
+            return card;
+        }
+
+        var account = snapshot.Accounts.FirstOrDefault();
+        var primary = account?.Windows.FirstOrDefault();
+        var secondary = account?.Windows.Skip(1).FirstOrDefault();
+
+        if (account is { Label.Length: > 0 })
+        {
+            card.Controls.Add(Label(TimeText.MaskLabel(account.Label), Font, _palette.TextFaint, 36, 24));
+        }
+
+        var badgeText = snapshot.SubscribeTitle is { Length: > 0 } subscribe
+            ? subscribe + (string.IsNullOrEmpty(snapshot.SubscribeEndTimeText) ? "" : $" · {snapshot.SubscribeEndTimeText}")
+            : null;
+        if (badgeText is not null)
+        {
+            var badge = Label(badgeText, Font, _palette.TextFaint, 0, 12);
+            badge.Anchor = AnchorStyles.Top | AnchorStyles.Right;
+            badge.Location = new Point(card.Width - P(16) - badge.PreferredWidth, P(12));
+            card.Controls.Add(badge);
+        }
+
+        if (collapsed)
+        {
+            if (primary is not null)
+            {
+                var big = Label($"{primary.RemainingPercent:0}%", new Font("Segoe UI", 11f, FontStyle.Bold), _palette.QuotaColor(primary.RemainingPercent), 0, 0);
+                big.Anchor = AnchorStyles.Top | AnchorStyles.Right;
+                big.Location = new Point(card.Width - P(16) - big.PreferredWidth, P(26));
+                card.Controls.Add(big);
+            }
+
+            return card;
+        }
+
+        if (snapshot.Status is ProviderStatus.Failed or ProviderStatus.Offline)
+        {
+            card.Controls.Add(WrappedLabel(EmptyStateText(kind, snapshot),
+                _palette.IsDark ? Color.FromArgb(235, 130, 130) : Color.FromArgb(180, 60, 60), 14, headerBottom));
+            return card;
+        }
+
+        if (primary is null)
+        {
+            card.Controls.Add(WrappedLabel("暂无配额窗口 — 保存凭据后自动刷新", _palette.TextFaint, 14, headerBottom));
+            return card;
+        }
+
+        // Main row: big remaining + time left + pace chip (all coordinates in dips; only
+        // the direct-assignment controls convert via P() themselves).
+        card.Controls.Add(Label($"{primary.RemainingPercent:0}%", new Font("Segoe UI", 17f, FontStyle.Bold), _palette.QuotaColor(primary.RemainingPercent), 14, headerBottom - 4));
+        card.Controls.Add(Label(TimeText.FormatRemaining(primary.ResetsAtUtc - DateTimeOffset.UtcNow) + " 后重置", Font, _palette.TextSecondary, 96, headerBottom + 12));
+        var pace = PaceMath.Compute(primary, DateTimeOffset.UtcNow);
+        if (pace is not null)
+        {
+            var paceColor = pace.IsReserve
+                ? (_palette.IsDark ? Color.FromArgb(96, 200, 145) : Color.FromArgb(35, 150, 95))
+                : Color.FromArgb(235, 170, 70);
+            var chip = MakeChip((pace.IsReserve ? "结余 " : "亏空 ") + $"{pace.DeltaPercent:+0.0;-0.0}pp", paceColor);
+            chip.Anchor = AnchorStyles.Top | AnchorStyles.Right;
+            chip.Location = new Point(card.Width - P(16) - chip.PreferredWidth, P(headerBottom + 10));
+            card.Controls.Add(chip);
+        }
+
+        var top = headerBottom + 44;
+        top = AddWindowBar(card, primary, true, top);
+        if (secondary is not null)
+        {
+            top = AddWindowBar(card, secondary, false, top);
+        }
+
+        // Trend sparkline for the primary window (hidden until two samples exist).
+        var series = state.History?.GetSeries(kind, primary.Name);
+        if (series is { Count: >= 2 })
+        {
+            card.Controls.Add(new Sparkline
+            {
+                Palette = _palette,
+                Bounds = new Rectangle(P(16), P(top + 2), card.Width - P(32), P(36)),
+                Points = series,
+            });
+            card.Controls.Add(Label($"近 7 天剩余趋势 · {primary.Name}", Font, _palette.TextFaint, 14, top + 40));
+            top += 62;
+        }
+        else
+        {
+            card.Controls.Add(Label("趋势采集中 — 刷新几次后显示近 7 天剩余曲线", Font, _palette.TextFaint, 14, top));
+            top += 24;
+        }
+
+        // Per-model usage rows (top 3).
+        foreach (var model in snapshot.Models.OrderByDescending(m => m.UsedPercent).Take(3))
+        {
+            card.Controls.Add(EllipsizedLabel("· " + model.ModelName, Font, _palette.TextSecondary, 14, top, card.Width - P(160), hand: false));
+            card.Controls.Add(new CapsuleBar
+            {
+                Palette = _palette,
+                Bounds = new Rectangle(card.Width - P(136), P(top + 5), P(120), P(6)),
+                Percent = 100 - model.UsedPercent,
+            });
+            top += 21;
+        }
+
+        // Additional account rows (Codex pool).
+        foreach (var other in snapshot.Accounts.Skip(1))
+        {
+            card.Controls.Add(EllipsizedLabel(TimeText.MaskLabel(other.Label), Font, _palette.TextSecondary, 14, top, card.Width - P(80), hand: false));
+            if (other.Windows.FirstOrDefault() is { } otherWindow)
+            {
+                var value = Label($"{otherWindow.RemainingPercent:0}%", new Font("Segoe UI", 9f, FontStyle.Bold), _palette.QuotaColor(otherWindow.RemainingPercent), 0, top);
+                value.Anchor = AnchorStyles.Top | AnchorStyles.Right;
+                value.Location = new Point(card.Width - P(16) - value.PreferredWidth, P(top));
+                card.Controls.Add(value);
+            }
+
+            top += 22;
+        }
+
+        return card;
+    }
+
+    private int AddWindowBar(CardPanel card, QuotaWindowSample window, bool primary, int top)
+    {
+        card.Controls.Add(EllipsizedLabel($"{window.Name} · {window.RemainingPercent:0}% 剩余", Font,
+            primary ? _palette.TextSecondary : _palette.TextFaint, 14, top, card.Width / 2, hand: false));
+
+        var reset = EllipsizedLabel(window.ResetsAtUtc > DateTimeOffset.MinValue
+                ? "重置 " + window.ResetsAtUtc.ToLocalTime().ToString("MM-dd HH:mm")
+                : "无重置计划",
+            Font, _palette.TextFaint, 0, top, card.Width / 2 - P(30), hand: false);
+        reset.Anchor = AnchorStyles.Top | AnchorStyles.Right;
+        reset.TextAlign = ContentAlignment.MiddleRight;
+        reset.Location = new Point(card.Width / 2, P(top));
+        card.Controls.Add(reset);
+
+        card.Controls.Add(new CapsuleBar
+        {
+            Palette = _palette,
+            Bounds = new Rectangle(P(16), P(top + 20), card.Width - P(32), P(6)),
+            Percent = window.RemainingPercent,
+        });
+        return top + 30;
+    }
+
+    private CardPanel? BuildUsageCard(HostState state)
+    {
+        if (state.Usage is not { } usage)
+        {
+            return null;
+        }
+
+        var card = MakeCard();
+        card.Controls.Add(Label("Codex 本机用量", new Font("Segoe UI Semibold", 9.5f), _palette.TextPrimary, 14, 9));
+        card.Controls.Add(Label($"今日 {usage.TodayTokensText} · 35 天 {usage.TotalTokensText}", Font, _palette.TextSecondary, 14, 28));
+        card.Controls.Add(Label(
+            $"缓存命中 {usage.CacheHitRateText}" + (usage.CostText is { } cost ? $" · 成本 {cost}" : ""),
+            Font, _palette.TextFaint, 14, 46));
+        return card;
+    }
+
+    private CardPanel? BuildWatchedCard(HostState state)
+    {
+        var rows = state.WatchedRows;
+        if (rows.Count == 0)
+        {
+            return null;
+        }
+
+        var card = MakeCard();
+        card.Controls.Add(Label("关注的账号", new Font("Segoe UI Semibold", 9.5f), _palette.TextPrimary, 14, 9));
+        var top = 30;
+        foreach (var row in rows)
+        {
+            var detail = row.StatusText == "available" && row.RemainingPercent is { } remaining
+                ? $"{remaining:0}% · {row.WindowName ?? ""} · {row.ResetsAtText ?? ""}"
+                : row.StatusText;
+            var color = row.StatusText switch
+            {
+                "available" => _palette.IsDark ? Color.FromArgb(96, 200, 145) : Color.FromArgb(35, 150, 95),
+                "stale" => Color.FromArgb(235, 170, 70),
+                "not shared" => _palette.TextFaint,
+                _ => Color.FromArgb(232, 90, 90),
+            };
+            card.Controls.Add(EllipsizedLabel($"{row.Email} — {detail}" + (row.ReadCount > 0 ? $" · 被读 {row.ReadCount} 次" : ""), Font, color, 14, top, card.Width - P(28), hand: false));
+            top += 22;
+        }
+
+        return card;
+    }
+
+    private CardPanel BuildStatusCard(HostState state)
+    {
+        var (status, tasks, providers) = state.Protection;
+        var (group, selected, delayMs) = state.Route;
+        var (openAi, upBps, downBps) = state.Connection;
+
+        var hasTasks = tasks > 0;
+        var hasRoute = !string.IsNullOrEmpty(group);
+        var card = MakeCard();
+        var top = 9;
+
+        if (hasTasks)
+        {
+            card.Controls.Add(Label($"活动任务 {tasks}({providers})· 防睡眠 {status}", Font,
+                _palette.IsDark ? Color.FromArgb(96, 200, 145) : Color.FromArgb(35, 150, 95), 14, top));
+            top += 19;
+        }
+
+        if (hasRoute)
+        {
+            var route = EllipsizedLabel($"路由 {group} → {selected ?? "—"}{(delayMs is > 0 ? $"({delayMs}ms)" : "")}", _palette.TextPrimary, 14, top);
+            route.Click += (_, _) => { _openClash(); Close(); };
+            card.Controls.Add(route);
+            top += 19;
+            var conn = EllipsizedLabel($"OpenAI 连接 {openAi} · ↓{FormatBps(downBps)} ↑{FormatBps(upBps)}", _palette.TextFaint, 14, top);
+            conn.Click += (_, _) => { _openConnections(); Close(); };
+            card.Controls.Add(conn);
+            top += 19;
+            card.Controls.Add(Label(
+                state.DashboardRunning ? $"手机看板运行中 :{state.DashboardPort}" : "手机看板未启用(设置中开启)",
+                Font, _palette.TextFaint, 14, top));
+        }
+        else
+        {
+            var line = EllipsizedLabel("Clash 控制器未发现 · 点击打开连接面板", _palette.TextFaint, 14, top);
+            line.Click += (_, _) => { _openConnections(); Close(); };
+            card.Controls.Add(line);
+        }
+
+        return card;
+    }
+
+    private CardPanel BuildFooter()
+    {
+        var footer = MakeCard();
+        footer.Height = P(36);
+        var settings = MakeLink("设置", () => _openSettings());
+        settings.Location = new Point(P(10), P(7));
+        var clash = MakeLink("Clash 路由", _openClash);
+        clash.Location = new Point(P(64), P(7));
+        var quit = MakeLink("退出", Application.Exit);
+        quit.Anchor = AnchorStyles.Top | AnchorStyles.Right;
+        quit.Location = new Point(footer.Width - P(10) - quit.PreferredWidth, P(7));
+        footer.Controls.Add(settings);
+        footer.Controls.Add(clash);
+        footer.Controls.Add(quit);
+        return footer;
+    }
+
+    private Label EllipsizedLabel(string text, Color color, int x, int y) =>
+        EllipsizedLabel(text, Font, color, x, y, CardWidth - P(28), hand: true);
+
+    /// <summary>Single-line ellipsizing label. Height is measured from the font because the
+    /// default Label height is unscaled and clips 9pt text in half at 200% DPI.</summary>
+    private Label EllipsizedLabel(string text, Font font, Color color, int x, int y, int widthPx, bool hand = true) => new()
+    {
+        Text = text,
+        Font = font,
+        ForeColor = color,
+        Bounds = new Rectangle(P(x), P(y), widthPx, TextRenderer.MeasureText(text, font).Height),
+        AutoSize = false,
+        AutoEllipsis = true,
+        Cursor = hand ? Cursors.Hand : Cursors.Default,
+    };
+
+    private bool IsCollapsed(string section) =>
+        ProgramSettings.Current.CollapsedSections.Contains(section, StringComparer.OrdinalIgnoreCase);
+
+    private void ToggleCollapsed(string section)
+    {
+        var settings = ProgramSettings.Current;
+        settings.CollapsedSections = settings.CollapsedSections.Contains(section, StringComparer.OrdinalIgnoreCase)
+            ? settings.CollapsedSections.Where(s => !string.Equals(s, section, StringComparison.OrdinalIgnoreCase)).ToList()
+            : settings.CollapsedSections.Append(section).ToList();
+        settings.Save();
+        Rebuild();
+    }
+
+    private string EmptyStateText(ProviderKind kind, ProviderSnapshot snapshot) => kind switch
+    {
+        ProviderKind.Codex => "未找到 ~/.codex 凭据 — 登录 Codex 后自动识别",
+        ProviderKind.Glm => "未配置 — 设置 → Providers → GLM 填入 API key",
+        ProviderKind.MiniMax => "未配置 — 设置 → Providers → MiniMax 填入 token",
+        ProviderKind.Kimi => snapshot.Error is { Length: > 0 } ? "Kimi 会话不可用:" + Truncate(snapshot.Error, 40) : "未找到可用会话",
+        _ => snapshot.Error ?? "不可用",
+    };
 
     private IEnumerable<ProviderKind> OrderedKinds()
     {
@@ -279,136 +524,64 @@ internal sealed class ControlCenterForm : Form
         return order;
     }
 
-    private Control BuildProviderCard(ProviderKind kind, ProviderSnapshot? snapshot)
+    private CardPanel MakeCard() => new()
     {
-        var card = new Panel
-        {
-            Width = _flow.ClientSize.Width - _flow.Padding.Horizontal - 8,
-            Height = 66,
-            BackColor = Color.FromArgb(42, 42, 47),
-        };
+        Palette = _palette,
+        Width = CardWidth,
+        Height = P(44),
+        Margin = new Padding(0, 0, 0, P(8)),
+    };
 
-        var title = new Label
-        {
-            Text = kind.DisplayName(),
-            ForeColor = Color.Gainsboro,
-            Font = new Font("Segoe UI Semibold", 9.5f),
-            Location = new Point(10, 6),
-            AutoSize = true,
-        };
-        card.Controls.Add(title);
+    private Label Label(string text, Font font, Color color, int x, int y) => new()
+    {
+        Text = text,
+        Font = font,
+        ForeColor = color,
+        Location = new Point(P(x), P(y)),
+        AutoSize = true,
+    };
 
-        if (snapshot is null || snapshot.Status is ProviderStatus.Idle or ProviderStatus.Loading)
-        {
-            card.Controls.Add(new Label
-            {
-                Text = snapshot?.Status == ProviderStatus.Loading ? "Refreshing…" : "No data yet",
-                ForeColor = Color.Gray,
-                Location = new Point(10, 28),
-                AutoSize = true,
-            });
-            return card;
-        }
+    private Label WrappedLabel(string text, Color color, int x, int y) => new()
+    {
+        Text = text,
+        Font = Font,
+        ForeColor = color,
+        Location = new Point(P(x), P(y)),
+        MaximumSize = new Size(CardWidth - P(28), 0),
+        AutoSize = true,
+    };
 
-        if (snapshot.Status is ProviderStatus.Failed or ProviderStatus.Offline)
-        {
-            card.Controls.Add(new Label
-            {
-                Text = snapshot.Error is null ? "Unavailable" : Truncate(snapshot.Error, 52),
-                ForeColor = Color.FromArgb(230, 120, 120),
-                Location = new Point(10, 28),
-                AutoSize = true,
-            });
-            return card;
-        }
-
-        var account = snapshot.Accounts.FirstOrDefault();
-        var window = account?.Windows.FirstOrDefault();
-        if (window is null)
-        {
-            card.Controls.Add(new Label
-            {
-                Text = "No quota window",
-                ForeColor = Color.Gray,
-                Location = new Point(10, 28),
-                AutoSize = true,
-            });
-            return card;
-        }
-
-        var remaining = Math.Clamp(window.RemainingPercent, 0, 100);
-        var color = remaining switch
-        {
-            < QuotaThresholds.RedRemainingPercent => Color.FromArgb(235, 90, 90),
-            < QuotaThresholds.OrangeRemainingPercent => Color.FromArgb(235, 170, 70),
-            _ => Color.FromArgb(110, 200, 140),
-        };
-        var remainingSeconds = Math.Max(0, (window.ResetsAtUtc - DateTimeOffset.UtcNow).TotalSeconds);
-        var main = new Label
-        {
-            Text = $"{remaining:0}% left · {TimeText.FormatRemaining(TimeSpan.FromSeconds(remainingSeconds))}",
-            ForeColor = color,
-            Font = new Font("Segoe UI", 12f, FontStyle.Bold),
-            Location = new Point(10, 24),
-            AutoSize = true,
-        };
-        card.Controls.Add(main);
-
-        var secondary = snapshot.Accounts.FirstOrDefault()?.Windows.Skip(1).FirstOrDefault();
-        var pace = PaceMath.Compute(window, DateTimeOffset.UtcNow);
-        var paceText = pace is null ? "" : (pace.IsReserve ? "reserve " : "deficit ") + $"{pace.DeltaPercent:+0.0;-0.0}pp";
-        var meta = $"{window.Name} · resets {window.ResetsAtUtc.ToLocalTime():MM/dd HH:mm}";
-        if (secondary is not null)
-        {
-            meta += $" · {secondary.Name} {secondary.RemainingPercent:0}%";
-        }
-
-        card.Controls.Add(new Label
-        {
-            Text = string.IsNullOrEmpty(paceText) ? meta : $"{meta} · {paceText}",
-            ForeColor = pace is { IsReserve: false, Bucket: PaceBucket.Far } ? Color.FromArgb(235, 120, 120) : Color.Gray,
-            Location = new Point(10, 44),
-            AutoSize = true,
-        });
-
-        if (account is { Label.Length: > 0 } && !string.IsNullOrEmpty(account.Label))
-        {
-            title.Text = $"{kind.DisplayName()} · {account.Label}";
-        }
-
-        if (!string.IsNullOrEmpty(snapshot.SubscribeTitle))
-        {
-            var badge = new Label
-            {
-                Text = snapshot.SubscribeTitle + (string.IsNullOrEmpty(snapshot.SubscribeEndTimeText) ? "" : $" · {snapshot.SubscribeEndTimeText}"),
-                ForeColor = Color.DimGray,
-                Location = new Point(card.Width - 130, 8),
-                AutoSize = true,
-                Anchor = AnchorStyles.Top | AnchorStyles.Right,
-            };
-            card.Controls.Add(badge);
-        }
-
-        return card;
-    }
-
-    private LinkLabel MakeLink(string text, int x, Action onClick)
+    private LinkLabel MakeLink(string text, Action onClick)
     {
         var link = new LinkLabel
         {
             Text = text,
-            LinkColor = Color.FromArgb(120, 170, 255),
-            Location = new Point(x, 6),
+            LinkColor = _palette.IsDark ? Color.FromArgb(120, 170, 255) : Color.FromArgb(40, 110, 220),
             AutoSize = true,
+            Cursor = Cursors.Hand,
         };
         link.Click += (_, _) => onClick();
         return link;
     }
 
+    private Label MakeChip(string text, Color color)
+    {
+        var chip = new Label
+        {
+            Text = "  " + text + "  ",
+            ForeColor = color,
+            BackColor = _palette.IsDark ? Color.FromArgb(51, 51, 51) : Color.FromArgb(240, 240, 240),
+            AutoSize = true,
+            Height = P(22),
+            TextAlign = ContentAlignment.MiddleCenter,
+        };
+        return chip;
+    }
+
     private void PositionNearTray()
     {
         var screen = Screen.PrimaryScreen?.WorkingArea ?? SystemInformation.WorkingArea;
-        Location = new Point(screen.Right - Width - 12, screen.Bottom - Height - 12);
+        Location = new Point(screen.Right - Width - P(12), screen.Bottom - Height - P(12));
     }
 
     private static string Truncate(string text, int max) => text.Length <= max ? text : text[..(max - 1)] + "…";
@@ -426,5 +599,31 @@ internal sealed class ControlCenterForm : Form
         }
 
         base.Dispose(disposing);
+    }
+}
+
+/// <summary>Rounded card surface that sizes its height to its content.</summary>
+internal sealed class CardPanel : Panel
+{
+    public NativePalette Palette { get; init; } = NativePalette.System();
+
+    public CardPanel()
+    {
+        SetStyle(ControlStyles.AllPaintingInWmPaint | ControlStyles.OptimizedDoubleBuffer | ControlStyles.ResizeRedraw, true);
+    }
+
+    public void FitToContent(float scale)
+    {
+        var bottom = Controls.Count == 0 ? Height : Controls.Cast<Control>().Max(c => c.Bottom);
+        Height = Math.Max(Height, bottom + (int)Math.Round(10 * scale));
+    }
+
+    protected override void OnPaint(PaintEventArgs e)
+    {
+        var g = e.Graphics;
+        g.SmoothingMode = System.Drawing.Drawing2D.SmoothingMode.AntiAlias;
+        var bounds = new Rectangle(0, 0, Width - 1, Height - 1);
+        Gdi.FillRounded(g, Palette.Card, bounds, 8);
+        Gdi.DrawRoundedBorder(g, Palette.CardBorder, bounds, 8);
     }
 }
