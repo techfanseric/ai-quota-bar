@@ -1,0 +1,26 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net8.0-windows</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <UseWindowsForms>true</UseWindowsForms>
+    <LangVersion>latest</LangVersion>
+    <AssemblyName>AIQuotaBar</AssemblyName>
+    <Version>1.0.0</Version>
+    <ApplicationHighDpiMode>PerMonitorV2</ApplicationHighDpiMode>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\AQB.Core\AQB.Core.csproj" />
+    <ProjectReference Include="..\AQB.Settings\AQB.Settings.csproj" />
+    <ProjectReference Include="..\AQB.Providers.Codex\AQB.Providers.Codex.csproj" />
+    <ProjectReference Include="..\AQB.Providers.Kimi\AQB.Providers.Kimi.csproj" />
+    <ProjectReference Include="..\AQB.Providers.GlmMiniMax\AQB.Providers.GlmMiniMax.csproj" />
+    <ProjectReference Include="..\AQB.Clash\AQB.Clash.csproj" />
+    <ProjectReference Include="..\AQB.Power\AQB.Power.csproj" />
+    <ProjectReference Include="..\AQB.CodexTasks\AQB.CodexTasks.csproj" />
+    <ProjectReference Include="..\AQB.Usage\AQB.Usage.csproj" />
+    <ProjectReference Include="..\AQB.Dashboard\AQB.Dashboard.csproj" />
+    <ProjectReference Include="..\AQB.Team\AQB.Team.csproj" />
+  </ItemGroup>
+</Project>

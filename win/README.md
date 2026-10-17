@@ -1,0 +1,72 @@
+# AI Quota Bar — Windows 迁移版
+
+macOS 菜单栏应用 [AI Quota Bar](../README.md) 的 Windows 版本(C# / .NET 8 WinForms 托盘应用)。
+功能规格分析文档见 [`docs/win-migration/analysis/`](../docs/win-migration/analysis/),模块级迁移对照见下文。
+
+## 构建
+
+要求:.NET 8 SDK(仅 Windows 桌面需要 Windows 系统)。
+
+```powershell
+cd win
+dotnet build AIQuotaBar.Win.sln -c Release
+dotnet test AIQuotaBar.Win.sln            # 全部单元/集成测试(509 项)
+dotnet run --project src/AQB.App          # 启动托盘应用
+```
+
+冒烟测试(构建 Release、启动托盘应用、校验进程/日志/看板端点):
+
+```powershell
+bash scripts/smoke-test.sh
+```
+
+## 架构(解决方案 `win/AIQuotaBar.Win.sln`)
+
+| 项目 | 职责 | macOS 对应 |
+| --- | --- | --- |
+| `AQB.Core` | 共享模型、pace 算法、时间/指纹工具、仪表板快照 DTO | `Models/` + CodexBarCore 数学 |
+| `AQB.Settings` | `%APPDATA%\AIQuotaBar\settings.json` 设置 + DPAPI 凭据保险库 | UserDefaults + Keychain vault |
+| `AQB.Providers.Codex` | `~/.codex/auth.json` 解析、OAuth 刷新、5h/Weekly 配额、多账号池 | `Services/Codex/` |
+| `AQB.Providers.Kimi` | 桌面/网页会话 + CLI `/status` 解析 | `Services/Kimi/` |
+| `AQB.Providers.GlmMiniMax` | GLM(API key/cURL 导入)与 MiniMax 配额 | `Services/GLM*` + MiniMax |
+| `AQB.Clash` | 控制器发现、路由切换、延迟测试、自动恢复、连接监控 | `Services/Clash/` |
+| `AQB.Power` | `PowerCreateRequest`/`SetThreadExecutionState` 防睡眠、电量/12h 安全网 | `Services/Power/` + SleepHelper |
+| `AQB.CodexTasks` | hook 事件日志 + state_5.sqlite + rollout 监视 → 活跃任务 | `Services/Codex/*Watch*` |
+| `AQB.Hook` | Codex notify hook 可执行文件(stdin JSON → 事件日志) | `AIQuotaBarHook` |
+| `AQB.Usage` | 本地用量扫描/聚合(tokens、缓存命中率、成本) | `Sources/CodexLocalUsageCore` |
+| `AQB.Dashboard` | 18765 端口只读 HTTP + SSE 移动看板(复用原 PWA 静态资源) | `Services/MobileDashboard/` |
+| `AQB.Team` | Cloudflare Worker 客户端(建队/加入/用量上报/配额上传) | Team/Sync services |
+| `AQB.App` | WinForms 托盘宿主(图标、控制中心、设置、路由/连接面板) | `App/` + `Views/` + `Settings/` |
+
+Cloudflare Worker(`cloudflare/`)为跨平台 JS,**原样复用**,无需迁移。
+
+## 与 macOS 版的差异
+
+- 凭据存储:Keychain → DPAPI(CurrentUser)单文件 `vault.bin`。
+- 防睡眠:无需特权 helper;`PowerCreateRequest` 崩溃安全。合盖模式改用 `powercfg LIDACTION`(需管理员)。
+- Kimi CLI 探测:PTY → 普通子进程管道(Windows 无 PTY),解析逻辑一致。
+- 菜单栏 → 系统托盘 `NotifyIcon`;控制中心为无边框弹出窗。
+- 移动看板:PWA 静态资源原样复用,SSE 快照为 Windows 侧 schemaVersion 2 子集。
+
+详细分析规格(逐端点/逐公式/逐测试行为):`../docs/win-migration/analysis/*.md`
+
+## 本机验证记录(2026-10-17,Windows 10 19045)
+
+- `dotnet test AIQuotaBar.Win.sln`:**509/509 通过**——Core 28、Codex 44、Kimi 47、GLM/MiniMax 56、Clash 151、Power 29、CodexTasks 46、Usage 58、Dashboard 8、Team 42。
+- Clash 集成测试真实执行:从 `%APPDATA%\io.github.clash-verge-rev.clash-verge-rev\config.yaml` 发现控制器 `127.0.0.1:9097`,`GET /version` 返回 `meta v1.19.31`;路由解析命中真实分组,看板快照回传当前选中节点。
+- 移动看板:端口 18765,`/api/v1/health` 200;SSE `Bearer` 鉴权(无 token 401)、首帧快照、账号标签掩码生效;PWA 静态资源(index.html/app.js/app.css/manifest/图标)由原 macOS 资源原样服务。
+- 任务→防睡眠链路:向 hook 事件日志注入 `turn.started` → 看板 `protection` 变 `active/1`;`session.end` → `grace/0` → 5 分钟后 `released`(边界行为由单测锁定);`PowerCreateRequest` 冒烟测试确认 `powercfg /requests` 可见句柄。
+- 合盖模式:`PowerRead/WriteAC|DCValueIndex` 真机读取 LIDACTION 冒烟通过;非管理员会话在任务激活时正确降级告警,写入/精确恢复/崩溃自愈(marker)由单测锁定。
+- CodexWatch:真实 Worker 调用验证(`GET /v1/watch/quota` 返回 not shared、发布侧空数据防误清守卫生效);邮箱校验、周窗口起点推导、未来 sampledAt 回退、`account_key` 哈希映射均有单测向量锁定。
+- 自动更新:真实 `GET /v1/app-update` 返回 `1.37.0` 并触发一次提醒(版本比较、24h 节流、按版本只提醒一次)。
+- 托盘应用:单实例互斥、托盘图标渲染(详细文字/紧凑环双模式)、左键控制中心(Watched 账号卡片+更新横幅)、右键菜单(Clash 路由/连接/设置/退出),连续运行无崩溃。
+
+## 已知差异与限制
+
+- Kimi CLI 探测用普通管道而非 PTY:"Trust this folder?" 交互提示无法自动回应(会以 `workspaceTrustRequired` 上报);解析逻辑与 macOS 一致。
+- Kimi 账号粘性(网络错误不切源)未移植,门面按固定顺序回退。
+- 合盖模式通过 Power* API 读写当前方案的 LIDACTION(等价 `powercfg /setacvalueindex … LIDACTION`),需要管理员权限的应用进程——未实现 macOS 的特权 LaunchDaemon 服务形态;防睡眠本体(`PowerCreateRequest`)无需特权且崩溃安全,合盖改动带 marker 崩溃自愈。
+- 热压力安全网无 Windows 等价物,空实现;电量 <20% 降级逻辑保留。
+- 用量库为 JSON 缓存而非 SQLite WAL;无账号归属切分与云端 outbox 回执;团队上报只发未绑定事件(≤200/轮)。
+- 团队浏览器 handoff:`TeamClient.RequestHandoffAsync` 获取 120s 单次票据并生成控制台 URL;`/admin` 代铸属 Worker 运营台(网页端),不在客户端范围。
+- 自动更新目前只做检查+提醒并打开发布页;Windows 安装包资产名(`.msi`/`.exe`)需 Worker 端 `/v1/app-update` 资产选择跟进后才会自动下载。
