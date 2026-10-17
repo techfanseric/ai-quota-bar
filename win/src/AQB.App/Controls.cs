@@ -25,6 +25,13 @@ internal sealed class CapsuleBar : Control
         }
     }
 
+    protected override void OnPaintBackground(PaintEventArgs e)
+    {
+        // Blend with the card instead of Control's default gray.
+        using var brush = new SolidBrush(Palette.Card);
+        e.Graphics.FillRectangle(brush, e.ClipRectangle);
+    }
+
     protected override void OnPaint(PaintEventArgs e)
     {
         var g = e.Graphics;
@@ -71,6 +78,13 @@ internal sealed class Sparkline : Control
             _points = value ?? Array.Empty<QuotaSamplePoint>();
             Invalidate();
         }
+    }
+
+    protected override void OnPaintBackground(PaintEventArgs e)
+    {
+        // Blend with the card instead of Control's default gray.
+        using var brush = new SolidBrush(Palette.Card);
+        e.Graphics.FillRectangle(brush, e.ClipRectangle);
     }
 
     protected override void OnPaint(PaintEventArgs e)

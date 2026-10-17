@@ -42,6 +42,7 @@ internal sealed class ControlCenterForm : Form
         Font = new Font("Segoe UI", 9f);
 
         _flow.Dock = DockStyle.Fill;
+        _flow.BackColor = _palette.Background;
         _flow.FlowDirection = FlowDirection.TopDown;
         _flow.WrapContents = false;
         _flow.AutoScroll = true;
@@ -203,6 +204,7 @@ internal sealed class ControlCenterForm : Form
             Text = collapsed ? "▸" : "▾",
             Font = new Font("Segoe UI", 10f),
             ForeColor = _palette.TextFaint,
+            BackColor = Color.Transparent,
             Location = new Point(P(12), P(11)),
             AutoSize = true,
             Cursor = Cursors.Hand,
@@ -223,7 +225,8 @@ internal sealed class ControlCenterForm : Form
 
         if (account is { Label.Length: > 0 })
         {
-            card.Controls.Add(Label(TimeText.MaskLabel(account.Label), Font, _palette.TextFaint, 36, 24));
+            // Raw label (email or provider name) — masking is only for the remote dashboard.
+            card.Controls.Add(Label(account.Label, Font, _palette.TextFaint, 36, 24));
         }
 
         var badgeText = snapshot.SubscribeTitle is { Length: > 0 } subscribe
@@ -305,8 +308,13 @@ internal sealed class ControlCenterForm : Form
             top += 24;
         }
 
-        // Per-model usage rows (top 3).
-        foreach (var model in snapshot.Models.OrderByDescending(m => m.UsedPercent).Take(3))
+        // Per-model usage rows (top 3): only models actually consumed — rows that
+        // never spent anything (models outside the plan) are noise, Mac keeps them
+        // only to paint a red dash.
+        foreach (var model in snapshot.Models
+                     .Where(m => m.UsedPercent > 0)
+                     .OrderByDescending(m => m.UsedPercent)
+                     .Take(3))
         {
             card.Controls.Add(EllipsizedLabel("· " + model.ModelName, Font, _palette.TextSecondary, 14, top, card.Width - P(160), hand: false));
             card.Controls.Add(new CapsuleBar
@@ -321,7 +329,7 @@ internal sealed class ControlCenterForm : Form
         // Additional account rows (Codex pool).
         foreach (var other in snapshot.Accounts.Skip(1))
         {
-            card.Controls.Add(EllipsizedLabel(TimeText.MaskLabel(other.Label), Font, _palette.TextSecondary, 14, top, card.Width - P(80), hand: false));
+            card.Controls.Add(EllipsizedLabel(other.Label, Font, _palette.TextSecondary, 14, top, card.Width - P(80), hand: false));
             if (other.Windows.FirstOrDefault() is { } otherWindow)
             {
                 var value = Label($"{otherWindow.RemainingPercent:0}%", new Font("Segoe UI", 9f, FontStyle.Bold), _palette.QuotaColor(otherWindow.RemainingPercent), 0, top);
@@ -474,6 +482,7 @@ internal sealed class ControlCenterForm : Form
         Text = text,
         Font = font,
         ForeColor = color,
+        BackColor = Color.Transparent,
         Bounds = new Rectangle(P(x), P(y), widthPx, TextRenderer.MeasureText(text, font).Height),
         AutoSize = false,
         AutoEllipsis = true,
@@ -537,6 +546,7 @@ internal sealed class ControlCenterForm : Form
         Text = text,
         Font = font,
         ForeColor = color,
+        BackColor = Color.Transparent,
         Location = new Point(P(x), P(y)),
         AutoSize = true,
     };
@@ -546,6 +556,7 @@ internal sealed class ControlCenterForm : Form
         Text = text,
         Font = Font,
         ForeColor = color,
+        BackColor = Color.Transparent,
         Location = new Point(P(x), P(y)),
         MaximumSize = new Size(CardWidth - P(28), 0),
         AutoSize = true,
@@ -557,6 +568,7 @@ internal sealed class ControlCenterForm : Form
         {
             Text = text,
             LinkColor = _palette.IsDark ? Color.FromArgb(120, 170, 255) : Color.FromArgb(40, 110, 220),
+            BackColor = Color.Transparent,
             AutoSize = true,
             Cursor = Cursors.Hand,
         };
@@ -625,5 +637,13 @@ internal sealed class CardPanel : Panel
         var bounds = new Rectangle(0, 0, Width - 1, Height - 1);
         Gdi.FillRounded(g, Palette.Card, bounds, 8);
         Gdi.DrawRoundedBorder(g, Palette.CardBorder, bounds, 8);
+    }
+
+    protected override void OnPaintBackground(PaintEventArgs e)
+    {
+        // Fill with the flyout background so the corners outside the rounded
+        // card blend in instead of showing the default SystemColors.Control gray.
+        using var brush = new SolidBrush(Palette.Background);
+        e.Graphics.FillRectangle(brush, e.ClipRectangle);
     }
 }
