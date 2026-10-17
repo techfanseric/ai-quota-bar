@@ -57,10 +57,28 @@ public sealed class GlmProviderAdapter : IProviderAdapter
 
     public Task<ProviderSnapshot> FetchAsync(CancellationToken cancellationToken)
     {
-        var service = GlmCredentialParser.ParseCurl(_vault.Get("glm.importedCurl") ?? "") is { } imported
-            ? new GlmQuotaService(imported)
-            : GlmQuotaService.ForApiKey(_vault.Get("glm.apiKey") ?? "");
-        return service.FetchAsync(cancellationToken);
+        // API key is the recommended path and wins when present; the cURL import is
+        // optional. ParseCurl throws on empty/garbage input, so it must be guarded.
+        var apiKey = _vault.Get("glm.apiKey");
+        if (!string.IsNullOrWhiteSpace(apiKey))
+        {
+            return GlmQuotaService.ForApiKey(apiKey).FetchAsync(cancellationToken);
+        }
+
+        var importedCurl = _vault.Get("glm.importedCurl");
+        if (!string.IsNullOrWhiteSpace(importedCurl))
+        {
+            try
+            {
+                return new GlmQuotaService(GlmCredentialParser.Parse(importedCurl)).FetchAsync(cancellationToken);
+            }
+            catch (GlmCredentialException)
+            {
+                // Fall through to the empty-key service below, which reports a clear error.
+            }
+        }
+
+        return GlmQuotaService.ForApiKey("").FetchAsync(cancellationToken);
     }
 }
 

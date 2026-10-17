@@ -214,3 +214,51 @@ public class GlmQuotaServiceTests
         Assert.Equal(ProviderStatus.Failed, snapshot2.Status);
     }
 }
+
+public class GlmLiveResponseShapeTests
+{
+    // Captured verbatim from the real open.bigmodel.cn API on 2026-10-18.
+    private const string LiveFixture = """
+        {"code":200,"msg":"操作成功","data":{"limits":[
+          {"type":"CREDIT_LIMIT","unit":3,"number":5,"usage":12000,"currentValue":1995,"remaining":10004,"percentage":16,"nextResetTime":1792270728275},
+          {"type":"CREDIT_LIMIT","unit":6,"number":1,"usage":60000,"currentValue":14892,"remaining":45107,"percentage":24,"nextResetTime":1792746172983}],
+          "level":"pro"},"success":true}
+        """;
+
+    [Fact]
+    public async Task ParsesRealApiResponseIntoTwoCreditWindows()
+    {
+        var handler = new StubHttpHandler(_ => TestHttp.JsonResponse(200, LiveFixture));
+        var service = GlmQuotaService.ForApiKey("live-key", handler);
+        var snapshot = await service.FetchAsync();
+        Assert.Equal(ProviderStatus.Ok, snapshot.Status);
+        Assert.Equal("pro", snapshot.SubscribeTitle);
+        Assert.Contains(snapshot.Accounts[0].Windows, w => w.Name.Contains("5h"));
+        Assert.Contains(snapshot.Accounts[0].Windows, w => w.Name.Contains("weekly", StringComparison.OrdinalIgnoreCase) || w.Name.Contains("周"));
+    }
+}
+
+public class GlmLiveApiKeyTests
+{
+    /// <summary>Opt-in live check: AQB_LIVE_GLM=1 uses the real key from the DPAPI vault.</summary>
+    [Fact]
+    public async Task FetchesRealQuotaWithVaultKey()
+    {
+        if (Environment.GetEnvironmentVariable("AQB_LIVE_GLM") != "1")
+        {
+            return;
+        }
+
+        var vault = new AQB.Settings.CredentialVault();
+        var key = vault.Get("glm.apiKey");
+        if (string.IsNullOrWhiteSpace(key))
+        {
+            return; // no key stored on this machine
+        }
+
+        var service = GlmQuotaService.ForApiKey(key);
+        var snapshot = await service.FetchAsync();
+        Assert.Equal(ProviderStatus.Ok, snapshot.Status);
+        Assert.NotEmpty(snapshot.Accounts[0].Windows);
+    }
+}

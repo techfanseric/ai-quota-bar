@@ -90,6 +90,7 @@ public sealed class QuotaOrchestrator : IDisposable
                     }
                     catch (Exception e)
                     {
+                        AppLog.Warn($"{a.Kind} quota fetch failed: {e.Message}");
                         return new ProviderSnapshot
                         {
                             Kind = a.Kind,
