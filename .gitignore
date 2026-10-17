@@ -25,3 +25,9 @@ cloudflare/dist-pages/
 
 # Local console credentials (website /team and /admin access) — never commit
 console-access.local.md
+
+# .NET (Windows migration)
+win/**/bin/
+win/**/obj/
+win/TestResults/
+*.user

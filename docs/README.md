@@ -9,6 +9,7 @@
 - [MiniMax API 字段](./api-field-mapping.md)：MiniMax 剩余额度字段与时间单位。
 - [GLM API 字段](./glm-api-field-mapping.md)：GLM API Key、网页 cURL、新旧额度类型及周期映射。
 - [云同步后端](../cloudflare/README.md)：Worker API、D1 结构、部署和迁移。
+- [Windows 迁移](./win-migration/analysis/)：macOS 版六大模块的功能规格分析（Codex／提供方／Clash／电源／UI·设置／云团队），Windows 版实现见 [`win/`](../../win/)。
 
 ## 发布说明
 
