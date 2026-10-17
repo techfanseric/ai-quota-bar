@@ -85,6 +85,7 @@ internal static class Program
             var violations = new List<string>();
             AuditLayout(form, "form", violations);
             Console.WriteLine("LAYOUT-AUDIT: " + (violations.Count == 0 ? "OK (no out-of-bounds controls)" : string.Join("; ", violations)));
+            DumpChartWindows(form);
             form.Close();
         };
         form.Shown += (_, _) => capture.Start();
@@ -94,8 +95,7 @@ internal static class Program
 
     private static void AuditLayout(Control parent, string path, List<string> violations)
     {
-        foreach (Control control in parent.Controls)
-        {
+        foreach (Control control in parent.Controls)        {
             // Horizontal overflow is always a bug; vertical overflow is fine inside the
             // scrollable flow (its content is taller than the viewport by design).
             var horizontalOverflow = control.Right > parent.ClientSize.Width;
@@ -106,6 +106,25 @@ internal static class Program
             }
 
             AuditLayout(control, path + "/" + (control.Name ?? control.GetType().Name), violations);
+        }
+    }
+
+    /// <summary>Screenshot-mode ground truth: prints every chart's cycle window and
+    /// in-window sample count so axis semantics can be verified without OCR.</summary>
+    private static void DumpChartWindows(Control parent)
+    {
+        foreach (Control control in parent.Controls)
+        {
+            if (control is QuotaAreaChart chart)
+            {
+                var inWindow = chart.Points.Count(p => p.AtUtc >= chart.WindowStart && p.AtUtc <= chart.WindowEnd);
+                Console.WriteLine(
+                    $"CHART window {chart.WindowStart.ToLocalTime():MM-dd HH:mm} → {chart.WindowEnd.ToLocalTime():MM-dd HH:mm}" +
+                    $" pace={(chart.PaceIsReserve is { } r ? (r ? "reserve" : "deficit") : "none")}" +
+                    $" samples={chart.Points.Count} inWindow={inWindow}");
+            }
+
+            DumpChartWindows(control);
         }
     }
 
