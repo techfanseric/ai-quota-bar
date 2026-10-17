@@ -85,6 +85,7 @@ internal static class Program
             var violations = new List<string>();
             AuditLayout(form, "form", violations);
             Console.WriteLine("LAYOUT-AUDIT: " + (violations.Count == 0 ? "OK (no out-of-bounds controls)" : string.Join("; ", violations)));
+            DumpHeaderGeometry(form);
             DumpChartWindows(form);
             form.Close();
         };
@@ -111,6 +112,40 @@ internal static class Program
 
     /// <summary>Screenshot-mode ground truth: prints every chart's cycle window and
     /// in-window sample count so axis semantics can be verified without OCR.</summary>
+    private static void DumpHeaderGeometry(Control form)
+    {
+        foreach (Control control in form.Controls)
+        {
+            if (control is not FlowLayoutPanel flow)
+            {
+                continue;
+            }
+
+            foreach (Control card in flow.Controls)
+            {
+                if (!card.Controls.OfType<IconButton>().Any())
+                {
+                    continue;
+                }
+
+                foreach (Control child in card.Controls)
+                {
+                    if (child is IconButton button)
+                    {
+                        Console.WriteLine($"HEADER-GEO card={card.Height}px button={button.Height}px top={button.Top}px bottomGap={card.Height - button.Bottom}px");
+                    }
+                    else
+                    {
+                        var text = child.Text is { Length: > 24 } t ? t[..24] + "…" : child.Text;
+                        Console.WriteLine($"HEADER-GEO child={child.GetType().Name} \"{text}\" top={child.Top}px h={child.Height}px");
+                    }
+                }
+
+                return;
+            }
+        }
+    }
+
     private static void DumpChartWindows(Control parent)
     {
         foreach (Control control in parent.Controls)
