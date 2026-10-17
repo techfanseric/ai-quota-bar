@@ -100,8 +100,8 @@ internal sealed class SettingsForm : Form
         AddCheck(page, ref y, "Monitor Codex (local credentials, no key needed)", !_settings.PausedUsageProviders.Contains("codex"), v => TogglePaused("codex", !v));
         AddCredential(page, ref y, "Kimi API key (optional — desktop session is picked up automatically)", "kimi.apiKey");
         AddCheck(page, ref y, "Monitor Kimi", !_settings.PausedUsageProviders.Contains("kimi"), v => TogglePaused("kimi", !v));
-        AddCredential(page, ref y, "GLM Coding Plan API key", "glm.apiKey");
-        AddCredential(page, ref y, "GLM web session (paste copied cURL here)", "glm.importedCurl", multiline: true);
+        AddCredential(page, ref y, "GLM Coding Plan API key(推荐——只填这一个即可:bigmodel.cn → 个人中心 → API Keys 复制)", "glm.apiKey");
+        AddCredential(page, ref y, "GLM 网页会话导入(可选·高级:没有 API key 才用,留空即可)", "glm.importedCurl", multiline: true);
         AddCheck(page, ref y, "Monitor GLM", !_settings.PausedUsageProviders.Contains("glm"), v => TogglePaused("glm", !v));
         AddCredential(page, ref y, "MiniMax coding-plan token", "minimax.token");
         AddCheck(page, ref y, "Monitor MiniMax", !_settings.PausedUsageProviders.Contains("minimax"), v => TogglePaused("minimax", !v));
