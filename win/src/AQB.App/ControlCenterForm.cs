@@ -192,11 +192,6 @@ internal sealed class ControlCenterForm : Form
             AddCard(hint);
         }
 
-        if (BuildUsageCard(state) is { } usageCard)
-        {
-            AddCard(usageCard);
-        }
-
         if (BuildWatchedCard(state) is { } watchedCard)
         {
             AddCard(watchedCard);
@@ -320,34 +315,34 @@ internal sealed class ControlCenterForm : Form
         card.Controls.Add(chevron);
         card.Controls.Add(Label(kind.DisplayName(), new Font("Segoe UI Semibold", 10f), _palette.TextPrimary, 36, 8));
 
-        if (snapshot is null)
+        if (snapshot is not null)
+        {
+            var account = snapshot.Accounts.FirstOrDefault();
+            if (account is { Label.Length: > 0 })
+            {
+                // Raw label (email or provider name) — masking is only for the remote dashboard.
+                card.Controls.Add(Label(account.Label, Font, _palette.TextFaint, 36, 24));
+            }
+
+            var badgeText = snapshot.SubscribeTitle is { Length: > 0 } subscribe
+                ? subscribe + (string.IsNullOrEmpty(snapshot.SubscribeEndTimeText) ? "" : $" · {snapshot.SubscribeEndTimeText}")
+                : null;
+            if (badgeText is not null)
+            {
+                var badge = Label(badgeText, Font, _palette.TextFaint, 0, 12);
+                badge.Anchor = AnchorStyles.Top | AnchorStyles.Right;
+                badge.Location = new Point(card.Width - P(16) - badge.PreferredWidth, P(12));
+                card.Controls.Add(badge);
+            }
+        }
+        else
         {
             card.Controls.Add(Label("等待数据…", Font, _palette.TextFaint, 36, 26));
-            return card;
-        }
-
-        var account = snapshot.Accounts.FirstOrDefault();
-
-        if (account is { Label.Length: > 0 })
-        {
-            // Raw label (email or provider name) — masking is only for the remote dashboard.
-            card.Controls.Add(Label(account.Label, Font, _palette.TextFaint, 36, 24));
-        }
-
-        var badgeText = snapshot.SubscribeTitle is { Length: > 0 } subscribe
-            ? subscribe + (string.IsNullOrEmpty(snapshot.SubscribeEndTimeText) ? "" : $" · {snapshot.SubscribeEndTimeText}")
-            : null;
-        if (badgeText is not null)
-        {
-            var badge = Label(badgeText, Font, _palette.TextFaint, 0, 12);
-            badge.Anchor = AnchorStyles.Top | AnchorStyles.Right;
-            badge.Location = new Point(card.Width - P(16) - badge.PreferredWidth, P(12));
-            card.Controls.Add(badge);
         }
 
         if (collapsed)
         {
-            if (account?.Windows.FirstOrDefault() is { } primary)
+            if (snapshot?.Accounts.FirstOrDefault()?.Windows.FirstOrDefault() is { } primary)
             {
                 var big = Label($"{primary.RemainingPercent:0}%", new Font("Segoe UI", 11f, FontStyle.Bold), _palette.QuotaColor(primary.RemainingPercent), 0, 0);
                 big.Anchor = AnchorStyles.Top | AnchorStyles.Right;
@@ -358,22 +353,44 @@ internal sealed class ControlCenterForm : Form
             return card;
         }
 
-        if (snapshot.Status is ProviderStatus.Failed or ProviderStatus.Offline)
+        var top = headerBottom + 10;
+
+        // Local usage lives inside the Codex section (mac CodexLocalUsageMenuCard sits
+        // under the account header, before the quota rows) and collapses with it. It
+        // renders even without quota data — it reads the local session logs.
+        if (kind == ProviderKind.Codex && state.Usage is { } usage)
         {
+            card.Controls.Add(Label("本机用量", new Font("Segoe UI Semibold", 9.5f), _palette.TextSecondary, 16, top));
+            card.Controls.Add(Label($"今日 {usage.TodayTokensText} · 35 天 {usage.TotalTokensText}", Font, _palette.TextFaint, 16, top + 17));
+            card.Controls.Add(Label(
+                $"缓存命中 {usage.CacheHitRateText}" + (usage.CostText is { } cost ? $" · 成本 {cost}" : ""),
+                Font, _palette.TextFaint, 16, top + 34));
+            top += 52;
+        }
+
+        if (snapshot is null || snapshot.Status is ProviderStatus.Failed or ProviderStatus.Offline)
+        {
+            if (snapshot is null)
+            {
+                return card;
+            }
+
             card.Controls.Add(WrappedLabel(EmptyStateText(kind, snapshot),
-                _palette.IsDark ? Color.FromArgb(235, 130, 130) : Color.FromArgb(180, 60, 60), 14, headerBottom));
+                _palette.IsDark ? Color.FromArgb(235, 130, 130) : Color.FromArgb(180, 60, 60), 14, top));
             return card;
         }
+
+        var account2 = snapshot.Accounts.FirstOrDefault();
 
         // Quota rows in the macOS ModelRow shape: header (name + big tinted percent),
         // then EITHER the cycle area chart (short window with in-window samples) OR a
         // compact capsule — never both, one information one chart; a metadata line;
         // cross-cycle bars last. MiniMax's interval+weekly windows describe one pool,
         // so weekly folds into the 5h row's metadata like macOS does.
-        var windows = account?.Windows ?? Array.Empty<QuotaWindowSample>();
+        var windows = account2?.Windows ?? Array.Empty<QuotaWindowSample>();
         if (windows.Count == 0)
         {
-            card.Controls.Add(WrappedLabel("暂无配额窗口 — 保存凭据后自动刷新", _palette.TextFaint, 14, headerBottom));
+            card.Controls.Add(WrappedLabel("暂无配额窗口 — 保存凭据后自动刷新", _palette.TextFaint, 14, top));
             return card;
         }
 
@@ -384,7 +401,6 @@ internal sealed class ControlCenterForm : Form
             ? windows.FirstOrDefault(w => !IsShortWindow(w))
             : null;
 
-        var top = headerBottom + 10;
         foreach (var window in windows)
         {
             if (foldWeeklyIntoMeta && !IsShortWindow(window))
@@ -566,22 +582,6 @@ internal sealed class ControlCenterForm : Form
         }
 
         return top + 8;
-    }
-
-    private CardPanel? BuildUsageCard(HostState state)
-    {
-        if (state.Usage is not { } usage)
-        {
-            return null;
-        }
-
-        var card = MakeCard();
-        card.Controls.Add(Label("Codex 本机用量", new Font("Segoe UI Semibold", 9.5f), _palette.TextPrimary, 14, 9));
-        card.Controls.Add(Label($"今日 {usage.TodayTokensText} · 35 天 {usage.TotalTokensText}", Font, _palette.TextSecondary, 14, 28));
-        card.Controls.Add(Label(
-            $"缓存命中 {usage.CacheHitRateText}" + (usage.CostText is { } cost ? $" · 成本 {cost}" : ""),
-            Font, _palette.TextFaint, 14, 46));
-        return card;
     }
 
     private CardPanel? BuildWatchedCard(HostState state)
