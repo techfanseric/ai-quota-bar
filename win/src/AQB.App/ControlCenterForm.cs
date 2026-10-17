@@ -246,6 +246,16 @@ internal sealed class ControlCenterForm : Form
     private void AddCard(CardPanel card)
     {
         card.FitToContent(Scale);
+
+        // Icon buttons center vertically in their card instead of hugging the title line.
+        foreach (Control control in card.Controls)
+        {
+            if (control is IconButton button)
+            {
+                button.Location = new Point(button.Location.X, Math.Max(0, (card.Height - button.Height) / 2));
+            }
+        }
+
         _flow.Controls.Add(card);
     }
 

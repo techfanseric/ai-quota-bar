@@ -249,13 +249,6 @@ internal sealed class QuotaAreaChart : Control
             }
         }
 
-        // Warning-threshold guide (25% remaining), orange dashed as on macOS.
-        var warnY = Y(QuotaThresholds.OrangeRemainingPercent);
-        using (var warn = new Pen(Color.FromArgb(235, 170, 70), 1f) { DashStyle = System.Drawing.Drawing2D.DashStyle.Dash })
-        {
-            g.DrawLine(warn, plot.Left + 1, warnY, plot.Right, warnY);
-        }
-
         // Constant-pace diagonal: 100% at cycle start → 0% at reset. Green when running
         // behind schedule (reserve), red when ahead (deficit) — same colors as macOS.
         if (PaceIsReserve is { } reserve)
