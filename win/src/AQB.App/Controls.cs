@@ -57,6 +57,42 @@ internal sealed class CapsuleBar : Control
     }
 }
 
+/// <summary>Thin Win11-style overlay scrollbar pill. Mouse-transparent: WM_NCHITTEST
+/// returns HTTRANSPARENT so hover/clicks fall through to the content beneath.</summary>
+internal sealed class ScrollPill : Control
+{
+    public ScrollPill()
+    {
+        SetStyle(ControlStyles.AllPaintingInWmPaint | ControlStyles.OptimizedDoubleBuffer | ControlStyles.ResizeRedraw, true);
+        Width = 4;
+    }
+
+    public NativePalette Palette { get; set; } = NativePalette.System();
+
+    protected override void WndProc(ref Message m)
+    {
+        const int wmNcHitTest = 0x84;
+        const int htTransparent = -1;
+        if (m.Msg == wmNcHitTest)
+        {
+            m.Result = (IntPtr)htTransparent;
+            return;
+        }
+
+        base.WndProc(ref m);
+    }
+
+    protected override void OnPaint(PaintEventArgs e)
+    {
+        var g = e.Graphics;
+        g.SmoothingMode = System.Drawing.Drawing2D.SmoothingMode.AntiAlias;
+        var color = Palette.IsDark ? Color.FromArgb(76, 76, 76) : Color.FromArgb(190, 190, 190);
+        using var brush = new SolidBrush(color);
+        using var path = Gdi.RoundedRect(new Rectangle(0, 0, Width - 1, Height - 1), Width / 2);
+        g.FillPath(brush, path);
+    }
+}
+
 /// <summary>Remaining-quota trend chart in the macOS QuotaAreaChart idiom: rounded plot,
 /// L axes + 100%/0 labels, warning-threshold guide, time-proportional polyline with a
 /// gradient area fill and end marker, first/last sample times underneath.</summary>
