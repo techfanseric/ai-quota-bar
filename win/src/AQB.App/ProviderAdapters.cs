@@ -35,7 +35,11 @@ public sealed class KimiProviderAdapter : IProviderAdapter
 
     public ProviderKind Kind => ProviderKind.Kimi;
 
-    public bool IsConfigured => true; // the service itself reports which source failed
+    /// <summary>Any of the three credential sources present (cheap file/PATH probes only).</summary>
+    public bool IsConfigured =>
+        !string.IsNullOrWhiteSpace(_vault.Get("kimi.apiKey"))
+        || new KimiDesktopSessionReader().IsPresent()
+        || KimiCliLocator.FindExecutable() is not null;
 
     public Task<ProviderSnapshot> FetchAsync(CancellationToken cancellationToken)
     {

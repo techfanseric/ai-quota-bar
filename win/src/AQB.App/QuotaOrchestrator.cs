@@ -54,6 +54,10 @@ public sealed class QuotaOrchestrator : IDisposable
 
     public bool IsRefreshing => Volatile.Read(ref _inFlight) > 0;
 
+    /// <summary>Whether the provider has any credential source — unconfigured providers
+    /// stay out of the flyout entirely (mirrors the macOS menu's connected-only sections).</summary>
+    public bool IsConfigured(ProviderKind kind) => _adapters.Any(a => a.Kind == kind && a.IsConfigured);
+
     public async Task RefreshAsync(CancellationToken cancellationToken)
     {
         if (Interlocked.Exchange(ref _inFlight, 1) == 1)
