@@ -17,6 +17,7 @@ internal sealed class SettingsForm : Form
 
         Text = "AI Quota Bar — Settings";
         StartPosition = FormStartPosition.CenterScreen;
+        TopMost = true; // tray utility: keep settings above other windows while editing
         AutoScaleMode = AutoScaleMode.Dpi;
         Font = new Font("Segoe UI", 9f);
 
