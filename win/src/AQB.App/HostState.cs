@@ -1,3 +1,5 @@
+using AQB.Core;
+
 namespace AQB.App;
 
 /// <summary>Mutable bridge between background library loops and the UI (read on the UI thread).</summary>
@@ -44,7 +46,19 @@ public sealed class HostState
 
     /// <summary>Newer product release discovered by /v1/app-update (null = none).</summary>
     public volatile AppUpdateBannerView? UpdateInfo;
+
+    /// <summary>Rolling quota history feeding the control-center sparklines.</summary>
+    public QuotaHistoryStore? History { get; set; }
+
+    /// <summary>Latest local usage summary for the control-center card (null until first scan).</summary>
+    public volatile UsageSummaryView? Usage;
 }
+
+public sealed record UsageSummaryView(
+    string TodayTokensText,
+    string TotalTokensText,
+    string CacheHitRateText,
+    string? CostText);
 
 public sealed record WatchedRowView(
     string Email,

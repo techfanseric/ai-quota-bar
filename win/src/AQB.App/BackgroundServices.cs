@@ -60,8 +60,16 @@ public sealed class BackgroundServices : IDisposable
         Clash.Start();
         _taskMonitor.ActiveTasksChanged += OnTasksChanged;
         OnTasksChanged(this, _taskMonitor.ActiveTasks);
+        _orchestrator.SnapshotsChanged += RecordQuotaHistory;
+        _state.History = _history;
         _loop = Task.Run(() => LoopAsync(_cts.Token));
     }
+
+    private readonly QuotaHistoryStore _history = new(Path.Combine(
+        Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
+        "AIQuotaBar", "quota-history.json"));
+
+    private void RecordQuotaHistory() => _history.Record(_orchestrator.Latest);
 
     /// <summary>(Re)applies settings — safe to call after the settings dialog saves.</summary>
     public void ApplySettings()
@@ -387,6 +395,7 @@ public sealed class BackgroundServices : IDisposable
         {
             var scan = _usage.Scan();
             AppLog.Info($"Usage scan: {scan.FilesParsed} files parsed, {scan.Summary.TotalTokens} tokens, cache hit rate {scan.Summary.WeightedCacheHitRate:P1}.");
+            UpdateUsageState(scan.Summary);
             await ReportToTeamAsync(scan, cancellationToken);
         }
         catch (Exception e)
@@ -394,6 +403,25 @@ public sealed class BackgroundServices : IDisposable
             AppLog.Warn("Usage scan failed: " + e.Message);
         }
     }
+
+    private void UpdateUsageState(UsageSummary summary)
+    {
+        var today = DateTimeOffset.Now.ToString("yyyy-MM-dd");
+        var todayRow = summary.Rows.LastOrDefault(r => r.Date == today);
+        _state.Usage = new UsageSummaryView(
+            FormatTokens(todayRow?.TotalTokens ?? 0),
+            FormatTokens(summary.TotalTokens),
+            summary.WeightedCacheHitRate is { } rate ? $"{rate:P1}" : "—",
+            summary.TotalEstimatedCost is { } cost ? $"${cost:0.00}" : null);
+    }
+
+    private static string FormatTokens(long tokens) => tokens switch
+    {
+        >= 1_000_000_000 => $"{tokens / 1_000_000_000.0:0.0}B",
+        >= 1_000_000 => $"{tokens / 1_000_000.0:0.1}M",
+        >= 1_000 => $"{tokens / 1_000.0:0.1}k",
+        _ => tokens.ToString(),
+    };
 
     private async Task ReportToTeamAsync(LocalUsageScanResult scan, CancellationToken cancellationToken)
     {
@@ -599,6 +627,7 @@ public sealed class BackgroundServices : IDisposable
         _cts.Cancel();
         _taskMonitor.ActiveTasksChanged -= OnTasksChanged;
         _sleep.StatusChanged -= OnProtectionStatusChanged;
+        _orchestrator.SnapshotsChanged -= RecordQuotaHistory;
         try
         {
             _loop?.Wait(TimeSpan.FromSeconds(3));
@@ -607,6 +636,7 @@ public sealed class BackgroundServices : IDisposable
         {
         }
 
+        _history.Dispose();
         Clash.Dispose();
         _taskMonitor.Dispose();
         _sleep.Dispose();

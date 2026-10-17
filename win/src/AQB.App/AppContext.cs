@@ -151,11 +151,7 @@ internal sealed class TrayHost : ApplicationContext
             ShowSettings,
             ShowClashPanel,
             ShowConnectionsPanel,
-            () => _background.State.Route,
-            () => _background.State.Connection,
-            () => _background.State.Protection,
-            () => _background.State.WatchedRows,
-            () => _background.State.UpdateInfo);
+            () => _background.State);
         _controlCenter.Show();
     }
 
