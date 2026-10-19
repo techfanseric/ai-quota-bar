@@ -126,7 +126,8 @@ internal static class AuthFiles
         DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull,
     };
 
-    /// <summary>Builds an auth.json-shaped document; null arguments are omitted entirely.</summary>
+    /// <summary>Builds an auth.json-shaped document; null arguments are omitted entirely.
+    /// last_refresh defaults to now so the proactive token refresh stays out of unrelated tests.</summary>
     public static string AuthJson(
         string? apiKey = null,
         string? authMode = null,
@@ -134,7 +135,7 @@ internal static class AuthFiles
         string? accessToken = "at-old",
         string? refreshToken = "rt-old",
         string? idToken = null,
-        string? lastRefresh = "2026-01-01T00:00:00Z")
+        string? lastRefresh = null)
     {
         var root = new Dictionary<string, object?>
         {
@@ -147,7 +148,8 @@ internal static class AuthFiles
                 ["refresh_token"] = refreshToken,
                 ["id_token"] = idToken,
             },
-            ["last_refresh"] = lastRefresh,
+            ["last_refresh"] = lastRefresh
+                ?? DateTimeOffset.UtcNow.UtcDateTime.ToString("yyyy-MM-dd'T'HH:mm:ss'Z'"),
             ["favorite_color"] = "blue",
         };
         return JsonSerializer.Serialize(root, WriteOptions);
