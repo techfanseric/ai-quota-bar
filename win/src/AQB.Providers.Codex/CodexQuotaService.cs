@@ -16,11 +16,15 @@ public sealed class CodexQuotaService
 
     private readonly CodexAuthStore _authStore;
     private readonly CodexUsageClient _usageClient;
+    private readonly Func<CodexAuthInfo, CancellationToken, Task<CodexUsageResult>>? _cliFetch;
+    private ProviderSnapshot? _lastSuccess;
 
-    public CodexQuotaService(HttpMessageHandler? handler = null, string? codexHome = null)
+    public CodexQuotaService(HttpMessageHandler? handler = null, string? codexHome = null,
+        Func<CodexAuthInfo, CancellationToken, Task<CodexUsageResult>>? cliFetch = null)
     {
         _authStore = new CodexAuthStore(codexHome);
         _usageClient = new CodexUsageClient(handler, codexHome);
+        _cliFetch = cliFetch;
     }
 
     public async Task<ProviderSnapshot> FetchAsync(CancellationToken cancellationToken = default)
@@ -36,7 +40,7 @@ public sealed class CodexQuotaService
             CodexUsageResult result;
             try
             {
-                result = await _usageClient.FetchAsync(before, cancellationToken).ConfigureAwait(false);
+                result = await FetchWithFallbackAsync(before, cancellationToken).ConfigureAwait(false);
             }
             catch (CodexAuthException e)
             {
@@ -48,7 +52,7 @@ public sealed class CodexQuotaService
             }
             catch (HttpRequestException e)
             {
-                return Snapshot(ProviderStatus.Failed, $"Codex usage request failed: {e.Message}");
+                return Snapshot(ProviderStatus.Failed, $"Codex usage request failed: {CodexHttp.DescribeFailure(e)}");
             }
             catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
             {
@@ -83,25 +87,59 @@ public sealed class CodexQuotaService
                 AccountKey = AccountFingerprint.Codex(after.AccountId),
                 Label = after.Email ?? "",
                 IsCurrent = true,
-                SourceLabel = after.HasApiKey ? "API key" : "OAuth",
+                SourceLabel = after.HasApiKey ? "API key" : result.SourceLabel,
                 Windows = result.Windows,
                 PlanTitle = result.PlanTitle,
             };
 
-            return new ProviderSnapshot
+            _lastSuccess = new ProviderSnapshot
             {
                 Kind = ProviderKind.Codex,
                 Status = ProviderStatus.Ok,
                 LastUpdatedUtc = result.CapturedAtUtc,
                 Accounts = new[] { account },
             };
+            return _lastSuccess;
         }
     }
 
-    private static ProviderSnapshot Snapshot(ProviderStatus status, string error) => new()
+    private async Task<CodexUsageResult> FetchWithFallbackAsync(CodexAuthInfo auth, CancellationToken cancellationToken)
     {
-        Kind = ProviderKind.Codex,
-        Status = status,
-        Error = error,
-    };
+        try
+        {
+            return await _usageClient.FetchAsync(auth, cancellationToken).ConfigureAwait(false);
+        }
+        catch (Exception error) when (_cliFetch is not null && !auth.HasApiKey
+            && !cancellationToken.IsCancellationRequested
+            && error is HttpRequestException or CodexException or TaskCanceledException)
+        {
+            try
+            {
+                return await _cliFetch(auth, cancellationToken).ConfigureAwait(false);
+            }
+            catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested) { throw; }
+            catch (Exception cliError) when (cliError is CodexException or HttpRequestException or IOException or System.ComponentModel.Win32Exception or OperationCanceledException)
+            {
+                var detail = error is HttpRequestException http ? CodexHttp.DescribeFailure(http) : error.Message;
+                throw new CodexException($"OAuth: {detail}; CLI: {cliError.Message}");
+            }
+        }
+    }
+
+    private ProviderSnapshot Snapshot(ProviderStatus status, string error)
+    {
+        // Keep stale data only for the same signed-in account; never resurrect another account.
+        var current = _authStore.Load();
+        var previous = status == ProviderStatus.Failed && current is not null
+            && _lastSuccess?.Accounts.FirstOrDefault()?.AccountKey == AccountFingerprint.Codex(current.AccountId)
+            ? _lastSuccess : null;
+        return new ProviderSnapshot
+        {
+            Kind = ProviderKind.Codex,
+            Status = status,
+            Error = error,
+            Accounts = previous?.Accounts ?? Array.Empty<ProviderAccountSnapshot>(),
+            LastUpdatedUtc = previous?.LastUpdatedUtc,
+        };
+    }
 }

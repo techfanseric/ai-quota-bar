@@ -14,8 +14,9 @@ internal static class TrayIconRenderer
     public static string BuildDetailedText(IReadOnlyDictionary<ProviderKind, ProviderSnapshot> snapshots)
     {
         var codex = snapshots.GetValueOrDefault(ProviderKind.Codex);
-        var primary = codex?.Accounts.FirstOrDefault()?.Windows
-            .FirstOrDefault(w => w.Role == QuotaWindowRole.Primary);
+        var windows = codex?.Accounts.FirstOrDefault()?.Windows;
+        var primary = windows?.FirstOrDefault(w => w.Role == QuotaWindowRole.Primary)
+            ?? windows?.FirstOrDefault();
         if (primary is not null && codex!.Status == ProviderStatus.Ok)
         {
             var remaining = primary.RemainingPercent;

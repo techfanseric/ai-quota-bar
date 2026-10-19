@@ -14,7 +14,7 @@ public sealed class CodexProviderAdapter : IProviderAdapter
 
     public CodexProviderAdapter(CredentialVault vault)
     {
-        _service = new CodexQuotaService();
+        _service = new CodexQuotaService(cliFetch: new CodexCliUsageClient().FetchAsync);
         _authStore = new CodexAuthStore();
     }
 

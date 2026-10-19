@@ -8,6 +8,28 @@ namespace AQB.Providers.Codex.Tests;
 public class CodexQuotaServiceTests
 {
     [Fact]
+    public async Task WeeklyOnlyResponsePreservesAvailableQuota()
+    {
+        using var home = new TempCodexHome();
+        home.WriteAuth(AuthFiles.AuthJson());
+        var handler = new StubHttpHandler();
+        handler.EnqueueJson("""
+            {"plan_type":"free","rate_limit":{"primary_window":{
+              "used_percent":17,"limit_window_seconds":604800,
+              "reset_after_seconds":455261,"reset_at":1792882963
+            },"secondary_window":null}}
+            """);
+
+        var snapshot = await new CodexQuotaService(handler, home.Root).FetchAsync();
+
+        Assert.Equal(ProviderStatus.Ok, snapshot.Status);
+        var window = Assert.Single(Assert.Single(snapshot.Accounts).Windows);
+        Assert.Equal(QuotaWindowRole.Secondary, window.Role);
+        Assert.Equal("Weekly", window.Name);
+        Assert.Equal(83, window.RemainingPercent);
+    }
+
+    [Fact]
     public async Task NoCredentialsYieldsOfflineSnapshot()
     {
         using var home = new TempCodexHome();
