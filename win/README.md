@@ -10,7 +10,7 @@ macOS 菜单栏应用 [AI Quota Bar](../README.md) 的 Windows 版本(C# / .NET 
 ```powershell
 cd win
 dotnet build AIQuotaBar.Win.sln -c Release
-dotnet test AIQuotaBar.Win.sln            # 全部单元/集成测试(509 项)
+dotnet test AIQuotaBar.Win.sln            # 全部单元/集成测试(529 项)
 dotnet run --project src/AQB.App          # 启动托盘应用
 ```
 
@@ -52,7 +52,7 @@ Cloudflare Worker(`cloudflare/`)为跨平台 JS,**原样复用**,无需迁移。
 
 ## 本机验证记录(2026-10-17,Windows 10 19045)
 
-- `dotnet test AIQuotaBar.Win.sln`:**509/509 通过**——Core 28、Codex 44、Kimi 47、GLM/MiniMax 56、Clash 151、Power 29、CodexTasks 46、Usage 58、Dashboard 8、Team 42。
+- `dotnet test AIQuotaBar.Win.sln`:**529/529 通过**——Core 34、Codex 55、Kimi 47、GLM/MiniMax 58、Clash 151、Power 29、CodexTasks 46、Usage 58、Dashboard 8、Team 43。
 - Clash 集成测试真实执行:从 `%APPDATA%\io.github.clash-verge-rev.clash-verge-rev\config.yaml` 发现控制器 `127.0.0.1:9097`,`GET /version` 返回 `meta v1.19.31`;路由解析命中真实分组,看板快照回传当前选中节点。
 - 移动看板:端口 18765,`/api/v1/health` 200;SSE `Bearer` 鉴权(无 token 401)、首帧快照、账号标签掩码生效;PWA 静态资源(index.html/app.js/app.css/manifest/图标)由原 macOS 资源原样服务。
 - 任务→防睡眠链路:向 hook 事件日志注入 `turn.started` → 看板 `protection` 变 `active/1`;`session.end` → `grace/0` → 5 分钟后 `released`(边界行为由单测锁定);`PowerCreateRequest` 冒烟测试确认 `powercfg /requests` 可见句柄。
