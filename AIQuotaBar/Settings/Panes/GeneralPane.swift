@@ -4,8 +4,8 @@ import SwiftUI
 /// General tab: app-wide system preferences.
 @MainActor
 struct GeneralPane: View {
-    @Bindable var viewModel: UsageViewModel
     @Bindable var stepAwayPreferences: StepAwayPreferences = .shared
+    @Bindable var viewModel: UsageViewModel
 
     private var language: AppLanguage { viewModel.appLanguage }
 
@@ -42,26 +42,7 @@ struct GeneralPane: View {
             title: language.stepAwaySectionTitle(),
             contentSpacing: 12
         ) {
-            VStack(alignment: .leading, spacing: 8) {
-                HStack(spacing: 10) {
-                    Text(language.stepAwayShadeOpacityLabel())
-                        .font(.body)
-                    Spacer()
-                    Text(language.stepAwayShadeOpacityValue(
-                        stepAwayPreferences.shadeOpacityPercent))
-                        .font(.footnote.monospacedDigit())
-                        .foregroundStyle(.secondary)
-                }
-                Slider(
-                    value: $stepAwayPreferences.shadeOpacityPercent,
-                    in: StepAwayPreferences.opacityRange,
-                    step: 5
-                )
-                Text(language.stepAwayShadeOpacityDescription())
-                    .font(.footnote)
-                    .foregroundStyle(.tertiary)
-                    .fixedSize(horizontal: false, vertical: true)
-            }
+            DisplayBrightnessSettingsView(preferences: stepAwayPreferences, language: language)
         }
     }
 

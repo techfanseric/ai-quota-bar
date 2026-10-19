@@ -160,7 +160,7 @@ struct ClashPopoverView: View {
     @Bindable var sleepProtectionCoordinator: CodexSleepProtectionCoordinator
     @Bindable var displayStore: ClashPanelDisplayStore
     @Bindable var accountStore: CodexAuthAccountStore
-    var stepAwayDimController = StepAwayDimController()
+    var stepAwayDimController = StepAwayDimController.shared
     var onDimDismiss: (() -> Void)?
 
     var body: some View {
