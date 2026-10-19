@@ -4,12 +4,32 @@ import SwiftUI
 struct DisplayBrightnessSettingsView: View {
     @Bindable var preferences: StepAwayPreferences = .shared
     @Bindable var controller: StepAwayDimController = .shared
+    @Bindable var brightnessKeys: PointerBrightnessController = .shared
     let language: AppLanguage
     private var chinese: Bool { language == .simplifiedChinese }
     private var busy: Bool { controller.isTransitioning || controller.isRefreshing }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
+            Toggle(chinese ? "亮度键控制指针所在屏幕" : "Brightness keys control the display under the pointer",
+                   isOn: $brightnessKeys.enabled)
+            if brightnessKeys.enabled {
+                HStack {
+                    Text(brightnessKeys.listening
+                         ? (chinese ? "亮度键已接管 · Option + Shift 可精细调节" : "Brightness keys active · Option + Shift for fine steps")
+                         : (chinese ? "需要辅助功能权限才能接管亮度键" : "Accessibility permission is required for brightness keys"))
+                        .font(.footnote).foregroundStyle(.secondary)
+                    if !brightnessKeys.listening {
+                        Button(chinese ? "授权辅助功能" : "Allow Accessibility") { brightnessKeys.requestPermission() }
+                            .controlSize(.small)
+                    }
+                }
+                Text(chinese ? "请退出 MonitorControl，避免两个应用同时处理亮度键和 Gamma。此功能不改变下方的 Dim 目标。"
+                     : "Quit MonitorControl to avoid competing brightness key and gamma controls. These keys do not change the Dim targets below.")
+                    .font(.footnote).foregroundStyle(.secondary)
+            }
+            Divider()
+
             HStack {
                 Text(chinese ? "各屏幕目标亮度" : "Targets by display")
                     .font(.body.weight(.medium))

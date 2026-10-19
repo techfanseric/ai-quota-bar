@@ -12,6 +12,13 @@ struct DisplayGammaTable: Codable, Equatable {
             && (red + green + blue).allSatisfy { $0.isFinite }
     }
     var peak: Float { (red + green + blue).max() ?? 0 }
+    /// GPU tables are quantized; ignore insignificant round-trip differences.
+    func approximatelyMatches(_ other: Self, tolerance: Float = 0.002) -> Bool {
+        guard isValid, other.isValid, red.count == other.red.count else { return false }
+        return zip(red + green + blue, other.red + other.green + other.blue)
+            .allSatisfy { abs($0 - $1) <= tolerance }
+    }
+
     func scaled(by factor: Float) -> Self {
         let scale = factor.isFinite ? min(1, max(0, factor)) : 1
         return Self(red: red.map { $0 * scale }, green: green.map { $0 * scale },
