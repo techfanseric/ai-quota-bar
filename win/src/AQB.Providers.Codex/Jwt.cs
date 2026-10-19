@@ -31,6 +31,31 @@ public static class Jwt
         }
     }
 
+    /// <summary>Decodes the JWT payload and returns the "exp" claim as a UTC instant, or null when absent/invalid.</summary>
+    public static DateTimeOffset? TryExtractExpiry(string? jwt)
+    {
+        var payloadJson = TryDecodePayload(jwt);
+        if (payloadJson is null)
+        {
+            return null;
+        }
+
+        try
+        {
+            var payload = JsonNode.Parse(payloadJson);
+            if (payload?["exp"] is not JsonValue value || !value.TryGetValue<long>(out var exp))
+            {
+                return null;
+            }
+
+            return DateTimeOffset.FromUnixTimeSeconds(exp);
+        }
+        catch (Exception e) when (e is JsonException or FormatException or ArgumentOutOfRangeException)
+        {
+            return null;
+        }
+    }
+
     /// <summary>Returns the decoded payload JSON, or null unless the token has three non-empty-looking segments.</summary>
     public static string? TryDecodePayload(string? jwt)
     {

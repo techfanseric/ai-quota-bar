@@ -1,3 +1,4 @@
+using System.Globalization;
 using System.Net;
 using System.Net.Http.Headers;
 using System.Text.Json;
@@ -23,8 +24,10 @@ public sealed class CodexUsageResult
 
 /// <summary>
 /// Fetches ChatGPT Codex rate limits: GET {base}/backend-api/wham/usage with a Bearer access
-/// token and ChatGPT-Account-Id header. On 401 the token is refreshed once and the request
-/// retried. Window roles are normalized: 18000s → primary "5h", 604800s → secondary "Weekly",
+/// token and ChatGPT-Account-Id header. The base URL defaults to chatgpt.com but can be
+/// overridden via chatgpt_base_url in ~/.codex/config.toml (macOS parity). Tokens near expiry
+/// are refreshed proactively; on 401 the token is refreshed once and the request retried.
+/// Window roles are normalized: 18000s → primary "5h", 604800s → secondary "Weekly",
 /// swapped/misplaced roles in the response are exchanged automatically.
 /// </summary>
 public sealed class CodexUsageClient
@@ -33,12 +36,20 @@ public sealed class CodexUsageClient
     public const long PrimaryWindowSeconds = 18000;
     public const long WeeklyWindowSeconds = 604800;
 
+    /// <summary>Refresh when the access token's exp is within this margin (macOS parity).</summary>
+    public static readonly TimeSpan ProactiveRefreshMargin = TimeSpan.FromMinutes(5);
+
+    /// <summary>Fallback refresh age when the access token carries no exp claim (macOS parity).</summary>
+    public static readonly TimeSpan MaxRefreshAge = TimeSpan.FromDays(8);
+
     private readonly HttpClient _http;
     private readonly CodexTokenRefresher _refresher;
 
     public CodexUsageClient(HttpMessageHandler? handler = null, string? codexHome = null, string? baseUrl = null)
     {
-        BaseUrl = NormalizeBaseUrl(string.IsNullOrWhiteSpace(baseUrl) ? DefaultBaseUrl : baseUrl);
+        BaseUrl = NormalizeBaseUrl(string.IsNullOrWhiteSpace(baseUrl)
+            ? CodexPaths.ReadChatgptBaseUrl(codexHome) ?? DefaultBaseUrl
+            : baseUrl);
         UsageUrl = BaseUrl.Contains("/backend-api", StringComparison.Ordinal)
             ? BaseUrl + "/wham/usage"
             : BaseUrl + "/backend-api/wham/usage";
@@ -57,6 +68,7 @@ public sealed class CodexUsageClient
 
     public async Task<CodexUsageResult> FetchAsync(CodexAuthInfo auth, CancellationToken cancellationToken = default)
     {
+        auth = await MaybeRefreshProactivelyAsync(auth, cancellationToken).ConfigureAwait(false);
         var (status, body) = await SendAsync(auth, cancellationToken).ConfigureAwait(false);
         if (status == HttpStatusCode.Unauthorized)
         {
@@ -80,6 +92,72 @@ public sealed class CodexUsageClient
         }
 
         return Parse(auth, body);
+    }
+
+    /// <summary>
+    /// macOS-parity proactive refresh: renews the token before the usage request when the
+    /// access token's exp is within 5 minutes (or already past), or — when the token has no
+    /// exp claim — when last_refresh is older than 8 days. API key mode never refreshes.
+    /// Refresh failures fall through to the stale token: the reactive 401 path still
+    /// recovers or reports the proper re-login error.
+    /// </summary>
+    private async Task<CodexAuthInfo> MaybeRefreshProactivelyAsync(CodexAuthInfo auth, CancellationToken cancellationToken)
+    {
+        if (!ShouldRefreshProactively(auth))
+        {
+            return auth;
+        }
+
+        try
+        {
+            return await _refresher.RefreshAsync(auth, cancellationToken).ConfigureAwait(false);
+        }
+        catch (CodexException)
+        {
+            return auth;
+        }
+    }
+
+    internal static bool ShouldRefreshProactively(CodexAuthInfo auth)
+    {
+        if (auth.HasApiKey)
+        {
+            return false;
+        }
+
+        var accessToken = CodexAuthStore.PeekToken(auth.RawJson, "access_token", "accessToken");
+        if (accessToken is null)
+        {
+            return false; // SendAsync reports the missing-token error.
+        }
+
+        if (Jwt.TryExtractExpiry(accessToken) is { } expiry)
+        {
+            return expiry - ProactiveRefreshMargin <= DateTimeOffset.UtcNow;
+        }
+
+        return TryParseLastRefresh(auth.RawJson) is { } lastRefresh
+            && DateTimeOffset.UtcNow - lastRefresh > MaxRefreshAge;
+    }
+
+    private static DateTimeOffset? TryParseLastRefresh(string rawJson)
+    {
+        try
+        {
+            if (JsonNode.Parse(rawJson) is not JsonObject root
+                || root["last_refresh"] is not JsonValue value
+                || !value.TryGetValue<string>(out var text)
+                || !DateTimeOffset.TryParse(text, CultureInfo.InvariantCulture, DateTimeStyles.AssumeUniversal, out var parsed))
+            {
+                return null;
+            }
+
+            return parsed;
+        }
+        catch (Exception e) when (e is JsonException or ArgumentException)
+        {
+            return null;
+        }
     }
 
     private static string NormalizeBaseUrl(string baseUrl) => baseUrl.TrimEnd('/');
