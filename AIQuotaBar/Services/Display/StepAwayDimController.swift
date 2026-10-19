@@ -151,6 +151,18 @@ struct SavedDisplayLevels: Codable, Equatable {
     /// could be read are present, so nothing is ever dimmed blind.
     var externalStates: [String: ExternalDisplayState]
     var gammaTables: [String: DisplayGammaTable]? = nil
+    /// Unscaled calibration when normal brightness already uses gamma.
+    var dimmingGammaTables: [String: DisplayGammaTable]? = nil
+
+    func gammaBaseline(for key: String) -> DisplayGammaTable? {
+        dimmingGammaTables?[key] ?? gammaTables?[key]
+    }
+
+    func dimGammaFactor(for key: String, requested: Float) -> Float {
+        guard let baseline = gammaBaseline(for: key), baseline.peak > 0,
+              let original = gammaTables?[key] else { return requested }
+        return min(requested, max(0, min(1, original.peak / baseline.peak)))
+    }
 
     var isMeaningful: Bool {
         builtinBrightness != nil || !externalStates.isEmpty
@@ -173,6 +185,10 @@ final class StepAwayDimController {
     private var previewRequest: Task<Void, Never>?
     private var editingDisplayKey: String?
     private var restoreAfterPreviewTransition = false
+    private var activeTargetPercent: Double = 0
+    private var activeTargets: [String: Double] = [:]
+    private var needsDisplayMaintenance = false
+    var normalGammaBaselines: () -> [String: DisplayGammaTable] = { [:] }
 
     static let savedLevelsKey = "stepAwayDimSavedLevels"
     static let smartRestoreKey = "stepAwaySmartRestoreEnabled"
@@ -194,6 +210,7 @@ final class StepAwayDimController {
     private let builtinBrightness: DisplayBrightnessControlling
     private let externalBrightness: ExternalDisplayBrightnessControlling
     private let gamma: DisplayGammaControlling
+    private let maintenance: DimmingMaintenanceMonitoring
     private let monitors: ActivityMonitorInstalling
     private let defaults: UserDefaults
     private let preferences: StepAwayPreferences
@@ -212,6 +229,7 @@ final class StepAwayDimController {
         externalBrightness: ExternalDisplayBrightnessControlling =
             DDCBrightnessController(),
         gamma: DisplayGammaControlling = DisplayGammaController(),
+        maintenance: DimmingMaintenanceMonitoring? = nil,
         monitors: ActivityMonitorInstalling? = nil,
         preferences: StepAwayPreferences = .shared,
         defaults: UserDefaults = .standard,
@@ -222,10 +240,33 @@ final class StepAwayDimController {
         self.externalBrightness = externalBrightness
         self.gamma = gamma
         self.monitors = monitors ?? GlobalActivityMonitorInstaller()
+        self.maintenance = maintenance ?? DimmingMaintenanceMonitor()
         self.preferences = preferences
         self.defaults = defaults
         self.smartRestoreEnabled = defaults.bool(forKey: Self.smartRestoreKey)
         self.gracePeriod = gracePeriod
+    }
+
+    /// All normal brightness operations share the Dim/preview hardware gate.
+    /// A manual key explicitly leaves Dim before changing the selected display.
+    func performManualBrightness<T>(_ operation: @escaping () -> T) async -> T {
+        endPreview()
+        if isActive { restore(reason: "brightness key") }
+        while isTransitioning || isRefreshing {
+            try? await Task.sleep(nanoseconds: 20_000_000)
+        }
+        isTransitioning = true
+        let value = await Task.detached(priority: .userInitiated, operation: operation).value
+        isTransitioning = false
+        return value
+    }
+
+    func performIdleBrightnessMaintenance<T>(_ operation: @escaping () -> T?) async -> T? {
+        guard !isActive, !isTransitioning, !isRefreshing, previewDisplayKey == nil else { return nil }
+        isTransitioning = true
+        let value = await Task.detached(priority: .utility, operation: operation).value
+        isTransitioning = false
+        return value
     }
 
     /// Shared by the menu button and the status-item right-button hold.
@@ -293,6 +334,8 @@ final class StepAwayDimController {
         isTransitioning = true
         let targetPercent = preferences.targetBrightnessPercent
         let targets = preferences.displayTargets
+        activeTargetPercent = targetPercent
+        activeTargets = targets
         let builtin = builtinBrightness
         let external = externalBrightness
         let gamma = self.gamma
@@ -326,19 +369,24 @@ final class StepAwayDimController {
         if displays.isEmpty { displays = Self.connectedScreenRows() }
         let targetPercent = preferences.targetBrightnessPercent
         let targets = preferences.displayTargets
+        activeTargetPercent = targetPercent
+        activeTargets = targets
         let id = UUID()
         dimID = id
         isTransitioning = true
         let builtin = builtinBrightness
         let external = externalBrightness
         let gamma = self.gamma
+        let normalBaselines = normalGammaBaselines()
         Task.detached(priority: .userInitiated) { [weak self] in
             var saved = Self.captureLevels(
                 builtin: builtin, external: external, gamma: gamma)
+            saved.dimmingGammaTables = normalBaselines.filter { saved.externalStates[$0.key] != nil }
             if let displayKey {
                 if displayKey != StepAwayPreferences.builtinKey { saved.builtinBrightness = nil }
                 saved.externalStates = saved.externalStates.filter { $0.key == displayKey }
                 saved.gammaTables = saved.gammaTables?.filter { $0.key == displayKey }
+                saved.dimmingGammaTables = saved.dimmingGammaTables?.filter { $0.key == displayKey }
             }
             let shouldApply = await MainActor.run { [weak self] in
                 guard let self, self.dimID == id else { return false }
@@ -386,6 +434,8 @@ final class StepAwayDimController {
     func restore(reason: String) {
         guard isActive else { return }
         isActive = false
+        maintenance.removeAll()
+        needsDisplayMaintenance = false
         previewRequest?.cancel()
         previewRequest = nil
         previewDisplayKey = nil
@@ -422,6 +472,8 @@ final class StepAwayDimController {
 
     /// Full teardown: restores and detaches every monitor.
     func stop() {
+        maintenance.removeAll()
+        needsDisplayMaintenance = false
         monitors.removeAll()
         // Invalidate pending work; it will restore after its final DDC write.
         dimID = nil
@@ -445,6 +497,9 @@ final class StepAwayDimController {
         savedLevels = saved
         activityIgnoreUntil = Date().addingTimeInterval(gracePeriod)
         updateActivityMonitoring()
+        maintenance.install { [weak self] configurationChanged in
+            self?.maintainDimmingIfNeeded(configurationChanged: configurationChanged)
+        }
         if restoreAfterPreviewTransition {
             restoreAfterPreviewTransition = false
             restore(reason: "preview activity during adjustment")
@@ -475,8 +530,122 @@ final class StepAwayDimController {
             endPreview()
             return
         }
-        guard isActive, !isTransitioning else { return }
+        guard isActive else { return }
+        // restore() serializes rollback after any maintenance write in flight.
         restore(reason: "activity")
+    }
+
+    /// Keep the original baseline and the target that was actually applied.
+    /// Never recapture a reset gamma table as the user's restore value.
+    func maintainDimmingIfNeeded(configurationChanged: Bool) {
+        guard isActive else { return }
+        needsDisplayMaintenance = needsDisplayMaintenance || configurationChanged
+        guard !isTransitioning, !isRefreshing, let saved = savedLevels else { return }
+        let checkHardware = needsDisplayMaintenance
+        needsDisplayMaintenance = false
+        let targetPercent = activeTargetPercent
+        let targets = activeTargets
+        let id = UUID()
+        dimID = id
+        isTransitioning = true
+        let builtin = builtinBrightness
+        let external = externalBrightness
+        let gamma = self.gamma
+        Task.detached(priority: .userInitiated) { [weak self] in
+            let result = Self.maintainLevels(saved, targetPercent: targetPercent,
+                targets: targets, builtin: builtin, external: external,
+                gamma: gamma, checkHardware: checkHardware)
+            let finished = await MainActor.run { [weak self] in
+                guard let self, self.dimID == id, self.isActive else { return false }
+                self.isTransitioning = false
+                self.dimID = nil
+                self.needsDisplayMaintenance = self.needsDisplayMaintenance || result.needsRetry
+                if checkHardware {
+                    self.displays = Self.connectedScreenRows()
+                    self.updateReadings(result.observed)
+                    self.verification.merge(Self.verify(saved: saved, actual: result.observed,
+                        targetPercent: targetPercent, targets: targets)) { _, new in new }
+                } else {
+                    for key in saved.gammaTables?.keys.map({ $0 }) ?? [] {
+                        guard let baseline = saved.gammaBaseline(for: key) else { continue }
+                        guard var status = self.verification[key] else { continue }
+                        status.actualGamma = baseline.peak > 0
+                            ? result.observed.gammaTables?[key].map { $0.peak / baseline.peak } : nil
+                        self.verification[key] = status
+                    }
+                }
+                if result.didRepair {
+                    self.logger.notice("Reapplied active dimming after display brightness/gamma reset")
+                }
+                if self.restoreAfterPreviewTransition {
+                    self.restoreAfterPreviewTransition = false
+                    self.restore(reason: "preview activity during maintenance")
+                }
+                return true
+            }
+            if !finished {
+                // Manual/activity restore wins over a late maintenance write.
+                Self.applyRestoredLevels(saved, builtin: builtin, external: external, gamma: gamma)
+                await MainActor.run { [weak self] in
+                    self?.savedLevels = nil
+                    self?.isTransitioning = false
+                    self?.defaults.removeObject(forKey: Self.savedLevelsKey)
+                }
+            }
+        }
+    }
+
+    private struct MaintenanceResult {
+        var observed = SavedDisplayLevels(builtinBrightness: nil, externalStates: [:], gammaTables: [:])
+        var didRepair = false
+        var needsRetry = false
+    }
+
+    nonisolated private static func maintainLevels(
+        _ saved: SavedDisplayLevels, targetPercent: Double, targets: [String: Double],
+        builtin: DisplayBrightnessControlling, external: ExternalDisplayBrightnessControlling,
+        gamma: DisplayGammaControlling, checkHardware: Bool
+    ) -> MaintenanceResult {
+        var result = MaintenanceResult()
+        if checkHardware, let original = saved.builtinBrightness {
+            let desired = min(original, Float((targets[StepAwayPreferences.builtinKey] ?? targetPercent) / 100))
+            if let current = builtin.currentBrightness() {
+                if abs(current - desired) > 0.005 {
+                    builtin.setBrightness(desired)
+                    result.didRepair = true
+                }
+                result.observed.builtinBrightness = builtin.currentBrightness()
+                result.needsRetry = result.observed.builtinBrightness.map { abs($0 - desired) > 0.005 } ?? true
+            } else { result.needsRetry = true }
+        }
+        // Enumerate again so a recreated display ID is matched by stable identity.
+        // Periodic gamma checks perform no DDC/I2C brightness reads or writes.
+        for target in external.enumerateTargets() {
+            let key = target.persistenceKey
+            guard let original = saved.externalStates[key] else { continue }
+            let plan = DisplayDimPlan(targetPercent: targets[key] ?? targetPercent, builtin: false)
+            if checkHardware {
+                let desired = original.dimmedLuminance(targetPercent: plan.hardwarePercent)
+                if let current = external.readState(of: target) {
+                    if current.luminance != desired {
+                        external.applyDimmedState(to: target, original: original, targetPercent: plan.hardwarePercent)
+                        result.didRepair = true
+                        result.observed.externalStates[key] = external.readState(of: target)
+                    } else { result.observed.externalStates[key] = current }
+                    if result.observed.externalStates[key]?.luminance != desired { result.needsRetry = true }
+                } else { result.needsRetry = true }
+            }
+            let factor = saved.dimGammaFactor(for: key, requested: plan.gammaFactor)
+            guard factor < 1, let baseline = saved.gammaBaseline(for: key) else { continue }
+            let expected = baseline.scaled(by: factor)
+            let current = gamma.read(displayID: target.displayID)
+            if current?.approximatelyMatches(expected) != true {
+                gamma.apply(expected, displayID: target.displayID)
+                result.didRepair = true
+                result.observed.gammaTables?[key] = gamma.read(displayID: target.displayID)
+            } else { result.observed.gammaTables?[key] = current }
+        }
+        return result
     }
 
     private func applyInBackground(
@@ -574,8 +743,9 @@ final class StepAwayDimController {
                 targetPercent: targets[target.persistenceKey] ?? targetPercent, builtin: false)
             external.applyDimmedState(
                 to: target, original: original, targetPercent: plan.hardwarePercent)
-            if let table = saved.gammaTables?[target.persistenceKey] {
-                gamma.apply(table.scaled(by: plan.gammaFactor), displayID: target.displayID)
+            if let table = saved.gammaBaseline(for: target.persistenceKey) {
+                let factor = saved.dimGammaFactor(for: target.persistenceKey, requested: plan.gammaFactor)
+                gamma.apply(table.scaled(by: factor), displayID: target.displayID)
             }
         }
     }
@@ -701,12 +871,12 @@ extension StepAwayDimController {
         for (key, original) in saved.externalStates {
             let plan = DisplayDimPlan(targetPercent: targets[key] ?? targetPercent, builtin: false)
             let maximum = Double(original.maximumLuminance ?? 100)
-            let peak = saved.gammaTables?[key]?.peak ?? 0
+            let peak = saved.gammaBaseline(for: key)?.peak ?? 0
             let actualPeak = actual.gammaTables?[key]?.peak
             result[key] = DisplayBrightnessVerification(
                 expectedHardware: Double(original.dimmedLuminance(targetPercent: plan.hardwarePercent)) * 100 / maximum,
                 actualHardware: actual.externalStates[key].map { Double($0.luminance) * 100 / maximum },
-                expectedGamma: plan.gammaFactor,
+                expectedGamma: saved.dimGammaFactor(for: key, requested: plan.gammaFactor),
                 actualGamma: peak > 0 ? actualPeak.map { $0 / peak } : nil)
         }
         return result

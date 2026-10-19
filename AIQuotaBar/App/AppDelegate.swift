@@ -44,6 +44,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         // Start auto-refresh
         statusBarController?.viewModel.startAutoRefresh()
 
+        PointerBrightnessController.shared.start()
+
         scheduleDailyUpdateChecks()
         Task {
             await runAutomaticUpdateCheckIfNeeded()
@@ -51,6 +53,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     }
 
     func applicationWillTerminate(_ notification: Notification) {
+        PointerBrightnessController.shared.stop()
         CodexLocalUsageModel.shared.stop()
         AppUsageAnalytics.shared.stop()
         statusBarController?.viewModel.stopAutoRefresh()

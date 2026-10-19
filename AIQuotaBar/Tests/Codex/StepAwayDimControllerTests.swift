@@ -100,6 +100,7 @@ final class StepAwayDimControllerTests: XCTestCase {
     private var external = FakeStepAwayExternalBrightness()
     private var monitors = FakeActivityMonitors()
     private var gamma = FakeDisplayGamma()
+    private var maintenance = FakeDimmingMaintenance()
     private var preferences: StepAwayPreferences!
     private var suiteName = ""
     private var defaults: UserDefaults!
@@ -109,6 +110,7 @@ final class StepAwayDimControllerTests: XCTestCase {
         builtin = FakeStepAwayBuiltinBrightness()
         external = FakeStepAwayExternalBrightness()
         gamma = FakeDisplayGamma()
+        maintenance = FakeDimmingMaintenance()
         monitors = FakeActivityMonitors()
         suiteName = "StepAwayDim-" + UUID().uuidString
         defaults = UserDefaults(suiteName: suiteName)!
@@ -128,6 +130,7 @@ final class StepAwayDimControllerTests: XCTestCase {
             builtinBrightness: builtin,
             externalBrightness: external,
             gamma: gamma,
+            maintenance: maintenance,
             monitors: monitors,
             preferences: preferences,
             defaults: defaults,
@@ -150,6 +153,59 @@ final class StepAwayDimControllerTests: XCTestCase {
         }
         return try? JSONDecoder().decode(
             SavedDisplayLevels.self, from: data)
+    }
+
+    func testDimFromNormalGammaBrightnessUsesCalibrationOnceAndRestoresNormalLevel() async {
+        let controller = makeController(smartRestore: false)
+        let baseline = gamma.read(displayID: 1)!
+        gamma.apply(baseline.scaled(by: 0.575), displayID: 1)
+        controller.normalGammaBaselines = { ["ddc-a": baseline] }
+        controller.dim()
+        await runBackgroundWork()
+        XCTAssertEqual(gamma.read(displayID: 1)?.peak, 0.15)
+        XCTAssertEqual(controller.verification["ddc-a"]?.matches, true)
+        controller.restore(reason: "test")
+        await runBackgroundWork()
+        XCTAssertEqual(gamma.read(displayID: 1)?.peak, 0.575)
+        XCTAssertEqual(external.states["ddc-a"]?.luminance, 40)
+    }
+
+    func testBrightnessKeyRestoresDimBeforeApplyingNormalAdjustment() async {
+        let controller = makeController(smartRestore: false)
+        controller.dim()
+        await runBackgroundWork()
+        let external = external
+        let restoredValue = await controller.performManualBrightness {
+            let original = external.states["ddc-a"]?.luminance
+            let target = external.targets.first { $0.persistenceKey == "ddc-a" }!
+            external.applyState(ExternalDisplayState(luminance: 55), of: target)
+            return original
+        }
+        XCTAssertEqual(restoredValue, 40)
+        XCTAssertEqual(external.states["ddc-a"]?.luminance, 55)
+        XCTAssertEqual(external.states["ddc-b"]?.luminance, 60)
+        XCTAssertEqual(builtin.brightness, 0.8)
+        XCTAssertFalse(controller.isActive)
+        XCTAssertFalse(controller.isTransitioning)
+        XCTAssertNil(pendingPayload)
+        XCTAssertFalse(maintenance.isInstalled)
+    }
+
+    func testNormalMaintenanceCannotOverrideActiveDimOrPreview() async {
+        let controller = makeController(smartRestore: false)
+        controller.dim()
+        await runBackgroundWork()
+        let ran = await controller.performIdleBrightnessMaintenance { true }
+        XCTAssertNil(ran)
+        XCTAssertTrue(controller.isActive)
+        controller.restore(reason: "test")
+        await runBackgroundWork()
+        controller.startPreviewEditing(displayKey: "ddc-a")
+        let duringPreview = await controller.performIdleBrightnessMaintenance { true }
+        XCTAssertNil(duringPreview)
+        controller.endPreview()
+        let afterPreview = await controller.performIdleBrightnessMaintenance { true }
+        XCTAssertEqual(afterPreview, true)
     }
 
     func testDimCapturesLevelsAndZeroesEveryDisplay() async {
@@ -333,6 +389,96 @@ final class StepAwayDimControllerTests: XCTestCase {
             targetPercent: 0, targets: [:])
         XCTAssertFalse(results["ddc-a"]!.matches)
         XCTAssertEqual(results["ddc-a"]?.actualHardware, 40)
+    }
+
+    func testGammaResetWhileDimmedIsRepairedWithoutChangingRestoreBaseline() async throws {
+        let controller = makeController(smartRestore: false)
+        controller.dim()
+        await runBackgroundWork()
+        XCTAssertTrue(maintenance.isInstalled)
+        let baseline = try XCTUnwrap(pendingPayload?.gammaTables?["ddc-a"])
+        gamma.apply(baseline, displayID: 1) // remote session restores the system table
+        preferences.setTargetPercent(80, for: "ddc-a") // next Dim only
+        let hardwareWrites = external.writes.count
+        maintenance.fire(configurationChanged: false)
+        await runBackgroundWork()
+        XCTAssertEqual(gamma.read(displayID: 1)?.peak ?? 0, 0.15, accuracy: 0.001)
+        XCTAssertEqual(external.writes.count, hardwareWrites)
+        XCTAssertEqual(pendingPayload?.gammaTables?["ddc-a"], baseline)
+        XCTAssertEqual(pendingPayload?.externalStates["ddc-a"]?.luminance, 40)
+        XCTAssertTrue(controller.verification["ddc-a"]?.matches == true)
+        controller.restore(reason: "test")
+        await runBackgroundWork()
+        XCTAssertEqual(gamma.read(displayID: 1), baseline)
+        XCTAssertEqual(external.states["ddc-a"]?.luminance, 40)
+        XCTAssertFalse(maintenance.isInstalled)
+    }
+
+    func testUnchangedGammaDoesNotCauseRepeatedWritesAndIdleNeverReapplies() async {
+        let controller = makeController(smartRestore: false)
+        controller.dim()
+        await runBackgroundWork()
+        let applied = gamma.applyCount
+        maintenance.fire(configurationChanged: false)
+        await runBackgroundWork()
+        XCTAssertEqual(gamma.applyCount, applied)
+        controller.restore(reason: "test")
+        await runBackgroundWork()
+        let restored = gamma.applyCount
+        controller.maintainDimmingIfNeeded(configurationChanged: true)
+        await runBackgroundWork()
+        XCTAssertEqual(gamma.applyCount, restored)
+        XCTAssertEqual(builtin.brightness, 0.8)
+    }
+
+    func testDisplayReconfigurationUsesNewIDsAndRepairsHardwareAndGamma() async {
+        let controller = makeController(smartRestore: false)
+        controller.dim()
+        await runBackgroundWork()
+        external.targets = external.targets.map {
+            ExternalDDCDisplay(displayID: $0.displayID + 100, name: $0.name,
+                persistenceKey: $0.persistenceKey, avService: $0.avService, chipAddress: $0.chipAddress)
+        }
+        external.applyState(ExternalDisplayState(luminance: 65), of: external.targets[0])
+        builtin.setBrightness(0.6)
+        maintenance.fire(configurationChanged: true)
+        await runBackgroundWork()
+        XCTAssertEqual(builtin.brightness, 0)
+        XCTAssertEqual(external.states["ddc-a"]?.luminance, 0)
+        XCTAssertEqual(gamma.read(displayID: 101)?.peak ?? 0, 0.15, accuracy: 0.001)
+        XCTAssertEqual(gamma.read(displayID: 102)?.peak ?? 0, 0.15, accuracy: 0.001)
+        controller.restore(reason: "test")
+        await runBackgroundWork()
+        XCTAssertEqual(builtin.brightness, 0.8)
+        XCTAssertEqual(external.states["ddc-a"]?.luminance, 40)
+        XCTAssertEqual(gamma.read(displayID: 101)?.peak, 1)
+        XCTAssertEqual(gamma.read(displayID: 102)?.peak, 1)
+    }
+
+    func testActivityRestoreWinsOverMaintenanceWriteInFlight() async throws {
+        let controller = makeController()
+        controller.dim()
+        await runBackgroundWork()
+        let baseline = try XCTUnwrap(pendingPayload?.gammaTables?["ddc-a"])
+        gamma.apply(baseline, displayID: 1)
+        let started = expectation(description: "maintenance write started")
+        let gate = DispatchSemaphore(value: 0)
+        gamma.beforeApply = {
+            started.fulfill()
+            _ = gate.wait(timeout: .now() + 2)
+        }
+        maintenance.fire(configurationChanged: false)
+        await fulfillment(of: [started], timeout: 2)
+        controller.handleActivity()
+        gamma.beforeApply = nil
+        gate.signal()
+        await runBackgroundWork()
+        XCTAssertFalse(controller.isActive)
+        XCTAssertFalse(controller.isTransitioning)
+        XCTAssertEqual(gamma.read(displayID: 1), baseline)
+        XCTAssertEqual(builtin.brightness, 0.8)
+        XCTAssertNil(pendingPayload)
+        XCTAssertFalse(maintenance.isInstalled)
     }
 
     func testTargetBrightnessPersistsAndClampsInvalidValues() {
@@ -791,6 +937,12 @@ private final class FakeActivityMonitors: ActivityMonitorInstalling {
 }
 
 private final class FakeDisplayGamma: DisplayGammaControlling {
+    var beforeApply: (() -> Void)?
+    private var storedApplyCount = 0
+    var applyCount: Int {
+        lock.lock(); defer { lock.unlock() }
+        return storedApplyCount
+    }
     private let lock = NSLock()
     private var tables: [CGDirectDisplayID: DisplayGammaTable] = [:]
     private let baseline = DisplayGammaTable(red: [0, 1], green: [0, 1], blue: [0, 1])
@@ -800,8 +952,18 @@ private final class FakeDisplayGamma: DisplayGammaControlling {
     }
     @discardableResult
     func apply(_ table: DisplayGammaTable, displayID: CGDirectDisplayID) -> Bool {
+        beforeApply?()
         lock.lock(); defer { lock.unlock() }
+        storedApplyCount += 1
         tables[displayID] = table
         return true
     }
+}
+
+private final class FakeDimmingMaintenance: DimmingMaintenanceMonitoring {
+    private var handler: ((Bool) -> Void)?
+    var isInstalled: Bool { handler != nil }
+    func install(onCheck: @escaping (Bool) -> Void) { handler = onCheck }
+    func removeAll() { handler = nil }
+    func fire(configurationChanged: Bool) { handler?(configurationChanged) }
 }
