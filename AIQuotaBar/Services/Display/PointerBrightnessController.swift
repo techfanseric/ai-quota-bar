@@ -35,6 +35,21 @@ final class PointerBrightnessBackend {
     struct SoftwareLevel: Codable {
         let baseline: DisplayGammaTable
         var factor: Float
+
+        init(baseline: DisplayGammaTable, factor: Float) {
+            let calibration = baseline.brightnessCalibration
+            self.baseline = calibration
+            // The stored factor is the user's brightness intent; attenuation
+            // accidentally captured in the reference must not become a new ceiling.
+            self.factor = min(1, max(0.15, factor))
+        }
+
+        private enum CodingKeys: String, CodingKey { case baseline, factor }
+        init(from decoder: Decoder) throws {
+            let container = try decoder.container(keyedBy: CodingKeys.self)
+            self.init(baseline: try container.decode(DisplayGammaTable.self, forKey: .baseline),
+                      factor: try container.decode(Float.self, forKey: .factor))
+        }
     }
     static let levelsKey = "pointerBrightnessSoftwareLevels"
     private let builtin: DisplayBrightnessControlling
@@ -55,7 +70,7 @@ final class PointerBrightnessBackend {
     }
 
     var calibrationBaselines: [String: DisplayGammaTable] {
-        software.filter { $0.value.factor < 1 }.mapValues(\.baseline)
+        software.mapValues(\.baseline)
     }
 
     func targets() -> [PointerBrightnessTarget] {
@@ -79,7 +94,14 @@ final class PointerBrightnessBackend {
         guard state.luminance >= 0, state.luminance <= maximum else { return nil }
         var level = software[selection.key] ?? SoftwareLevel(baseline: table, factor: 1)
         // At normal output, adopt calibration changes made outside this app.
-        if level.factor == 1 { level = SoftwareLevel(baseline: table, factor: 1) }
+        if level.factor == 1 {
+            if table.peak >= level.baseline.peak * 0.99 {
+                level = SoftwareLevel(baseline: table, factor: 1)
+            } else {
+                // A leftover Dim/GPU table must never replace the reference.
+                level.factor = max(0.15, min(1, table.peak / level.baseline.peak))
+            }
+        }
         let current = Self.combinedPercent(hardware: Double(state.luminance) / Double(maximum) * 100,
                                            factor: level.factor)
         let desired = min(100, max(0, current + delta))

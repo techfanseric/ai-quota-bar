@@ -19,6 +19,17 @@ struct DisplayGammaTable: Codable, Equatable {
             .allSatisfy { abs($0 - $1) <= tolerance }
     }
 
+    /// A dimmed transfer table is not a full-brightness calibration. Remove
+    /// uniform attenuation while preserving channel ratios and curve shape.
+    var brightnessCalibration: Self {
+        guard isValid, peak > 0, peak < 0.99 else { return self }
+        let divisor = peak
+        func normalize(_ values: [Float]) -> [Float] {
+            values.map { min(1, max(0, $0 / divisor)) }
+        }
+        return Self(red: normalize(red), green: normalize(green), blue: normalize(blue))
+    }
+
     func scaled(by factor: Float) -> Self {
         let scale = factor.isFinite ? min(1, max(0, factor)) : 1
         return Self(red: red.map { $0 * scale }, green: green.map { $0 * scale },

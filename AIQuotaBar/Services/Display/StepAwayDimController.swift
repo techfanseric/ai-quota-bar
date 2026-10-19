@@ -251,9 +251,14 @@ final class StepAwayDimController {
     /// A manual key explicitly leaves Dim before changing the selected display.
     func performManualBrightness<T>(_ operation: @escaping () -> T) async -> T {
         endPreview()
-        if isActive { restore(reason: "brightness key") }
-        while isTransitioning || isRefreshing {
-            try? await Task.sleep(nanoseconds: 20_000_000)
+        while true {
+            while isTransitioning || isRefreshing {
+                try? await Task.sleep(nanoseconds: 20_000_000)
+            }
+            // Dim may have become active while we were waiting for its first
+            // capture/write. Recheck after every transition, then wait for restore.
+            guard isActive else { break }
+            restore(reason: "brightness key")
         }
         isTransitioning = true
         let value = await Task.detached(priority: .userInitiated, operation: operation).value
