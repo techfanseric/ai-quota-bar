@@ -266,9 +266,11 @@ internal sealed class ControlCenterForm : Form
         var updatedText = updated is { } at ? TimeText.FormatRelativeAge(DateTimeOffset.UtcNow - at) : "—";
         var nextIn = (int)Math.Ceiling(((updated ?? DateTimeOffset.UtcNow)
             .AddSeconds(ProgramSettings.Current.UsageRefreshIntervalSeconds) - DateTimeOffset.UtcNow).TotalMinutes);
+        // A refresh can be overdue (slow or failing fetches); never show a negative countdown.
+        var nextText = nextIn >= 1 ? $"下次约 {nextIn} 分钟后" : "即将刷新";
 
         card.Controls.Add(Label("AI Quota Bar", new Font("Segoe UI Semibold", 10.5f), _palette.TextPrimary, 14, 8));
-        var meta = Label($"更新于 {updatedText} · 下次约 {nextIn} 分钟后", Font, _palette.TextFaint, 14, 30);
+        var meta = Label($"更新于 {updatedText} · {nextText}", Font, _palette.TextFaint, 14, 30);
         meta.MaximumSize = new Size(card.Width - P(124), 0); // wraps before the icon buttons
         card.Controls.Add(meta);
 
