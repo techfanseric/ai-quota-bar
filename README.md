@@ -25,6 +25,12 @@ AI coding work is hard to manage when quota, network routes, and Mac sleep setti
   <img src="./docs/images/control-center.png" alt="AI Quota Bar control center" width="342">
 </p>
 
+## v1.38.0 · Brightness keys follow the pointer
+
+Control the display under the pointer with brightness keys, save per-display Dim targets with immediate preview, and retain local gamma dimming through UU remote connections. No software overlay or monitor contrast/RGB gain changes.
+
+[v1.38.0 release notes](./docs/releases/v1.38.0.en.md)
+
 ## New in v1.27.0
 
 Left-click menu sections now collapse instead of disappearing when "Follow running apps" hides a provider — click the header to toggle, and the state is remembered. Launch needs only one Keychain authorization (the Kimi desktop key is cached in our own vault after a single approval), and Kimi's monthly bar is segmented by day with pace (reserve/deficit) indicators.
