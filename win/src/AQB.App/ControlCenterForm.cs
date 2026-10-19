@@ -1,4 +1,5 @@
 using AQB.Core;
+using AQB.Providers.Codex;
 
 namespace AQB.App;
 
@@ -703,14 +704,28 @@ internal sealed class ControlCenterForm : Form
         Rebuild();
     }
 
-    private string EmptyStateText(ProviderKind kind, ProviderSnapshot snapshot) => kind switch
+    /// <summary>
+    /// 已配置但抓取失败时展示真实错误(对齐 macOS 菜单的 "&lt;Provider&gt;: error" 警示行),
+    /// 引导文案只在真正缺少凭据时出现 — 否则网络故障会被误读成"未登录"。
+    /// </summary>
+    private string EmptyStateText(ProviderKind kind, ProviderSnapshot snapshot)
     {
-        ProviderKind.Codex => "未找到 ~/.codex 凭据 — 登录 Codex 后自动识别",
-        ProviderKind.Glm => "未配置 — 设置 → Providers → GLM 填入 API key",
-        ProviderKind.MiniMax => "未配置 — 设置 → Providers → MiniMax 填入 token",
-        ProviderKind.Kimi => snapshot.Error is { Length: > 0 } ? "Kimi 会话不可用:" + Truncate(snapshot.Error, 40) : "未找到可用会话",
-        _ => snapshot.Error ?? "不可用",
-    };
+        if (snapshot.Error is { Length: > 0 }
+            && snapshot.Error != QuotaOrchestrator.NotConfiguredError
+            && snapshot.Error != CodexQuotaService.NoCredentialsError)
+        {
+            return "获取失败:" + Truncate(snapshot.Error, 90);
+        }
+
+        return kind switch
+        {
+            ProviderKind.Codex => "未找到 ~/.codex 凭据 — 登录 Codex 后自动识别",
+            ProviderKind.Glm => "未配置 — 设置 → Providers → GLM 填入 API key",
+            ProviderKind.MiniMax => "未配置 — 设置 → Providers → MiniMax 填入 token",
+            ProviderKind.Kimi => "未找到可用会话",
+            _ => "不可用",
+        };
+    }
 
     private IEnumerable<ProviderKind> OrderedKinds()
     {

@@ -19,6 +19,9 @@ public interface IProviderAdapter
 /// </summary>
 public sealed class QuotaOrchestrator : IDisposable
 {
+    /// <summary>Error text for configured-gated providers that stay out of the fetch cycle.</summary>
+    public const string NotConfiguredError = "Not configured";
+
     private readonly AppSettings _settings;
     private readonly IEnumerable<IProviderAdapter> _adapters;
     private readonly Dictionary<ProviderKind, ProviderSnapshot> _latest = new();
@@ -80,7 +83,7 @@ public sealed class QuotaOrchestrator : IDisposable
                             {
                                 Kind = a.Kind,
                                 Status = ProviderStatus.Offline,
-                                Error = "Not configured",
+                                Error = NotConfiguredError,
                                 LastUpdatedUtc = DateTimeOffset.UtcNow,
                             };
                         }
