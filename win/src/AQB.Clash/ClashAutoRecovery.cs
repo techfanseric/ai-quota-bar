@@ -87,8 +87,10 @@ public sealed class ClashAutoRecovery : IDisposable
     {
         _endpointFinder = endpointFinder ?? (ct => Task.FromResult(ClashControllerDiscovery.FindEndpoint()));
         _clientFactory = clientFactory ?? (endpoint => new ClashClient(endpoint));
+        // Probes ride the system proxy like the macOS connectivity monitor: switching a
+        // Clash route only changes chatgpt.com reachability when the probe follows the proxy.
         _probeHandlerFactory = probeHandlerFactory
-            ?? (() => new SocketsHttpHandler { UseProxy = false, UseCookies = false });
+            ?? (() => new SocketsHttpHandler { UseCookies = false });
         _clock = clock ?? (() => DateTimeOffset.UtcNow);
         _random = random ?? Random.Shared.NextDouble;
     }
