@@ -324,10 +324,12 @@ internal sealed class ControlCenterForm : Form
             if (account is { Label.Length: > 0 })
             {
                 // Raw label (email or provider name) — masking is only for the remote dashboard.
-                card.Controls.Add(Label(account.Label, Font, _palette.TextFaint, 36, 24));
+                var accountLabel = Label(account.Label, Font, _palette.TextFaint, 36, 24);
+                _tips.SetToolTip(accountLabel, $"{account.SourceLabel} · {snapshot.LastUpdatedUtc?.ToLocalTime():MM-dd HH:mm}");
+                card.Controls.Add(accountLabel);
             }
 
-            var badgeText = snapshot.SubscribeTitle is { Length: > 0 } subscribe
+            var badgeText = (snapshot.SubscribeTitle ?? account?.PlanTitle) is { Length: > 0 } subscribe
                 ? subscribe + (string.IsNullOrEmpty(snapshot.SubscribeEndTimeText) ? "" : $" · {snapshot.SubscribeEndTimeText}")
                 : null;
             if (badgeText is not null)
@@ -378,9 +380,15 @@ internal sealed class ControlCenterForm : Form
                 return card;
             }
 
-            card.Controls.Add(WrappedLabel(EmptyStateText(kind, snapshot),
-                _palette.IsDark ? Color.FromArgb(235, 130, 130) : Color.FromArgb(180, 60, 60), 14, top));
-            return card;
+            var hasPrevious = snapshot.Status == ProviderStatus.Failed
+                && snapshot.Accounts.Any(a => a.Windows.Count > 0);
+            var warning = WrappedLabel(EmptyStateText(kind, snapshot)
+                + (hasPrevious ? $"\n显示上次成功数据（{snapshot.LastUpdatedUtc?.ToLocalTime():MM-dd HH:mm}）" : ""),
+                _palette.IsDark ? Color.FromArgb(235, 130, 130) : Color.FromArgb(180, 60, 60), 14, top);
+            _tips.SetToolTip(warning, snapshot.Error);
+            card.Controls.Add(warning);
+            if (!hasPrevious) return card;
+            top += (int)Math.Ceiling(warning.GetPreferredSize(new Size(CardWidth - P(28), 0)).Height / Scale) + 10;
         }
 
         var account2 = snapshot.Accounts.FirstOrDefault();

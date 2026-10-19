@@ -5,6 +5,15 @@ macOS 菜单栏应用 [AI Quota Bar](../README.md) 的 Windows 版本(C# / .NET 
 
 ## 构建
 
+### Codex 额度与连接排查
+
+- Windows 默认读取 `CODEX_HOME`（未设置时为 `%USERPROFILE%\.codex`）中的登录信息，先请求 OAuth 额度接口；失败时通过本机 Codex CLI 的 `app-server` / `account/rateLimits/read` 回退查询。CLI 查询不创建对话或执行模型任务。
+- 支持 PATH 中的 `codex.exe`，以及 `%APPDATA%\npm` / PATH 目录下 npm 安装的 Windows 原生 Codex 二进制。
+- 只有周额度、没有 5 小时额度的账户，托盘仍显示可用的周额度。
+- 同一账户刷新失败时，控制中心保留本次运行中上次成功的额度，并标明时间和错误；账号切换后不复用旧账号额度。
+- SSL/TLS 错误会在 `%LOCALAPPDATA%\AIQuotaBar\app.log` 保留内层连接原因。控制中心错误提示的悬浮说明包含完整错误。OAuth 使用系统默认代理和证书验证，CLI 使用自身网络配置；回退不能保证修复两条路径共同的代理或证书故障。
+- 当前回退仍需要可读取的 `auth.json`；尚未实现 macOS 全部数据源设置、Web 回退及完整额度附加信息的界面对齐。
+
 要求:.NET 8 SDK(仅 Windows 桌面需要 Windows 系统)。
 
 ```powershell

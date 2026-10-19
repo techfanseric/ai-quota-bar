@@ -9,6 +9,7 @@ namespace AQB.Providers.Codex;
 
 public sealed class CodexUsageResult
 {
+    public string SourceLabel { get; init; } = "OAuth";
     /// <summary>The auth used for the (possibly refreshed) successful request.</summary>
     public required CodexAuthInfo Auth { get; init; }
 
@@ -113,6 +114,14 @@ public sealed class CodexUsageClient
             return await _refresher.RefreshAsync(auth, cancellationToken).ConfigureAwait(false);
         }
         catch (CodexException)
+        {
+            return auth;
+        }
+        catch (HttpRequestException)
+        {
+            return auth;
+        }
+        catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
         {
             return auth;
         }

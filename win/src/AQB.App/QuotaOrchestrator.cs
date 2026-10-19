@@ -89,6 +89,15 @@ public sealed class QuotaOrchestrator : IDisposable
                         }
 
                         var snapshot = await a.FetchAsync(cancellationToken);
+                        if (snapshot.Status == ProviderStatus.Ok)
+                        {
+                            var windows = snapshot.Accounts.FirstOrDefault()?.Windows;
+                            AppLog.Info($"{a.Kind} quota refreshed: windows=[{string.Join(", ", windows?.Select(w => $"{w.Name}:{w.RemainingPercent:0}% remaining") ?? Array.Empty<string>())}]");
+                        }
+                        else
+                        {
+                            AppLog.Warn($"{a.Kind} quota refresh: {snapshot.Status}; {snapshot.Error}");
+                        }
                         return snapshot;
                     }
                     catch (OperationCanceledException)
