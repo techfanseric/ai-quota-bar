@@ -4,7 +4,7 @@ import SwiftUI
 struct CodexProtectionPopoverView: View {
     @Bindable var coordinator: CodexSleepProtectionCoordinator
     @Bindable var closedLidModeManager: ClosedLidModeManager
-    var stepAwayDimController = StepAwayDimController()
+    @Bindable var stepAwayDimController = StepAwayDimController.shared
     let language: AppLanguage
     var onDimDismiss: (() -> Void)?
 
@@ -161,24 +161,33 @@ struct CodexProtectionPopoverView: View {
             VStack(alignment: .leading, spacing: 2) {
                 Text(language.stepAwayRowTitle())
                     .font(.system(size: 10, weight: .medium))
+                    .lineLimit(1)
                 Text(stepAwayStatusText)
                     .font(.system(size: 9))
                     .foregroundStyle(.tertiary)
                     .lineLimit(1)
-                    .help(language.stepAwayActiveStatus())
+                    .help(stepAwayStatusText)
             }
 
             Spacer(minLength: 8)
 
+            Toggle(
+                language.stepAwaySmartRestoreLabel(),
+                isOn: $stepAwayDimController.smartRestoreEnabled
+            )
+            .toggleStyle(.checkbox)
+            .controlSize(.mini)
+            .font(.system(size: 9))
+            .fixedSize()
+            .help(language.stepAwaySmartRestoreDescription())
+
             Button(stepAwayActionTitle) {
-                if stepAwayDimController.isActive {
-                    stepAwayDimController.restore(reason: "menu")
-                } else {
-                    stepAwayDimController.dim()
-                    onDimDismiss?()
-                }
+                let wasActive = stepAwayDimController.isActive
+                stepAwayDimController.toggleDimming()
+                if !wasActive { onDimDismiss?() }
             }
             .controlSize(.mini)
+            .disabled(stepAwayDimController.isTransitioning || stepAwayDimController.isRefreshing)
         }
         .padding(.horizontal, 14)
         .frame(height: 52)
@@ -186,7 +195,8 @@ struct CodexProtectionPopoverView: View {
 
     private var stepAwayStatusText: String {
         stepAwayDimController.isActive || stepAwayDimController.isTransitioning
-            ? language.stepAwayActiveStatus()
+            ? language.stepAwayActiveStatus(
+                smartRestore: stepAwayDimController.smartRestoreEnabled)
             : language.stepAwayIdleStatus()
     }
 

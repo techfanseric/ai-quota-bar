@@ -20,10 +20,6 @@ private func coreDisplayCreateInfoDictionary(
 /// first packet while their DDC engine wakes up.
 enum DDCPacketBuilder {
     static let luminanceCode: UInt8 = 0x10
-    static let contrastCode: UInt8 = 0x12
-    static let redGainCode: UInt8 = 0x16
-    static let greenGainCode: UInt8 = 0x18
-    static let blueGainCode: UInt8 = 0x1A
     static let defaultChipAddress: UInt32 = 0x37
     static let hostAddress: UInt8 = 0x51
 
@@ -75,16 +71,23 @@ enum DDCPacketBuilder {
 
 // MARK: - External display brightness over DDC
 
-/// The set of VCP levels captured from one external display while stepping
-/// away.  Luminance is the baseline lever every DDC panel supports; contrast
-/// and the RGB gains are optional — panels lock or clamp them to varying
-/// degrees, so a nil means "unreadable, leave this lever alone".
+/// Only luminance is captured or written. Optional legacy fields remain
+/// decodable so pending brightness restores survive upgrades, but are ignored.
 struct ExternalDisplayState: Codable, Equatable {
     var luminance: Int
-    var contrast: Int?
-    var redGain: Int?
-    var greenGain: Int?
-    var blueGain: Int?
+    var maximumLuminance: Int? = nil
+    var contrast: Int? = nil
+    var redGain: Int? = nil
+    var greenGain: Int? = nil
+    var blueGain: Int? = nil
+
+    /// Percentages use the panel's reported range, not an assumed 0...100.
+    /// Dimming never raises a display already below the requested target.
+    func dimmedLuminance(targetPercent: Double) -> Int {
+        let percent = targetPercent.isFinite ? min(100, max(0, targetPercent)) : 0
+        let maximum = max(1, maximumLuminance ?? 100)
+        return min(luminance, Int((Double(maximum) * percent / 100).rounded()))
+    }
 
     var isMeaningful: Bool {
         luminance >= 0
@@ -110,13 +113,12 @@ protocol ExternalDisplayBrightnessControlling: AnyObject {
         of target: ExternalDDCDisplay
     ) -> ExternalDisplayState?
 
-    /// Drives a display as dark as it allows: luminance to 0, then contrast
-    /// and RGB gains where the panel actually accepts them (a lever whose
-    /// read-back stays above half of its original value is skipped rather
-    /// than churned).  Blocking.
+    /// Lowers hardware luminance to the selected percentage with read-back retries.
+    /// Contrast and color gains are never changed. Blocking.
     func applyDimmedState(
         to target: ExternalDDCDisplay,
-        original: ExternalDisplayState
+        original: ExternalDisplayState,
+        targetPercent: Double
     )
 
     /// Restores captured levels with read-back retries.  Blocking.
@@ -150,71 +152,6 @@ final class DDCBrightnessController: ExternalDisplayBrightnessControlling {
     private static let dimAttempts = 2
     private static let restoreAttempts = 3
     private static let dimVerifyDelayMicroseconds: useconds_t = 120_000
-    private static let capabilitiesPrefix = "ddcLeverCapabilities."
-
-    /// VCP codes a panel accepted dimming on, keyed by persistence key.
-    /// Locked levers (like the RV200's gains) are probed once per persisted
-    /// entry and skipped instantly afterwards.
-    private var leverCapabilities: [String: Set<UInt8>] = [:]
-    private let capabilitiesLock = NSLock()
-    private let capabilitiesDefaults: UserDefaults?
-
-    init(capabilitiesDefaults: UserDefaults? = .standard) {
-        self.capabilitiesDefaults = capabilitiesDefaults
-        loadLeverCapabilities()
-    }
-
-    private static let allCapabilityNames: [(code: UInt8, name: String)] = [
-        (DDCPacketBuilder.luminanceCode, "luminance"),
-        (DDCPacketBuilder.contrastCode, "contrast"),
-        (DDCPacketBuilder.redGainCode, "redGain"),
-        (DDCPacketBuilder.greenGainCode, "greenGain"),
-        (DDCPacketBuilder.blueGainCode, "blueGain"),
-    ]
-
-    private static func name(ofCode code: UInt8) -> String? {
-        Self.allCapabilityNames.first { $0.code == code }?.name
-    }
-
-    private func loadLeverCapabilities() {
-        guard let capabilitiesDefaults else { return }
-        let prefix = Self.capabilitiesPrefix
-        for (key, value) in capabilitiesDefaults.dictionaryRepresentation()
-        where key.hasPrefix(prefix) {
-            guard let names = value as? [String] else { continue }
-            let codes = Set(names.compactMap { name in
-                Self.allCapabilityNames.first { $0.name == name }?.code
-            })
-            leverCapabilities[String(key.dropFirst(prefix.count))] = codes
-        }
-    }
-
-    /// nil means "never probed"; an empty set means no lever moves.
-    private func knownCapabilities(for key: String) -> Set<UInt8>? {
-        capabilitiesLock.lock()
-        defer { capabilitiesLock.unlock() }
-        return leverCapabilities[key]
-    }
-
-    private func rememberLever(
-        _ code: UInt8, accepted: Bool, for key: String
-    ) {
-        capabilitiesLock.lock()
-        if accepted {
-            leverCapabilities[key, default: []].insert(code)
-        } else {
-            leverCapabilities[key, default: []].remove(code)
-        }
-        let names = leverCapabilities[key].map { codes in
-            codes.compactMap(Self.name(ofCode:)).sorted()
-        }
-        capabilitiesLock.unlock()
-
-        guard let capabilitiesDefaults, let names else { return }
-        capabilitiesDefaults.set(
-            names, forKey: Self.capabilitiesPrefix + key)
-    }
-
     private var avServiceCreateWithService: IOAVServiceCreateWithServiceFn?
     private var avServiceReadI2C: IOAVServiceReadI2CFn?
     private var avServiceWriteI2C: IOAVServiceWriteI2CFn?
@@ -353,13 +290,18 @@ final class DDCBrightnessController: ExternalDisplayBrightnessControlling {
         return 0xB7
     }
 
+    private struct Reading: Equatable {
+        let current: Int
+        let maximum: Int
+    }
+
     // MARK: Generic VCP transport
 
     /// One get-request + reply round; nil when the I/O fails or the reply
     /// does not parse.
     private func readOnce(
         _ code: UInt8, of target: ExternalDDCDisplay
-    ) -> Int? {
+    ) -> Reading? {
         guard let avServiceReadI2C, let avServiceWriteI2C else {
             return nil
         }
@@ -377,13 +319,14 @@ final class DDCBrightnessController: ExternalDisplayBrightnessControlling {
             UInt32(DDCPacketBuilder.hostAddress), &reply, 12) == 0 else {
             return nil
         }
-        return DDCPacketBuilder.parseLuminanceReply(reply)?.current
+        guard let value = DDCPacketBuilder.parseLuminanceReply(reply) else { return nil }
+        return Reading(current: value.current, maximum: value.maximum)
     }
 
     /// Retries a read while the panel wakes its DDC engine.
     private func readWithRetry(
         _ code: UInt8, of target: ExternalDDCDisplay
-    ) -> Int? {
+    ) -> Reading? {
         for attempt in 0..<Self.readRetryCount {
             usleep(attempt == 0
                 ? Self.ddcWaitMicroseconds
@@ -400,7 +343,7 @@ final class DDCBrightnessController: ExternalDisplayBrightnessControlling {
     /// from (and restore to) garbage.
     private func readStable(
         _ code: UInt8, of target: ExternalDDCDisplay
-    ) -> Int? {
+    ) -> Reading? {
         for _ in 0..<Self.stableReadRounds {
             let first = readWithRetry(code, of: target)
             guard let first else { continue }
@@ -440,64 +383,24 @@ final class DDCBrightnessController: ExternalDisplayBrightnessControlling {
             return nil
         }
         return ExternalDisplayState(
-            luminance: luminance,
-            contrast: readStable(DDCPacketBuilder.contrastCode, of: target),
-            redGain: readStable(DDCPacketBuilder.redGainCode, of: target),
-            greenGain: readStable(
-                DDCPacketBuilder.greenGainCode, of: target),
-            blueGain: readStable(
-                DDCPacketBuilder.blueGainCode, of: target))
+            luminance: luminance.current, maximumLuminance: luminance.maximum)
     }
 
     func applyDimmedState(
         to target: ExternalDDCDisplay,
-        original: ExternalDisplayState
+        original: ExternalDisplayState,
+        targetPercent: Double
     ) {
+        let desired = original.dimmedLuminance(targetPercent: targetPercent)
         guard loadSymbols() else { return }
-        dimLever(
-            DDCPacketBuilder.luminanceCode,
-            originalValue: original.luminance,
-            of: target)
-        for (originalValue, code) in [
-            (original.contrast, DDCPacketBuilder.contrastCode),
-            (original.redGain, DDCPacketBuilder.redGainCode),
-            (original.greenGain, DDCPacketBuilder.greenGainCode),
-            (original.blueGain, DDCPacketBuilder.blueGainCode),
-        ] {
-            guard let originalValue, originalValue > 0 else { continue }
-            dimLever(code, originalValue: originalValue, of: target)
-        }
-    }
-
-    /// Writes 0 and keeps the result only when the panel moved to at most
-    /// half of the original level.  Panels that clamp (contrast floor 25 on
-    /// the RV200) or lock levers entirely (RV200 gains) are detected by the
-    /// read-back and left alone instead of being churned pointlessly.  Once
-    /// a lever has been probed its outcome is cached, so later dims skip
-    /// locked levers without any DDC round-trip.
-    private func dimLever(
-        _ code: UInt8, originalValue: Int, of target: ExternalDDCDisplay
-    ) {
-        guard originalValue > 0 else { return }
-        // Luminance is the baseline lever: a transient DDC hiccup must not
-        // permanently stop a display from dimming, so only the optional
-        // levers honour the cache skip.
-        if code != DDCPacketBuilder.luminanceCode,
-           let known = knownCapabilities(for: target.persistenceKey),
-           !known.contains(code) {
-            return
-        }
-        var accepted = false
         for _ in 0..<Self.dimAttempts {
-            _ = writeOnce(code, 0, of: target)
+            _ = writeOnce(DDCPacketBuilder.luminanceCode, desired, of: target)
             usleep(Self.dimVerifyDelayMicroseconds)
-            if let now = readStable(code, of: target),
-               now <= originalValue / 2 {
-                accepted = true
-                break
+            if let now = readStable(DDCPacketBuilder.luminanceCode, of: target),
+               now.current == desired {
+                return
             }
         }
-        rememberLever(code, accepted: accepted, for: target.persistenceKey)
     }
 
     func applyState(
@@ -508,15 +411,6 @@ final class DDCBrightnessController: ExternalDisplayBrightnessControlling {
         restoreLever(
             DDCPacketBuilder.luminanceCode, value: state.luminance,
             of: target)
-        for (value, code) in [
-            (state.contrast, DDCPacketBuilder.contrastCode),
-            (state.redGain, DDCPacketBuilder.redGainCode),
-            (state.greenGain, DDCPacketBuilder.greenGainCode),
-            (state.blueGain, DDCPacketBuilder.blueGainCode),
-        ] {
-            guard let value else { continue }
-            restoreLever(code, value: value, of: target)
-        }
     }
 
     /// Writes a captured value back with read-back retries; the last write
@@ -527,7 +421,7 @@ final class DDCBrightnessController: ExternalDisplayBrightnessControlling {
         for _ in 0..<Self.restoreAttempts {
             _ = writeOnce(code, value, of: target)
             usleep(Self.dimVerifyDelayMicroseconds)
-            if let now = readStable(code, of: target), now == value {
+            if let now = readStable(code, of: target), now.current == value {
                 return
             }
         }

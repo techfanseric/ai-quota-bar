@@ -135,7 +135,7 @@ final class StatusBarController {
             })
     private let clashPanelDisplayStore = ClashPanelDisplayStore()
     private let codexAuthAccountStore = CodexAuthAccountStore.shared
-    let stepAwayDimController = StepAwayDimController()
+    let stepAwayDimController = StepAwayDimController.shared
     private lazy var clashRoutePopoverController = ClashRoutePopoverController(
         routeViewModel: clashRouteViewModel,
         connectionViewModel: clashConnectionViewModel,
@@ -402,7 +402,7 @@ final class StatusBarController {
     }
 
     /// Watches right-button presses on the status item: holding past the
-    /// threshold dims every display immediately, while a quick right-click
+    /// threshold toggles hardware dimming, while a quick right-click
     /// keeps opening the panel.
     private func installStepAwayHoldMonitor(button: NSStatusBarButton) {
         rightButtonMonitor = NSEvent.addLocalMonitorForEvents(
@@ -438,7 +438,7 @@ final class StatusBarController {
                                 & 0b10 != 0
                             guard rightButtonDown else { return }
                             self.rightHoldTriggeredStepAway = true
-                            self.stepAwayDimController.dim()
+                            self.stepAwayDimController.toggleDimming()
                         }
                     }
                     timer.tolerance = 0.05
