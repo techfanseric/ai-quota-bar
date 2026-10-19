@@ -25,6 +25,12 @@
   <img src="./docs/images/control-center.png" alt="AI Quota Bar 右键控制中心" width="342">
 </p>
 
+## v1.38.1 · 修复 Dim 后无法调亮
+
+修复外接屏硬件亮度升高但 Gamma 仍被压暗的问题，并处理 Dim 进行中按亮度键的竞态。
+
+[v1.38.1 完整发布说明](./docs/releases/v1.38.1.zh-CN.md)
+
 ## v1.38.0 · 亮度键跟随指针
 
 亮度键控制指针所在屏幕；支持各屏幕独立 Dim 目标与即时预览，并修复 UU 远程连接时本地 Gamma 被重置的问题。无软件遮罩，不修改显示器对比度或 RGB 增益。

@@ -25,6 +25,12 @@ AI coding work is hard to manage when quota, network routes, and Mac sleep setti
   <img src="./docs/images/control-center.png" alt="AI Quota Bar control center" width="342">
 </p>
 
+## v1.38.1 · Fix brightness getting stuck after Dim
+
+Restores the full-brightness gamma reference and handles brightness keys pressed while Dim is still in progress.
+
+[v1.38.1 release notes](./docs/releases/v1.38.1.en.md)
+
 ## v1.38.0 · Brightness keys follow the pointer
 
 Control the display under the pointer with brightness keys, save per-display Dim targets with immediate preview, and retain local gamma dimming through UU remote connections. No software overlay or monitor contrast/RGB gain changes.
