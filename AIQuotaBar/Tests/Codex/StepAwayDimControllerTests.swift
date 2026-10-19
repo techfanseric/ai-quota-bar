@@ -170,6 +170,32 @@ final class StepAwayDimControllerTests: XCTestCase {
         XCTAssertEqual(external.states["ddc-a"]?.luminance, 40)
     }
 
+    func testBrightnessKeyDuringInitialDimWaitsThenRestoresBeforeAdjusting() async {
+        let started = expectation(description: "initial Dim write")
+        let gate = DispatchSemaphore(value: 0)
+        external.targets = Array(external.targets.prefix(1))
+        external.beforeDim = { started.fulfill(); _ = gate.wait(timeout: .now() + 3) }
+        let controller = makeController(smartRestore: false)
+        controller.dim()
+        await fulfillment(of: [started], timeout: 2)
+        let external = external
+        let gamma = gamma
+        let operation = Task {
+            await controller.performManualBrightness {
+                (external.states["ddc-a"]?.luminance, gamma.read(displayID: 1)?.peak)
+            }
+        }
+        await Task.yield()
+        gate.signal()
+        let restored = await operation.value
+        XCTAssertEqual(restored.0, 40)
+        XCTAssertEqual(restored.1, 1)
+        XCTAssertFalse(controller.isActive)
+        XCTAssertFalse(controller.isTransitioning)
+        XCTAssertNil(pendingPayload)
+        XCTAssertFalse(maintenance.isInstalled)
+    }
+
     func testBrightnessKeyRestoresDimBeforeApplyingNormalAdjustment() async {
         let controller = makeController(smartRestore: false)
         controller.dim()

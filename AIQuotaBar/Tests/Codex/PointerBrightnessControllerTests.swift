@@ -63,6 +63,50 @@ final class PointerBrightnessControllerTests: XCTestCase {
         XCTAssertNil(fixture.backend.adjust(.init(id: 10, key: "missing", builtin: false), delta: -10))
     }
 
+    func testFirstBrightnessKeyDoesNotAdoptDimTableAsFullBrightness() {
+        let fixture = Fixture()
+        defer { fixture.clean() }
+        fixture.external.states["a"]?.luminance = 0
+        fixture.gamma.values[10] = fixture.baseline.scaled(by: 0.15)
+        let target = PointerBrightnessTarget(id: 10, key: "a", builtin: false)
+        XCTAssertEqual(fixture.backend.adjust(target, delta: 6.25)!, 6.25, accuracy: 0.001)
+        XCTAssertTrue(fixture.gamma.values[10]!.approximatelyMatches(fixture.baseline.scaled(by: 0.25625)))
+        _ = fixture.backend.adjust(target, delta: 100)
+        XCTAssertTrue(fixture.gamma.values[10]!.approximatelyMatches(fixture.baseline))
+    }
+
+    func testLegacyDimmedBaselineCanReachFullBrightnessAfterRelaunch() throws {
+        let fixture = Fixture()
+        defer { fixture.clean() }
+        // Reproduce v1.38.0's on-disk state observed on both external panels.
+        let data = try JSONSerialization.data(withJSONObject: ["a": [
+            "baseline": ["red": [0, 0.135], "green": [0, 0.15], "blue": [0, 0.12]],
+            "factor": 1]])
+        fixture.defaults.set(data, forKey: PointerBrightnessBackend.levelsKey)
+        fixture.external.states["a"]?.luminance = 200
+        fixture.gamma.values[10] = fixture.baseline.scaled(by: 0.15)
+        let relaunched = PointerBrightnessBackend(builtin: fixture.builtin, external: fixture.external,
+                                                  gamma: fixture.gamma, defaults: fixture.defaults)
+        relaunched.maintain()
+        XCTAssertTrue(fixture.gamma.values[10]!.approximatelyMatches(fixture.baseline.scaled(by: 0.15)))
+        XCTAssertEqual(relaunched.adjust(.init(id: 10, key: "a", builtin: false), delta: 6.25), 100)
+        XCTAssertTrue(fixture.gamma.values[10]!.approximatelyMatches(fixture.baseline))
+    }
+
+    func testTransientDimCannotOverwriteAnExistingFullBrightnessReference() {
+        let fixture = Fixture()
+        defer { fixture.clean() }
+        let target = PointerBrightnessTarget(id: 10, key: "a", builtin: false)
+        _ = fixture.backend.adjust(target, delta: 100)
+        fixture.external.states["a"]?.luminance = 0
+        fixture.gamma.values[10] = fixture.baseline.scaled(by: 0.15)
+        XCTAssertEqual(fixture.backend.adjust(target, delta: 6.25)!, 6.25, accuracy: 0.001)
+        _ = fixture.backend.adjust(target, delta: 100)
+        XCTAssertTrue(fixture.gamma.values[10]!.approximatelyMatches(fixture.baseline))
+        fixture.backend.maintain()
+        XCTAssertTrue(fixture.gamma.values[10]!.approximatelyMatches(fixture.baseline))
+    }
+
     func testBuiltinClampsAndDoesNotUseExternalOrGamma() {
         let fixture = Fixture()
         defer { fixture.clean() }
