@@ -25,6 +25,12 @@
   <img src="./docs/images/control-center.png" alt="AI Quota Bar 右键控制中心" width="342">
 </p>
 
+## v1.38.2 · 亮度控制不再被后台服务卡住
+
+隔离无响应的外接屏服务发现，保留 Dim 保持任务中的手动恢复，并减少连续亮度键调节时的重复读写。
+
+[v1.38.2 完整发布说明](./docs/releases/v1.38.2.zh-CN.md)
+
 ## v1.38.1 · 修复 Dim 后无法调亮
 
 修复外接屏硬件亮度升高但 Gamma 仍被压暗的问题，并处理 Dim 进行中按亮度键的竞态。
