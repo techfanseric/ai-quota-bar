@@ -101,6 +101,7 @@ struct ExternalDDCDisplay {
     let persistenceKey: String
     let avService: CFTypeRef
     let chipAddress: UInt32
+    var transportKey: UInt64? = nil
 }
 
 protocol ExternalDisplayBrightnessControlling: AnyObject {
@@ -126,6 +127,16 @@ protocol ExternalDisplayBrightnessControlling: AnyObject {
         _ state: ExternalDisplayState,
         of target: ExternalDDCDisplay
     )
+    /// Interactive key adjustment: report transport failure without repeated verification.
+    func setLuminance(_ state: ExternalDisplayState, of target: ExternalDDCDisplay) -> Bool
+
+}
+
+extension ExternalDisplayBrightnessControlling {
+    func setLuminance(_ state: ExternalDisplayState, of target: ExternalDDCDisplay) -> Bool {
+        applyState(state, of: target)
+        return true
+    }
 }
 
 /// DDC/CI brightness transport for external displays on Apple Silicon,
@@ -142,6 +153,8 @@ final class DDCBrightnessController: ExternalDisplayBrightnessControlling {
     private typealias IOAVServiceWriteI2CFn = @convention(c) (
         CFTypeRef, UInt32, UInt32, UnsafeRawPointer, UInt32
     ) -> Int32
+
+    private static let transports = DisplayTransportCache<UInt64, CFTypeRef>()
 
     private static let ddcWaitMicroseconds: useconds_t = 10_000
     private static let readRetryDelayMicroseconds: useconds_t = 40_000
@@ -210,10 +223,13 @@ final class DDCBrightnessController: ExternalDisplayBrightnessControlling {
         // recently matched a display, then attach DCPAVServiceProxy
         // services that follow it (m1ddc's getDisplayDDCTransport walk).
         var matchedEntryID: UInt64 = 0
-        var serviceByEntry: [UInt64: (avService: CFTypeRef, chip: UInt32)] = [:]
+        var serviceByEntry: [UInt64: (avService: CFTypeRef, chip: UInt32, key: UInt64)] = [:]
         var iterator: io_iterator_t = 0
+        let root = IORegistryGetRootEntry(kIOMainPortDefault)
+        guard root != 0 else { return [] }
+        defer { IOObjectRelease(root) }
         guard IORegistryEntryCreateIterator(
-            IORegistryGetRootEntry(kIOMainPortDefault),
+            root,
             kIOServicePlane,
             UInt32(kIORegistryIterateRecursively),
             &iterator) == KERN_SUCCESS else { return [] }
@@ -231,12 +247,18 @@ final class DDCBrightnessController: ExternalDisplayBrightnessControlling {
                 let location = IORegistryEntrySearchCFProperty(
                     service, kIOServicePlane, "Location" as CFString,
                     kCFAllocatorDefault, 0) as? String
-                if location == "External",
-                   let avService = avServiceCreateWithService(nil, service) {
-                    serviceByEntry[matchedEntryID] = (
-                        avService,
-                        chipAddress(for: service)
-                    )
+                if location == "External" {
+                    // Retain across the background open, even if the caller times out.
+                    var transportKey: UInt64 = 0
+                    IORegistryEntryGetRegistryEntryID(service, &transportKey)
+                    let retainedService = service
+                    IOObjectRetain(retainedService)
+                    let lease = DisplayRegistryLease(retainedService)
+                    if let avService = Self.transports.resolve(transportKey, create: {
+                        avServiceCreateWithService(nil, lease.service)
+                    }) {
+                        serviceByEntry[matchedEntryID] = (avService, chipAddress(for: service), transportKey)
+                    }
                 }
             }
             IOObjectRelease(service)
@@ -256,7 +278,7 @@ final class DDCBrightnessController: ExternalDisplayBrightnessControlling {
                 name: entry.name,
                 persistenceKey: "ddc-\(vendor)-\(model)-\(serial)",
                 avService: transport.avService,
-                chipAddress: transport.chip)
+                chipAddress: transport.chip, transportKey: transport.key)
         }
     }
 
@@ -380,10 +402,18 @@ final class DDCBrightnessController: ExternalDisplayBrightnessControlling {
         guard loadSymbols() else { return nil }
         guard let luminance = readStable(
             DDCPacketBuilder.luminanceCode, of: target) else {
+            if let key = target.transportKey { Self.transports.invalidate(key) }
             return nil
         }
         return ExternalDisplayState(
             luminance: luminance.current, maximumLuminance: luminance.maximum)
+    }
+
+    func setLuminance(_ state: ExternalDisplayState, of target: ExternalDDCDisplay) -> Bool {
+        guard loadSymbols() else { return false }
+        let success = writeOnce(DDCPacketBuilder.luminanceCode, state.luminance, of: target)
+        if !success, let key = target.transportKey { Self.transports.invalidate(key) }
+        return success
     }
 
     func applyDimmedState(
@@ -426,4 +456,10 @@ final class DDCBrightnessController: ExternalDisplayBrightnessControlling {
             }
         }
     }
+}
+
+private final class DisplayRegistryLease {
+    let service: io_service_t
+    init(_ service: io_service_t) { self.service = service }
+    deinit { IOObjectRelease(service) }
 }

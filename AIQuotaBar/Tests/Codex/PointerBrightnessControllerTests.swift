@@ -99,12 +99,39 @@ final class PointerBrightnessControllerTests: XCTestCase {
         let target = PointerBrightnessTarget(id: 10, key: "a", builtin: false)
         _ = fixture.backend.adjust(target, delta: 100)
         fixture.external.states["a"]?.luminance = 0
+        fixture.backend.invalidateHardwareReadings()
         fixture.gamma.values[10] = fixture.baseline.scaled(by: 0.15)
         XCTAssertEqual(fixture.backend.adjust(target, delta: 6.25)!, 6.25, accuracy: 0.001)
         _ = fixture.backend.adjust(target, delta: 100)
         XCTAssertTrue(fixture.gamma.values[10]!.approximatelyMatches(fixture.baseline))
         fixture.backend.maintain()
         XCTAssertTrue(fixture.gamma.values[10]!.approximatelyMatches(fixture.baseline))
+    }
+
+    func testHeldBrightnessKeysReadOnceAndDoNotVerifyEveryWrite() {
+        let fixture = Fixture()
+        defer { fixture.clean() }
+        let target = PointerBrightnessTarget(id: 10, key: "a", builtin: false)
+        for _ in 0..<10 { _ = fixture.backend.adjust(target, delta: 6.25) }
+        XCTAssertEqual(fixture.external.readCount, 1)
+        XCTAssertEqual(fixture.external.enumerateCount, 1)
+        XCTAssertEqual(fixture.external.writeCount, 4)
+        XCTAssertEqual(fixture.external.states["a"]?.luminance, 200)
+    }
+
+    func testGammaOnlyKeysAndMaintenancePerformNoHardwareWritesOrDiscovery() {
+        let fixture = Fixture()
+        defer { fixture.clean() }
+        fixture.external.states["a"]?.luminance = 0
+        let target = PointerBrightnessTarget(id: 10, key: "a", builtin: false)
+        _ = fixture.backend.adjust(target, delta: -6.25)
+        _ = fixture.backend.adjust(target, delta: -6.25)
+        fixture.gamma.values[10] = fixture.baseline
+        fixture.backend.maintain()
+        XCTAssertEqual(fixture.external.writeCount, 0)
+        XCTAssertEqual(fixture.external.readCount, 1)
+        XCTAssertEqual(fixture.external.enumerateCount, 1)
+        XCTAssertTrue(fixture.gamma.values[10]!.approximatelyMatches(fixture.baseline.scaled(by: 0.7875)))
     }
 
     func testBuiltinClampsAndDoesNotUseExternalOrGamma() {
@@ -151,13 +178,26 @@ private final class PointerFakeExternal: ExternalDisplayBrightnessControlling {
     var states = ["a": ExternalDisplayState(luminance: 100, maximumLuminance: 200),
                   "b": ExternalDisplayState(luminance: 80, maximumLuminance: 100)]
     var rejectWrites = false
+    var readCount = 0
+    var writeCount = 0
+    var enumerateCount = 0
     func enumerateTargets() -> [ExternalDDCDisplay] {
-        ["a", "b"].enumerated().map { index, key in
+        enumerateCount += 1
+        return ["a", "b"].enumerated().map { index, key in
             ExternalDDCDisplay(displayID: UInt32(index + 10), name: key, persistenceKey: key,
                                avService: NSObject(), chipAddress: 0x37)
         }
     }
-    func readState(of target: ExternalDDCDisplay) -> ExternalDisplayState? { states[target.persistenceKey] }
+    func readState(of target: ExternalDDCDisplay) -> ExternalDisplayState? {
+        readCount += 1
+        return states[target.persistenceKey]
+    }
+    func setLuminance(_ state: ExternalDisplayState, of target: ExternalDDCDisplay) -> Bool {
+        guard !rejectWrites else { return false }
+        writeCount += 1
+        states[target.persistenceKey] = state
+        return true
+    }
     func applyDimmedState(to target: ExternalDDCDisplay, original: ExternalDisplayState, targetPercent: Double) {}
     func applyState(_ state: ExternalDisplayState, of target: ExternalDDCDisplay) {
         if !rejectWrites { states[target.persistenceKey] = state }

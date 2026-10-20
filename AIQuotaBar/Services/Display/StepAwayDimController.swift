@@ -189,6 +189,7 @@ final class StepAwayDimController {
     private var activeTargets: [String: Double] = [:]
     private var needsDisplayMaintenance = false
     var normalGammaBaselines: () -> [String: DisplayGammaTable] = { [:] }
+    var normalBrightnessWillDim: () -> Void = {}
 
     static let savedLevelsKey = "stepAwayDimSavedLevels"
     static let smartRestoreKey = "stepAwaySmartRestoreEnabled"
@@ -276,12 +277,13 @@ final class StepAwayDimController {
 
     /// Shared by the menu button and the status-item right-button hold.
     func toggleDimming() {
-        guard !isTransitioning else { return }
+        // Restore can cancel an in-flight maintenance write; keep it available.
         if isActive {
             restore(reason: "manual")
-        } else {
-            dim()
+            return
         }
+        guard !isTransitioning else { return }
+        dim()
     }
 
     /// Lowers readable hardware brightness to the selected target. Displays without
@@ -371,6 +373,7 @@ final class StepAwayDimController {
 
     private func beginDim(only displayKey: String?) {
         guard !isActive, !isTransitioning, !isRefreshing else { return }
+        normalBrightnessWillDim()
         if displays.isEmpty { displays = Self.connectedScreenRows() }
         let targetPercent = preferences.targetBrightnessPercent
         let targets = preferences.displayTargets
