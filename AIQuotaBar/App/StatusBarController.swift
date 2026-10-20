@@ -1110,6 +1110,12 @@ final class StatusBarCompactRingsView: NSView {
         ringViews.forEach { $0.setHovered(showsProviderInitials) }
         defer { ringViews.forEach { $0.setHovered(false) } }
         let pointSize = NSSize(width: ceil(preferredWidth), height: ceil(height))
+        // Native template tint follows the menu bar (including wallpaper and
+        // replica appearances), independently of the application's appearance.
+        // Semantic warning colors and the self-test retain their RGB frames.
+        let usesTemplate = !ringViews.contains { $0.requiresSemanticColorForRendering }
+        ringViews.forEach { $0.rendersTemplateMask = usesTemplate }
+        defer { ringViews.forEach { $0.rendersTemplateMask = false } }
         let hasTasks = ringViews.contains { $0.hasActiveTaskForRendering }
         let hasSelfTest = ringViews.contains { $0.isSelfTestingForRendering }
         let hasOffline = ringViews.contains { $0.isOfflineForRendering }
@@ -1174,7 +1180,7 @@ final class StatusBarCompactRingsView: NSView {
 
                 image.addRepresentation(bitmap)
             }
-            image.isTemplate = false
+            image.isTemplate = usesTemplate
             return image
         }
         ringViews.forEach { $0.suspendAnimationLoops() }
@@ -1533,6 +1539,18 @@ final class StatusBarCompactRingView: NSView {
         }
     }
 
+    // Only used while producing button images; direct AppKit/SwiftUI drawing
+    // keeps its existing foreground/background colors.
+    var rendersTemplateMask = false
+
+    var requiresSemanticColorForRendering: Bool {
+        if snapshot.state == .placeholder {
+            return placeholderStyle == .openAIConnectivity && connectivity == .unreachable
+        }
+        return isSelfTesting || isOffline || snapshot.isLowQuota
+            || snapshot.state == .failed || snapshot.state == .unavailable
+    }
+
     var isSelfTestingForRendering: Bool { isSelfTesting }
     var isOfflineForRendering: Bool { isOffline }
 
@@ -1862,6 +1880,7 @@ final class StatusBarCompactRingView: NSView {
                     endFraction: end,
                     color: base.withAlphaComponent(
                         min(1, alpha * opacity * dimming * 0.78)),
+                    cutsOutTemplate: !consumed,
                     lineWidth: isBead
                         ? MenuBarTaskChaseQueueMotion.beadLineWidth
                         : MenuBarTaskChaseQueueMotion.tailLineWidth)
@@ -1909,6 +1928,7 @@ final class StatusBarCompactRingView: NSView {
                     endFraction: end,
                     color: (midpoint < remainingFraction ? NSColor.windowBackgroundColor : NSColor.labelColor)
                         .withAlphaComponent(color.alphaComponent * opacityScale),
+                    cutsOutTemplate: midpoint < remainingFraction,
                     lineWidth: MenuBarTaskEnergyMotion.waveLineWidth(
                         at: midpoint,
                         remainingFraction: remainingFraction))
@@ -1923,6 +1943,7 @@ final class StatusBarCompactRingView: NSView {
         startFraction: CGFloat,
         endFraction: CGFloat,
         color: NSColor,
+        cutsOutTemplate: Bool = false,
         lineWidth: CGFloat
     ) {
         guard endFraction > startFraction else { return }
@@ -1935,6 +1956,13 @@ final class StatusBarCompactRingView: NSView {
             clockwise: true)
         path.lineWidth = lineWidth
         path.lineCapStyle = .butt
+        NSGraphicsContext.saveGraphicsState()
+        defer { NSGraphicsContext.restoreGraphicsState() }
+        if rendersTemplateMask && cutsOutTemplate {
+            // A template ignores RGB. Erase the wave's alpha instead of painting
+            // a background-colored stroke that would become solid foreground.
+            NSGraphicsContext.current?.cgContext.setBlendMode(.destinationOut)
+        }
         color.setStroke()
         path.stroke()
     }
