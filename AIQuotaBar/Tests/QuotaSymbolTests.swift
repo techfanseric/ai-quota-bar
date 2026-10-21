@@ -42,6 +42,18 @@ final class QuotaSymbolTests: XCTestCase {
     }
 
     @MainActor
+    func testWarningKeepsVisibleColorWhenRemainingArcDisappears() throws {
+        for appearance in [NSAppearance.Name.aqua, .darkAqua] {
+            for remaining in [0.0, 1, 5, 20] {
+                let warning = try render(state: .ready, low: true, delta: -65,
+                    appearance: appearance, remaining: remaining)
+                XCTAssertGreaterThanOrEqual(coloredPixelCount(warning, red: false), 12,
+                    "Low quota must remain visible at \(remaining)% in \(appearance)")
+            }
+        }
+    }
+
+    @MainActor
     func testFinalButtonFramesKeepColorsAndAnimateSelfTestAndOffline() throws {
         for selfTest in [false, true] {
             let view = StatusBarCompactRingsView(frame: NSRect(x: 0, y: 0, width: 19, height: 22))
@@ -184,26 +196,32 @@ final class QuotaSymbolTests: XCTestCase {
     }
 
     private func hasColor(_ bitmap: NSBitmapImageRep, red: Bool) -> Bool {
+        coloredPixelCount(bitmap, red: red) > 0
+    }
+
+    private func coloredPixelCount(_ bitmap: NSBitmapImageRep, red: Bool) -> Int {
+        var count = 0
         for y in 0..<bitmap.pixelsHigh {
             for x in 0..<bitmap.pixelsWide {
                 guard let c = bitmap.colorAt(x: x, y: y)?.usingColorSpace(.deviceRGB), c.alphaComponent > 0.3 else { continue }
-                if red && c.redComponent > c.greenComponent * 2 && c.redComponent > c.blueComponent * 2 { return true }
-                if !red && c.redComponent > 0.5 && c.greenComponent > 0.35 && c.blueComponent < 0.2 { return true }
+                if red && c.redComponent > 0.5 && c.greenComponent < c.redComponent * 0.3 && c.blueComponent < c.redComponent * 0.5 { count += 1 }
+                if !red && c.redComponent > 0.5 && c.greenComponent >= c.redComponent * 0.3 && c.greenComponent < c.redComponent * 0.8 && c.blueComponent < c.greenComponent * 0.5 { count += 1 }
             }
         }
-        return false
+        return count
     }
 
     @MainActor
     private func render(state: MenuBarSnapshotState, low: Bool = false, delta: Double? = 0,
                         connectivity: CodexConnectivityState = .reachable, provider: UsageProvider = .codex,
-                        appearance: NSAppearance.Name = .aqua, scale: Int = 2) throws -> NSBitmapImageRep {
+                        appearance: NSAppearance.Name = .aqua, scale: Int = 2,
+                        remaining: Double = 65) throws -> NSBitmapImageRep {
         let bitmap = try XCTUnwrap(NSBitmapImageRep(bitmapDataPlanes: nil, pixelsWide: 22*scale, pixelsHigh: 22*scale,
             bitsPerSample: 8, samplesPerPixel: 4, hasAlpha: true, isPlanar: false, colorSpaceName: .deviceRGB, bytesPerRow: 0, bitsPerPixel: 0))
         bitmap.size = NSSize(width: 22, height: 22)
         let view = StatusBarCompactRingView(frame: NSRect(x: 0, y: 0, width: 22, height: 22))
-        view.setSnapshot(MenuBarSnapshot(provider: provider, modelName: nil, remainingPercent: 65,
-            ringPercent: 65, paceDeltaPercent: delta,
+        view.setSnapshot(MenuBarSnapshot(provider: provider, modelName: nil, remainingPercent: remaining,
+            ringPercent: remaining, paceDeltaPercent: delta,
             ringTrend: nil, resetsAt: nil, state: state, isLowQuota: low, tooltip: "Test"),
             connectivity: connectivity, accessibilityLabel: "Test")
         view.setOfflinePulseOpacityForTesting(1)
