@@ -25,6 +25,12 @@ AI coding work is hard to manage when quota, network routes, and Mac sleep setti
   <img src="./docs/images/control-center.png" alt="AI Quota Bar control center" width="342">
 </p>
 
+## v1.38.4 · Clearer low-quota warnings
+
+Saturated, appearance-aware orange now marks the provider initial and active center, so warnings remain visible even near zero quota.
+
+[v1.38.4 release notes](./docs/releases/v1.38.4.en.md)
+
 ## v1.38.3 · Follow the menu bar icon tint
 
 Normal icons now use native template tint; semantic warning colors and both task animation layouts are preserved.
