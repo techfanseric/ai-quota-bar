@@ -187,21 +187,21 @@ struct CodexProtectionPopoverView: View {
                 if !wasActive { onDimDismiss?() }
             }
             .controlSize(.mini)
-            .disabled(stepAwayDimController.isTransitioning || stepAwayDimController.isRefreshing)
+            .disabled((!stepAwayDimController.isActive && stepAwayDimController.isTransitioning) || stepAwayDimController.isRefreshing)
         }
         .padding(.horizontal, 14)
         .frame(height: 52)
     }
 
     private var stepAwayStatusText: String {
-        stepAwayDimController.isActive || stepAwayDimController.isTransitioning
+        stepAwayDimController.isActive
             ? language.stepAwayActiveStatus(
                 smartRestore: stepAwayDimController.smartRestoreEnabled)
             : language.stepAwayIdleStatus()
     }
 
     private var stepAwayActionTitle: String {
-        stepAwayDimController.isActive || stepAwayDimController.isTransitioning
+        stepAwayDimController.isActive
             ? language.stepAwayRestoreActionTitle()
             : language.stepAwayDimActionTitle()
     }

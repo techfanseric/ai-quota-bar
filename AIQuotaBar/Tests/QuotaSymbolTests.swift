@@ -42,6 +42,18 @@ final class QuotaSymbolTests: XCTestCase {
     }
 
     @MainActor
+    func testWarningKeepsVisibleColorWhenRemainingArcDisappears() throws {
+        for appearance in [NSAppearance.Name.aqua, .darkAqua] {
+            for remaining in [0.0, 1, 5, 20] {
+                let warning = try render(state: .ready, low: true, delta: -65,
+                    appearance: appearance, remaining: remaining)
+                XCTAssertGreaterThanOrEqual(coloredPixelCount(warning, red: false), 12,
+                    "Low quota must remain visible at \(remaining)% in \(appearance)")
+            }
+        }
+    }
+
+    @MainActor
     func testFinalButtonFramesKeepColorsAndAnimateSelfTestAndOffline() throws {
         for selfTest in [false, true] {
             let view = StatusBarCompactRingsView(frame: NSRect(x: 0, y: 0, width: 19, height: 22))
@@ -89,6 +101,89 @@ final class QuotaSymbolTests: XCTestCase {
         }
     }
 
+    @MainActor
+    func testNeutralButtonFramesUseNativeTemplateTintInBothAppearances() throws {
+        for appearance in [NSAppearance.Name.aqua, .darkAqua] {
+            let view = StatusBarCompactRingsView()
+            view.appearance = NSAppearance(named: appearance)
+            for state in [MenuBarSnapshotState.ready, .loading, .needsSetup, .placeholder] {
+                view.setSnapshots([templateSnapshot(state: state)],
+                    codexConnectivity: .reachable, paceDisplayMode: .staged,
+                    isSelfTesting: false, activeTaskCounts: [:], accessibilityLabel: "Test")
+                let frames = view.renderedFrames(scale: 2, height: 22)
+                XCTAssertFalse(frames.isEmpty)
+                XCTAssertTrue(frames.allSatisfy(\.isTemplate), "Neutral state: \(state), \(appearance)")
+                let bitmap = try XCTUnwrap(frames.first?.representations.first as? NSBitmapImageRep)
+                XCTAssertGreaterThan(alphaSum(bitmap), 0, "The native tint mask must contain visible strokes")
+            }
+        }
+    }
+
+    @MainActor
+    func testWarningMixedWithHealthyRingKeepsColorAndRecoveryRestoresTemplate() throws {
+        let view = StatusBarCompactRingsView()
+        view.appearance = NSAppearance(named: .aqua)
+        for state in [MenuBarSnapshotState.ready, .failed, .unavailable, .placeholder] {
+            view.setSnapshots([templateSnapshot(provider: .kimi),
+                templateSnapshot(state: state, low: state == .ready)],
+                codexConnectivity: state == .placeholder ? .unreachable : .reachable,
+                paceDisplayMode: .staged, isSelfTesting: false,
+                activeTaskCounts: [:], accessibilityLabel: "Test")
+            let warningFrames = view.renderedFrames(scale: 2, height: 22)
+            XCTAssertTrue(warningFrames.allSatisfy { !$0.isTemplate })
+            let bitmap = try XCTUnwrap(warningFrames.first?.representations.first as? NSBitmapImageRep)
+            XCTAssertTrue(hasColor(bitmap, red: state != .ready))
+        }
+        view.setSnapshots([templateSnapshot(provider: .kimi), templateSnapshot()],
+            codexConnectivity: .reachable, paceDisplayMode: .staged,
+            isSelfTesting: false, activeTaskCounts: [:], accessibilityLabel: "Test")
+        XCTAssertTrue(view.renderedFrames(scale: 2, height: 22).allSatisfy(\.isTemplate))
+    }
+
+    @MainActor
+    func testTemplateTaskWavesCutOutAlphaInBothLayouts() throws {
+        for appearance in [NSAppearance.Name.aqua, .darkAqua] {
+            for layout in [MenuBarTaskWaveLayout.evenlySpaced, .chaseQueue] {
+                let view = StatusBarCompactRingsView()
+                view.appearance = NSAppearance(named: appearance)
+                func frames(tasks: Int) -> [NSImage] {
+                    view.setSnapshots([templateSnapshot()], codexConnectivity: .reachable,
+                        paceDisplayMode: .staged, taskWaveLayout: layout,
+                        isSelfTesting: false, activeTaskCounts: [.codex: tasks], accessibilityLabel: "Test")
+                    return view.renderedFrames(scale: 2, height: 22)
+                }
+                let still = try XCTUnwrap(frames(tasks: 0).first?.representations.first as? NSBitmapImageRep)
+                let moving = frames(tasks: 2)
+                XCTAssertTrue(moving.allSatisfy(\.isTemplate))
+                let mask = try XCTUnwrap(moving.first?.representations.first as? NSBitmapImageRep)
+                XCTAssertLessThan(alphaSum(mask), alphaSum(still) - 1,
+                    "The wave must remain visible after native tinting ignores RGB")
+                if !NSWorkspace.shared.accessibilityDisplayShouldReduceMotion {
+                    XCTAssertNotEqual(moving[0].tiffRepresentation, moving[7].tiffRepresentation)
+                }
+            }
+        }
+    }
+
+    private func templateSnapshot(provider: UsageProvider = .codex,
+                                  state: MenuBarSnapshotState = .ready,
+                                  low: Bool = false) -> MenuBarSnapshot {
+        MenuBarSnapshot(provider: provider, modelName: nil,
+            remainingPercent: low ? 12 : 100, ringPercent: low ? 12 : 100,
+            paceDeltaPercent: 0, ringTrend: nil, resetsAt: nil,
+            state: state, isLowQuota: low, tooltip: "Test")
+    }
+
+    private func alphaSum(_ bitmap: NSBitmapImageRep) -> CGFloat {
+        var total: CGFloat = 0
+        for y in 0..<bitmap.pixelsHigh {
+            for x in 0..<bitmap.pixelsWide {
+                total += bitmap.colorAt(x: x, y: y)?.alphaComponent ?? 0
+            }
+        }
+        return total
+    }
+
     func testTaskOrbitHidesInHeaderInsteadOfJumpingAcrossEndpoints() {
         XCTAssertNil(MenuBarTaskEnergyMotion.visibleArcInterval(start: 0, end: 0.1))
         XCTAssertNil(MenuBarTaskEnergyMotion.visibleArcInterval(start: 0.9, end: 1))
@@ -101,26 +196,32 @@ final class QuotaSymbolTests: XCTestCase {
     }
 
     private func hasColor(_ bitmap: NSBitmapImageRep, red: Bool) -> Bool {
+        coloredPixelCount(bitmap, red: red) > 0
+    }
+
+    private func coloredPixelCount(_ bitmap: NSBitmapImageRep, red: Bool) -> Int {
+        var count = 0
         for y in 0..<bitmap.pixelsHigh {
             for x in 0..<bitmap.pixelsWide {
                 guard let c = bitmap.colorAt(x: x, y: y)?.usingColorSpace(.deviceRGB), c.alphaComponent > 0.3 else { continue }
-                if red && c.redComponent > c.greenComponent * 2 && c.redComponent > c.blueComponent * 2 { return true }
-                if !red && c.redComponent > 0.5 && c.greenComponent > 0.35 && c.blueComponent < 0.2 { return true }
+                if red && c.redComponent > 0.5 && c.greenComponent < c.redComponent * 0.3 && c.blueComponent < c.redComponent * 0.5 { count += 1 }
+                if !red && c.redComponent > 0.5 && c.greenComponent >= c.redComponent * 0.3 && c.greenComponent < c.redComponent * 0.8 && c.blueComponent < c.greenComponent * 0.5 { count += 1 }
             }
         }
-        return false
+        return count
     }
 
     @MainActor
     private func render(state: MenuBarSnapshotState, low: Bool = false, delta: Double? = 0,
                         connectivity: CodexConnectivityState = .reachable, provider: UsageProvider = .codex,
-                        appearance: NSAppearance.Name = .aqua, scale: Int = 2) throws -> NSBitmapImageRep {
+                        appearance: NSAppearance.Name = .aqua, scale: Int = 2,
+                        remaining: Double = 65) throws -> NSBitmapImageRep {
         let bitmap = try XCTUnwrap(NSBitmapImageRep(bitmapDataPlanes: nil, pixelsWide: 22*scale, pixelsHigh: 22*scale,
             bitsPerSample: 8, samplesPerPixel: 4, hasAlpha: true, isPlanar: false, colorSpaceName: .deviceRGB, bytesPerRow: 0, bitsPerPixel: 0))
         bitmap.size = NSSize(width: 22, height: 22)
         let view = StatusBarCompactRingView(frame: NSRect(x: 0, y: 0, width: 22, height: 22))
-        view.setSnapshot(MenuBarSnapshot(provider: provider, modelName: nil, remainingPercent: 65,
-            ringPercent: 65, paceDeltaPercent: delta,
+        view.setSnapshot(MenuBarSnapshot(provider: provider, modelName: nil, remainingPercent: remaining,
+            ringPercent: remaining, paceDeltaPercent: delta,
             ringTrend: nil, resetsAt: nil, state: state, isLowQuota: low, tooltip: "Test"),
             connectivity: connectivity, accessibilityLabel: "Test")
         view.setOfflinePulseOpacityForTesting(1)
