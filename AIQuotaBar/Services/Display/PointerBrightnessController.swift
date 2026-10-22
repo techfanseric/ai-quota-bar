@@ -57,6 +57,9 @@ final class PointerBrightnessBackend {
     private let gamma: DisplayGammaControlling
     private let defaults: UserDefaults
     private var software: [String: SoftwareLevel]
+    private let targetLock = NSLock()
+    private var cachedTargets: [ExternalDDCDisplay] = []
+    private var hardware: [String: (state: ExternalDisplayState, displayID: CGDirectDisplayID, date: Date)] = [:]
 
     init(builtin: DisplayBrightnessControlling = DisplayServicesBrightnessController(),
          external: ExternalDisplayBrightnessControlling = DDCBrightnessController(),
@@ -73,8 +76,27 @@ final class PointerBrightnessBackend {
         software.mapValues(\.baseline)
     }
 
+    /// Read-only discovery runs outside the Dim/control gate.
     func targets() -> [PointerBrightnessTarget] {
-        external.enumerateTargets().map { .init(id: $0.displayID, key: $0.persistenceKey, builtin: false) }
+        let discovered = external.enumerateTargets()
+        targetLock.lock()
+        cachedTargets = discovered
+        targetLock.unlock()
+        return discovered.map { .init(id: $0.displayID, key: $0.persistenceKey, builtin: false) }
+    }
+
+    private func targetSnapshot() -> [ExternalDDCDisplay] {
+        targetLock.lock(); defer { targetLock.unlock() }
+        return cachedTargets
+    }
+
+    /// Called under the shared hardware gate before Dim changes any levels.
+    func invalidateHardwareReadings() { hardware.removeAll() }
+
+    private func state(of target: ExternalDDCDisplay) -> ExternalDisplayState? {
+        if let entry = hardware[target.persistenceKey], entry.displayID == target.displayID,
+           Date().timeIntervalSince(entry.date) < 0.6 { return entry.state }
+        return external.readState(of: target)
     }
 
     @discardableResult
@@ -87,8 +109,9 @@ final class PointerBrightnessBackend {
             return desired
         }
         // Rebind by stable identity; a reconnect can change the display ID.
-        guard let target = external.enumerateTargets().first(where: { $0.persistenceKey == selection.key }),
-              let state = external.readState(of: target),
+        if targetSnapshot().isEmpty { _ = targets() }
+        guard let target = targetSnapshot().first(where: { $0.persistenceKey == selection.key }),
+              let state = state(of: target),
               let table = gamma.read(displayID: target.displayID), table.isValid else { return nil }
         let maximum = max(1, state.maximumLuminance ?? 100)
         guard state.luminance >= 0, state.luminance <= maximum else { return nil }
@@ -108,14 +131,19 @@ final class PointerBrightnessBackend {
         let plan = DisplayDimPlan(targetPercent: desired, builtin: false)
         let updated = ExternalDisplayState(luminance: Int((plan.hardwarePercent * Double(maximum) / 100).rounded()),
                                            maximumLuminance: maximum)
-        external.applyState(updated, of: target)
-        guard let actual = external.readState(of: target), abs(actual.luminance - updated.luminance) <= 1 else { return nil }
+        if updated.luminance != state.luminance,
+           !external.setLuminance(updated, of: target) {
+            hardware.removeValue(forKey: selection.key)
+            return nil
+        }
+        hardware[selection.key] = (updated, target.displayID, Date())
         // Persist the original calibration before changing gamma, including crash recovery.
         level.factor = plan.gammaFactor
         software[selection.key] = level
         persist()
-        guard gamma.apply(level.baseline.scaled(by: plan.gammaFactor), displayID: target.displayID) else { return nil }
-        return Self.combinedPercent(hardware: Double(actual.luminance) / Double(maximum) * 100,
+        let expected = level.baseline.scaled(by: plan.gammaFactor)
+        if !table.approximatelyMatches(expected), !gamma.apply(expected, displayID: target.displayID) { return nil }
+        return Self.combinedPercent(hardware: Double(updated.luminance) / Double(maximum) * 100,
                                     factor: level.factor)
     }
 
@@ -127,7 +155,7 @@ final class PointerBrightnessBackend {
     /// Retain normal software brightness through a GPU reset (including UU).
     func maintain() {
         guard software.values.contains(where: { $0.factor < 1 }) else { return }
-        for target in external.enumerateTargets() {
+        for target in targetSnapshot() {
             guard let level = software[target.persistenceKey], level.factor < 1 else { continue }
             let expected = level.baseline.scaled(by: level.factor)
             if let actual = gamma.read(displayID: target.displayID), !actual.approximatelyMatches(expected) {
@@ -172,6 +200,7 @@ final class PointerBrightnessController {
         self.backend = backend
         self.dim = dim ?? .shared
         self.dim.normalGammaBaselines = { [backend] in backend.calibrationBaselines }
+        self.dim.normalBrightnessWillDim = { [backend] in backend.invalidateHardwareReadings() }
         enabled = defaults.object(forKey: Self.enabledKey) == nil || defaults.bool(forKey: Self.enabledKey)
     }
 
@@ -282,11 +311,14 @@ final class PointerBrightnessController {
         let refresh = targets.isEmpty || maintenanceTick % 3 == 0
         Task { [weak self] in
             guard let self else { return }
-            let refreshed = await dim.performIdleBrightnessMaintenance { [backend] in
-                backend.maintain()
-                return refresh ? backend.targets() : nil
+            if refresh {
+                // Opening a display service must never own the global brightness gate.
+                targets = await Task.detached(priority: .utility) { [backend] in backend.targets() }.value
             }
-            if let refreshed { targets = refreshed }
+            _ = await dim.performIdleBrightnessMaintenance { [backend] in
+                backend.maintain()
+                return true
+            }
             servicing = false
         }
     }

@@ -25,6 +25,24 @@ AI coding work is hard to manage when quota, network routes, and Mac sleep setti
   <img src="./docs/images/control-center.png" alt="AI Quota Bar control center" width="342">
 </p>
 
+## v1.38.4 · Clearer low-quota warnings
+
+Saturated, appearance-aware orange now marks the provider initial and active center, so warnings remain visible even near zero quota.
+
+[v1.38.4 release notes](./docs/releases/v1.38.4.en.md)
+
+## v1.38.3 · Follow the menu bar icon tint
+
+Normal icons now use native template tint; semantic warning colors and both task animation layouts are preserved.
+
+[v1.38.3 release notes](./docs/releases/v1.38.3.en.md)
+
+## v1.38.2 · Keep brightness controls responsive
+
+Isolates stalled display-service discovery, keeps manual Restore available during Dim maintenance, and reduces repeated I/O during brightness key presses.
+
+[v1.38.2 release notes](./docs/releases/v1.38.2.en.md)
+
 ## v1.38.1 · Fix brightness getting stuck after Dim
 
 Restores the full-brightness gamma reference and handles brightness keys pressed while Dim is still in progress.

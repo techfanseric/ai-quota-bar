@@ -507,6 +507,32 @@ final class StepAwayDimControllerTests: XCTestCase {
         XCTAssertFalse(maintenance.isInstalled)
     }
 
+    func testManualRestoreRemainsAvailableDuringMaintenanceWrite() async throws {
+        let controller = makeController(smartRestore: false)
+        controller.dim()
+        await runBackgroundWork()
+        let baseline = try XCTUnwrap(pendingPayload?.gammaTables?["ddc-a"])
+        gamma.apply(baseline, displayID: 1)
+        let started = expectation(description: "maintenance write started")
+        let gate = DispatchSemaphore(value: 0)
+        gamma.beforeApply = {
+            started.fulfill()
+            _ = gate.wait(timeout: .now() + 2)
+        }
+        maintenance.fire(configurationChanged: false)
+        await fulfillment(of: [started], timeout: 2)
+        controller.toggleDimming()
+        gamma.beforeApply = nil
+        gate.signal()
+        await runBackgroundWork()
+        XCTAssertFalse(controller.isActive)
+        XCTAssertFalse(controller.isTransitioning)
+        XCTAssertEqual(gamma.read(displayID: 1), baseline)
+        XCTAssertEqual(builtin.brightness, 0.8)
+        XCTAssertNil(pendingPayload)
+        XCTAssertFalse(maintenance.isInstalled)
+    }
+
     func testTargetBrightnessPersistsAndClampsInvalidValues() {
         XCTAssertEqual(preferences.targetBrightnessPercent, 0)
         preferences.targetBrightnessPercent = 25

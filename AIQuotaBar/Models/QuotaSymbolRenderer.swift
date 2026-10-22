@@ -7,7 +7,14 @@ enum QuotaSymbolRenderer {
     static let ringSweepAngle = 256.0
 
     enum Status { case ready, loading, setup, unavailable, failed, offline }
-    static let warning = NSColor(srgbRed: 214/255, green: 160/255, blue: 10/255, alpha: 1)
+    // A saturated orange separates low quota from the neutral icon, while
+    // appearance-specific lightness keeps the accent readable at menu-bar size.
+    static let warning = NSColor(name: NSColor.Name("QuotaWarning")) { appearance in
+        let dark = appearance.bestMatch(from: [.aqua, .darkAqua]) == .darkAqua
+        return dark
+            ? NSColor(srgbRed: 1, green: 159/255, blue: 10/255, alpha: 1)
+            : NSColor(srgbRed: 210/255, green: 77/255, blue: 0, alpha: 1)
+    }
     static let danger = NSColor(srgbRed: 194/255, green: 21/255, blue: 21/255, alpha: 1)
 
     static func draw(in rect: NSRect, initial: String, remaining: Double?,
@@ -19,6 +26,10 @@ enum QuotaSymbolRenderer {
             let muted = track ?? foreground.withAlphaComponent(0.18)
             let blocked = status == .offline || status == .failed || status == .unavailable
             let ringColor: NSColor = blocked ? danger : lowQuota ? warning : foreground
+            // Do not encode a warning only in the remaining arc: at 0–5%
+            // that arc all but disappears. The initial and active center keep
+            // the warning visible without changing the remaining/pace geometry.
+            let activeForeground = ringColor
             arc(from: 0, to: 1, color: muted)
             if let remaining, remaining.isFinite, status != .setup, status != .loading {
                 arc(from: 0, to: min(1, max(0, remaining)), color: ringColor.withAlphaComponent(liveOpacity))
@@ -27,7 +38,7 @@ enum QuotaSymbolRenderer {
             }
             let attributes: [NSAttributedString.Key: Any] = [
                 .font: NSFont.systemFont(ofSize: 130, weight: .bold),
-                .foregroundColor: foreground,
+                .foregroundColor: activeForeground,
             ]
             let letter = initial as NSString
             let size = letter.size(withAttributes: attributes)
@@ -52,7 +63,7 @@ enum QuotaSymbolRenderer {
             let knownPace = status == .ready && signedFill?.isFinite == true
             let fill = knownPace ? signedFill! : 0
             let dot = NSBezierPath(ovalIn: NSRect(x: 164.5, y: 164.5, width: 38, height: 38))
-            (knownPace ? foreground : muted).setFill()
+            (knownPace ? activeForeground : muted).setFill()
             dot.fill()
             // Two broad annular sectors on each side. Four staged levels and
             // continuous mode share an angular fill that grows symmetrically.
@@ -64,7 +75,7 @@ enum QuotaSymbolRenderer {
                     sector(inner: inner, outer: outer, middle: middle, fraction: 1).fill()
                     let fraction = min(1, max(0, abs(fill) * 2 - Double(index)))
                     if fraction > 0, (fill > 0) == upward {
-                        foreground.setFill()
+                        activeForeground.setFill()
                         sector(inner: inner, outer: outer, middle: middle, fraction: fraction).fill()
                     }
                 }
