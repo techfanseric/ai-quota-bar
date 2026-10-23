@@ -8,7 +8,7 @@
     <LangVersion>latest</LangVersion>
     <AssemblyName>AIQuotaBar</AssemblyName>
     <ApplicationIcon>app.ico</ApplicationIcon>
-    <Version>1.38.2</Version>
+    <Version>1.38.6-beta.1</Version>
     <ApplicationHighDpiMode>PerMonitorV2</ApplicationHighDpiMode>
   </PropertyGroup>
   <ItemGroup>

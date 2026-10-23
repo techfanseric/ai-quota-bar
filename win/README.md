@@ -3,6 +3,20 @@
 macOS 菜单栏应用 [AI Quota Bar](../README.md) 的 Windows 版本(C# / .NET 8 WinForms 托盘应用)。
 功能规格分析文档见 [`docs/win-migration/analysis/`](../docs/win-migration/analysis/),模块级迁移对照见下文。
 
+## 当前 Windows 预发布：v1.38.6-beta.1
+
+- [下载 Windows x64 ZIP](https://github.com/techfanseric/ai-quota-bar/releases/download/v1.38.6-beta.1/AIQuotaBar-win-x64.zip)；解压运行 `AIQuotaBar/AIQuotaBar.exe`。自包含 .NET 8，支持 64 位 Windows 10+；目前没有安装器或代码签名。
+- 托盘两种模式使用深色底和浅色边框，文字模式用两行显示服务商及剩余额度，完整信息在悬停提示中。
+- 设置页使用自动行高和换行，普通窗口使用明确的 96 DPI 布局基准，控制中心响应主屏 DPI 变化。尚未完成所有窗口、所有缩放比例和多屏组合的目视验收。
+- 「Settings → Providers → Codex · 账号分享与关注」支持逐账号分享、添加/移除关注、邮箱校验、防重复、手动刷新、状态、全部额度窗口、云端更新时间和被查看记录。Watch 修改即时保存，不随 Cancel 撤销；旧版 General 页的邮箱列表自动沿用。
+- 分享默认关闭。只有本机获取到额度的账号会发布；知道邮箱的其他用户可读取已分享额度，登录凭据不会上传。账号池尚未获取额度的条目需先登录并刷新。
+- 服务商多账号登录管理、数据源选择和 macOS v1.38.5 凭据镜像尚未移植；不宣称完整功能对齐。
+- 本次已合入 macOS v1.38.5；Windows 使用独立预发布，不改变 macOS 稳定版或 `releases/latest`。
+
+验证：2026-10-24 Windows Release 全套 **543/543 通过**；官网语法检查与 **124/124 测试通过**。macOS 测试未在 Windows 重跑，沿用 v1.38.5 发布记录中的结果。
+
+打包：仓库根目录执行 `powershell -ExecutionPolicy Bypass -File win/scripts/package.ps1`，产物和校验清单位于 `win/artifacts/v1.38.6-beta.1/`。请在已提交的发布源码上构建，确保程序集的 SourceRevision 对应发布标签。
+
 ## 构建
 
 ### Codex 额度与连接排查
