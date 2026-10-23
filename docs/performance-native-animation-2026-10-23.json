@@ -1,0 +1,276 @@
+{
+  "summary": {
+    "pid": 30976,
+    "duration_seconds": 120.00109633401735,
+    "cpu_average_percent": 17.645770348680873,
+    "cpu_interval_median_percent": 16.618169575081353,
+    "cpu_interval_peak_percent": 30.972320278950065,
+    "resident_mib_range": [
+      73.125,
+      229.59375
+    ],
+    "footprint_mib_range": [
+      253.8455810546875,
+      350.9237289428711
+    ]
+  },
+  "samples": [
+    {
+      "monotonic": 376115.875488166,
+      "cpu_ns": 351589043416,
+      "resident_mib": 75.890625,
+      "footprint_mib": 254.6737060546875,
+      "read_bytes": 7544139776,
+      "written_bytes": 680779776,
+      "interrupt_wakeups": 123785
+    },
+    {
+      "monotonic": 376120.878828916,
+      "cpu_ns": 352273112791,
+      "resident_mib": 76.640625,
+      "footprint_mib": 253.8455810546875,
+      "read_bytes": 7544668160,
+      "written_bytes": 680890368,
+      "interrupt_wakeups": 124042,
+      "cpu_percent": 13.672252384565503
+    },
+    {
+      "monotonic": 376125.882050166,
+      "cpu_ns": 353071626916,
+      "resident_mib": 77.703125,
+      "footprint_mib": 253.9705810546875,
+      "read_bytes": 7544807424,
+      "written_bytes": 680964096,
+      "interrupt_wakeups": 124300,
+      "cpu_percent": 15.960000269753555
+    },
+    {
+      "monotonic": 376130.885342041,
+      "cpu_ns": 354621262500,
+      "resident_mib": 224.5,
+      "footprint_mib": 350.9237289428711,
+      "read_bytes": 7671209984,
+      "written_bytes": 695664640,
+      "interrupt_wakeups": 124562,
+      "cpu_percent": 30.972320278950065
+    },
+    {
+      "monotonic": 376135.891210166,
+      "cpu_ns": 355409158875,
+      "resident_mib": 154.171875,
+      "footprint_mib": 255.1112060546875,
+      "read_bytes": 7671267328,
+      "written_bytes": 695738368,
+      "interrupt_wakeups": 124812,
+      "cpu_percent": 15.73945528176843
+    },
+    {
+      "monotonic": 376140.896778166,
+      "cpu_ns": 356203874791,
+      "resident_mib": 79.390625,
+      "footprint_mib": 255.1268310546875,
+      "read_bytes": 7671283712,
+      "written_bytes": 695848960,
+      "interrupt_wakeups": 125069,
+      "cpu_percent": 15.8766380957457
+    },
+    {
+      "monotonic": 376145.902355125,
+      "cpu_ns": 357009519750,
+      "resident_mib": 79.78125,
+      "footprint_mib": 255.2205810546875,
+      "read_bytes": 7671291904,
+      "written_bytes": 695922688,
+      "interrupt_wakeups": 125325,
+      "cpu_percent": 16.094947008097822
+    },
+    {
+      "monotonic": 376150.907780583,
+      "cpu_ns": 357842792500,
+      "resident_mib": 73.875,
+      "footprint_mib": 255.4237060546875,
+      "read_bytes": 7671336960,
+      "written_bytes": 696061952,
+      "interrupt_wakeups": 125599,
+      "cpu_percent": 16.64739105574599
+    },
+    {
+      "monotonic": 376155.911313375,
+      "cpu_ns": 358661512416,
+      "resident_mib": 74.296875,
+      "footprint_mib": 255.4237060546875,
+      "read_bytes": 7671345152,
+      "written_bytes": 696135680,
+      "interrupt_wakeups": 125854,
+      "cpu_percent": 16.36283702013451
+    },
+    {
+      "monotonic": 376160.915586125,
+      "cpu_ns": 359491668625,
+      "resident_mib": 75.34375,
+      "footprint_mib": 255.4705810546875,
+      "read_bytes": 7721529344,
+      "written_bytes": 696246272,
+      "interrupt_wakeups": 126108,
+      "cpu_percent": 16.58894809441672
+    },
+    {
+      "monotonic": 376165.921503083,
+      "cpu_ns": 360304228625,
+      "resident_mib": 73.453125,
+      "footprint_mib": 255.4237060546875,
+      "read_bytes": 7721537536,
+      "written_bytes": 696320000,
+      "interrupt_wakeups": 126367,
+      "cpu_percent": 16.231991197853173
+    },
+    {
+      "monotonic": 376170.927278541,
+      "cpu_ns": 361062499083,
+      "resident_mib": 74.0,
+      "footprint_mib": 255.2830810546875,
+      "read_bytes": 7721549824,
+      "written_bytes": 696430592,
+      "interrupt_wakeups": 126633,
+      "cpu_percent": 15.147911934152805
+    },
+    {
+      "monotonic": 376175.932046208,
+      "cpu_ns": 361874278041,
+      "resident_mib": 74.359375,
+      "footprint_mib": 255.3143310546875,
+      "read_bytes": 7721689088,
+      "written_bytes": 696504320,
+      "interrupt_wakeups": 126882,
+      "cpu_percent": 16.220112740820273
+    },
+    {
+      "monotonic": 376180.93762725,
+      "cpu_ns": 362674220708,
+      "resident_mib": 73.125,
+      "footprint_mib": 255.3299560546875,
+      "read_bytes": 7721697280,
+      "written_bytes": 696578048,
+      "interrupt_wakeups": 127148,
+      "cpu_percent": 15.981015196684451
+    },
+    {
+      "monotonic": 376185.939711,
+      "cpu_ns": 363503209750,
+      "resident_mib": 75.421875,
+      "footprint_mib": 254.5799560546875,
+      "read_bytes": 7723171840,
+      "written_bytes": 696688640,
+      "interrupt_wakeups": 127410,
+      "cpu_percent": 16.57287409460766
+    },
+    {
+      "monotonic": 376190.944085375,
+      "cpu_ns": 364991777750,
+      "resident_mib": 229.59375,
+      "footprint_mib": 349.0799789428711,
+      "read_bytes": 7850307584,
+      "written_bytes": 711352320,
+      "interrupt_wakeups": 127667,
+      "cpu_percent": 29.74533654877753
+    },
+    {
+      "monotonic": 376195.945065791,
+      "cpu_ns": 365863905125,
+      "resident_mib": 202.75,
+      "footprint_mib": 293.7987060546875,
+      "read_bytes": 7850319872,
+      "written_bytes": 711462912,
+      "interrupt_wakeups": 127916,
+      "cpu_percent": 17.43912797990454
+    },
+    {
+      "monotonic": 376200.950961416,
+      "cpu_ns": 366710274916,
+      "resident_mib": 202.921875,
+      "footprint_mib": 293.7674560546875,
+      "read_bytes": 7850328064,
+      "written_bytes": 711536640,
+      "interrupt_wakeups": 128165,
+      "cpu_percent": 16.90745981150053
+    },
+    {
+      "monotonic": 376205.953471458,
+      "cpu_ns": 367570790583,
+      "resident_mib": 82.125,
+      "footprint_mib": 297.9705810546875,
+      "read_bytes": 7850340352,
+      "written_bytes": 711647232,
+      "interrupt_wakeups": 128425,
+      "cpu_percent": 17.201677953214713
+    },
+    {
+      "monotonic": 376210.959646125,
+      "cpu_ns": 368426243166,
+      "resident_mib": 82.09375,
+      "footprint_mib": 297.9705810546875,
+      "read_bytes": 7850348544,
+      "written_bytes": 711749632,
+      "interrupt_wakeups": 128677,
+      "cpu_percent": 17.087949180881644
+    },
+    {
+      "monotonic": 376215.964304375,
+      "cpu_ns": 369301998208,
+      "resident_mib": 80.078125,
+      "footprint_mib": 298.2987060546875,
+      "read_bytes": 7850360832,
+      "written_bytes": 711860224,
+      "interrupt_wakeups": 128940,
+      "cpu_percent": 17.498798084688286
+    },
+    {
+      "monotonic": 376220.970356541,
+      "cpu_ns": 370161426291,
+      "resident_mib": 80.203125,
+      "footprint_mib": 298.3143310546875,
+      "read_bytes": 7850622976,
+      "written_bytes": 711933952,
+      "interrupt_wakeups": 129191,
+      "cpu_percent": 17.167781207687828
+    },
+    {
+      "monotonic": 376225.97251875,
+      "cpu_ns": 371019539125,
+      "resident_mib": 77.75,
+      "footprint_mib": 298.4080810546875,
+      "read_bytes": 7850635264,
+      "written_bytes": 712044544,
+      "interrupt_wakeups": 129448,
+      "cpu_percent": 17.154838210839156
+    },
+    {
+      "monotonic": 376230.976999208,
+      "cpu_ns": 371898472250,
+      "resident_mib": 78.140625,
+      "footprint_mib": 298.4549560546875,
+      "read_bytes": 7850647552,
+      "written_bytes": 712118272,
+      "interrupt_wakeups": 129703,
+      "cpu_percent": 17.56292451094064
+    },
+    {
+      "monotonic": 376235.8765845,
+      "cpu_ns": 372764161291,
+      "resident_mib": 78.234375,
+      "footprint_mib": 298.9237060546875,
+      "read_bytes": 7851663360,
+      "written_bytes": 712228864,
+      "interrupt_wakeups": 129958,
+      "cpu_percent": 17.668618656510095
+    }
+  ],
+  "context": {
+    "binary_changed": false,
+    "installed_sha256": "03b583e6dd1066735267dcaeeadc9eee976bd298bcb3b2ffee54fd366084f382",
+    "active_codex_task": true,
+    "idle_measurement": false,
+    "contains_isolated_status_item_experiments": true,
+    "comparison_limit": "Workload differs from earlier windows; independent menu bar probes ran during part of this window. No causal before/after claim."
+  }
+}

@@ -86,7 +86,14 @@ final class KimiLocalActivityDetector: KimiLocalActivityProviding,
 
     private static let internetDateFormatter = ISO8601DateFormatter()
 
+    private let directoryCache = ActivityDirectoryCache()
     private let lock = NSLock()
+    private let changeSource: ActivityFileChangeTracking
+    private var cachedWires: [(url: URL, origin: WireOrigin)]?
+    private var wirePaths = Set<String>()
+    private var wireActivity: [String: (state: WireState, modifiedAt: Date?)] = [:]
+    private var lastFullWireScan = Date.distantPast
+    private(set) var wireProbeCount = 0
     private var wireStates: [String: WireState] = [:]
 
     init(
@@ -97,11 +104,14 @@ final class KimiLocalActivityDetector: KimiLocalActivityProviding,
         freshnessWindow: TimeInterval = KimiLocalActivityDetector
             .defaultFreshnessWindow,
         openTurnSilenceWindow: TimeInterval = KimiLocalActivityDetector
-            .defaultOpenTurnSilenceWindow
+            .defaultOpenTurnSilenceWindow,
+        changeSource: ActivityFileChangeTracking? = nil
     ) {
-        self.codeHomeURL = codeHomeURL
+        self.codeHomeURL = codeHomeURL.resolvingSymlinksInPath().standardizedFileURL
         self.agentDataURL = agentDataURL
-        self.workSessionsRootURL = workSessionsRootURL
+        self.workSessionsRootURL = workSessionsRootURL.resolvingSymlinksInPath().standardizedFileURL
+        self.changeSource = changeSource ?? ActivityFileChangeMonitor(roots: [
+            self.codeHomeURL.appendingPathComponent("sessions"), self.workSessionsRootURL])
         self.freshnessWindow = freshnessWindow
         self.openTurnSilenceWindow = openTurnSilenceWindow
     }
@@ -172,13 +182,30 @@ final class KimiLocalActivityDetector: KimiLocalActivityProviding,
             record("kimi:desktop:\(conversation.key)", conversation.updatedAt)
         }
 
-        let currentWireURLs = wireURLs()
-        for wire in currentWireURLs {
-            let state = readWireState(at: wire.url)
-            guard state.isActive else { continue }
+        let changes = changeSource.consume()
+        let fullScan = cachedWires == nil || changes.requiresFullScan
+            || now < lastFullWireScan || now.timeIntervalSince(lastFullWireScan) >= 300
+        let roots = [codeHomeURL.appendingPathComponent("sessions").path, workSessionsRootURL.path]
+        let discoveryChanged = changes.paths.contains { path in
+            !wirePaths.contains(path) && roots.contains { path == $0 || path.hasPrefix($0 + "/") }
+        }
+        if fullScan || discoveryChanged {
+            cachedWires = wireURLs()
+            wirePaths = Set((cachedWires ?? []).map(\.url.path))
+            wireStates = wireStates.filter { wirePaths.contains($0.key) }
+            wireActivity = wireActivity.filter { wirePaths.contains($0.key) }
+        }
+        if fullScan { lastFullWireScan = now }
+        for wire in cachedWires ?? [] {
+            let path = wire.url.path
+            if fullScan || wireActivity[path] == nil || changes.paths.contains(path) {
+                wireProbeCount += 1
+                wireActivity[path] = (readWireState(at: wire.url), fileModificationDate(at: wire.url))
+            }
+            guard let activity = wireActivity[path], activity.state.isActive else { continue }
             // A wire whose turn is open but that has gone quiet past the
             // silence window was most likely killed mid-turn.
-            guard let touchedAt = fileModificationDate(at: wire.url),
+            guard let touchedAt = activity.modifiedAt,
                   touchedAt >= silenceCutoff, touchedAt <= now else {
                 continue
             }
@@ -188,15 +215,6 @@ final class KimiLocalActivityDetector: KimiLocalActivityProviding,
                 .deletingLastPathComponent()  // …/<session dir>
                 .lastPathComponent
             record("\(wire.origin.sessionPrefix)\(sessionID)", touchedAt)
-        }
-        // Keep parse offsets for every wire still on disk. Pruning down to
-        // active sessions instead would drop the offsets of idle wires and
-        // force a full-history re-parse on every poll — exactly the state an
-        // idle machine sits in, where re-parsing hundreds of transcripts
-        // pegged a core at 100%.
-        let currentWirePaths = Set(currentWireURLs.map(\.url.path))
-        wireStates = wireStates.filter {
-            currentWirePaths.contains($0.key)
         }
         return KimiLocalActivitySnapshot(
             activeSessionIDs: activeSessionIDs,
@@ -337,44 +355,12 @@ final class KimiLocalActivityDetector: KimiLocalActivityProviding,
         inSessionsRoot sessionsRoot: URL,
         origin: WireOrigin
     ) -> [(url: URL, origin: WireOrigin)] {
-        guard let workspaces = try? FileManager.default.contentsOfDirectory(
-            at: sessionsRoot,
-            includingPropertiesForKeys: [.isDirectoryKey],
-            options: [.skipsHiddenFiles]) else {
-            return []
-        }
         var urls: [(url: URL, origin: WireOrigin)] = []
-        for workspace in workspaces
-        where (try? workspace.resourceValues(forKeys: [.isDirectoryKey]))?
-            .isDirectory == true {
-            guard let sessions = try? FileManager.default
-                .contentsOfDirectory(
-                    at: workspace,
-                    includingPropertiesForKeys: [.isDirectoryKey],
-                    options: [.skipsHiddenFiles]) else {
-                continue
-            }
-            for session in sessions {
-                // The CLI names session directories `session_*`; the Kimi
-                // Work runtime uses `conv-*` / `ctitle-*`. Instead of
-                // matching names, accept any directory that actually carries
-                // an agents tree.
-                guard (try? session.resourceValues(forKeys: [.isDirectoryKey]))?
-                    .isDirectory == true else {
-                    continue
-                }
-                let agentsURL = session
-                    .appendingPathComponent("agents", isDirectory: true)
-                guard let agents = try? FileManager.default
-                    .contentsOfDirectory(
-                        at: agentsURL,
-                        includingPropertiesForKeys: nil,
-                        options: [.skipsHiddenFiles]) else {
-                    continue
-                }
-                for agent in agents {
-                    let wireURL = agent
-                        .appendingPathComponent("wire.jsonl", isDirectory: false)
+        for workspace in directoryCache.entries(at: sessionsRoot) where workspace.isDirectory {
+            for session in directoryCache.entries(atPath: workspace.path) where session.isDirectory {
+                let agentsPath = session.path + "/agents"
+                for agent in directoryCache.entries(atPath: agentsPath) where agent.isDirectory {
+                    let wireURL = agent.url.appendingPathComponent("wire.jsonl")
                     if FileManager.default.fileExists(atPath: wireURL.path) {
                         urls.append((wireURL, origin))
                     }
@@ -445,7 +431,6 @@ final class KimiLocalActivityDetector: KimiLocalActivityProviding,
     }
 
     private func fileModificationDate(at url: URL) -> Date? {
-        (try? url.resourceValues(forKeys: [.contentModificationDateKey]))?
-            .contentModificationDate
+        ActivityDirectoryCache.modificationDate(at: url)
     }
 }

@@ -1,0 +1,66 @@
+{
+  "recorded_at": "2026-10-23T18:14:56.919225+08:00",
+  "before": {
+    "pid": 8928,
+    "duration_seconds": 60.00172491703415,
+    "cpu_average_percent": 21.756594874648258,
+    "cpu_interval_median_percent": 19.309970670672627,
+    "cpu_interval_peak_percent": 30.578789817352085,
+    "resident_mib_range": [
+      60.46875,
+      227.375
+    ],
+    "footprint_mib_range": [
+      182.45486450195312,
+      332.1579895019531
+    ]
+  },
+  "after_five_minutes": {
+    "pid": 30976,
+    "duration_seconds": 300.0050442920183,
+    "cpu_average_percent": 12.118515360565645,
+    "cpu_interval_median_percent": 9.914606971991336,
+    "cpu_interval_peak_percent": 45.76351815399157,
+    "resident_mib_range": [
+      34.859375,
+      202.28125
+    ],
+    "footprint_mib_range": [
+      160.87671661376953,
+      274.31421661376953
+    ]
+  },
+  "later_one_minute": {
+    "pid": 30976,
+    "duration_seconds": 60.00618308299454,
+    "cpu_average_percent": 12.469512777793224,
+    "cpu_interval_median_percent": 10.681699256056184,
+    "cpu_interval_peak_percent": 26.02805296265856,
+    "resident_mib_range": [
+      44.59375,
+      86.328125
+    ],
+    "footprint_mib_range": [
+      181.8924331665039,
+      295.8768310546875
+    ]
+  },
+  "cpu_average_reduction_percent": 44.29957706898945,
+  "installed_app": "/Applications/AIQuotaBar.app",
+  "installed_sha256": "03b583e6dd1066735267dcaeeadc9eee976bd298bcb3b2ffee54fd366084f382",
+  "regression_checks": 143,
+  "regression_failures": 0,
+  "task_detection_interval_seconds": 2,
+  "quota_refresh_preference_seconds": 600,
+  "continuous_animation_interval_nanoseconds": 83333333,
+  "animation_source_frames_per_second": 30,
+  "measurement_state": "Credentials loaded; Codex/GLM/MiniMax samples refreshed; active-task sleep assertions present; animation and monitoring not paused.",
+  "limitations": [
+    "Sequential live-workload observations, not controlled A/B.",
+    "Restart and system memory pressure affect memory comparisons; no 18-hour leak claim.",
+    "Kimi online refresh was not confirmed.",
+    "Native menu automation timed out; native rendering/layout/appearance and refresh behavior were checked through regression tests.",
+    "CPU remains above 1%; native AppKit replicant redraw is the remaining dominant hotspot."
+  ],
+  "temporary_evidence_directory": "/tmp/aiquotabar-perf-round2"
+}

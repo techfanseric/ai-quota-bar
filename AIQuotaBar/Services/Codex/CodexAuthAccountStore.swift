@@ -1,5 +1,7 @@
 import AppKit
 import CodexLocalUsageCore
+import Darwin
+import Dispatch
 import Foundation
 import Observation
 import UserNotifications
@@ -32,6 +34,21 @@ struct CodexStashedAccount: Identifiable, Equatable {
 enum CodexAccountSwitchRequest: Equatable {
     case switchTo(label: String)
     case loginNewAccount
+}
+
+/// 一次由外部工具造成的账号变动。
+///
+/// magpie 这类 LLM 网关会在额度见底时把 Codex 的登录切到别的账号，
+/// 并在刷新 token 后回写 auth.json。这些改动都不是本应用发起的，
+/// 面板上必须把它说出来，而不是让「当前账号」凭空变一个。
+struct CodexExternalAccountChange: Equatable {
+    /// 换上去的账号指纹。
+    let digest: String
+    /// 换上去的账号邮箱（认不出时为 nil）。
+    let email: String?
+    /// 被换走的账号邮箱（认不出时为 nil）。
+    let previousEmail: String?
+    let detectedAt: Date
 }
 
 /// 守卫命中了哪些对象（桌面版、CLI），决定横幅提示文案。
@@ -73,10 +90,24 @@ final class CodexAuthAccountStore {
     private(set) var pendingRequest: CodexAccountSwitchRequest?
     private(set) var pendingBlockers: CodexAccountSwitchBlockers = []
     private(set) var statusMessage: CodexAccountSwitchStatusMessage?
+    /// 最近一次由外部工具造成的账号变动（本应用自己切的不会记在这里）。
+    private(set) var lastExternalAccountChange: CodexExternalAccountChange?
 
     private let fileManager: FileManager
     private let codexHome: URL
     private let defaults: UserDefaults
+    /// 凭据守护镜像：把 auth.json 与账号池里的每份凭据各留一份在 ~/.codex 之外。
+    private let authMirror: CodexAuthMirror
+    /// 「登录新账号」流程进行中：下一个出现的陌生账号是预期的，不算外部改动。
+    private var expectingAnyAccount = false
+    /// ~/.codex 目录监听：捕捉 rename / 原子替换。
+    private var dirWatcher: DispatchSourceFileSystemObject?
+    /// auth.json 文件监听：捕捉原地写入。
+    private var fileWatcher: DispatchSourceFileSystemObject?
+    /// 兜底轮询：事件是快路径，轮询是保底。
+    private var fallbackTimer: Timer?
+    /// 目录事件的合并任务：一次改写往往带来多条事件，合并成一次同步。
+    private var mirrorSyncTask: Task<Void, Never>?
     private let companionAppsProvider: () -> [RunningAppSnapshot]
     private let cliProcessChecker: () -> Bool
     private let notify: (_ title: String, _ body: String) -> Void
@@ -107,6 +138,7 @@ final class CodexAuthAccountStore {
         codexHome: URL = CodexAuthAccountStore.defaultCodexHome(),
         fileManager: FileManager = .default,
         defaults: UserDefaults = .standard,
+        authMirror: CodexAuthMirror = .shared,
         companionAppsProvider: @escaping () -> [RunningAppSnapshot] =
             CodexAuthAccountStore.liveCompanionApps,
         cliProcessChecker: @escaping () -> Bool =
@@ -127,6 +159,7 @@ final class CodexAuthAccountStore {
         self.codexHome = codexHome
         self.fileManager = fileManager
         self.defaults = defaults
+        self.authMirror = authMirror
         self.companionAppsProvider = companionAppsProvider
         self.cliProcessChecker = cliProcessChecker
         self.notify = notify
@@ -147,6 +180,10 @@ final class CodexAuthAccountStore {
     // MARK: - 路径
 
     var authURL: URL { codexHome.appendingPathComponent("auth.json") }
+
+    /// 测试用：拿到 auth.json 的真实路径，好让测试制造一次外部改写。
+    var authURLForTesting: URL { authURL }
+
     var accountsDirectory: URL {
         codexHome.appendingPathComponent("accounts", isDirectory: true)
     }
@@ -172,8 +209,129 @@ final class CodexAuthAccountStore {
         }
         stashedAccounts = readStashedAccounts()
         legacyBackupFileNames = readLegacyBackupFileNames()
+        syncAuthMirror()
         if pendingRequest != nil {
             evaluatePendingRequest()
+        }
+    }
+
+    /// 同步守护镜像，并区分「自己切的」与「外部工具切的」。
+    ///
+    /// 镜像同步在刷新和目录事件两条路径上都做：展示期 5 秒一次，
+    /// 后台 60 秒一次，而目录事件是即时的——外部工具换走 auth.json 的那一刻，
+    /// 那个账号的凭据就已经留在镜像里了。
+    private func syncAuthMirror() {
+        let result = authMirror.sync(
+            authURL: authURL, accountsDirectory: accountsDirectory)
+        guard case let .accountChanged(digest, previousEmail) = result else { return }
+
+        // 「登录新账号」是用户自己发起的，不算外部改动。
+        if expectingAnyAccount {
+            expectingAnyAccount = false
+            return
+        }
+
+        let email = authMirror.email(for: digest)
+        lastExternalAccountChange = CodexExternalAccountChange(
+            digest: digest, email: email, previousEmail: previousEmail, detectedAt: Date())
+        setStatus(
+            AppLanguage.current.codexAccountsStatusExternalSwitch(
+                from: previousEmail, to: email),
+            isError: false)
+    }
+
+    // MARK: - 目录监听
+
+    /// 开始监听 ~/.codex 目录与 auth.json 文件本身。
+    ///
+    /// 两个都要盯，因为两种改写方式产生的事件完全不同（实测）：
+    ///
+    /// | 改写方式 | 目录事件 | 文件事件 |
+    /// | --- | --- | --- |
+    /// | 原地写入（打开文件覆盖内容） | **0** | 有 |
+    /// | 原子替换（写临时文件后 rename） | 有 | 有（但那是旧 inode 的删除事件） |
+    /// | 原子替换后再原地写 | 无 | **收不到**（fd 指向已删除的 inode） |
+    ///
+    /// 只盯目录会漏掉原地写；只盯文件会在原子替换后失明。
+    /// magpie 两种写法都可能用，所以目录与文件都监听，
+    /// 目录事件一来就重新挂文件监听，再加一条后台兜底轮询。
+    ///
+    /// 装上监听之后**立刻同步一次**：目录事件只在有变化时才来，
+    /// 不先建立基线的话，app 启动后遇到第一次外部改写时，
+    /// 那个账号同样来不及进镜像。
+    func startAuthWatching() {
+        guard dirWatcher == nil else { return }
+        let descriptor = open(codexHome.path, O_EVTONLY)
+        guard descriptor >= 0 else { return }
+        let source = DispatchSource.makeFileSystemObjectSource(
+            fileDescriptor: descriptor,
+            eventMask: [.write, .rename, .delete],
+            queue: .main)
+        source.setEventHandler { [weak self] in
+            Task { @MainActor [weak self] in
+                guard let self else { return }
+                // auth.json 可能已经被换成新 inode，文件级监听要重新挂。
+                self.rewatchAuthFile()
+                self.scheduleMirrorSync()
+            }
+        }
+        source.setCancelHandler { close(descriptor) }
+        source.resume()
+        dirWatcher = source
+        rewatchAuthFile()
+        // 建立基线：当前登录的账号先留一份在 ~/.codex 之外。
+        syncAuthMirror()
+        startFallbackPolling()
+    }
+
+    /// 盯住 auth.json 文件本身，捕捉原地写入。
+    private func rewatchAuthFile() {
+        fileWatcher?.cancel()
+        fileWatcher = nil
+        let descriptor = open(authURL.path, O_EVTONLY)
+        guard descriptor >= 0 else { return }
+        let source = DispatchSource.makeFileSystemObjectSource(
+            fileDescriptor: descriptor,
+            eventMask: [.write, .rename, .delete],
+            queue: .main)
+        source.setEventHandler { [weak self] in
+            Task { @MainActor [weak self] in self?.scheduleMirrorSync() }
+        }
+        source.setCancelHandler { close(descriptor) }
+        source.resume()
+        fileWatcher = source
+    }
+
+    /// 兜底轮询。事件机制是快路径，这里是保底——机制再全也有漏的时候，
+    /// 而漏一次就可能意味着一个账号的凭据没能留底。
+    private func startFallbackPolling() {
+        guard fallbackTimer == nil else { return }
+        let timer = Timer.scheduledTimer(withTimeInterval: 10, repeats: true) { [weak self] _ in
+            Task { @MainActor [weak self] in self?.syncAuthMirror() }
+        }
+        timer.tolerance = 2
+        fallbackTimer = timer
+    }
+
+    /// 停止监听并收掉文件描述符。
+    func stopAuthWatching() {
+        mirrorSyncTask?.cancel()
+        mirrorSyncTask = nil
+        fallbackTimer?.invalidate()
+        fallbackTimer = nil
+        fileWatcher?.cancel()
+        fileWatcher = nil
+        dirWatcher?.cancel()
+        dirWatcher = nil
+    }
+
+    /// 一次改写往往带来多条目录事件，合并成一次同步。
+    private func scheduleMirrorSync() {
+        mirrorSyncTask?.cancel()
+        mirrorSyncTask = Task { @MainActor [weak self] in
+            try? await Task.sleep(for: .milliseconds(300))
+            guard !Task.isCancelled, let self else { return }
+            self.syncAuthMirror()
         }
     }
 
@@ -362,7 +520,7 @@ final class CodexAuthAccountStore {
                 text: language.codexAccountsStatusTargetMissing(label))
         }
         // 目标备份必须仍是已登录凭据才允许上位。
-        guard case .chatgptLogin = CodexAuthFileReader.read(at: stashURL) else {
+        guard case let .chatgptLogin(target) = CodexAuthFileReader.read(at: stashURL) else {
             throw CodexAccountSwitchError(
                 text: language.codexAccountsStatusImportNotLoggedIn())
         }
@@ -381,6 +539,10 @@ final class CodexAuthAccountStore {
         }
         // 2. 目标备份上位为正式 auth.json。
         try fileManager.moveItem(at: stashURL, to: authURL)
+        // 这次变动是本应用发起的，下一次同步不要把它当成外部工具切号。
+        authMirror.acknowledgeLocalChange(digest: target.accountDigest, email: target.email)
+        // 用户没有去登录新账号，而是切回了池里的账号——「期待新账号」作废。
+        expectingAnyAccount = false
 
         let display = stashedAccounts.first { $0.label == label }?.email ?? label
         notify(
@@ -395,6 +557,8 @@ final class CodexAuthAccountStore {
         if case .chatgptLogin = CodexAuthFileReader.read(at: authURL) {
             previousLabel = try stashCurrentAuth()
         }
+        // 接下来出现的是一个全新账号（用户去登录的），不算外部工具切号。
+        expectingAnyAccount = true
         notify(
             language.codexAccountsLoginNewNotificationTitle(),
             language.codexAccountsLoginNewNotificationBody(previousLabel: previousLabel))

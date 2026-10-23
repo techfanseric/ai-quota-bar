@@ -6,6 +6,7 @@
 
 - [产品规格](./SPEC.md)：v1.16.0 的功能、数据来源、安全边界和设置结构。
 - [关注账号（按邮箱公开查询）](./codex-watch-accounts.md)：在另一台 Mac 上显示本机 Codex 额度，只填邮箱、不要团队和密钥、凭据不出机器。
+- [凭据守护镜像](./codex-auth-guard.md)：每个本机见过的 Codex 账号在 `~/.codex` 之外留一份凭据副本，外部网关改写登录态时不丢凭据、不静默换号。
 - [MiniMax API 字段](./api-field-mapping.md)：MiniMax 剩余额度字段与时间单位。
 - [GLM API 字段](./glm-api-field-mapping.md)：GLM API Key、网页 cURL、新旧额度类型及周期映射。
 - [云同步后端](../cloudflare/README.md)：Worker API、D1 结构、部署和迁移。
@@ -30,3 +31,5 @@
 - [Raycast 扩展调研](./raycast-extension-research.md)：2026-05-07 的替代实现调研，当前没有实施。
 - [早期运行排查记录](./run-experience-2026-04-09.md)：早期 Debug/Release 验证经验，部分命令和界面已变化。
 - `superpowers/specs` 与 `superpowers/plans`：已执行或被后续实现替代的设计与实施记录。
+
+- [2026-10-23 性能复核与原生动画限制](performance-audit-2026-10-23.md)

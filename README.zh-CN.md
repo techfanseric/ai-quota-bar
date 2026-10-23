@@ -25,6 +25,14 @@
   <img src="./docs/images/control-center.png" alt="AI Quota Bar 右键控制中心" width="342">
 </p>
 
+## v1.38.5 · 凭据守护镜像
+
+本机见过的每个 Codex 账号都会在 `~/.codex` 之外留一份凭据副本。外部网关改写登录态时，账号不会凭空消失，面板也会直接告诉你被换走了谁。
+
+[v1.38.5 完整发布说明](./docs/releases/v1.38.5.zh-CN.md)
+
+后台历史检查改为增量处理，菜单栏减少重复更新，保留刷新和动画节奏；尚未验证空闲 CPU 低于 1%。[性能复核](docs/performance-audit-2026-10-23.md)。
+
 ## v1.38.4 · 低额度预警更醒目
 
 预警改用随外观调整的饱和橙色，字母和中心有效图形一起变色，接近零额度时也能看清。
@@ -323,6 +331,7 @@ AI Quota Bar 不只是显示一个百分比。它会把剩余配额、重置时�
 - GLM API Key 或网页请求凭据存储在 macOS 钥匙串。
 - 可选的 Kimi API Key 和显式保存的网页登录存储在 macOS 钥匙串；桌面及浏览器登录只在本机读取，CLI 凭证继续由 Kimi Code 管理。
 - Codex 凭证由本机 Codex/CodexBar 管理。
+- 本机见过的每个 Codex 账号都会在 `~/.codex` 之外留一份凭据副本（目录 0700、文件 0600），外部工具改写登录态时不会把凭据弄丢。详见[凭据守护镜像](docs/codex-auth-guard.md)。
 - Clash/Mihomo 只允许访问回环地址的 external controller。
 - 连接监控只读。
 - Codex 活跃检测只读取本机生命周期状态，不上传任务内容。

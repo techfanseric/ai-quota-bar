@@ -25,6 +25,14 @@ AI coding work is hard to manage when quota, network routes, and Mac sleep setti
   <img src="./docs/images/control-center.png" alt="AI Quota Bar control center" width="342">
 </p>
 
+## v1.38.5 · Credential guard mirror
+
+Every Codex account seen on this Mac now keeps a copy of its credentials outside `~/.codex`. A gateway that rewrites the sign-in can no longer make an account vanish, and the panel says who was switched away.
+
+[v1.38.5 release notes](./docs/releases/v1.38.5.en.md)
+
+Background work now uses incremental history checks and avoids redundant menu-bar updates. Refresh and animation cadence are retained; idle CPU below 1% is not yet verified. [Performance audit](docs/performance-audit-2026-10-23.md).
+
 ## v1.38.4 · Clearer low-quota warnings
 
 Saturated, appearance-aware orange now marks the provider initial and active center, so warnings remain visible even near zero quota.

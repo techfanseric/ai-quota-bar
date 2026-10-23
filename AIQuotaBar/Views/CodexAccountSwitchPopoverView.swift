@@ -79,6 +79,12 @@ struct CodexAccountSwitchPopoverView: View {
 
                 currentRow
 
+                if let change = store.lastExternalAccountChange {
+                    Divider()
+                        .padding(.leading, 42)
+                    externalChangeRow(change)
+                }
+
                 ForEach(store.stashedAccounts) { stash in
                     Divider()
                         .padding(.leading, 42)
@@ -168,6 +174,39 @@ struct CodexAccountSwitchPopoverView: View {
         case .unreadable:
             return language.codexAccountsNotLoggedIn()
         }
+    }
+
+    // MARK: - 外部切换行
+
+    /// 外部工具（magpie 这类网关）改写了 auth.json 的登录账号。
+    /// 把「谁换走了、换上了谁」说出来，而不是让当前账号凭空变一个。
+    private func externalChangeRow(_ change: CodexExternalAccountChange) -> some View {
+        HStack(alignment: .top, spacing: 10) {
+            Image(systemName: "exclamationmark.triangle.fill")
+                .font(.system(size: 11))
+                .foregroundStyle(.orange)
+                .frame(width: 18)
+                .padding(.top, 1)
+
+            VStack(alignment: .leading, spacing: 1) {
+                Text(language.codexAccountsExternalSwitchTitle())
+                    .font(.system(size: 10, weight: .medium))
+                    .foregroundStyle(.primary)
+                    .lineLimit(1)
+                Text(language.codexAccountsExternalSwitchDetail(
+                    from: change.previousEmail, to: change.email))
+                    .font(.system(size: 9))
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+                    .truncationMode(.tail)
+                    .help(language.codexAccountsStatusExternalSwitch(
+                        from: change.previousEmail, to: change.email))
+            }
+
+            Spacer(minLength: 8)
+        }
+        .padding(.horizontal, 14)
+        .padding(.vertical, 4)
     }
 
     // MARK: - 备份行

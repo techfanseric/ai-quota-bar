@@ -68,6 +68,22 @@ final class CodexAccountSwitchPopoverRenderTests: XCTestCase {
                 onToggleCollapse: {}),
             name: "accounts-pending-auto",
             to: outputDirectory)
+
+        // 状态四：登录态被外部工具改写（magpie 这类网关切了账号）。
+        let externalStore = try makeStore(
+            stashEmails: ["bob@example.com", "carol@example.com"],
+            legacy: false)
+        try Self.writeLoginFixture(
+            email: "someone-else@example.com", accountID: "account-external",
+            to: externalStore.authURLForTesting)
+        externalStore.refresh()
+        try render(
+            CodexAccountSwitchPopoverView(
+                store: externalStore,
+                isCollapsed: false,
+                onToggleCollapse: {}),
+            name: "accounts-external-change",
+            to: outputDirectory)
     }
 
     // MARK: - Fixtures
@@ -106,6 +122,8 @@ final class CodexAccountSwitchPopoverRenderTests: XCTestCase {
         let store = CodexAuthAccountStore(
             codexHome: root,
             defaults: defaults,
+            authMirror: CodexAuthMirror(
+                directory: root.appendingPathComponent("auth-mirror", isDirectory: true)),
             companionAppsProvider: { [desktopFlag, cliFlag] in
                 (desktopFlag || cliFlag)
                     ? [RunningAppSnapshot(

@@ -13,16 +13,16 @@ public struct UsageAccountObservation: Codable, Sendable {
     public static func read(root: URL, now: Date = Date()) -> Self {
         let url = root.appendingPathComponent("auth.json")
         func unknown() -> Self { .init(at: now, accountID: nil, generation: nil) }
-        guard let before = try? url.resourceValues(forKeys: [.contentModificationDateKey, .fileSizeKey]),
-              let size = before.fileSize, size < 262_144,
+        guard let before = FileStamp.of(url),
+              before.size < 262_144,
               let data = try? Data(contentsOf: url),
-              let after = try? url.resourceValues(forKeys: [.contentModificationDateKey, .fileSizeKey]),
-              before.contentModificationDate == after.contentModificationDate, before.fileSize == after.fileSize,
-              let obj = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any],
-              let modified = before.contentModificationDate else { return unknown() }
+              let after = FileStamp.of(url),
+              before == after,
+              let obj = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any]
+        else { return unknown() }
         guard case let .chatgptLogin(login) = CodexAuthFileReader.interpret(obj) else { return unknown() }
         return .init(at: now, accountID: login.accountDigest, label: login.email,
-                     generation: "\(modified.timeIntervalSince1970):\(size)")
+                     generation: before.generation)
     }
 }
 
