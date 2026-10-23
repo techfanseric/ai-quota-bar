@@ -25,6 +25,12 @@
   <img src="./docs/images/control-center.png" alt="AI Quota Bar 右键控制中心" width="342">
 </p>
 
+## Windows v1.38.6-beta.1 · 托盘可见性与 Codex 关注
+
+[下载 Windows x64](https://github.com/techfanseric/ai-quota-bar/releases/download/v1.38.6-beta.1/AIQuotaBar-win-x64.zip) · [发布说明](./docs/releases/v1.38.6-beta.1.zh-CN.md)
+
+托盘增加对比底色，设置页按内容自动排版，在「Settings → Providers」管理 Codex 分享与关注。解压运行 `AIQuotaBar/AIQuotaBar.exe`，无需安装 .NET。本次 Windows 预发布已合入 macOS v1.38.5 源码，macOS 稳定版下载保持 v1.38.5。服务商多账号管理及数据源选择尚未完全对齐 macOS。
+
 ## v1.38.5 · 凭据守护镜像
 
 本机见过的每个 Codex 账号都会在 `~/.codex` 之外留一份凭据副本。外部网关改写登录态时，账号不会凭空消失，面板也会直接告诉你被换走了谁。

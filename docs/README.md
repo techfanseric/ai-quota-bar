@@ -14,6 +14,8 @@
 
 ## 发布说明
 
+- [Windows v1.38.6-beta.1](./releases/v1.38.6-beta.1.zh-CN.md)：托盘可见性、设置排版和 Codex Watch；[发布验证记录](./releases/v1.38.6-beta.1-checklist.md)。
+
 - [v1.23.1](./releases/v1.23.1.zh-CN.md)：菜单到期行与副标题打磨，官网团队面板预览对齐。
 - [v1.23.0](./releases/v1.23.0.zh-CN.md)：常驻性能、存储显示与上传修复。
 

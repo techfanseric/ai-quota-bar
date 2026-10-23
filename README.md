@@ -25,6 +25,12 @@ AI coding work is hard to manage when quota, network routes, and Mac sleep setti
   <img src="./docs/images/control-center.png" alt="AI Quota Bar control center" width="342">
 </p>
 
+## Windows v1.38.6-beta.1 · Tray visibility and Codex Watch
+
+[Download Windows x64](https://github.com/techfanseric/ai-quota-bar/releases/download/v1.38.6-beta.1/AIQuotaBar-win-x64.zip) · [Release notes](./docs/releases/v1.38.6-beta.1.en.md)
+
+Adds a contrasting tray badge, adaptive settings rows and Codex Watch controls under Settings → Providers. Unzip and run `AIQuotaBar/AIQuotaBar.exe`; no .NET installation required. This Windows prerelease includes the merged macOS v1.38.5 source; macOS downloads remain on stable v1.38.5. Provider account management and data-source selection are not yet at full macOS parity.
+
 ## v1.38.5 · Credential guard mirror
 
 Every Codex account seen on this Mac now keeps a copy of its credentials outside `~/.codex`. A gateway that rewrites the sign-in can no longer make an account vanish, and the panel says who was switched away.

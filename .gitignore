@@ -30,4 +30,5 @@ console-access.local.md
 win/**/bin/
 win/**/obj/
 win/TestResults/
+win/artifacts/
 *.user
