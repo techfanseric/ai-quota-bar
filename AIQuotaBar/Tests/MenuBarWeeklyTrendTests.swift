@@ -779,7 +779,6 @@ final class MenuBarWeeklyTrendTests: XCTestCase {
         bitmap.size = NSSize(width: 22, height: 22)
         let view = StatusBarCompactRingView(frame: NSRect(x: 0, y: 0, width: 22, height: 22))
         view.setSnapshot(makeSnapshot(trend: trend), connectivity: .reachable, accessibilityLabel: "Test")
-        view.setOfflinePulseOpacityForTesting(1)
         NSGraphicsContext.saveGraphicsState()
         defer { NSGraphicsContext.restoreGraphicsState() }
         NSGraphicsContext.current = NSGraphicsContext(bitmapImageRep: bitmap)

@@ -22,13 +22,8 @@ final class MiniMaxActivityDetector: ProviderLocalActivityProviding,
     /// midnight, without walking the whole history.
     static let scannedDayFolderLimit = 2
 
-    /// Thousands of finished `bg_*` folders accumulate under the root and
-    /// never go stale on disk, so probing every one of them each pass turns
-    /// into tens of thousands of `stat` syscalls per minute. Folders whose
-    /// last known activity and own mtime are both outside the freshness
-    /// window are skipped entirely; a periodic full sweep re-checks
-    /// everything so a long-paused task that resumes writing in place is
-    /// picked up again within this interval at the latest.
+    /// Events keep activity current; this reconciliation also recovers from
+    /// changes that the filesystem fails to report.
     static let defaultFullBackgroundSweepInterval: TimeInterval = 300
 
     let sessionsRootURL: URL
@@ -36,6 +31,11 @@ final class MiniMaxActivityDetector: ProviderLocalActivityProviding,
     let freshnessWindow: TimeInterval
     let fullBackgroundSweepInterval: TimeInterval
 
+    private let directoryCache = ActivityDirectoryCache()
+    private let lock = NSLock()
+    private let changeSource: ActivityFileChangeTracking
+    private var cliActivityCache: [String: (id: String, activity: Date)] = [:]
+    private(set) var backgroundProbeCount = 0
     /// Newest known activity time per background-task directory.
     private var backgroundActivityCache: [String: Date] = [:]
     private var lastFullBackgroundSweep = Date.distantPast
@@ -47,10 +47,13 @@ final class MiniMaxActivityDetector: ProviderLocalActivityProviding,
         freshnessWindow: TimeInterval = MiniMaxActivityDetector
             .defaultFreshnessWindow,
         fullBackgroundSweepInterval: TimeInterval = MiniMaxActivityDetector
-            .defaultFullBackgroundSweepInterval
+            .defaultFullBackgroundSweepInterval,
+        changeSource: ActivityFileChangeTracking? = nil
     ) {
-        self.sessionsRootURL = sessionsRootURL
-        self.backgroundTasksRootURL = backgroundTasksRootURL
+        self.sessionsRootURL = sessionsRootURL.resolvingSymlinksInPath().standardizedFileURL
+        self.backgroundTasksRootURL = backgroundTasksRootURL.resolvingSymlinksInPath().standardizedFileURL
+        self.changeSource = changeSource ?? ActivityFileChangeMonitor(
+            roots: [self.sessionsRootURL, self.backgroundTasksRootURL])
         self.freshnessWindow = freshnessWindow
         self.fullBackgroundSweepInterval = fullBackgroundSweepInterval
     }
@@ -101,6 +104,8 @@ final class MiniMaxActivityDetector: ProviderLocalActivityProviding,
     }
 
     func detectSnapshot(now: Date) -> ProviderLocalActivitySnapshot {
+        lock.lock()
+        defer { lock.unlock() }
         let cutoff = now.addingTimeInterval(-freshnessWindow)
         var activeSessionIDs = Set<String>()
         var lastEventBySession: [String: Date] = [:]
@@ -114,45 +119,58 @@ final class MiniMaxActivityDetector: ProviderLocalActivityProviding,
             }
         }
 
-        for sessionDirectory in recentSessionDirectories() {
-            guard let activityAt = newestFileModification(
-                in: sessionDirectory) else {
-                continue
+        let changes = changeSource.consume()
+        let fullSweep = changes.requiresFullScan
+            || now < lastFullBackgroundSweep
+            || now.timeIntervalSince(lastFullBackgroundSweep) >= fullBackgroundSweepInterval
+        if fullSweep { lastFullBackgroundSweep = now }
+
+        let cliRoot = sessionsRootURL.path
+        if fullSweep || changes.paths.contains(where: { $0 == cliRoot || $0.hasPrefix(cliRoot + "/") }) {
+            var latest: [String: (id: String, activity: Date)] = [:]
+            for session in recentSessionDirectories() {
+                guard let activity = newestFileModification(in: session) else { continue }
+                latest[session.path] = (readSessionID(at: session) ?? session.lastPathComponent, activity)
             }
-            guard activityAt >= cutoff, activityAt <= now else { continue }
-            let sessionID = readSessionID(at: sessionDirectory)
-                ?? sessionDirectory.lastPathComponent
-            record("minimax:cli:\(sessionID)", activityAt)
+            cliActivityCache = latest
+        }
+        for entry in cliActivityCache.values where entry.activity >= cutoff && entry.activity <= now {
+            record("minimax:cli:\(entry.id)", entry.activity)
         }
 
-        let fullSweep = now.timeIntervalSince(lastFullBackgroundSweep)
-            >= fullBackgroundSweepInterval
-        if fullSweep { lastFullBackgroundSweep = now }
-        var seenBackgroundPaths = Set<String>()
-        for taskDirectory in backgroundTaskDirectories() {
-            seenBackgroundPaths.insert(taskDirectory.url.path)
-            if !fullSweep,
-               let knownActivity = backgroundActivityCache[
-                taskDirectory.url.path],
-               knownActivity < cutoff,
-               (taskDirectory.modifiedAt ?? .distantPast) < cutoff {
-                // Known-stale folder with no recent structural change: its
-                // probe files cannot have become fresh without a directory
-                // event, so the two per-folder stats buy nothing. The full
-                // sweep bounds the miss window for in-place writes.
-                continue
+        let backgroundRoot = backgroundTasksRootURL.path
+        if fullSweep {
+            var latest: [String: Date] = [:]
+            for entry in directoryCache.entries(at: backgroundTasksRootURL)
+            where entry.isDirectory && entry.name.hasPrefix("bg_") {
+                if let date = probeBackgroundTask(atPath: entry.path) { latest[entry.path] = date }
             }
-            guard let activityAt = newestBackgroundTaskModification(
-                in: taskDirectory.url,
-                directoryModifiedAt: taskDirectory.modifiedAt) else {
-                continue
+            backgroundActivityCache = latest
+        } else {
+            // A write to an old output.log does not touch its directory's
+            // mtime. File events identify that task directly, so even resumed
+            // historical tasks are seen on the next two-second poll.
+            var dirty = Set<String>()
+            for path in changes.paths where path.hasPrefix(backgroundRoot + "/") {
+                let relative = path.dropFirst(backgroundRoot.count + 1)
+                guard let name = relative.split(separator: "/").first, name.hasPrefix("bg_") else { continue }
+                dirty.insert(backgroundRoot + "/" + name)
             }
-            backgroundActivityCache[taskDirectory.url.path] = activityAt
-            guard activityAt >= cutoff, activityAt <= now else { continue }
-            record("minimax:bg:\(taskDirectory.url.lastPathComponent)", activityAt)
+            for path in dirty {
+                backgroundActivityCache[path] = probeBackgroundTask(atPath: path)
+            }
+            if dirty.isEmpty, changes.paths.contains(backgroundRoot) {
+                let entries = directoryCache.entries(at: backgroundTasksRootURL)
+                    .filter { $0.isDirectory && $0.name.hasPrefix("bg_") }
+                let livePaths = Set(entries.map(\.path))
+                backgroundActivityCache = backgroundActivityCache.filter { livePaths.contains($0.key) }
+                for entry in entries where backgroundActivityCache[entry.path] == nil {
+                    backgroundActivityCache[entry.path] = probeBackgroundTask(atPath: entry.path)
+                }
+            }
         }
-        backgroundActivityCache = backgroundActivityCache.filter {
-            seenBackgroundPaths.contains($0.key)
+        for (path, activity) in backgroundActivityCache where activity >= cutoff && activity <= now {
+            record("minimax:bg:\(path.split(separator: "/").last!)", activity)
         }
 
         return ProviderLocalActivitySnapshot(
@@ -170,17 +188,9 @@ final class MiniMaxActivityDetector: ProviderLocalActivityProviding,
         for dayFolder in dayFolders {
             let dayURL = sessionsRootURL
                 .appendingPathComponent(dayFolder, isDirectory: true)
-            guard let entries = try? FileManager.default.contentsOfDirectory(
-                at: dayURL,
-                includingPropertiesForKeys: [.isDirectoryKey],
-                options: [.skipsHiddenFiles]) else {
-                continue
-            }
-            directories.append(contentsOf: entries.filter { entry in
-                (try? entry.resourceValues(forKeys: [.isDirectoryKey]))?
-                    .isDirectory == true
-                    && entry.lastPathComponent.contains("session_")
-            })
+            directories.append(contentsOf: directoryCache.entries(at: dayURL)
+                .filter { $0.isDirectory && $0.name.contains("session_") }
+                .map(\.url))
         }
         return directories
     }
@@ -189,38 +199,11 @@ final class MiniMaxActivityDetector: ProviderLocalActivityProviding,
     /// layout is `<year>/<month>/<day>`, so lexicographic ordering of the
     /// joined path matches chronological ordering.
     private func sortedDayFolderPaths() -> [String] {
-        guard let yearEntries = try? FileManager.default.contentsOfDirectory(
-            at: sessionsRootURL,
-            includingPropertiesForKeys: nil,
-            options: [.skipsHiddenFiles]) else {
-            return []
-        }
         var paths: [String] = []
-        for yearURL in yearEntries {
-            let monthRoot = sessionsRootURL
-                .appendingPathComponent(yearURL.lastPathComponent)
-            guard let monthEntries = try? FileManager.default
-                .contentsOfDirectory(
-                    at: monthRoot,
-                    includingPropertiesForKeys: nil,
-                    options: [.skipsHiddenFiles]) else {
-                continue
-            }
-            for monthURL in monthEntries {
-                let dayRoot = monthRoot
-                    .appendingPathComponent(monthURL.lastPathComponent)
-                guard let dayEntries = try? FileManager.default
-                    .contentsOfDirectory(
-                        at: dayRoot,
-                        includingPropertiesForKeys: nil,
-                        options: [.skipsHiddenFiles]) else {
-                    continue
-                }
-                for dayURL in dayEntries {
-                    paths.append(
-                        "\(yearURL.lastPathComponent)/" +
-                        "\(monthURL.lastPathComponent)/" +
-                        dayURL.lastPathComponent)
+        for year in directoryCache.entries(at: sessionsRootURL) where year.isDirectory {
+            for month in directoryCache.entries(atPath: year.path) where month.isDirectory {
+                for day in directoryCache.entries(atPath: month.path) where day.isDirectory {
+                    paths.append("\(year.name)/\(month.name)/\(day.name)")
                 }
             }
         }
@@ -242,66 +225,37 @@ final class MiniMaxActivityDetector: ProviderLocalActivityProviding,
 
     // MARK: - Background tasks
 
-    /// `bg_*` directories together with their own mtime, prefetched by the
-    /// same listing call — thousands of finished tasks accumulate under the
-    /// root, so no per-directory round trip is spent here.
-    private func backgroundTaskDirectories() -> [(url: URL, modifiedAt: Date?)] {
-        guard let entries = try? FileManager.default.contentsOfDirectory(
-            at: backgroundTasksRootURL,
-            includingPropertiesForKeys: [
-                .isDirectoryKey,
-                .contentModificationDateKey,
-            ],
-            options: [.skipsHiddenFiles]) else {
-            return []
-        }
-        return entries.compactMap { entry in
-            guard entry.lastPathComponent.hasPrefix("bg_"),
-                  (try? entry.resourceValues(forKeys: [.isDirectoryKey]))?
-                      .isDirectory == true else {
-                return nil
-            }
-            let modifiedAt = (try? entry.resourceValues(
-                forKeys: [.contentModificationDateKey]))?
-                .contentModificationDate
-            return (entry, modifiedAt)
-        }
+    private func probeBackgroundTask(atPath path: String) -> Date? {
+        backgroundProbeCount += 1
+        // A removed task must disappear, even if a stale cached path remains.
+        guard let modified = ActivityDirectoryCache.modificationDate(atPath: path) else { return nil }
+        return newestBackgroundTaskModification(atPath: path, directoryModifiedAt: modified)
     }
 
     // MARK: - Shared helpers
 
     /// Newest modification time among a directory's immediate entries.
     /// In-place writes do not update the directory's own mtime, so the
-    /// entries must be stat'd; the batch prefetch keeps this cheap.
+    /// entries must be stat'd even when membership comes from the cache.
     private func newestFileModification(in directory: URL) -> Date? {
-        guard let entries = try? FileManager.default.contentsOfDirectory(
-            at: directory,
-            includingPropertiesForKeys: [.contentModificationDateKey],
-            options: [.skipsHiddenFiles]) else {
-            return nil
-        }
-        return entries.compactMap { entry in
-            (try? entry.resourceValues(
-                forKeys: [.contentModificationDateKey]))?
-                .contentModificationDate
-        }
-        .max()
+        directoryCache.entries(at: directory)
+            .compactMap { ActivityDirectoryCache.modificationDate(atPath: $0.path) }
+            .max()
     }
 
-    /// Newest of the directory's own mtime (prefetched with the listing),
+    /// Newest of the directory's own mtime,
     /// `output.log`, and `summary.txt`. The two probe files are stat'd with
     /// plain string paths — building `URL`s and resolving per-URL resource
     /// values costs far more than the stats themselves once the root holds
     /// thousands of historical task folders.
     private func newestBackgroundTaskModification(
-        in directory: URL,
+        atPath directoryPath: String,
         directoryModifiedAt: Date?
     ) -> Date? {
         var dates: [Date] = []
         if let directoryModifiedAt {
             dates.append(directoryModifiedAt)
         }
-        let directoryPath = directory.path
         for fileName in ["output.log", "summary.txt"] {
             if let fileDate = Self.modificationDateIfExists(
                 atPath: directoryPath + "/" + fileName) {

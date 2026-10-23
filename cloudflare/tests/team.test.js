@@ -108,7 +108,7 @@ test('dashboard session: login, overview, revoke; wrong passwords and tampering 
   const { db, env } = setup();
   const team = await createTeam(env);
   const token = await join(env, team.inviteCode, 'Alice', 'mac-alice');
-  await post(env, '/v1/usage/events/batch', { events: [{ ...event(1), accountID: 'a'.repeat(64), accountSource: 'log' }] }, { authorization: `Bearer ${token}` });
+  await post(env, '/v1/usage/events/batch', { events: [{ ...event(1), occurredAt: new Date().toISOString(), accountID: 'a'.repeat(64), accountSource: 'log' }] }, { authorization: `Bearer ${token}` });
   assert.equal((await post(env, '/v1/team/login', { teamID: team.teamID, password: 'wrong' })).status, 401);
   assert.equal((await post(env, '/v1/team/login', { teamID: team.teamID, password: team.loginPassword }, { origin: 'https://evil.example' })).status, 403);
   const { response } = await post(env, '/v1/team/login', { teamID: team.teamID, password: team.loginPassword });

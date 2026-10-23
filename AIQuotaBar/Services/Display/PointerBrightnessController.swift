@@ -169,6 +169,22 @@ final class PointerBrightnessBackend {
     }
 }
 
+/// Topology/wake events trigger immediate rebinding; quiet displays need no
+/// repeated IOKit enumeration. Empty discovery still retries every timer tick.
+struct BrightnessTargetDiscoverySchedule {
+    private var invalidated = true
+    private var nextReconciliation = Date.distantPast
+
+    mutating func invalidate() { invalidated = true }
+
+    mutating func beginIfNeeded(now: Date, hasTargets: Bool) -> Bool {
+        guard invalidated || !hasTargets || now >= nextReconciliation else { return false }
+        invalidated = false
+        nextReconciliation = now + 60
+        return true
+    }
+}
+
 @MainActor @Observable
 final class PointerBrightnessController {
     static let shared = PointerBrightnessController()
@@ -186,12 +202,13 @@ final class PointerBrightnessController {
     private let dim: StepAwayDimController
     private var tap: CFMachPort?
     private var source: CFRunLoopSource?
-    private var timer: Timer?
+    @ObservationIgnored private var timer: Timer?
     private var targets: [PointerBrightnessTarget] = []
     private var pending: [(PointerBrightnessTarget, Double)] = []
     private var worker: Task<Void, Never>?
     private var servicing = false
-    private var maintenanceTick = 0
+    private var discoverySchedule = BrightnessTargetDiscoverySchedule()
+    @ObservationIgnored private var displayObservers: [(NotificationCenter, NSObjectProtocol)] = []
     private var heldKeys: Set<Int> = []
 
     init(defaults: UserDefaults = .standard, backend: PointerBrightnessBackend = PointerBrightnessBackend(),
@@ -212,6 +229,21 @@ final class PointerBrightnessController {
             RunLoop.main.add(timer!, forMode: .common)
         }
         guard enabled else { return }
+        if displayObservers.isEmpty {
+            for (center, name) in [
+                (NotificationCenter.default, NSApplication.didChangeScreenParametersNotification),
+                (NSWorkspace.shared.notificationCenter, NSWorkspace.didWakeNotification),
+                (NSWorkspace.shared.notificationCenter, NSWorkspace.screensDidWakeNotification),
+            ] {
+                let token = center.addObserver(forName: name, object: nil, queue: .main) { [weak self] _ in
+                    Task { @MainActor [weak self] in
+                        self?.discoverySchedule.invalidate()
+                        self?.service()
+                    }
+                }
+                displayObservers.append((center, token))
+            }
+        }
         installTap()
         service()
     }
@@ -221,6 +253,13 @@ final class PointerBrightnessController {
         timer = nil
         pending.removeAll()
         removeTap()
+        for (center, token) in displayObservers { center.removeObserver(token) }
+        displayObservers.removeAll()
+    }
+
+    deinit {
+        for (center, token) in displayObservers { center.removeObserver(token) }
+        timer?.invalidate()
     }
 
     func requestPermission() {
@@ -307,8 +346,7 @@ final class PointerBrightnessController {
         if !AXIsProcessTrusted() { removeTap() } else { installTap() }
         guard !servicing else { return }
         servicing = true
-        maintenanceTick += 1
-        let refresh = targets.isEmpty || maintenanceTick % 3 == 0
+        let refresh = discoverySchedule.beginIfNeeded(now: Date(), hasTargets: !targets.isEmpty)
         Task { [weak self] in
             guard let self else { return }
             if refresh {

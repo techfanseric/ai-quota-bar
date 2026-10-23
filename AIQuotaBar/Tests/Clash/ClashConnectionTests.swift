@@ -98,6 +98,11 @@ final class ClashConnectionTests: XCTestCase {
                 displayStore: ClashPanelDisplayStore(
                     defaults: panelDefaults),
                 accountStore: CodexAuthAccountStore(
+                    authMirror: CodexAuthMirror(
+                        directory: FileManager.default.temporaryDirectory
+                            .appendingPathComponent(
+                                "clash-connection-auth-mirror-\(UUID().uuidString)",
+                                isDirectory: true)),
                     companionAppsProvider: { [] },
                     cliProcessChecker: { false },
                     notify: { _, _ in },

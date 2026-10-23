@@ -3,6 +3,19 @@ import XCTest
 @testable import AIQuotaBar
 
 final class PointerBrightnessControllerTests: XCTestCase {
+    func testDisplayDiscoveryIsImmediateForChangesAndMissingTargetsWithoutIdleEnumeration() {
+        var schedule = BrightnessTargetDiscoverySchedule()
+        let now = Date(timeIntervalSince1970: 1_000)
+        XCTAssertTrue(schedule.beginIfNeeded(now: now, hasTargets: true))
+        XCTAssertFalse(schedule.beginIfNeeded(now: now + 3, hasTargets: true))
+        schedule.invalidate()
+        XCTAssertTrue(schedule.beginIfNeeded(now: now + 4, hasTargets: true))
+        XCTAssertFalse(schedule.beginIfNeeded(now: now + 63, hasTargets: true))
+        XCTAssertTrue(schedule.beginIfNeeded(now: now + 64, hasTargets: true))
+        XCTAssertTrue(schedule.beginIfNeeded(now: now + 65, hasTargets: false))
+        XCTAssertTrue(schedule.beginIfNeeded(now: now + 66, hasTargets: false))
+    }
+
     func testMediaKeyDecodingHandlesReleaseAndRepeatWithoutConsumingOtherKeys() {
         XCTAssertEqual(BrightnessKeyPress(subtype: 8, data: (2 << 16) | 0x0a00)?.delta(fine: false), 6.25)
         XCTAssertEqual(BrightnessKeyPress(subtype: 8, data: (3 << 16) | 0x0a01)?.delta(fine: true), -1.5625)

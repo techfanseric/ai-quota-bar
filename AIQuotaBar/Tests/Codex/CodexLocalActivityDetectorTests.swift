@@ -67,6 +67,28 @@ final class CodexLocalActivityDetectorTests: XCTestCase {
         )
     }
 
+    func testUnchangedDatabaseRowsReuseSafeMetadataButDetectSameTimestampEdits() throws {
+        let fixture = try makeFixture()
+        defer { fixture.cleanup() }
+        let now = Date(timeIntervalSince1970: 90_000)
+        let file = fixture.directory.appendingPathComponent("cached.jsonl")
+        try writeRollout([try eventRecord("task_started", turnID: "cached", timestamp: now - 10)], to: file)
+        try fixture.insert(id: "cached", rolloutURL: file, updatedAt: 89_999, title: "Old title")
+        let detector = CodexLocalActivityDetector(stateDatabaseURL: fixture.databaseURL)
+        XCTAssertEqual(detector.detectSnapshot(now: now).sessionActivities["cached"]?.title, "Old title")
+        for _ in 0..<5 { _ = detector.detectSnapshot(now: now + 1) }
+        XCTAssertEqual(detector.candidateMetadataDecodeCount, 1)
+
+        var database: OpaquePointer?
+        XCTAssertEqual(sqlite3_open(fixture.databaseURL.path, &database), SQLITE_OK)
+        defer { sqlite3_close(database) }
+        XCTAssertEqual(sqlite3_exec(database, "UPDATE threads SET title = 'New title' WHERE id = 'cached'", nil, nil, nil), SQLITE_OK)
+        XCTAssertEqual(detector.detectSnapshot(now: now + 2).sessionActivities["cached"]?.title, "New title")
+        XCTAssertEqual(detector.candidateMetadataDecodeCount, 2)
+        XCTAssertEqual(sqlite3_exec(database, "UPDATE threads SET archived = 1 WHERE id = 'cached'", nil, nil, nil), SQLITE_OK)
+        XCTAssertEqual(detector.detectSnapshot(now: now + 3), .empty)
+    }
+
     func testDefaultDatabaseFollowsConfiguredCodexHome() {
         let url = CodexLocalActivityDetector.defaultStateDatabaseURL(
             environment: ["CODEX_HOME": "/tmp/custom-codex-home"],

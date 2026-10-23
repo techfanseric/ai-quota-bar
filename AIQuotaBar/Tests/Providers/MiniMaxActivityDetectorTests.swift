@@ -139,46 +139,69 @@ final class MiniMaxActivityDetectorTests: XCTestCase {
         XCTAssertEqual(detector.detectSnapshot(now: now), .empty)
     }
 
-    func testStaleBackgroundFolderSkipsStatsUntilFullSweep() throws {
+    func testUnchangedHistoryIsNotProbedAndResumedTaskIsSeenOnNextPoll() throws {
         let fixture = try makeFixture()
-        try fixture.writeBackgroundTask(
-            taskID: "bg_stale",
-            modifiedAt: now - 10 * 60)
-        let sweeping = MiniMaxActivityDetector(
+        for index in 0..<100 {
+            try fixture.writeBackgroundTask(taskID: "bg_\(index)", modifiedAt: now - 600)
+        }
+        let changes = TestActivityFileChanges()
+        let detector = MiniMaxActivityDetector(
             sessionsRootURL: fixture.sessionsRootURL,
             backgroundTasksRootURL: fixture.backgroundTasksRootURL,
-            freshnessWindow: 120,
-            fullBackgroundSweepInterval: 60)
+            changeSource: changes)
+        XCTAssertEqual(detector.detectSnapshot(now: now), .empty)
+        XCTAssertEqual(detector.backgroundProbeCount, 100)
+        for _ in 0..<10 { XCTAssertEqual(detector.detectSnapshot(now: now + 2), .empty) }
+        XCTAssertEqual(detector.backgroundProbeCount, 100, "Quiet history must cause zero task probes")
 
-        // First pass probes the folder once and caches its stale state.
-        XCTAssertEqual(sweeping.detectSnapshot(now: now), .empty)
+        let log = fixture.backgroundTasksRootURL.appendingPathComponent("bg_42/output.log")
+        try FileManager.default.setAttributes([.modificationDate: now + 1], ofItemAtPath: log.path)
+        changes.next.paths = [log.resolvingSymlinksInPath().path]
+        XCTAssertEqual(detector.detectSnapshot(now: now + 2).activeSessionIDs, ["minimax:bg:bg_42"])
+        XCTAssertEqual(detector.backgroundProbeCount, 101, "Only the changed task may be probed")
+        XCTAssertEqual(detector.detectSnapshot(now: now + 122), .empty, "Cached activity must still expire")
 
-        // A resumed task appends in place: output.log becomes fresh while
-        // the folder's own mtime stays stale.
-        let taskDirectory = fixture.backgroundTasksRootURL
-            .appendingPathComponent("bg_stale", isDirectory: true)
-        let logURL = taskDirectory.appendingPathComponent("output.log")
-        let handle = try FileHandle(forWritingTo: logURL)
-        try handle.seekToEnd()
-        try handle.write(contentsOf: Data("resumed".utf8))
-        try handle.close()
+        // A dropped-event reconciliation must discover an otherwise unreported write.
+        let other = fixture.backgroundTasksRootURL.appendingPathComponent("bg_43/output.log")
+        try FileManager.default.setAttributes([.modificationDate: now + 123], ofItemAtPath: other.path)
+        changes.next.requiresFullScan = true
+        XCTAssertEqual(detector.detectSnapshot(now: now + 124).activeSessionIDs, ["minimax:bg:bg_43"])
+    }
 
-        // Before the sweep deadline the folder is trusted stale and never
-        // re-stat'd, so the resumed write is not seen yet.
-        let beforeSweep = now + 30
-        try FileManager.default.setAttributes(
-            [.modificationDate: beforeSweep - 5],
-            ofItemAtPath: logURL.path)
-        XCTAssertEqual(sweeping.detectSnapshot(now: beforeSweep), .empty)
+    func testEventsDiscoverNewTaskAndRemoveDeletedTaskWithoutHistorySweep() throws {
+        let fixture = try makeFixture()
+        let changes = TestActivityFileChanges()
+        let detector = MiniMaxActivityDetector(
+            sessionsRootURL: fixture.sessionsRootURL,
+            backgroundTasksRootURL: fixture.backgroundTasksRootURL,
+            changeSource: changes)
+        XCTAssertEqual(detector.detectSnapshot(now: now), .empty)
+        try fixture.writeBackgroundTask(taskID: "bg_new", modifiedAt: now - 1)
+        let task = fixture.backgroundTasksRootURL.appendingPathComponent("bg_new").resolvingSymlinksInPath()
+        changes.next.paths = [task.path]
+        XCTAssertEqual(detector.detectSnapshot(now: now).activeSessionIDs, ["minimax:bg:bg_new"])
+        try FileManager.default.removeItem(at: task)
+        changes.next.paths = [task.path]
+        XCTAssertEqual(detector.detectSnapshot(now: now), .empty)
+    }
 
-        // The periodic full sweep bounds that miss window.
-        let atSweep = now + 70
-        try FileManager.default.setAttributes(
-            [.modificationDate: atSweep - 5],
-            ofItemAtPath: logURL.path)
-        XCTAssertEqual(
-            sweeping.detectSnapshot(now: atSweep).activeSessionIDs,
-            ["minimax:bg:bg_stale"])
+    func testCachedMembershipStillSeesCLIWritesNewTasksAndExpiry() throws {
+        let fixture = try makeFixture()
+        try fixture.writeSession(day: "2026/09/24", sessionID: "cached",
+                                 manifestUpdatedAtMs: milliseconds(now - 600),
+                                 fileModifiedAt: now - 600)
+        XCTAssertEqual(fixture.detector.detectSnapshot(now: now), .empty)
+        let transcript = fixture.sessionsRootURL.appendingPathComponent(
+            "2026/09/24/13-58-25-445-session_cached/messages.jsonl")
+        // Changing only the child mtime must bypass cached directory metadata.
+        try FileManager.default.setAttributes([.modificationDate: now - 5],
+                                              ofItemAtPath: transcript.path)
+        XCTAssertEqual(fixture.detector.detectSnapshot(now: now).activeSessionIDs,
+                       ["minimax:cli:cached"])
+        try fixture.writeBackgroundTask(taskID: "bg_new", modifiedAt: now - 5)
+        XCTAssertEqual(fixture.detector.detectSnapshot(now: now).activeSessionIDs,
+                       ["minimax:cli:cached", "minimax:bg:bg_new"])
+        XCTAssertEqual(fixture.detector.detectSnapshot(now: now + 121), .empty)
     }
 
     // MARK: - Fixtures
@@ -203,13 +226,16 @@ final class MiniMaxActivityDetectorTests: XCTestCase {
         addTeardownBlock {
             try? FileManager.default.removeItem(at: rootURL)
         }
+        let changes = TestActivityFileChanges()
+        changes.alwaysRescan = true
         return Fixture(
             sessionsRootURL: sessionsRootURL,
             backgroundTasksRootURL: backgroundTasksRootURL,
             detector: MiniMaxActivityDetector(
                 sessionsRootURL: sessionsRootURL,
                 backgroundTasksRootURL: backgroundTasksRootURL,
-                freshnessWindow: 120))
+                freshnessWindow: 120,
+                changeSource: changes))
     }
 
     private struct Fixture {

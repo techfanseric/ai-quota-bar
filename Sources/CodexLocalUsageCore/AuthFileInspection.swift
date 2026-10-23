@@ -20,6 +20,23 @@ public enum CodexAuthFileStatus: Equatable, Sendable {
     }
 }
 
+/// 一份 auth 文件的原始凭据字节与分类结果。
+///
+/// 守护镜像需要把凭据原样保存下来（换账号、token 刷新后仍然留一份），
+/// 所以这里把 data 本身一起交出来，而不只是一个账号指纹。
+public struct CodexAuthCredential: Equatable, Sendable {
+    public let status: CodexAuthFileStatus
+    public let data: Data
+    /// 「mtime:size」形式的版本号：文件内容被改写后必然变化。
+    public let generation: String
+
+    public init(status: CodexAuthFileStatus, data: Data, generation: String) {
+        self.status = status
+        self.data = data
+        self.generation = generation
+    }
+}
+
 /// 读取任意路径上的 auth JSON（正式 auth.json 或账号池里的备份副本）。
 /// Codex 的账号切换功能靠它识别每个文件属于哪个账号。
 public enum CodexAuthFileReader {
@@ -46,17 +63,30 @@ public enum CodexAuthFileReader {
 
     /// 读取文件并分类；带撕裂读防护（前后比对 mtime 与大小）。
     public static func read(at url: URL) -> CodexAuthFileStatus {
-        guard let before = try? url.resourceValues(
-                  forKeys: [.contentModificationDateKey, .fileSizeKey]),
-              let size = before.fileSize, size > 0, size < 262_144,
+        guard let credential = readCredential(at: url) else { return .unreadable }
+        return credential.status
+    }
+
+    /// 读取文件的内容与分类；带撕裂读防护（前后比对 mtime 与大小）。
+    ///
+    /// 守护镜像要原样保存凭据字节，所以这里把 data 一并返回，
+    /// 并给出可用于判断「内容是否变过」的 generation。
+    ///
+    /// 撕裂防护走 FileStamp（新鲜 stat）而不是 URL.resourceValues——
+    /// 后者在同一个 URL 实例上会返回缓存值，比对恒为真。
+    public static func readCredential(at url: URL) -> CodexAuthCredential? {
+        guard let before = FileStamp.of(url),
+              before.size > 0, before.size < 262_144,
               let data = try? Data(contentsOf: url),
-              let after = try? url.resourceValues(
-                  forKeys: [.contentModificationDateKey, .fileSizeKey]),
-              before.contentModificationDate == after.contentModificationDate,
-              before.fileSize == after.fileSize,
+              let after = FileStamp.of(url),
+              before == after,
               let object = (try? JSONSerialization.jsonObject(with: data))
-                  as? [String: Any] else { return .unreadable }
-        return interpret(object)
+                  as? [String: Any]
+        else { return nil }
+        return CodexAuthCredential(
+            status: interpret(object),
+            data: data,
+            generation: before.generation)
     }
 
     static func decodeJWTEmail(_ jwt: String) -> String? {

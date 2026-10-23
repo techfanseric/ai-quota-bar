@@ -162,4 +162,41 @@ final class AuthFileReaderTests: XCTestCase {
         XCTAssertEqual(observation.label, "alice@example.com")
         XCTAssertNotNil(observation.generation)
     }
+
+    // MARK: - 版本号必须跟得上文件改动
+
+    /// 同一个 URL 实例上 URL.resourceValues 会缓存资源值：连续两次读到的
+    /// modificationDate 完全一样，而文件其实已经被改写。撕裂防护要是建在
+    /// 这上面，前后比的就是同一个缓存值，防护形同虚设。
+    ///
+    /// 这条测试守着 generation 走新鲜 stat——「内容变过」必须看得出来。
+    func testGenerationChangesWhenFileIsRewritten() throws {
+        let root = try makeTemporaryDirectory()
+        let url = root.appendingPathComponent("auth.json")
+        try writeAuth(
+            loginPayload(accountID: "fixture-a", email: "alice@example.com"), to: url)
+
+        let first = try XCTUnwrap(CodexAuthFileReader.readCredential(at: url))
+        // 同一个 URL 实例——正是会触发资源值缓存的那个用法。
+        var second = first
+        for _ in 0..<5 {
+            second = try XCTUnwrap(CodexAuthFileReader.readCredential(at: url))
+        }
+        XCTAssertEqual(first.generation, second.generation, "内容没变时版本号必须稳定")
+
+        // 改写内容：大小变了（access_token 变长），mtime 也变了。
+        var payload = loginPayload(accountID: "fixture-a", email: "alice@example.com")
+        payload["tokens"] = [
+            "account_id": "fixture-a",
+            "id_token": makeJWT(email: "alice@example.com"),
+            "access_token": "fixture-access-token-that-is-longer",
+            "refresh_token": "fixture-refresh",
+        ]
+        try writeAuth(payload, to: url)
+
+        let third = try XCTUnwrap(CodexAuthFileReader.readCredential(at: url))
+        XCTAssertNotEqual(
+            first.generation, third.generation,
+            "文件被改写后版本号必须变化，否则 token 刷新这类改动看不出来")
+    }
 }

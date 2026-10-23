@@ -414,4 +414,40 @@ extension AppLanguage {
         case .simplifiedChinese: return "操作失败：%@".replacingOccurrences(of: "%@", with: reason)
         }
     }
+
+    /// 外部工具改了 auth.json 的登录账号时的状态行。
+    func codexAccountsStatusExternalSwitch(from: String?, to: String?) -> String {
+        switch self {
+        case .english:
+            let from = from ?? "the previous account"
+            let to = to ?? "another account"
+            return "\(from) → \(to). Signed in outside this app — a gateway like magpie may have switched accounts."
+        case .simplifiedChinese:
+            let from = from ?? "原账号"
+            let to = to ?? "其他账号"
+            return "\(from) → \(to)。登录态被外部工具改写（可能是 magpie 之类的网关切了账号）。"
+        }
+    }
+
+    /// 面板里「外部切换」那一行的标题。
+    func codexAccountsExternalSwitchTitle() -> String {
+        switch self {
+        case .english: return "Signed in outside this app"
+        case .simplifiedChinese: return "登录态被外部改写"
+        }
+    }
+
+    /// 面板里「外部切换」那一行的详情：谁换走了、换上了谁。
+    func codexAccountsExternalSwitchDetail(from: String?, to: String?) -> String {
+        switch self {
+        case .english:
+            let from = from ?? "previous account"
+            let to = to ?? "another account"
+            return "\(from) → \(to)"
+        case .simplifiedChinese:
+            let from = from ?? "原账号"
+            let to = to ?? "其他账号"
+            return "\(from) → \(to)"
+        }
+    }
 }

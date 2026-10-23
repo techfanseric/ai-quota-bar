@@ -74,6 +74,8 @@ final class ClashPopoverAdaptiveLayoutRenderTests: XCTestCase {
         let store = CodexAuthAccountStore(
             codexHome: root,
             defaults: try makeDefaults("PanelRender.Accounts"),
+            authMirror: CodexAuthMirror(
+                directory: root.appendingPathComponent("auth-mirror", isDirectory: true)),
             companionAppsProvider: { [] },
             cliProcessChecker: { false },
             notify: { _, _ in },

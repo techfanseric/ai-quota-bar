@@ -30,6 +30,40 @@ final class MenuBarRingRenderingTests: XCTestCase {
         XCTAssertNotEqual(key(), key(taskWaveLayout: .chaseQueue))
     }
 
+    func testContinuousPaceDriftReusesFramesButVisibleAndSemanticChangesInvalidate() {
+        func key(_ delta: Double) -> CompactStatusRenderState {
+            CompactStatusRenderState(snapshots: [MenuBarSnapshot(provider: .codex, modelName: nil,
+                remainingPercent: 50, ringPercent: 50, paceDeltaPercent: delta, ringTrend: nil,
+                resetsAt: nil, state: .ready, isLowQuota: false, tooltip: "test")],
+                connectivity: .reachable, pace: .continuous, taskWaveLayout: .evenlySpaced,
+                selfTesting: false, tasks: [.codex: 1], padding: 4, spacing: 4,
+                appearance: "aqua", scale: 2, height: 22, reduceMotion: false,
+                placeholderStyle: .openAIConnectivity)
+        }
+        XCTAssertEqual(key(10), key(10.000001))
+        XCTAssertNotEqual(key(10), key(10.1))
+        XCTAssertNotEqual(key(-10), key(10))
+        let limit = MenuBarPaceGlyph.fullScaleDeltaPercent
+        XCTAssertNotEqual(key(limit), key(limit + 0.000001), "A warning border must appear immediately")
+        XCTAssertNotEqual(key(0), key(0.00011), "On-track and active direction are distinct even below a raster step")
+    }
+
+    @MainActor
+    func testNativeButtonAppearanceChangesAreObservableWithoutCustomSubviews() throws {
+        let item = NSStatusBar.system.statusItem(withLength: 22)
+        defer { NSStatusBar.system.removeStatusItem(item) }
+        let button = try XCTUnwrap(item.button)
+        let originalSubviews = button.subviews
+        var changes = 0
+        let observation = button.observe(\.effectiveAppearance) { _, _ in changes += 1 }
+        button.appearance = NSAppearance(named: .aqua)
+        button.appearance = NSAppearance(named: .darkAqua)
+        RunLoop.main.run(until: Date() + 0.05)
+        XCTAssertGreaterThan(changes, 0, "Dark/light appearance changes must still invalidate cached RGB frames")
+        XCTAssertEqual(button.subviews, originalSubviews, "Appearance tracking must not add a snapshot-inducing subview")
+        withExtendedLifetime(observation) {}
+    }
+
     func testInteractiveSelfTestAnimationUsesABoundedFrameRate() {
         XCTAssertGreaterThanOrEqual(
             StatusBarAnimationCadence.selfTestNanoseconds,

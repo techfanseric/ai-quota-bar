@@ -54,6 +54,8 @@ final class CodexAuthAccountStoreTests: XCTestCase {
         let store = CodexAuthAccountStore(
             codexHome: root,
             defaults: defaults,
+            authMirror: CodexAuthMirror(
+                directory: root.appendingPathComponent("auth-mirror", isDirectory: true)),
             companionAppsProvider: { [desktopRunning] in
                 desktopRunning.value
                     ? [RunningAppSnapshot(
@@ -486,7 +488,10 @@ final class CodexAuthAccountStoreTests: XCTestCase {
 
         // didSet 已写入隔离 defaults；新实例按同样的 key 读回。
         let reloaded = CodexAuthAccountStore(
-            codexHome: fixture.root, defaults: fixture.defaults)
+            codexHome: fixture.root, defaults: fixture.defaults,
+            authMirror: CodexAuthMirror(
+                directory: fixture.root.appendingPathComponent(
+                    "auth-mirror", isDirectory: true)))
         XCTAssertEqual(reloaded.exitMode, .automatic)
     }
 

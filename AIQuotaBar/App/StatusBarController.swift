@@ -21,7 +21,9 @@ struct CompactStatusRenderState: Equatable {
         lhs.snapshots.count == rhs.snapshots.count
             && zip(lhs.snapshots, rhs.snapshots).allSatisfy { a, b in
                 a.provider == b.provider && a.ringPercent == b.ringPercent
-                    && a.paceDeltaPercent == b.paceDeltaPercent && a.state == b.state
+                    && paceRasterKey(a.paceDeltaPercent, mode: lhs.pace)
+                        == paceRasterKey(b.paceDeltaPercent, mode: rhs.pace)
+                    && a.state == b.state
                     && a.isLowQuota == b.isLowQuota
                     // The inner disc is drawn from the trend when one exists, so a
                     // new sample has to invalidate the raster even though ring and
@@ -37,22 +39,22 @@ struct CompactStatusRenderState: Equatable {
             && lhs.height == rhs.height && lhs.reduceMotion == rhs.reduceMotion
             && lhs.placeholderStyle == rhs.placeholderStyle
     }
-}
-
-private final class StatusButtonAppearanceTrackingView: NSView {
-    var onAppearanceChanged: (() -> Void)?
-
-    override func viewDidChangeEffectiveAppearance() {
-        super.viewDidChangeEffectiveAppearance()
-        onAppearanceChanged?()
+    private struct PaceRasterKey: Equatable {
+        let direction: MenuBarPaceDirection
+        let fill: Int
+        let activeBorder: Bool
     }
 
-    override func viewDidChangeBackingProperties() {
-        super.viewDidChangeBackingProperties()
-        onAppearanceChanged?()
+    private static func paceRasterKey(_ delta: Double?, mode: MenuBarPaceDisplayMode) -> PaceRasterKey {
+        let glyph = MenuBarPaceGlyph(deltaPercent: delta, mode: mode)
+        // At 3x this is less than 0.004 pixel in the inner disc. Time-based
+        // floating-point drift must not rebuild every animation frame while
+        // no visible pixel has changed. Semantic thresholds remain exact.
+        return PaceRasterKey(direction: glyph.direction,
+            fill: glyph.fillFraction.isFinite ? Int((glyph.fillFraction * 8192).rounded()) : 0,
+            activeBorder: glyph.showsActiveBorder)
     }
 
-    override func hitTest(_ point: NSPoint) -> NSView? { nil }
 }
 
 /// 状态栏显示：两行 NSTextField 直接 addSubview 到 NSStatusBarButton。
@@ -68,6 +70,7 @@ final class StatusBarController {
     let sleepProtectionCoordinator = CodexSleepProtectionCoordinator()
     private var statusItem: NSStatusItem?
     private var menu: NSMenu?
+    private var isUsageMenuOpen = false
     private var menuItem: NSMenuItem?
     private var hostingView: NSHostingView<MenuView>?
     private let menuPresentationSizing = MenuPresentationSizing(
@@ -150,7 +153,7 @@ final class StatusBarController {
     private var hasHandledCurrentOutage = false
     private var recoveryTask: Task<Void, Never>?
     private var compactImageAnimationTask: Task<Void, Never>?
-    private let compactAppearanceTrackingView = StatusButtonAppearanceTrackingView()
+    private var compactAppearanceObservation: NSKeyValueObservation?
     /// Long-pressing the status item with the right button triggers the
     /// step-away dim directly; a quick right-click still opens the panel.
     private static let stepAwayHoldThreshold: TimeInterval = 0.6
@@ -176,6 +179,10 @@ final class StatusBarController {
         updateClashWorkGating()
         viewModel.flushPendingCloudSyncQueue()
         mobileDashboardService.startIfEnabled()
+        // 凭据守护：监听 ~/.codex，auth.json 一被改写就把当前账号的凭据
+        // 留一份到 ~/.codex 之外。外部工具（magpie 这类网关）换走登录态时，
+        // 那个账号的凭据不会跟着消失。
+        codexAuthAccountStore.startAuthWatching()
         // 关注通道在启动时先走一遍：发布本机勾选的账号，并解析已关注的地址。
         // 否则关注行要空到下一次用量刷新才出现。
         Task { @MainActor [weak self] in
@@ -243,14 +250,12 @@ final class StatusBarController {
             statusView.frame = NSRect(x: 0, y: 0, width: initialStatusItemLength, height: 22)
             statusView.autoresizingMask = [.width, .height]
             button.addSubview(statusView)
-            compactAppearanceTrackingView.frame = button.bounds
-            compactAppearanceTrackingView.autoresizingMask = [.width, .height]
-            compactAppearanceTrackingView.onAppearanceChanged = { [weak self] in
-                // AppKit temporarily changes appearances while taking menu-bar
-                // replica snapshots. Inspect the settled appearance next run loop.
-                self?.scheduleAppearanceUpdate()
+            // Keep the status button free of custom subviews in compact mode.
+            // Even an empty appearance-tracking view selects AppKit's expensive
+            // full-hierarchy replica snapshot path on every animated frame.
+            compactAppearanceObservation = button.observe(\.effectiveAppearance) { [weak self] _, _ in
+                Task { @MainActor [weak self] in self?.scheduleAppearanceUpdate() }
             }
-            button.addSubview(compactAppearanceTrackingView)
             updateStatusItem()
             installActiveScreenObservers(button: button)
             installStepAwayHoldMonitor(button: button)
@@ -354,7 +359,7 @@ final class StatusBarController {
             contentView: hostingView)
         menu = nativeMenu.menu
         menuItem = nativeMenu.item
-        updateMenuLayout()
+        updateMenuLayout(force: true)
 
         observeMenuLayoutChanges()
     }
@@ -469,6 +474,8 @@ final class StatusBarController {
             updateMenuConstraints(
                 visibleHeight: placement.visibleFrame.height)
         }
+        isUsageMenuOpen = true
+        defer { isUsageMenuOpen = false }
         updateMenuLayout()
 
         statusItem.menu = menu
@@ -476,8 +483,10 @@ final class StatusBarController {
         statusItem.menu = nil
     }
 
-    private func updateMenuLayout() {
-        guard let hostingView else { return }
+    private func updateMenuLayout(force: Bool = false) {
+        // Reconcile to current data immediately before opening. A closed menu
+        // must not force SwiftUI layout for every background model update.
+        guard force || isUsageMenuOpen, let hostingView else { return }
 
         hostingView.layoutSubtreeIfNeeded()
         let fittingSize = hostingView.fittingSize
@@ -595,7 +604,10 @@ final class StatusBarController {
         let paramsToken = NotificationCenter.default.addObserver(
             forName: NSApplication.didChangeScreenParametersNotification,
             object: nil, queue: .main
-        ) { _ in refresh() }
+        ) { [weak self] _ in
+            refresh()
+            Task { @MainActor [weak self] in self?.scheduleAppearanceUpdate() }
+        }
         screenObserverTokens.append(paramsToken)
 
         if let win = button.window {
@@ -604,6 +616,13 @@ final class StatusBarController {
                 object: win, queue: .main
             ) { _ in refresh() }
             screenObserverTokens.append(winToken)
+            let backingToken = NotificationCenter.default.addObserver(
+                forName: NSWindow.didChangeBackingPropertiesNotification,
+                object: win, queue: .main
+            ) { [weak self] _ in
+                Task { @MainActor [weak self] in self?.scheduleAppearanceUpdate() }
+            }
+            screenObserverTokens.append(backingToken)
         }
     }
 
@@ -674,6 +693,18 @@ final class StatusBarController {
     }
 
     private func updateStatusItem() {
+        if viewModel.menuBarAppearance == .compactRing,
+           let button = statusItem?.button,
+           makeCompactRenderState(button: button) == compactRenderState {
+            // Connectivity checks often change only tooltip text. Do not
+            // reconfigure views, restart their loops or relayout the button.
+            let tooltip = statusItemTooltip
+            if button.toolTip != tooltip {
+                button.toolTip = tooltip
+                button.setAccessibilityLabel(tooltip)
+            }
+            return
+        }
         switch viewModel.menuBarAppearance {
         case .detailedText:
             compactImageAnimationTask?.cancel()
@@ -759,6 +790,8 @@ final class StatusBarController {
         }
 
         compactImageFrames = frames
+        button.imagePosition = .imageOnly
+        button.imageScaling = .scaleNone
         let elapsed = ProcessInfo.processInfo.systemUptime - compactAnimationEpoch
         let initialIndex = Int(elapsed * Double(StatusBarAnimationCadence.taskWaveFramesPerSecond)) % frames.count
         presentCompactImage(frames[initialIndex], on: button)
@@ -784,8 +817,6 @@ final class StatusBarController {
     }
 
     private func presentCompactImage(_ image: NSImage, on button: NSStatusBarButton) {
-        button.imagePosition = .imageOnly
-        button.imageScaling = .scaleNone
         if button.image !== image { button.image = image }
     }
 
@@ -1129,59 +1160,63 @@ final class StatusBarCompactRingsView: NSView {
         // primary menu bar lives on a 1x screen. Never upscale a cached 1x frame.
         let scales = Array(Set([CGFloat(1), CGFloat(2), max(1, scale)])).sorted(by: >)
         let frames = (0 ..< frameCount).compactMap { frameIndex -> NSImage? in
-            let image = NSImage(size: pointSize)
-            for scale in scales {
-                let pixelsWide = max(1, Int(ceil(pointSize.width * scale)))
-                let pixelsHigh = max(1, Int(ceil(pointSize.height * scale)))
-                guard let bitmap = NSBitmapImageRep(
-                    bitmapDataPlanes: nil,
-                    pixelsWide: pixelsWide,
-                    pixelsHigh: pixelsHigh,
-                    bitsPerSample: 8,
-                    samplesPerPixel: 4,
-                    hasAlpha: true,
-                    isPlanar: false,
-                    colorSpaceName: .deviceRGB,
-                    bytesPerRow: 0,
-                    bitsPerPixel: 0),
-                    let context = NSGraphicsContext(bitmapImageRep: bitmap)
-                else { return nil }
+            // Drain temporary AppKit/CoreGraphics objects per frame rather
+            // than retaining an entire animation cycle's drawing temporaries.
+            autoreleasepool { () -> NSImage? in
+                let image = NSImage(size: pointSize)
+                for scale in scales {
+                    let pixelsWide = max(1, Int(ceil(pointSize.width * scale)))
+                    let pixelsHigh = max(1, Int(ceil(pointSize.height * scale)))
+                    guard let bitmap = NSBitmapImageRep(
+                        bitmapDataPlanes: nil,
+                        pixelsWide: pixelsWide,
+                        pixelsHigh: pixelsHigh,
+                        bitsPerSample: 8,
+                        samplesPerPixel: 4,
+                        hasAlpha: true,
+                        isPlanar: false,
+                        colorSpaceName: .deviceRGB,
+                        bytesPerRow: 0,
+                        bitsPerPixel: 0),
+                        let context = NSGraphicsContext(bitmapImageRep: bitmap)
+                    else { return nil }
 
-                bitmap.size = pointSize
-                NSGraphicsContext.saveGraphicsState()
-                NSGraphicsContext.current = context
-                // NSGraphicsContext(bitmapImageRep:) keeps an identity CTM even
-                // when the bitmap representation has a 2x logical size. Draw in
-                // points explicitly so Retina frames preserve the on-screen size
-                // of the original custom status view.
-                context.cgContext.scaleBy(x: scale, y: scale)
-                context.cgContext.clear(NSRect(origin: .zero, size: pointSize))
+                    bitmap.size = pointSize
+                    NSGraphicsContext.saveGraphicsState()
+                    NSGraphicsContext.current = context
+                    // NSGraphicsContext(bitmapImageRep:) keeps an identity CTM even
+                    // when the bitmap representation has a 2x logical size. Draw in
+                    // points explicitly so Retina frames preserve the on-screen size
+                    // of the original custom status view.
+                    context.cgContext.scaleBy(x: scale, y: scale)
+                    context.cgContext.clear(NSRect(origin: .zero, size: pointSize))
 
-                for (index, ringView) in ringViews.enumerated() {
-                    let ringFrame = NSRect(
-                        x: horizontalPadding
-                            + CGFloat(index) * (Self.ringWidth + ringSpacing),
-                        y: 0,
-                        width: Self.ringWidth,
-                        height: height)
-                    ringView.frame = NSRect(
-                        origin: .zero,
-                        size: ringFrame.size)
-                    ringView.setAnimationTimeForRendering(
-                        Double(frameIndex) / Double(StatusBarAnimationCadence.taskWaveFramesPerSecond))
-                    context.cgContext.saveGState()
-                    context.cgContext.translateBy(x: (ringFrame.minX * scale).rounded() / scale, y: 0)
-                    effectiveAppearance.performAsCurrentDrawingAppearance {
-                        ringView.draw(ringView.bounds)
+                    for (index, ringView) in ringViews.enumerated() {
+                        let ringFrame = NSRect(
+                            x: horizontalPadding
+                                + CGFloat(index) * (Self.ringWidth + ringSpacing),
+                            y: 0,
+                            width: Self.ringWidth,
+                            height: height)
+                        ringView.frame = NSRect(
+                            origin: .zero,
+                            size: ringFrame.size)
+                        ringView.setAnimationTimeForRendering(
+                            Double(frameIndex) / Double(StatusBarAnimationCadence.taskWaveFramesPerSecond))
+                        context.cgContext.saveGState()
+                        context.cgContext.translateBy(x: (ringFrame.minX * scale).rounded() / scale, y: 0)
+                        effectiveAppearance.performAsCurrentDrawingAppearance {
+                            ringView.draw(ringView.bounds)
+                        }
+                        context.cgContext.restoreGState()
                     }
-                    context.cgContext.restoreGState()
-                }
-                NSGraphicsContext.restoreGraphicsState()
+                    NSGraphicsContext.restoreGraphicsState()
 
-                image.addRepresentation(bitmap)
+                    image.addRepresentation(bitmap)
+                }
+                image.isTemplate = usesTemplate
+                return image
             }
-            image.isTemplate = usesTemplate
-            return image
         }
         ringViews.forEach { $0.suspendAnimationLoops() }
         return frames

@@ -169,6 +169,8 @@ final class CodexLocalActivityDetector: CodexLocalActivityProviding,
     private static let maximumBootstrapLineBytes = 16 * 1_024 * 1_024
 
     private let lock = NSLock()
+    private(set) var candidateMetadataDecodeCount = 0
+    private var candidateCache: [String: (fingerprint: Int, candidate: Candidate)] = [:]
     private var parserStates: [String: ParserState] = [:]
     private let fractionalDateFormatter: ISO8601DateFormatter
     private let internetDateFormatter: ISO8601DateFormatter
@@ -387,6 +389,10 @@ final class CodexLocalActivityDetector: CodexLocalActivityProviding,
             ? "agent_nickname" : "NULL"
         let threadSourceExpression = columns.contains("thread_source")
             ? "thread_source" : "NULL"
+        // Do not let SQLite choose the low-selectivity archived-only index:
+        // it scans all unarchived history and builds a temporary sort every 2s.
+        // Unary + disqualifies that predicate for indexing, allowing the recency
+        // index to satisfy the range, order and LIMIT. No external schema writes.
         let query = """
         SELECT id, rollout_path, updated_at, \(sourceExpression),
                \(createdAtExpression), \(titleExpression), \(cwdExpression),
@@ -396,7 +402,7 @@ final class CodexLocalActivityDetector: CodexLocalActivityProviding,
                \(gitBranchExpression), \(cliVersionExpression),
                \(agentNicknameExpression), \(threadSourceExpression)
         FROM threads
-        WHERE archived = 0 AND updated_at >= ?
+        WHERE +archived = 0 AND updated_at >= ?
         ORDER BY updated_at DESC
         LIMIT ?;
         """
@@ -415,6 +421,7 @@ final class CodexLocalActivityDetector: CodexLocalActivityProviding,
         sqlite3_bind_int(statement, 2, candidateLimit)
 
         var candidates: [Candidate] = []
+        var liveIDs = Set<String>()
         while sqlite3_step(statement) == SQLITE_ROW {
             guard let idText = sqlite3_column_text(statement, 0),
                   let pathText = sqlite3_column_text(statement, 1) else {
@@ -423,6 +430,26 @@ final class CodexLocalActivityDetector: CodexLocalActivityProviding,
             let threadID = String(cString: idText)
             let rolloutPath = String(cString: pathText)
             guard !threadID.isEmpty, !rolloutPath.isEmpty else { continue }
+            liveIDs.insert(threadID)
+            // Keep only a digest of raw columns, never an unsanitized title,
+            // source JSON or tool output. Unchanged rows reuse safe metadata;
+            // rollout tails are still inspected on every activity poll.
+            var hasher = Hasher()
+            for column in 0..<sqlite3_column_count(statement) {
+                let type = sqlite3_column_type(statement, column)
+                hasher.combine(type)
+                if let bytes = sqlite3_column_text(statement, column) {
+                    let count = Int(sqlite3_column_bytes(statement, column))
+                    hasher.combine(count)
+                    hasher.combine(bytes: UnsafeRawBufferPointer(start: bytes, count: count))
+                }
+            }
+            let fingerprint = hasher.finalize()
+            if let cached = candidateCache[threadID], cached.fingerprint == fingerprint {
+                candidates.append(cached.candidate)
+                continue
+            }
+            candidateMetadataDecodeCount += 1
             let source = sqlite3_column_text(statement, 3).map {
                 String(cString: $0)
             }
@@ -466,7 +493,7 @@ final class CodexLocalActivityDetector: CodexLocalActivityProviding,
             let threadSource = sqlite3_column_text(statement, 16).map {
                 String(cString: $0)
             }
-            candidates.append(Candidate(
+            let candidate = Candidate(
                 threadID: threadID,
                 parentThreadID: Self.parentThreadID(fromSource: source),
                 rolloutURL: URL(fileURLWithPath: rolloutPath),
@@ -486,8 +513,11 @@ final class CodexLocalActivityDetector: CodexLocalActivityProviding,
                 approvalMode: approvalMode,
                 tokensUsed: tokensUsed,
                 agentNickname: agentNickname,
-                cliVersion: cliVersion))
+                cliVersion: cliVersion)
+            candidateCache[threadID] = (fingerprint, candidate)
+            candidates.append(candidate)
         }
+        candidateCache = candidateCache.filter { liveIDs.contains($0.key) }
         return candidates
     }
 

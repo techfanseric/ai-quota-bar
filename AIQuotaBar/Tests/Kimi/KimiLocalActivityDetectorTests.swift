@@ -169,6 +169,54 @@ final class KimiLocalActivityDetectorTests: XCTestCase {
         XCTAssertEqual(snapshot.activeSessionIDs.count, 1)
     }
 
+    func testCachedTreeDetectsNewNestedSessionAndInPlaceTurnEnd() throws {
+        let fixture = try makeFixture()
+        let wire = try fixture.writeWire(
+            workspace: "wd_cached", session: "session_first", agent: "main",
+            events: ["turn.prompt"], modifiedAt: now - 30)
+        XCTAssertEqual(fixture.detector.detectSnapshot(now: now).activeSessionIDs,
+                       ["kimi:cli:session_first"])
+        // In-place append leaves every directory's membership unchanged.
+        let handle = try FileHandle(forWritingTo: wire)
+        try handle.seekToEnd()
+        try handle.write(contentsOf: Data("\n{\"type\":\"turn.ended\"}\n".utf8))
+        try handle.close()
+        try FileManager.default.setAttributes([.modificationDate: now - 1],
+                                              ofItemAtPath: wire.path)
+        XCTAssertTrue(fixture.detector.detectSnapshot(now: now).activeSessionIDs.isEmpty)
+        try fixture.writeWire(
+            workspace: "wd_cached", session: "session_second", agent: "main",
+            events: ["turn.prompt"], modifiedAt: now - 10)
+        XCTAssertEqual(fixture.detector.detectSnapshot(now: now).activeSessionIDs,
+                       ["kimi:cli:session_second"])
+    }
+
+    func testQuietWiresAreNotProbedButChangedWireAndSilenceExpiryStayTimely() throws {
+        let fixture = try makeFixture()
+        let wire = try fixture.writeWire(workspace: "wd_events", session: "session_events",
+                                         agent: "main", events: ["turn.prompt"], modifiedAt: now - 30)
+        let changes = TestActivityFileChanges()
+        let detector = KimiLocalActivityDetector(
+            codeHomeURL: fixture.codeHomeURL, agentDataURL: fixture.agentDataURL,
+            workSessionsRootURL: fixture.workSessionsRootURL, changeSource: changes)
+        XCTAssertEqual(detector.detectSnapshot(now: now).activeSessionIDs, ["kimi:cli:session_events"])
+        for _ in 0..<5 { _ = detector.detectSnapshot(now: now + 2) }
+        XCTAssertEqual(detector.wireProbeCount, 1)
+        let handle = try FileHandle(forWritingTo: wire)
+        try handle.seekToEnd()
+        try handle.write(contentsOf: Data("\n{\"type\":\"turn.ended\"}\n".utf8))
+        try handle.close()
+        try FileManager.default.setAttributes([.modificationDate: now + 1], ofItemAtPath: wire.path)
+        changes.next.paths = [wire.resolvingSymlinksInPath().path]
+        XCTAssertEqual(detector.detectSnapshot(now: now + 2), .empty)
+        XCTAssertEqual(detector.wireProbeCount, 2)
+        let fresh = try fixture.writeWire(workspace: "wd_events", session: "session_new",
+                                          agent: "main", events: ["turn.prompt"], modifiedAt: now + 3)
+        changes.next.paths = [fresh.resolvingSymlinksInPath().path]
+        XCTAssertEqual(detector.detectSnapshot(now: now + 4).activeSessionIDs, ["kimi:cli:session_new"])
+        XCTAssertEqual(detector.detectSnapshot(now: now + 610), .empty)
+    }
+
     // MARK: - Kimi Work (daimon) runtime wires
 
     func testWorkRuntimeWireIsDetectedWithWorkPrefix() throws {
@@ -241,6 +289,8 @@ final class KimiLocalActivityDetectorTests: XCTestCase {
         addTeardownBlock {
             try? FileManager.default.removeItem(at: rootURL)
         }
+        let changes = TestActivityFileChanges()
+        changes.alwaysRescan = true
         return Fixture(
             codeHomeURL: codeHomeURL,
             agentDataURL: agentDataURL,
@@ -249,7 +299,7 @@ final class KimiLocalActivityDetectorTests: XCTestCase {
                 codeHomeURL: codeHomeURL,
                 agentDataURL: agentDataURL,
                 workSessionsRootURL: workSessionsRootURL,
-                freshnessWindow: 120))
+                freshnessWindow: 120, changeSource: changes))
     }
 
     private struct Fixture {

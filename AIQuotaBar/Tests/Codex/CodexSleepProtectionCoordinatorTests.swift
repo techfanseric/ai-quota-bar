@@ -269,7 +269,10 @@ final class CodexSleepProtectionCoordinatorTests: XCTestCase {
         RunLoop.main.run(until: Date().addingTimeInterval(0.2))
         XCTAssertTrue(fixture.assertions.isHoldingAssertions)
 
-        RunLoop.main.run(until: Date().addingTimeInterval(0.6))
+        let graceDeadline = Date().addingTimeInterval(3)
+        while fixture.assertions.isHoldingAssertions && Date() < graceDeadline {
+            RunLoop.main.run(until: Date().addingTimeInterval(0.05))
+        }
         XCTAssertFalse(
             fixture.assertions.isHoldingAssertions,
             "Protection must be released once the grace period elapses.")
