@@ -16,6 +16,7 @@ internal sealed class ConnectionsForm : Form
         Text = "AI Quota Bar — Connections (read-only)";
         StartPosition = FormStartPosition.CenterScreen;
         MinimumSize = new Size(640, 560);
+        AutoScaleDimensions = new SizeF(96f, 96f);
         AutoScaleMode = AutoScaleMode.Dpi;
         Font = new Font("Segoe UI", 9f);
 

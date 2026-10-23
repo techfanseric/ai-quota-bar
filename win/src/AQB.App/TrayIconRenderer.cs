@@ -64,11 +64,11 @@ internal static class TrayIconRenderer
         bitmap.SetResolution(96 * dpiScale, 96 * dpiScale);
         using var g = Graphics.FromImage(bitmap);
         g.SmoothingMode = System.Drawing.Drawing2D.SmoothingMode.AntiAlias;
-        g.Clear(Color.Transparent);
+        DrawBadge(g, size);
 
         var center = size / 2f;
         var ringRadius = size * 0.40f;
-        var trackPen = new Pen(Color.FromArgb(90, 90, 90), Math.Max(2f, size * 0.09f));
+        var trackPen = new Pen(Color.FromArgb(160, 174, 192), Math.Max(2f, size * 0.09f));
 
         var snapshot = PickRingProvider(snapshots);
         if (snapshot is null)
@@ -145,4 +145,41 @@ internal static class TrayIconRenderer
 
     private static RectangleF RingRect(float center, float radius) =>
         new(center - radius, center - radius, radius * 2, radius * 2);
+
+    // A dark badge with a light edge stays visible on both taskbar themes,
+    // including translucent taskbars whose background depends on the wallpaper.
+    private static void DrawBadge(Graphics g, int size)
+    {
+        g.Clear(Color.Transparent);
+        g.SmoothingMode = System.Drawing.Drawing2D.SmoothingMode.AntiAlias;
+        using var fill = new SolidBrush(Color.FromArgb(24, 32, 46));
+        using var edge = new Pen(Color.FromArgb(205, 218, 235), Math.Max(1f, size / 32f));
+        var bounds = new RectangleF(size * 0.025f, size * 0.025f, size * 0.95f, size * 0.95f);
+        g.FillEllipse(fill, bounds);
+        g.DrawEllipse(edge, bounds);
+    }
+
+    public static Bitmap RenderTextIcon(string text, int size = 32)
+    {
+        var bitmap = new Bitmap(size, size);
+        using var g = Graphics.FromImage(bitmap);
+        DrawBadge(g, size);
+        g.TextRenderingHint = System.Drawing.Text.TextRenderingHint.AntiAliasGridFit;
+        var parts = text.Split(':', 2);
+        var label = parts.Length == 2 ? parts[0] : "AI";
+        var value = parts.Length == 2 ? parts[1].Split(' ', 2)[0] : "";
+        using var font = new Font("Segoe UI", size * 0.32f, FontStyle.Bold, GraphicsUnit.Pixel);
+        using var brush = new SolidBrush(Color.White);
+        using var format = new StringFormat { Alignment = StringAlignment.Center, LineAlignment = StringAlignment.Center };
+        if (value.Length == 0)
+        {
+            g.DrawString(label, font, brush, new RectangleF(0, 0, size, size), format);
+        }
+        else
+        {
+            g.DrawString(label, font, brush, new RectangleF(0, size * 0.08f, size, size * 0.40f), format);
+            g.DrawString(value, font, brush, new RectangleF(0, size * 0.46f, size, size * 0.42f), format);
+        }
+        return bitmap;
+    }
 }

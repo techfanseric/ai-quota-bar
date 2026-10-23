@@ -3,21 +3,29 @@ using AQB.Settings;
 namespace AQB.App;
 
 /// <summary>Settings window with the six tabs of the macOS app (Windows-applicable subset).</summary>
-internal sealed class SettingsForm : Form
+internal sealed partial class SettingsForm : Form
 {
     private readonly AppSettings _settings;
     private readonly CredentialVault _vault;
     private readonly Action _applyChanges;
+    private readonly Func<HostState> _hostState;
+    private readonly Action _refreshWatch;
+    private readonly QuotaOrchestrator _orchestrator;
 
-    public SettingsForm(AppSettings settings, CredentialVault vault, Action applyChanges)
+    public SettingsForm(AppSettings settings, CredentialVault vault, Action applyChanges,
+        Func<HostState> hostState, Action refreshWatch, QuotaOrchestrator orchestrator)
     {
         _settings = settings;
         _vault = vault;
         _applyChanges = applyChanges;
+        _hostState = hostState;
+        _refreshWatch = refreshWatch;
+        _orchestrator = orchestrator;
 
         Text = "AI Quota Bar — Settings";
         StartPosition = FormStartPosition.CenterScreen;
         TopMost = true; // tray utility: keep settings above other windows while editing
+        AutoScaleDimensions = new SizeF(96f, 96f);
         AutoScaleMode = AutoScaleMode.Dpi;
         Font = new Font("Segoe UI", 9f);
 
@@ -40,12 +48,12 @@ internal sealed class SettingsForm : Form
         {
             Dock = DockStyle.Bottom,
             FlowDirection = FlowDirection.RightToLeft,
-            Height = 44,
+            AutoSize = true, Padding = new Padding(8),
             BackColor = SystemColors.Control,
         };
-        var save = new Button { Text = "Save", Width = 90, DialogResult = DialogResult.OK };
+        var save = new Button { Text = "Save", AutoSize = true, MinimumSize = new Size(90, 30), DialogResult = DialogResult.OK };
         save.Click += (_, _) => SaveAll();
-        var cancel = new Button { Text = "Cancel", Width = 80, DialogResult = DialogResult.Cancel };
+        var cancel = new Button { Text = "Cancel", AutoSize = true, MinimumSize = new Size(80, 30), DialogResult = DialogResult.Cancel };
         footer.Controls.Add(save);
         footer.Controls.Add(cancel);
         AcceptButton = save;
@@ -54,28 +62,37 @@ internal sealed class SettingsForm : Form
         Controls.Add(tabs);
         Controls.Add(footer);
 
-        // Stretch the fixed-position inputs/checkboxes horizontally with the window.
-        Shown += (_, _) =>
+        foreach (TabPage page in tabs.TabPages)
         {
-            foreach (TabPage page in tabs.TabPages)
-            {
-                foreach (Control control in page.Controls)
-                {
-                    switch (control)
-                    {
-                        case TextBox or ComboBox or NumericUpDown:
-                            control.Width = Math.Max(control.Width, page.ClientSize.Width - 48);
-                            control.Anchor = AnchorStyles.Top | AnchorStyles.Left | AnchorStyles.Right;
-                            break;
-                        case CheckBox { Width: > 300 }:
-                            control.Anchor = AnchorStyles.Top | AnchorStyles.Left | AnchorStyles.Right;
-                            break;
-                    }
-                }
-            }
-        };
+            ArrangeSettingsPage(page);
+        }
     }
 
+    private static void ArrangeSettingsPage(TabPage page)
+    {
+        var controls = page.Controls.Cast<Control>().ToArray();
+        page.Controls.Clear();
+        var rows = new TableLayoutPanel
+        {
+            Dock = DockStyle.Top,
+            AutoSize = true,
+            AutoSizeMode = AutoSizeMode.GrowAndShrink,
+            ColumnCount = 1,
+            Padding = new Padding(20, 12, 20, 12),
+        };
+        rows.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
+        rows.SuspendLayout();
+        foreach (var control in controls)
+        {
+            control.Anchor = AnchorStyles.Left | AnchorStyles.Right;
+            control.Margin = new Padding(0, 0, 0, control is Label ? 6 : 12);
+            if (control is Label or CheckBox) control.AutoSize = true;
+            rows.RowStyles.Add(new RowStyle(SizeType.AutoSize));
+            rows.Controls.Add(control, 0, rows.RowCount++);
+        }
+        rows.ResumeLayout(true);
+        page.Controls.Add(rows);
+    }
     private TabPage BuildGeneralTab()
     {
         var page = MakeTab("General");
@@ -84,12 +101,6 @@ internal sealed class SettingsForm : Form
         AddNumber(page, ref y, "Refresh interval (seconds, min 30)", _settings.UsageRefreshIntervalSeconds, v => _settings.UsageRefreshIntervalSeconds = Math.Max(30, v));
         AddCheck(page, ref y, "Follow running apps (hide providers whose desktop app is closed)", _settings.FollowRunningApps, v => _settings.FollowRunningApps = v);
         AddCheck(page, ref y, "Check for updates automatically (daily, discreet)", _settings.AppUpdateCheckEnabled, v => _settings.AppUpdateCheckEnabled = v);
-        AddLabel(page, ref y, "Share & watch Codex quota by email (CodexWatch):");
-        AddCheck(page, ref y, "Share my quota for the emails listed below", _settings.CodexWatchSharingEnabled, v => _settings.CodexWatchSharingEnabled = v);
-        AddMultiLine(page, ref y, "Shared emails (one per line)", string.Join("\n", _settings.CodexWatchSharedEmails), text =>
-            _settings.CodexWatchSharedEmails = SplitLines(text).Where(AQB.Team.WatchAccount.IsValidAccountName).ToList());
-        AddMultiLine(page, ref y, "Watched emails (one per line)", string.Join("\n", _settings.CodexWatchWatchedEmails), text =>
-            _settings.CodexWatchWatchedEmails = SplitLines(text).Where(AQB.Team.WatchAccount.IsValidAccountName).ToList());
         AddLabel(page, ref y, "Provider order: " + string.Join(" › ", _settings.CustomProviderOrder.ToArray()));
         var orderBox = new TextBox
         {
@@ -133,6 +144,7 @@ internal sealed class SettingsForm : Form
         AddCheck(page, ref y, "Monitor GLM", !_settings.PausedUsageProviders.Contains("glm"), v => TogglePaused("glm", !v));
         AddCredential(page, ref y, "MiniMax coding-plan token", "minimax.token");
         AddCheck(page, ref y, "Monitor MiniMax", !_settings.PausedUsageProviders.Contains("minimax"), v => TogglePaused("minimax", !v));
+        page.Controls.Add(BuildCodexWatchSection());
         return page;
     }
 
