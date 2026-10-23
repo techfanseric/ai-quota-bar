@@ -31,6 +31,9 @@ public sealed class BackgroundServices : IDisposable
     private CodexWatchClient? _watchClient;
     private Task? _loop;
     private DateTimeOffset _nextWatchPoll = DateTimeOffset.MinValue;
+    private int _watchRefreshRequested;
+
+    public void RequestWatchRefresh() => Interlocked.Exchange(ref _watchRefreshRequested, 1);
     private DateTimeOffset _nextUpdateCheck = DateTimeOffset.MinValue;
     private bool _closedLidWarningLogged;
     private string? _currentVersion;
@@ -85,9 +88,8 @@ public sealed class BackgroundServices : IDisposable
 
         _sleep.KeepDisplayAwake = _settings.CodexSleepProtectionKeepDisplayAwake;
         Clash.ApplySettings();
-        _watchClient?.Dispose();
-        _watchClient = new CodexWatchClient(_vault.GetOrCreateDeviceId(), _settings.CloudflareEndpointUrl);
         RestartDashboard();
+        RequestWatchRefresh();
     }
 
     private void OnProtectionStatusChanged(object? sender, ProtectionSnapshot snapshot)
@@ -183,7 +185,7 @@ public sealed class BackgroundServices : IDisposable
                     await RunUsageAndTeamAsync(cancellationToken);
                 }
 
-                if (DateTimeOffset.UtcNow >= _nextWatchPoll)
+                if (Interlocked.Exchange(ref _watchRefreshRequested, 0) != 0 || DateTimeOffset.UtcNow >= _nextWatchPoll)
                 {
                     _nextWatchPoll = DateTimeOffset.UtcNow.AddMinutes(10);
                     await PollWatchAsync(cancellationToken);
@@ -226,6 +228,14 @@ public sealed class BackgroundServices : IDisposable
     /// <summary>Publishes the ticked shared accounts and refreshes watched rows (every 10 minutes).</summary>
     private async Task PollWatchAsync(CancellationToken cancellationToken)
     {
+        // The background loop owns the client; saving settings must not dispose
+        // an HTTP request that is still fetching or revoking a shared account.
+        var endpoint = _settings.CloudflareEndpointUrl.TrimEnd('/');
+        if (_watchClient is null || _watchClient.BaseUrl != endpoint)
+        {
+            _watchClient?.Dispose();
+            _watchClient = new CodexWatchClient(_vault.GetOrCreateDeviceId(), endpoint);
+        }
         var client = _watchClient;
         if (client is null)
         {
@@ -288,6 +298,7 @@ public sealed class BackgroundServices : IDisposable
                 {
                     _readCounts[email] = count;
                 }
+                _state.WatchReadCounts = new Dictionary<string, CodexWatchReadCount>(_readCounts);
             }
         }
         catch (Exception e)
@@ -336,7 +347,9 @@ public sealed class BackgroundServices : IDisposable
                         window?.RemainingPercent,
                         window?.Name,
                         window?.ResetsAt is { } reset ? TimeText.FormatRemaining(reset - DateTimeOffset.UtcNow) + " left" : null,
-                        readCount?.ReadCount ?? 0));
+                        readCount?.ReadCount ?? 0,
+                        string.Join(" · ", snapshot.Windows.Select(w => $"{w.Name}: {w.RemainingPercent}% 剩余")),
+                        snapshot.PublishedAt));
                     break;
                 }
 

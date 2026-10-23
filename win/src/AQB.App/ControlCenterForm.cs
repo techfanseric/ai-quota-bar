@@ -100,8 +100,25 @@ internal sealed class ControlCenterForm : Form
         _pill.Invalidate();
     }
 
-    /// <summary>Dip → pixel scale for the current monitor.</summary>
-    private float Scale => DeviceDpi / 96f;
+    private float _scale;
+
+    /// <summary>Dip → pixel scale of the monitor the flyout lands on. DeviceDpi only
+    /// tracks a monitor once the handle exists — before that it reports the DPI the
+    /// process started with, which goes stale when the user changes display scaling
+    /// while the tray app runs. The primary's effective DPI is read from the monitor
+    /// directly, and every scale change re-lays the flyout out (see RescaleForMonitor).</summary>
+    private float Scale
+    {
+        get
+        {
+            if (_scale <= 0f)
+            {
+                _scale = PrimaryMonitorDpi() / 96f;
+            }
+
+            return _scale;
+        }
+    }
 
     private int P(int dip) => (int)Math.Round(dip * Scale);
 
@@ -110,7 +127,46 @@ internal sealed class ControlCenterForm : Form
         base.OnHandleCreated(e);
         NativeChrome.ApplyRounded(this);
         NativeChrome.ApplyBorderlessShadow(this);
-        PositionNearTray();
+        if (!RescaleForMonitor())
+        {
+            PositionNearTray();
+        }
+    }
+
+    protected override void OnDpiChanged(DpiChangedEventArgs e)
+    {
+        base.OnDpiChanged(e);
+        RescaleForMonitor();
+    }
+
+    /// <summary>Re-syncs the layout scale with the monitor's current DPI and rebuilds
+    /// every card when it changed, so the flyout follows runtime changes of the system
+    /// scaling instead of keeping process-start pixel sizes. Returns true when a
+    /// rebuild ran at a new scale (it repositions the window too).</summary>
+    private bool RescaleForMonitor()
+    {
+        var dpi = PrimaryMonitorDpi();
+        if (Math.Abs(dpi / 96f - Scale) < 0.01f)
+        {
+            return false;
+        }
+
+        _scale = dpi / 96f;
+        _flow.Padding = new Padding(P(10));
+        ClientSize = new Size(P(360), ClientSize.Height);
+        Rebuild();
+        return true;
+    }
+
+    private int PrimaryMonitorDpi()
+    {
+        var bounds = Screen.PrimaryScreen?.Bounds ?? SystemInformation.VirtualScreen;
+        if (NativeChrome.TryGetMonitorDpi(new Point(bounds.Right - 1, bounds.Bottom - 1), out var dpi))
+        {
+            return (int)dpi;
+        }
+
+        return DeviceDpi;
     }
 
     protected override void OnShown(EventArgs e)
@@ -609,7 +665,7 @@ internal sealed class ControlCenterForm : Form
         foreach (var row in rows)
         {
             var detail = row.StatusText == "available" && row.RemainingPercent is { } remaining
-                ? $"{remaining:0}% · {row.WindowName ?? ""} · {row.ResetsAtText ?? ""}"
+                ? row.QuotaSummary ?? $"{remaining:0}% · {row.WindowName ?? ""} · {row.ResetsAtText ?? ""}"
                 : row.StatusText;
             var color = row.StatusText switch
             {

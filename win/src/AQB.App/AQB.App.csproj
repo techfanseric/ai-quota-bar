@@ -12,6 +12,7 @@
     <ApplicationHighDpiMode>PerMonitorV2</ApplicationHighDpiMode>
   </PropertyGroup>
   <ItemGroup>
+    <InternalsVisibleTo Include="AQB.App.Tests" />
     <ProjectReference Include="..\AQB.Core\AQB.Core.csproj" />
     <ProjectReference Include="..\AQB.Settings\AQB.Settings.csproj" />
     <ProjectReference Include="..\AQB.Providers.Codex\AQB.Providers.Codex.csproj" />

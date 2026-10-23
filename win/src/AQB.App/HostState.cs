@@ -43,6 +43,8 @@ public sealed class HostState
 
     /// <summary>Watched-account rows for the control center (email → status/quota).</summary>
     public volatile IReadOnlyList<WatchedRowView> WatchedRows = Array.Empty<WatchedRowView>();
+    public volatile IReadOnlyDictionary<string, AQB.Team.CodexWatchReadCount> WatchReadCounts =
+        new Dictionary<string, AQB.Team.CodexWatchReadCount>();
 
     /// <summary>Newer product release discovered by /v1/app-update (null = none).</summary>
     public volatile AppUpdateBannerView? UpdateInfo;
@@ -66,6 +68,8 @@ public sealed record WatchedRowView(
     int? RemainingPercent,
     string? WindowName,
     string? ResetsAtText,
-    long ReadCount);
+    long ReadCount,
+    string? QuotaSummary = null,
+    DateTimeOffset? PublishedAt = null);
 
 public sealed record AppUpdateBannerView(string Version, string? ReleaseUrl);

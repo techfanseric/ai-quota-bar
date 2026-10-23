@@ -86,6 +86,31 @@ internal static class NativeChrome
     [DllImport("dwmapi.dll")]
     private static extern int DwmSetWindowAttribute(IntPtr hwnd, int attribute, ref int value, int size);
 
+    private const uint MonitorDefaultToNearest = 2;
+    private const int MdtEffectiveDpi = 0;
+
+    [DllImport("user32.dll")]
+    private static extern IntPtr MonitorFromPoint(Point pt, uint flags);
+
+    [DllImport("shcore.dll")]
+    private static extern int GetDpiForMonitor(IntPtr hmonitor, int dpiType, out uint dpiX, out uint dpiY);
+
+    /// <summary>Effective DPI of the monitor containing the point — the reliable scale
+    /// source for windows that do not exist yet: DeviceDpi reports the DPI the process
+    /// started with until a handle is created, so it goes stale when the user changes
+    /// display scaling while the tray app runs.</summary>
+    public static bool TryGetMonitorDpi(Point pt, out uint dpi)
+    {
+        dpi = 0;
+        var hmonitor = MonitorFromPoint(pt, MonitorDefaultToNearest);
+        if (hmonitor == IntPtr.Zero)
+        {
+            return false;
+        }
+
+        return GetDpiForMonitor(hmonitor, MdtEffectiveDpi, out dpi, out _) == 0;
+    }
+
     /// <summary>Win11 rounded corners + subtle border; silently harmless on Win10.</summary>
     public static void ApplyRounded(Form form)
     {

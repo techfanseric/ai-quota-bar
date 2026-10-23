@@ -6,6 +6,32 @@ namespace AQB.App.Tests;
 
 public class TrayIconRendererTests
 {
+    [Theory]
+    [InlineData(16)]
+    [InlineData(32)]
+    public void BothModesHaveOpaqueDarkBackingAndVisibleLightPixels(int size)
+    {
+        using var ring = TrayIconRenderer.RenderCompactRing(new Dictionary<ProviderKind, ProviderSnapshot>(), size);
+        using var text = TrayIconRenderer.RenderTextIcon("C:100% · 3.2h", size);
+        foreach (var bitmap in new[] { ring, text })
+        {
+            var center = bitmap.GetPixel(size / 2, size / 2);
+            Assert.Equal(255, center.A);
+            var lightPixels = 0;
+            var darkPixels = 0;
+            for (var y = 0; y < size; y++)
+            for (var x = 0; x < size; x++)
+            {
+                var pixel = bitmap.GetPixel(x, y);
+                if (pixel.A < 200) continue;
+                if (pixel.GetBrightness() > 0.6f) lightPixels++;
+                if (pixel.GetBrightness() < 0.25f) darkPixels++;
+            }
+            Assert.True(lightPixels > size);
+            Assert.True(darkPixels > size);
+        }
+    }
+
     [Fact]
     public void WeeklyOnlyAccountDisplaysRemainingQuota()
     {

@@ -19,6 +19,7 @@ internal sealed class ClashPanelForm : Form
         Text = "AI Quota Bar — Routes";
         StartPosition = FormStartPosition.CenterScreen;
         MinimumSize = new Size(480, 600);
+        AutoScaleDimensions = new SizeF(96f, 96f);
         AutoScaleMode = AutoScaleMode.Dpi;
         Font = new Font("Segoe UI", 9f);
 

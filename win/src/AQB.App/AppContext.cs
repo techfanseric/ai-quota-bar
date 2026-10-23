@@ -102,7 +102,7 @@ internal sealed class TrayHost : ApplicationContext
             else
             {
                 // Detailed text mode: render the text into the icon bitmap.
-                using var bitmap = RenderTextIcon(TrayIconRenderer.BuildDetailedText(snapshots));
+                using var bitmap = TrayIconRenderer.RenderTextIcon(TrayIconRenderer.BuildDetailedText(snapshots));
                 SetIconFromBitmap(bitmap);
                 _notifyIcon.Text = "AI Quota Bar — " + TrayIconRenderer.BuildDetailedText(snapshots);
             }
@@ -124,18 +124,6 @@ internal sealed class TrayHost : ApplicationContext
         {
             NativeIcon.DestroyIcon(previous);
         }
-    }
-
-    private static Bitmap RenderTextIcon(string text)
-    {
-        var bitmap = new Bitmap(32, 32);
-        using var g = Graphics.FromImage(bitmap);
-        g.Clear(Color.Transparent);
-        using var font = new Font("Consolas", text.Length > 12 ? 7.5f : 9f, FontStyle.Bold, GraphicsUnit.Pixel);
-        using var brush = new SolidBrush(Color.White);
-        var size = g.MeasureString(text, font);
-        g.DrawString(text, font, brush, (32 - size.Width) / 2f, (32 - size.Height) / 2f);
-        return bitmap;
     }
 
     private void ShowControlCenter()
@@ -187,7 +175,7 @@ internal sealed class TrayHost : ApplicationContext
             _background.ApplySettings();
             _ = _orchestrator.RefreshAsync(CancellationToken.None);
             AppLog.Info("Settings applied.");
-        });
+        }, () => _background.State, _background.RequestWatchRefresh, _orchestrator);
         form.ShowDialog(_notifyIcon.ContextMenuStrip!);
     }
 
