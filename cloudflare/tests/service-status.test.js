@@ -28,7 +28,7 @@ test('migration freeze rejects writes for durable client retry while keeping hea
 });
 
  test('landing assets do not weaken API authentication and support HEAD', async () => {
-  for (const path of ['/site.css', '/demo.js', '/favicon.svg', '/robots.txt', '/sitemap.xml']) {
+  for (const path of ['/site.css', '/demo.js', '/reset-demo.js', '/favicon.svg', '/robots.txt', '/sitemap.xml']) {
     const result = await worker.fetch(new Request('https://example.com'+path, {method:'HEAD'}), {ASSETS:assets});
     assert.equal(result.status,200);
     assert.match(result.headers.get('content-security-policy'), /connect-src 'none'/);
