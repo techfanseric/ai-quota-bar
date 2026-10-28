@@ -1,0 +1,44 @@
+{
+  "data": [
+    {
+      "id": "observed-2114588174249071102",
+      "reset_type": "regular",
+      "announced_at": "2026-10-26T07:00:00.000Z",
+      "text": "Codex usage limits have been reset. Check your limits.",
+      "source": {
+        "type": "observed",
+        "url": "https://x.com/thsottiaux/status/2114588174249071102"
+      }
+    },
+    {
+      "id": "2114237083652882932",
+      "reset_type": "regular",
+      "announced_at": "2026-10-25T06:06:16.000Z",
+      "text": "It is all propagated. Enjoy some mad codexing tomorrow. Fun week ahead too. https://t.co/qOrzwSeIZZ https://t.co/xKaK95EAly",
+      "source": {
+        "type": "x_post",
+        "author": "thsottiaux",
+        "url": "https://x.com/thsottiaux/status/2114237083652882932"
+      }
+    },
+    {
+      "id": "2108040921044639779",
+      "reset_type": "banked",
+      "announced_at": "2026-10-08T03:44:55.000Z",
+      "text": "Confirmed landed across all accounts. How are we doing so far? https://t.co/tzw7dNX4pN",
+      "source": {
+        "type": "x_post",
+        "author": "thsottiaux",
+        "url": "https://x.com/thsottiaux/status/2108040921044639779"
+      }
+    }
+  ],
+  "pagination": {
+    "has_more": false,
+    "next_cursor": null
+  },
+  "meta": {
+    "api_version": "v1",
+    "generated_at": "2026-10-28T03:21:11.203Z"
+  }
+}

@@ -25,11 +25,34 @@
   <img src="./docs/images/control-center.png" alt="AI Quota Bar 右键控制中心" width="342">
 </p>
 
-## Windows v1.38.6-beta.1 · 托盘可见性与 Codex 关注
+## v1.39.0 · Codex 重置收件箱与 Dim 状态图标
 
-[下载 Windows x64](https://github.com/techfanseric/ai-quota-bar/releases/download/v1.38.6-beta.1/AIQuotaBar-win-x64.zip) · [发布说明](./docs/releases/v1.38.6-beta.1.zh-CN.md)
+Mac 左键菜单接入 codex-reset.com 与 codex-resets.com 的公开重置消息。未读时显示橙色铃铛，持续闪烁（系统开启「减少动态效果」时常亮），每五分钟重复系统通知，直到明确确认已读。打开原文或关闭通知不会自动已读。历史覆盖最近 30 天，最新一条明确的重置线索在已读后仍常驻。这些第三方消息不代表你的账号额度已经重置。
 
-托盘增加对比底色，设置页按内容自动排版，在「Settings → Providers」管理 Codex 分享与关注。解压运行 `AIQuotaBar/AIQuotaBar.exe`，无需安装 .NET。本次 Windows 预发布已合入 macOS v1.38.5 源码，macOS 稳定版下载保持 v1.38.5。服务商多账号管理及数据源选择尚未完全对齐 macOS。
+「暂时离开」Dim 开启时，菜单栏常亮显示屏幕＋月亮标记，重置提醒期间也保留，远程连入时可以直接辨认状态。[发布说明](./docs/releases/v1.39.0.zh-CN.md) · [重置提醒使用说明](./docs/codex-reset-alerts.md)
+
+## Windows v1.38.6-beta.1 · 原生托盘应用
+
+[下载 Windows x64 ZIP](https://github.com/techfanseric/ai-quota-bar/releases/download/v1.38.6-beta.1/AIQuotaBar-win-x64.zip) · [发布说明](./docs/releases/v1.38.6-beta.1.zh-CN.md) · [Windows 安装与功能指南](./win/README.md)
+
+支持 64 位 Windows 10+；解压运行 `AIQuotaBar/AIQuotaBar.exe`，内含 .NET 8，无需另装运行时。目前没有安装器或 Windows 代码签名。更新时先退出旧进程，再替换程序目录；设置及 DPAPI 凭据保险库保留在 `%APPDATA%\AIQuotaBar`。
+
+当前已包含 Codex OAuth 额度与 CLI 回退、Kimi／GLM／MiniMax 额度、Clash 线路及连接、本机用量、只读手机看板和 Codex 任务防睡眠。通过「Settings → Providers」逐账号管理分享与关注邮箱，Watch 修改即时保存并请求刷新。分享默认关闭；知道已分享邮箱的人无需入队即可读取公开额度，供应商登录凭据留在本机。
+
+| 能力 | macOS v1.39.0 | Windows v1.38.6-beta.1 |
+| --- | --- | --- |
+| Codex／Kimi／GLM／MiniMax 额度 | 已有 | 已有，数据源控制不同 |
+| 按邮箱关注 Codex | 已有 | 已有，修改即时保存 |
+| Clash/Mihomo 线路与连接 | 已有 | 已有 |
+| 任务防睡眠 | 四家供应商 | Codex 任务 |
+| 本机用量、手机看板 | 已有 | 已有；看板为 Mac 数据子集 |
+| 服务商多账号管理、数据源选择 | 完整 Mac 界面 | 尚未完全对齐 |
+| 建队、加入、成员视图 | App 内可用 | 底层客户端已有，桌面引导尚未完整接通 |
+| 分屏 Dim、亮度键、凭据守护镜像 | 已有 | 尚未移植 |
+| 公开重置收件箱、Dim 状态标记 | 已有 | 尚未移植 |
+| 更新方式 | Mac 安装包 | 检查提醒并打开发布页，手动替换 ZIP |
+
+Windows 使用独立预发布，不替换 Mac 稳定版下载。更具体的平台限制和带日期的验证记录见 [Windows 指南](./win/README.md)。
 
 ## v1.38.5 · 凭据守护镜像
 
@@ -343,7 +366,8 @@ AI Quota Bar 不只是显示一个百分比。它会把剩余配额、重置时�
 - Codex 活跃检测只读取本机生命周期状态，不上传任务内容。
 - Mobile Dashboard 只在本地网络提供只读状态页面，并默认隐藏账户名称。
 - Task 进展文字只有在启用手动配对并再次明确选择共享后才会出现在手机端。
-- 云同步必须由用户主动开启，不上传供应商凭证，但会上传上一节列出的配额元数据。
+- 云同步必须由用户主动开启，不上传供应商凭证，但会上传上一节列出的配额元数据。公开 Codex 关注是另一条单独开启的分享通道，知道已分享邮箱的人即可查询其额度。
+- 重置提醒直接向两个第三方站点查询公开公告，不发送 Codex 登录凭据，也不检查你的个人账号是否真的重置。
 - 合盖相关系统修改必须明确管理员授权，并由辅助程序自动恢复。
 
 ## Codex 本机用量与成员统计

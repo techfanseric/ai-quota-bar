@@ -12,11 +12,13 @@ struct MenuView: View {
     @Bindable var presentationSizing: MenuPresentationSizing
     var onOpenSettings: () -> Void
     var onLayoutChange: () -> Void = {}
+    var onViewResetSource: (URL) -> Void = { NSWorkspace.shared.open($0) }
 
     var body: some View {
         VStack(spacing: 0) {
             ScrollView(.vertical, showsIndicators: false) {
                 VStack(spacing: 8) {
+                    CodexResetAlertsView(language: language, onLayoutChange: onLayoutChange, onViewSource: onViewResetSource)
                     modelsList
                 }
                 .fixedSize(horizontal: false, vertical: true)
@@ -31,6 +33,7 @@ struct MenuView: View {
         .frame(width: MenuBarPanelLayout.width)
         .task { await updates.checkIfNeeded() }
         .onChange(of: showsUsagePreview) { _, _ in onLayoutChange() }
+        .onChange(of: CodexResetAlertStore.shared.entries) { _, _ in onLayoutChange() }
         // 必须挂最后：它要拿到整棵树的锚点并在最外层画气泡，且自己定义的
         // 坐标系得覆盖到所有锚点上报的位置。
         .modifier(MenuTooltipLayer())

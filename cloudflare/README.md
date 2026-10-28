@@ -25,6 +25,9 @@ npm run deploy:pages
 - The API token (Pages: Edit + Workers: Edit) is maintained in
   `~/cf-fb-setup/secrets/cloudflare-api-tokens.md` on this machine; never commit
   it. Re-deploy is idempotent — only changed files upload.
+- Before deployment, follow [repository release rules](../AGENTS.md): update both home pages, platform details and downloads; publish the release; run `npm run sync:releases` and preserve localized notes; then run `npm run check`, `npm test`, `npm run build:pages` and `npm run check:release-site`. `deploy:pages` enforces the release/site gate before upload. The changelog includes Windows prereleases with separate beta labels; the Mac updater stays on GitHub stable releases.
+- Keep `APP_LATEST_VERSION` in the tracked `wrangler.pages.toml` template and local `wrangler.toml` current as well as the production Pages environment. It is the fallback if GitHub cannot be reached; updating only the homepage leaves old clients on a stale fallback.
+- Verify `/`, `/en/`, `/changelog`, `/en/changelog`, Windows ZIP links and `/v1/app-update` on production after deployment, and record the deployment URL/id in the release checklist. A local build or Git push does not deploy a Pages direct-upload project.
 - `npm run build:pages` alone refreshes `dist-pages/` for a local preview
   (`/mobile-preview` and `/changelog` need the path rewrites that only the
   deployed `_worker.js` provides; `python3 -m http.server` cannot serve them).

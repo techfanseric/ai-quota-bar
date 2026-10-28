@@ -9,8 +9,9 @@
     "db:migrate": "wrangler d1 execute ai-quota-bar --file=./schema.sql",
     "test:usage-http": "node --experimental-sqlite tests/local-usage-http.mjs",
     "build:pages": "node scripts/build-pages.mjs",
-    "deploy:pages": "npm run build:pages && wrangler pages deploy dist-pages --project-name ai-quota-bar --branch main",
-    "sync:releases": "node scripts/sync-releases.mjs"
+    "deploy:pages": "npm run build:pages && npm run check:release-site && wrangler pages deploy dist-pages --project-name ai-quota-bar --branch main",
+    "sync:releases": "node scripts/sync-releases.mjs",
+    "check:release-site": "node scripts/check-release-site.mjs"
   },
   "devDependencies": {
     "esbuild": "^0.28.2",

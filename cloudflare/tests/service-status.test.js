@@ -70,7 +70,7 @@ test('changelog is public read-only content with no API connections', async () =
   assert.equal(data.source,'github-proxy');
   assert.equal(data.download_url,'https://github.com/download');
   mocked.mock.mockImplementation(async()=>{throw new Error('unavailable')});
-  const fallback=await worker.fetch(request,{});
+  const fallback=await worker.fetch(request,{APP_LATEST_VERSION:"1.19.0"});
   assert.equal(fallback.status,200);
   const cached=await fallback.json();
   assert.equal(cached.version,'1.19.0');

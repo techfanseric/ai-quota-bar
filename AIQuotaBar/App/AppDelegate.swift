@@ -26,6 +26,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
         // Initialize status bar
         statusBarController = StatusBarController()
+        CodexResetAlertStore.shared.start()
 
         // Setup warning panel controller
         warningPanelController = WarningPanelController()
@@ -50,9 +51,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         Task {
             await runAutomaticUpdateCheckIfNeeded()
         }
+
+        if CommandLine.arguments.contains("--show-reset-alerts") {
+            DispatchQueue.main.async { [weak self] in self?.statusBarController?.showResetAlerts() }
+        }
     }
 
     func applicationWillTerminate(_ notification: Notification) {
+        CodexResetAlertStore.shared.stop()
         PointerBrightnessController.shared.stop()
         CodexLocalUsageModel.shared.stop()
         AppUsageAnalytics.shared.stop()
@@ -135,6 +141,20 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         withCompletionHandler completionHandler: @escaping () -> Void
     ) {
         defer { completionHandler() }
+
+        if let ids = response.notification.request.content.userInfo[
+            CodexResetNotificationService.idsKey
+        ] as? [String] {
+            Task { @MainActor [weak self] in
+                if response.actionIdentifier == CodexResetNotificationService.acknowledgeAction {
+                    CodexResetAlertStore.shared.acknowledge(ids: Set(ids))
+                } else if response.actionIdentifier == UNNotificationDefaultActionIdentifier {
+                    self?.statusBarController?.showResetAlerts()
+                }
+                // Dismissing a banner is deliberately not acknowledgement.
+            }
+            return
+        }
 
         if response.notification.request.content.userInfo[
             ClashRecoveryNotificationService.notificationActionKey
