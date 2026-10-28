@@ -4,6 +4,8 @@
 
 ## 当前文档
 
+- [官网首屏重置提醒体验](./website-hero-reset-experience-2026-10-28.md)：通知到达、持续未读、明确确认与可交互演示。
+
 - [Codex 重置提醒使用说明](./codex-reset-alerts.md)：Mac v1.39.0 的确认、通知、30 天历史、常驻线索和 Dim 状态；[调研与接口记录](./research/codex-reset-alerts-2026-10-28.md)。
 - [Windows 安装与功能指南](../win/README.md)：v1.38.6-beta.1 的安装更新、设置、凭据、Watch、手机看板与实际平台差异。
 - [官网现状与差异审查（2026-10-28）](./website-status-audit-2026-10-28.md)：源码/发布/生产部署三层核对与整改证据。
