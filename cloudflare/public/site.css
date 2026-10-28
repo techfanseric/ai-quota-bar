@@ -319,3 +319,38 @@
 .wm-arrow{font-size:10px;color:var(--wf-secondary)}
 .wm-item.check::before{content:"✓";position:absolute;left:11px;font-size:9.5px;color:var(--wf-primary)}
 .wm-sep{height:1px;background:rgba(255,255,255,.08);margin:4px 8px}
+
+/* Product instructions are explanatory content, separate from native UI replicas. */
+.product-guide{border-block:1px solid var(--line);padding:26px 0;min-width:0}
+.product-guide h3{font-size:17px;font-weight:550;line-height:1.6;margin:0 0 20px}
+.product-guide ol{padding-left:24px;margin:0;display:grid;gap:24px}
+.product-guide li{padding-left:8px;font-size:12px;line-height:1.9;color:var(--muted);overflow-wrap:anywhere}
+.product-guide strong{display:block;color:var(--ink);font-size:13px;font-weight:600;margin-bottom:5px}
+.product-guide p{max-width:62ch}
+#watch .inline-tip,#windows .inline-tip,#windows-guide .inline-tip{display:block}
+#windows .feature-copy{min-width:0}
+#windows .feature-visual{align-self:start;padding-top:70px}
+#windows-guide .feature-list p{overflow-wrap:anywhere}
+.feature-copy .inline-tip a,.product-guide a,.faq a{text-decoration:underline;text-underline-offset:3px}
+@media(max-width:760px){#windows .feature-visual{padding-top:0}.product-guide{padding-block:20px}.product-guide ol{gap:20px}}
+
+.wf-current{padding:8px;background:#f3f3f3}
+.wf-current .wf-head{padding:6px 6px 12px}
+.wf-current-card{background:#fff;border:1px solid #e5e5e5;border-radius:7px;padding:12px;margin-bottom:8px;font-size:11px}
+.wf-current-card .wf-row-head strong{font-size:12px}
+.wf-current-card .wf-copy{font-size:10px;color:var(--wf-secondary);line-height:1.6;margin-top:4px;overflow-wrap:anywhere}
+.wf-current-card .wf-copy.ok{color:var(--wf-green)}
+.wf-local{border-bottom:1px solid var(--wf-sep);padding-bottom:12px;margin:14px 0 12px;font-size:10px;line-height:1.8;color:var(--wf-secondary)}
+.wf-local strong{font-weight:600;color:var(--wf-primary)}
+.wf-current-curve{width:100%;height:auto;max-height:80px;margin-top:8px}
+.wf-cycle-bars{height:20px;display:flex;align-items:end;gap:7px;margin-top:10px}
+.wf-cycle-bars i{width:10px;background:#a2cbb1;border-radius:2px 2px 0 0}
+.wf-weekly{margin-top:14px}
+.wf-status-copy{font-size:10px;line-height:1.9;color:var(--wf-secondary)}
+.tb-backed{background:#171b21;border:1px solid #d8dce3;border-radius:4px;padding:2px;width:20px;height:20px}
+@media(max-width:760px){.site-header{height:auto;min-height:80px;flex-wrap:wrap;gap:12px;padding-block:16px}.site-header nav{width:100%;max-width:100%;flex-wrap:wrap;row-gap:12px}}
+
+/* Keep the static sample compatible with the site's no-inline-style policy. */
+.wf-cycle-bars i:nth-child(1){height:10px}.wf-cycle-bars i:nth-child(2){height:16px}.wf-cycle-bars i:nth-child(3){height:12px}.wf-cycle-bars i:nth-child(4){height:18px}.wf-cycle-bars i:nth-child(5){height:17px}.wf-cycle-bars i:nth-child(6){height:13px}.wf-cycle-bars i:nth-child(7){height:14px}.wf-cycle-bars i:nth-child(8){height:10px}
+.wf-current .wf-bar .weekly-left{width:64%}
+@media(min-width:761px) and (max-width:1100px){.site-header{height:auto;min-height:100px;flex-wrap:wrap;gap:16px;padding-block:20px}.site-header nav{width:100%;max-width:100%;flex-wrap:wrap;gap:20px;row-gap:12px}}

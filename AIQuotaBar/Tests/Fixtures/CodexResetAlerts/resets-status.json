@@ -1,0 +1,38 @@
+{
+  "data": {
+    "latest_reset": {
+      "id": "observed-2114588174249071102",
+      "reset_type": "regular",
+      "announced_at": "2026-10-26T07:00:00.000Z",
+      "text": "Codex usage limits have been reset. Check your limits.",
+      "source": {
+        "type": "observed",
+        "url": "https://x.com/thsottiaux/status/2114588174249071102"
+      }
+    },
+    "scheduled_reset": {
+      "id": "2115273253711409208",
+      "status": "scheduled",
+      "reset_type": "regular",
+      "announced_at": "2026-10-28T02:43:38.000Z",
+      "scheduled_for": "2026-10-28T07:00:00.000Z",
+      "text": "Lands by midnight PST.",
+      "source": {
+        "type": "x_post",
+        "author": "thsottiaux",
+        "url": "https://x.com/thsottiaux/status/2115273253711409208"
+      }
+    },
+    "active_watch": null,
+    "stats": {
+      "total": 68,
+      "last_reset_at": "2026-10-26T07:00:00.000Z",
+      "days_since_last": 1.9,
+      "avg_interval_days": 6
+    }
+  },
+  "meta": {
+    "api_version": "v1",
+    "generated_at": "2026-10-28T03:25:22.712Z"
+  }
+}

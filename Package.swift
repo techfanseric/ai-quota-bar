@@ -67,6 +67,7 @@ let package = Package(
                 .product(name: "CodexBarCore", package: "codexbar")
             ],
             path: "AIQuotaBar/Tests",
+            resources: [.copy("Fixtures/CodexResetAlerts")],
             linkerSettings: [
                 .linkedLibrary("sqlite3"),
                 .unsafeFlags([

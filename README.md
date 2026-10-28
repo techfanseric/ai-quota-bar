@@ -25,11 +25,34 @@ AI coding work is hard to manage when quota, network routes, and Mac sleep setti
   <img src="./docs/images/control-center.png" alt="AI Quota Bar control center" width="342">
 </p>
 
-## Windows v1.38.6-beta.1 · Tray visibility and Codex Watch
+## v1.39.0 · Codex reset inbox and visible Dim state
 
-[Download Windows x64](https://github.com/techfanseric/ai-quota-bar/releases/download/v1.38.6-beta.1/AIQuotaBar-win-x64.zip) · [Release notes](./docs/releases/v1.38.6-beta.1.en.md)
+The Mac menu now follows public reset announcements from codex-reset.com and codex-resets.com. Unread announcements keep an orange bell visible (blinking unless Reduce Motion is enabled) and repeat system notifications every five minutes until explicitly acknowledged. Opening a source or dismissing a notification does not mark it read. Recent history covers 30 days; the latest explicit reset signal remains available after acknowledgement. These third-party announcements do not prove that your account's quota has reset.
 
-Adds a contrasting tray badge, adaptive settings rows and Codex Watch controls under Settings → Providers. Unzip and run `AIQuotaBar/AIQuotaBar.exe`; no .NET installation required. This Windows prerelease includes the merged macOS v1.38.5 source; macOS downloads remain on stable v1.38.5. Provider account management and data-source selection are not yet at full macOS parity.
+A steady screen-and-moon badge appears while Step Away Dim is active, including alongside reset alerts, so its state is visible during remote access. [Release notes](./docs/releases/v1.39.0.en.md) · [Reset inbox behavior](./docs/codex-reset-alerts.md)
+
+## Windows v1.38.6-beta.1 · Native tray app
+
+[Download Windows x64 ZIP](https://github.com/techfanseric/ai-quota-bar/releases/download/v1.38.6-beta.1/AIQuotaBar-win-x64.zip) · [Release notes](./docs/releases/v1.38.6-beta.1.en.md) · [Windows installation and feature guide](./win/README.md)
+
+Unzip and run `AIQuotaBar/AIQuotaBar.exe` on 64-bit Windows 10 or later. The ZIP includes .NET 8; no runtime installation is required. There is currently no installer or Windows code signature. Quit the old process before replacing program files; settings and the DPAPI credential vault remain under `%APPDATA%\AIQuotaBar`.
+
+This beta includes Codex OAuth quota with CLI fallback, Kimi/GLM/MiniMax quota, Clash routes and connections, local usage, a read-only mobile dashboard and Codex task sleep protection. Settings → Providers manages per-account sharing and watched emails, with immediate Watch saves and refresh requests. Sharing is off by default; anyone knowing a shared email can query its published quota without joining a team. Provider credentials stay local.
+
+| Capability | macOS v1.39.0 | Windows v1.38.6-beta.1 |
+| --- | --- | --- |
+| Codex / Kimi / GLM / MiniMax quota | Available | Available; source controls differ |
+| Codex Watch by email | Available | Available; changes save immediately |
+| Clash/Mihomo routes and connections | Available | Available |
+| Task sleep protection | Four providers | Codex tasks |
+| Local usage and mobile dashboard | Available | Available; dashboard uses a subset of Mac data |
+| Provider account management and source selection | Full Mac UI | Not at full parity |
+| Team creation/join and member views | Available in app | Client interfaces exist; desktop onboarding remains incomplete |
+| Per-display Dim / brightness keys / credential mirror | Available | Not ported |
+| Public reset inbox and Dim status badge | Available | Not ported |
+| Updates | Mac installer | Check/reminder and release-page link; replace ZIP manually |
+
+The Windows beta is a separate prerelease and does not replace the Mac stable download. The detailed platform limits and dated verification records are in the [Windows guide](./win/README.md).
 
 ## v1.38.5 · Credential guard mirror
 
@@ -336,13 +359,14 @@ Open **Settings → Usage & Team** to create a team. Its management password is 
 - MiniMax credentials are stored in macOS Keychain.
 - GLM API keys and imported web-request credentials are stored in macOS Keychain.
 - Optional Kimi API keys and explicitly saved web sessions are stored in macOS Keychain. Desktop and browser sessions are read locally; CLI credentials remain managed by Kimi Code.
-- Codex credentials are managed locally by Codex/CodexBar.
+- Codex credentials are managed locally by Codex/CodexBar. The Mac credential guard also keeps local copies outside `~/.codex` (0700 directory, 0600 files); see the [credential mirror guide](docs/codex-auth-guard.md).
 - Clash/Mihomo access is limited to a loopback external controller.
 - Connection monitoring is read-only.
 - Codex task detection reads local lifecycle state and does not upload task content.
 - The Mobile Dashboard is served only on the local network, exposes a read-only status surface, and masks account names by default.
 - Mobile task progress text is omitted unless manual pairing is enabled and the user separately opts in to sharing it.
-- Cloud sync is opt-in and never uploads provider credentials, but it does upload the quota metadata listed above.
+- Cloud sync is opt-in and never uploads provider credentials, but it does upload the quota metadata listed above. Public Codex Watch is a separate opt-in sharing channel: anyone who knows a shared email can query its quota.
+- Reset alerts fetch public announcements directly from two third-party sites; they do not send your Codex credentials or check whether your individual account has reset.
 - Closed-lid changes require explicit administrator approval and are automatically restored by the helper.
 
 ## Codex local usage and member reporting

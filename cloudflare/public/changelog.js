@@ -1,6 +1,6 @@
 const EN = document.documentElement.lang === 'en';
 const COUNT_MATCH = c => EN ? `${c} matching releases` : `找到 ${c} 个匹配版本`;
-const COUNT_ALL = n => EN ? `${n} releases · Original release notes preserved` : `共 ${n} 个正式版本 · 完整保留原始发布说明`;
+const COUNT_ALL = n => EN ? `${n} releases · Original release notes preserved` : `共 ${n} 个发布版本 · 完整保留原始发布说明`;
 const search = document.querySelector('#release-search');
 const releases = [...document.querySelectorAll('.release')];
 const indexLinks = [...document.querySelectorAll('aside nav a')];

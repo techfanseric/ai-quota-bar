@@ -16,6 +16,7 @@ struct CompactStatusRenderState: Equatable {
     let height: CGFloat
     let reduceMotion: Bool
     let placeholderStyle: MenuBarPlaceholderStyle
+    var isDimmingActive: Bool = false
 
     static func == (lhs: Self, rhs: Self) -> Bool {
         lhs.snapshots.count == rhs.snapshots.count
@@ -38,6 +39,7 @@ struct CompactStatusRenderState: Equatable {
             && lhs.appearance == rhs.appearance && lhs.scale == rhs.scale
             && lhs.height == rhs.height && lhs.reduceMotion == rhs.reduceMotion
             && lhs.placeholderStyle == rhs.placeholderStyle
+            && lhs.isDimmingActive == rhs.isDimmingActive
     }
     private struct PaceRasterKey: Equatable {
         let direction: MenuBarPaceDirection
@@ -69,9 +71,9 @@ final class StatusBarController {
     let viewModel = UsageViewModel()
     let sleepProtectionCoordinator = CodexSleepProtectionCoordinator()
     private var statusItem: NSStatusItem?
-    private var menu: NSMenu?
+    private let usagePanel = MenuBarPanel()
+    private var usagePanelPlacement: MenuBarPanelPlacement?
     private var isUsageMenuOpen = false
-    private var menuItem: NSMenuItem?
     private var hostingView: NSHostingView<MenuView>?
     private let menuPresentationSizing = MenuPresentationSizing(
         maximumScrollableHeight:
@@ -153,6 +155,12 @@ final class StatusBarController {
     private var hasHandledCurrentOutage = false
     private var recoveryTask: Task<Void, Never>?
     private var compactImageAnimationTask: Task<Void, Never>?
+    private var resetAlertTimer: Timer?
+    private var resetAlertBright = true
+    private var resetAlertActive = false
+    private var resetAlertRenderState: CodexResetAlertRenderState?
+    private var resetAlertImages: [NSImage] = []
+
     private var compactAppearanceObservation: NSKeyValueObservation?
     /// Long-pressing the status item with the right button triggers the
     /// step-away dim directly; a quick right-click still opens the panel.
@@ -280,6 +288,20 @@ final class StatusBarController {
             self?.updateStatusItem()
         }
 
+        observeProperties(CodexResetAlertStore.shared) { store in
+            _ = store.entries
+        } onChange: { [weak self] in
+            self?.updateStatusItem()
+            self?.updateMenuLayout()
+        }
+
+        observeProperties(stepAwayDimController) { controller in
+            _ = controller.isActive
+            _ = controller.smartRestoreEnabled
+        } onChange: { [weak self] in
+            self?.updateStatusItem()
+        }
+
         observeProperties(connectivityMonitor) { monitor in
             _ = monitor.state
             _ = monitor.checkSequence
@@ -348,6 +370,10 @@ final class StatusBarController {
             },
             onLayoutChange: { [weak self] in
                 self?.updateMenuLayout()
+            },
+            onViewResetSource: { [weak self] url in
+                self?.dismissMenu()
+                DispatchQueue.main.async { NSWorkspace.shared.open(url) }
             }
         )
 
@@ -355,10 +381,19 @@ final class StatusBarController {
         hostingView.autoresizingMask = [.width, .height]
         self.hostingView = hostingView
 
-        let nativeMenu = MenuBarNativeMenu.make(
-            contentView: hostingView)
-        menu = nativeMenu.menu
-        menuItem = nativeMenu.item
+        // Keep a single panel/window alive while SwiftUI updates its contents.
+        // NSMenu's tracking/re-layout can close and recreate the custom item.
+        let surface = NSVisualEffectView()
+        surface.material = .menu
+        surface.blendingMode = .behindWindow
+        surface.state = .active
+        surface.maskImage = MenuBarPanelLayout.makeMaterialMask()
+        surface.wantsLayer = true
+        surface.layer?.cornerRadius = MenuBarPanelLayout.cornerRadius
+        surface.layer?.masksToBounds = true
+        surface.addSubview(hostingView)
+        usagePanel.contentView = surface
+        usagePanel.onDismiss = { [weak self] in self?.isUsageMenuOpen = false }
         updateMenuLayout(force: true)
 
         observeMenuLayoutChanges()
@@ -463,24 +498,24 @@ final class StatusBarController {
         }
     }
 
+    func showResetAlerts() {
+        guard let button = statusItem?.button else { return }
+        NSApp.activate(ignoringOtherApps: true)
+        if usagePanel.isVisible { usagePanel.makeKeyAndOrderFront(nil) }
+        else { showMenu(relativeTo: button) }
+    }
+
     private func showMenu(relativeTo button: NSStatusBarButton) {
-        guard let statusItem,
-              let menu else {
+        if usagePanel.isVisible {
+            dismissMenu()
             return
         }
-
-        if let placement = MenuBarPanelPlacement.resolve(
-            relativeTo: button) {
-            updateMenuConstraints(
-                visibleHeight: placement.visibleFrame.height)
-        }
+        guard let placement = MenuBarPanelPlacement.resolve(relativeTo: button), let hostingView else { return }
+        usagePanelPlacement = placement
+        updateMenuConstraints(visibleHeight: placement.visibleFrame.height)
         isUsageMenuOpen = true
-        defer { isUsageMenuOpen = false }
-        updateMenuLayout()
-
-        statusItem.menu = menu
-        button.performClick(nil)
-        statusItem.menu = nil
+        updateMenuLayout(force: true)
+        usagePanel.present(relativeTo: button, placement: placement, contentSize: hostingView.frame.size)
     }
 
     private func updateMenuLayout(force: Bool = false) {
@@ -494,9 +529,15 @@ final class StatusBarController {
             width: ceil(fittingSize.width),
             height: ceil(min(fittingSize.height, maximumMenuHeight))
         )
+        usagePanel.contentView?.setFrameSize(size)
         hostingView.frame = NSRect(origin: .zero, size: size)
-        menuItem?.view?.frame = NSRect(origin: .zero, size: size)
-        menu?.update()
+        if usagePanel.isVisible, let placement = usagePanelPlacement {
+            let frame = placement.panelFrame(contentSize: size)
+            if usagePanel.frame != frame {
+                usagePanel.setFrame(frame, display: true, animate: false)
+                usagePanel.invalidateShadow()
+            }
+        }
     }
 
     private func updateMenuConstraints(visibleHeight: CGFloat) {
@@ -509,7 +550,8 @@ final class StatusBarController {
     }
 
     private func dismissMenu() {
-        menu?.cancelTracking()
+        usagePanel.dismiss()
+        isUsageMenuOpen = false
     }
 
     private func openSettings() {
@@ -627,6 +669,7 @@ final class StatusBarController {
     }
 
     deinit {
+        resetAlertTimer?.invalidate()
         // 单例场景下不会真跑,但单测 / 未来替换会用到 —— 显式 removeObserver
         // 避免 zombie observer 留存。`NotificationCenter.removeObserver` 自身线程安全。
         if let accessibilityDisplayObserver {
@@ -639,6 +682,8 @@ final class StatusBarController {
     }
 
     func stop() {
+        resetAlertTimer?.invalidate()
+        resetAlertTimer = nil
         compactImageAnimationTask?.cancel()
         compactImageAnimationTask = nil
         recoveryTask?.cancel()
@@ -683,6 +728,9 @@ final class StatusBarController {
         DispatchQueue.main.async { [weak self] in
             guard let self else { return }
             self.appearanceUpdateScheduled = false
+            if self.resetAlertActive, let button = self.statusItem?.button,
+               CodexResetAlertRenderState(button: button,
+                   isDimmingActive: self.stepAwayDimController.isActive) == self.resetAlertRenderState { return }
             // Snapshot callbacks commonly report no persistent appearance change.
             // Avoid even layout/accessibility writes in that case.
             if let button = self.statusItem?.button,
@@ -693,6 +741,19 @@ final class StatusBarController {
     }
 
     private func updateStatusItem() {
+        statusView.isDimmingActive = stepAwayDimController.isActive
+        if !CodexResetAlertStore.shared.unread.isEmpty {
+            presentResetAlert()
+            return
+        }
+        resetAlertTimer?.invalidate()
+        resetAlertTimer = nil
+        if resetAlertActive {
+            resetAlertActive = false
+            resetAlertRenderState = nil
+            resetAlertImages = []
+            NSLog("aiquotabar: reset-alert attention stopped; restoring quota icon")
+        }
         if viewModel.menuBarAppearance == .compactRing,
            let button = statusItem?.button,
            makeCompactRenderState(button: button) == compactRenderState {
@@ -733,10 +794,72 @@ final class StatusBarController {
                 accessibilityLabel: statusItemTooltip)
         }
         statusItem?.button?.toolTip = statusItemTooltip
+        statusItem?.button?.setAccessibilityLabel(statusItemTooltip)
         updateStatusItemLength()
         if viewModel.menuBarAppearance == .compactRing {
             presentCompactButtonImages()
         }
+    }
+
+    /// A native button image works in menu-bar replicas as well as the main
+    /// screen. Pause quota animation while the unread alert owns this image.
+    private func presentResetAlert() {
+        guard let button = statusItem?.button else { return }
+        if !resetAlertActive {
+            resetAlertActive = true
+            NSLog("aiquotabar: reset-alert attention started; reduceMotion=%d",
+                  NSWorkspace.shared.accessibilityDisplayShouldReduceMotion ? 1 : 0)
+        }
+        let renderState = CodexResetAlertRenderState(button: button,
+            isDimmingActive: stepAwayDimController.isActive)
+        if renderState != resetAlertRenderState {
+            // Publish the state before AppKit can reenter an appearance callback.
+            resetAlertRenderState = renderState
+            resetAlertImages = [true, false].compactMap {
+                guard let image = CodexResetAlertIcon.image(bright: $0, appearance: button.effectiveAppearance)
+                else { return nil }
+                return stepAwayDimController.isActive
+                    ? StepAwayDimStatusIcon.image(addingTo: image, appearance: button.effectiveAppearance)
+                    : image
+            }
+        }
+        compactImageAnimationTask?.cancel()
+        compactImageAnimationTask = nil
+        compactRenderState = nil
+        statusView.removeFromSuperview()
+        let length: CGFloat = 26 + (stepAwayDimController.isActive ? StepAwayDimStatusIcon.width : 0)
+        if statusItem?.length != length { statusItem?.length = length }
+        let chinese = viewModel.appLanguage == .simplifiedChinese
+        let count = CodexResetAlertStore.shared.unread.count
+        let tooltip = dimmingTooltip(chinese ? "Codex 重置消息：\(count) 条未读。点击查看并确认已读。"
+            : "Codex reset updates: \(count) unread. Click to review and mark read.")
+        button.toolTip = tooltip
+        button.setAccessibilityLabel(tooltip)
+        drawResetAlertImage()
+        if NSWorkspace.shared.accessibilityDisplayShouldReduceMotion {
+            resetAlertTimer?.invalidate()
+            resetAlertTimer = nil
+            resetAlertBright = true
+            drawResetAlertImage()
+        } else if resetAlertTimer == nil {
+            let timer = Timer(timeInterval: 0.75, repeats: true) { [weak self] _ in
+                MainActor.assumeIsolated {
+                    guard let self else { return }
+                    self.resetAlertBright.toggle()
+                    self.drawResetAlertImage()
+                }
+            }
+            RunLoop.main.add(timer, forMode: .common)
+            resetAlertTimer = timer
+        }
+    }
+
+    private func drawResetAlertImage() {
+        guard let button = statusItem?.button, resetAlertImages.count == 2 else { return }
+        let image = resetAlertImages[resetAlertBright ? 0 : 1]
+        button.imagePosition = .imageOnly
+        button.imageScaling = .scaleNone
+        if button.image !== image { button.image = image }
     }
 
     private func attachStatusViewIfNeeded() {
@@ -760,7 +883,8 @@ final class StatusBarController {
             appearance: button.effectiveAppearance.bestMatch(from: [.accessibilityHighContrastDarkAqua, .accessibilityHighContrastAqua, .darkAqua, .aqua])?.rawValue ?? "",
             scale: scale, height: statusView.frame.height,
             reduceMotion: NSWorkspace.shared.accessibilityDisplayShouldReduceMotion,
-            placeholderStyle: viewModel.menuBarPlaceholderStyle)
+            placeholderStyle: viewModel.menuBarPlaceholderStyle,
+            isDimmingActive: stepAwayDimController.isActive)
     }
 
     private func presentCompactButtonImages() {
@@ -783,7 +907,11 @@ final class StatusBarController {
         // status button's optimized image path instead.
         statusView.removeFromSuperview()
         statusView.appearance = button.effectiveAppearance
-        let frames = statusView.renderedCompactFrames(scale: scale)
+        let frames = statusView.renderedCompactFrames(scale: scale).map { image in
+            stepAwayDimController.isActive
+                ? StepAwayDimStatusIcon.image(addingTo: image, appearance: button.effectiveAppearance, scale: scale)
+                : image
+        }
         guard !frames.isEmpty else {
             button.image = nil
             return
@@ -821,6 +949,16 @@ final class StatusBarController {
     }
 
     private var statusItemTooltip: String {
+        dimmingTooltip(quotaTooltip)
+    }
+
+    private func dimmingTooltip(_ base: String) -> String {
+        guard stepAwayDimController.isActive else { return base }
+        return viewModel.appLanguage.stepAwayActiveStatus(
+            smartRestore: stepAwayDimController.smartRestoreEnabled) + "\n" + base
+    }
+
+    private var quotaTooltip: String {
         let displayedSnapshots = viewModel.menuBarAppearance == .compactRing
             ? displayedCompactSnapshots
             : [viewModel.menuBarSnapshot]
@@ -924,19 +1062,30 @@ private func observeProperties<Object: Observable>(
 
 /// 在详细文字和紧凑环形之间切换的单一状态栏容器。
 @MainActor
-private final class StatusBarContentView: NSView {
+final class StatusBarContentView: NSView {
     private let detailedView = StatusBarTwoLineView()
     private let compactView = StatusBarCompactRingsView()
     private var isCompact = false
+    private let dimIndicator = NSImageView()
+    var isDimmingActive = false {
+        didSet {
+            guard isDimmingActive != oldValue else { return }
+            dimIndicator.isHidden = !isDimmingActive || isCompact
+            needsLayout = true
+        }
+    }
 
     var preferredWidth: CGFloat {
-        isCompact ? compactView.preferredWidth : detailedView.preferredWidth
+        (isCompact ? compactView.preferredWidth : detailedView.preferredWidth)
+            + (isDimmingActive ? StepAwayDimStatusIcon.width : 0)
     }
 
     override init(frame frameRect: NSRect) {
         super.init(frame: frameRect)
         addSubview(detailedView)
         addSubview(compactView)
+        addSubview(dimIndicator)
+        dimIndicator.isHidden = true
         compactView.isHidden = true
     }
 
@@ -944,17 +1093,28 @@ private final class StatusBarContentView: NSView {
         super.init(coder: coder)
         addSubview(detailedView)
         addSubview(compactView)
+        addSubview(dimIndicator)
+        dimIndicator.isHidden = true
         compactView.isHidden = true
     }
 
     override func layout() {
         super.layout()
-        detailedView.frame = bounds
-        compactView.frame = bounds
+        var contentBounds = bounds
+        if isDimmingActive { contentBounds.size.width -= StepAwayDimStatusIcon.width }
+        detailedView.frame = contentBounds
+        compactView.frame = contentBounds
+        dimIndicator.frame = NSRect(x: contentBounds.maxX, y: 0,
+            width: StepAwayDimStatusIcon.width, height: bounds.height)
+        if isDimmingActive && !isCompact {
+            dimIndicator.image = StepAwayDimStatusIcon.image(appearance: effectiveAppearance,
+                scale: window?.backingScaleFactor ?? 2)
+        }
     }
 
     func showDetailed(line1: String, line2: String) {
         isCompact = false
+        dimIndicator.isHidden = !isDimmingActive
         compactView.suspendAnimationLoops()
         detailedView.setLine1(line1)
         detailedView.setLine2(line2)
@@ -976,6 +1136,7 @@ private final class StatusBarContentView: NSView {
         accessibilityLabel: String
     ) {
         isCompact = true
+        dimIndicator.isHidden = true
         compactView.setSnapshots(
             snapshots,
             codexConnectivity: codexConnectivity,

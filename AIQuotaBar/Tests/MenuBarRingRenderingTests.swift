@@ -9,7 +9,8 @@ final class MenuBarRingRenderingTests: XCTestCase {
         func key(tooltip: String = "one", percent: Double = 50, appearance: String = "dark",
                  scale: CGFloat = 2, tasks: Int = 1, reduceMotion: Bool = false,
                  placeholderStyle: MenuBarPlaceholderStyle = .openAIConnectivity,
-                 taskWaveLayout: MenuBarTaskWaveLayout = .evenlySpaced) -> CompactStatusRenderState {
+                 taskWaveLayout: MenuBarTaskWaveLayout = .evenlySpaced,
+                 isDimmingActive: Bool = false) -> CompactStatusRenderState {
             CompactStatusRenderState(snapshots: [MenuBarSnapshot(provider: .codex, modelName: nil,
                 remainingPercent: percent, ringPercent: percent, paceDeltaPercent: 0,
                 ringTrend: nil,
@@ -17,7 +18,7 @@ final class MenuBarRingRenderingTests: XCTestCase {
                 connectivity: .reachable, pace: .staged, taskWaveLayout: taskWaveLayout,
                 selfTesting: false, tasks: [.codex: tasks],
                 padding: 4, spacing: 4, appearance: appearance, scale: scale, height: 22, reduceMotion: reduceMotion,
-                placeholderStyle: placeholderStyle)
+                placeholderStyle: placeholderStyle, isDimmingActive: isDimmingActive)
         }
         XCTAssertEqual(key(), key(tooltip: "countdown changed"))
         XCTAssertNotEqual(key(), key(percent: 49))
@@ -28,6 +29,7 @@ final class MenuBarRingRenderingTests: XCTestCase {
         XCTAssertNotEqual(key(), key(placeholderStyle: .providerCount))
         XCTAssertNotEqual(key(), key(placeholderStyle: .brandMark))
         XCTAssertNotEqual(key(), key(taskWaveLayout: .chaseQueue))
+        XCTAssertNotEqual(key(), key(isDimmingActive: true))
     }
 
     func testContinuousPaceDriftReusesFramesButVisibleAndSemanticChangesInvalidate() {

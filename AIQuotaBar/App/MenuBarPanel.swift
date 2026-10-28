@@ -9,6 +9,22 @@ enum MenuBarPanelLayout {
     static let fallbackVisibleHeight: CGFloat = 600
     private static let leftMenuChromeHeight: CGFloat = 56
 
+    /// NSVisualEffectView needs a native material mask, not just a layer clip.
+    /// AppKit uses this alpha outline for the window-server backdrop and shadow.
+    @MainActor
+    static func makeMaterialMask() -> NSImage {
+        let diameter = cornerRadius * 2 + 1
+        let mask = NSImage(size: NSSize(width: diameter, height: diameter), flipped: false) { rect in
+            NSColor.white.setFill()
+            NSBezierPath(roundedRect: rect, xRadius: cornerRadius, yRadius: cornerRadius).fill()
+            return true
+        }
+        mask.capInsets = NSEdgeInsets(top: cornerRadius, left: cornerRadius,
+                                     bottom: cornerRadius, right: cornerRadius)
+        mask.resizingMode = .stretch
+        return mask
+    }
+
     static func maximumHeight(visibleHeight: CGFloat) -> CGFloat {
         floor(max(0, visibleHeight) * maximumHeightFraction)
     }
@@ -149,6 +165,7 @@ final class MenuBarPanel: NSPanel {
             placement.panelFrame(contentSize: contentSize),
             display: true)
         makeKeyAndOrderFront(nil)
+        invalidateShadow()
         startEventMonitoring()
     }
 

@@ -4,15 +4,22 @@
 
 ## 当前文档
 
-- [产品规格](./SPEC.md)：v1.16.0 的功能、数据来源、安全边界和设置结构。
+- [Codex 重置提醒使用说明](./codex-reset-alerts.md)：Mac v1.39.0 的确认、通知、30 天历史、常驻线索和 Dim 状态；[调研与接口记录](./research/codex-reset-alerts-2026-10-28.md)。
+- [Windows 安装与功能指南](../win/README.md)：v1.38.6-beta.1 的安装更新、设置、凭据、Watch、手机看板与实际平台差异。
+- [官网现状与差异审查（2026-10-28）](./website-status-audit-2026-10-28.md)：源码/发布/生产部署三层核对与整改证据。
+- [推送与官网发布规则](../AGENTS.md)：每次推送评估官网影响、版本门禁、双语同步与线上验证。
+
+- [产品规格历史快照](./SPEC.md)：v1.16.0 时点的功能、数据来源与设置结构；最新行为以当前代码、用户指南和后续发布说明为准。
 - [关注账号（按邮箱公开查询）](./codex-watch-accounts.md)：在另一台 Mac 上显示本机 Codex 额度，只填邮箱、不要团队和密钥、凭据不出机器。
 - [凭据守护镜像](./codex-auth-guard.md)：每个本机见过的 Codex 账号在 `~/.codex` 之外留一份凭据副本，外部网关改写登录态时不丢凭据、不静默换号。
 - [MiniMax API 字段](./api-field-mapping.md)：MiniMax 剩余额度字段与时间单位。
 - [GLM API 字段](./glm-api-field-mapping.md)：GLM API Key、网页 cURL、新旧额度类型及周期映射。
 - [云同步后端](../cloudflare/README.md)：Worker API、D1 结构、部署和迁移。
-- [Windows 迁移](./win-migration/analysis/)：macOS 版六大模块的功能规格分析（Codex／提供方／Clash／电源／UI·设置／云团队），Windows 版实现见 [`win/`](../../win/)。
+- [Windows 迁移](./win-migration/analysis/)：macOS 版六大模块的功能规格分析（Codex／提供方／Clash／电源／UI·设置／云团队），Windows 版实现见 [`win/`](../win/)。
 
 ## 发布说明
+
+- [macOS v1.39.0](./releases/v1.39.0.zh-CN.md)：Codex 重置收件箱、Dim 状态、官网与 Windows 指南同步；[发布验证记录](./releases/v1.39.0-checklist.md)。
 
 - [Windows v1.38.6-beta.1](./releases/v1.38.6-beta.1.zh-CN.md)：托盘可见性、设置排版和 Codex Watch；[发布验证记录](./releases/v1.38.6-beta.1-checklist.md)。
 
