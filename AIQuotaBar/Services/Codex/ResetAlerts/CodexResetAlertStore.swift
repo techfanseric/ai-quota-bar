@@ -53,8 +53,9 @@ final class CodexResetAlertStore {
     private static func retainedEntries(_ entries: [Entry], now: Date) -> [Entry] {
         let pinnedID = latestReliable(in: entries)?.id
         return entries.filter {
-            !$0.alert.isLocalTest && (!$0.isRead || $0.id == pinnedID
-                || $0.alert.publishedAt >= now.addingTimeInterval(-historyInterval))
+            if $0.alert.isLocalTest { return !$0.isRead }
+            return !$0.isRead || $0.id == pinnedID
+                || $0.alert.publishedAt >= now.addingTimeInterval(-historyInterval)
         }
     }
 
@@ -66,11 +67,26 @@ final class CodexResetAlertStore {
         var saved = defaults.data(forKey: Self.storageKey)
             .flatMap { try? JSONDecoder().decode(Archive.self, from: $0) } ?? Archive()
         let hadLocalTests = saved.entries.contains { $0.alert.isLocalTest }
-        saved.entries = Self.retainedEntries(saved.entries, now: .now)
+        saved.entries = Self.retainedEntries(saved.entries.filter { !$0.alert.isLocalTest }, now: .now)
         archive = saved
         entries = saved.entries
         persist()
         if hadLocalTests && unread.isEmpty { self.notifications.clearDeliveredNotification() }
+    }
+
+    /// In-memory preview using the real unread/rendering/notification path.
+    func triggerLocalTest(now: Date = .now) async {
+        entries.removeAll { $0.alert.isLocalTest }
+        let chinese = AppLanguage.current == .simplifiedChinese
+        let alert = CodexResetAlert(key: "local-test:\(UUID())", source: .reset,
+            kind: .clue, publishedAt: now,
+            text: chinese
+                ? "黄点与额度圆环闪烁测试。这是本机测试，不代表账号额度已重置；确认已读即可结束。"
+                : "Yellow dot and quota ring preview. Local test only; your quota has not reset. Mark read to stop.",
+            url: CodexResetAlert.Source.reset.url, scheduledFor: nil)
+        entries.insert(Entry(alert: alert, isRead: false), at: 0)
+        NSLog("aiquotabar: local reset-alert preview triggered")
+        await remindIfNeeded(now: now)
     }
 
     func history(now: Date = .now) -> [Entry] {
@@ -206,7 +222,7 @@ final class CodexResetAlertStore {
     }
 
     private func persist() {
-        archive.entries = entries
+        archive.entries = entries.filter { !$0.alert.isLocalTest }
         if let data = try? JSONEncoder().encode(archive) { defaults.set(data, forKey: Self.storageKey) }
     }
 

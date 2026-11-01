@@ -25,11 +25,15 @@ AI coding work is hard to manage when quota, network routes, and Mac sleep setti
   <img src="./docs/images/control-center.png" alt="AI Quota Bar control center" width="342">
 </p>
 
-## v1.39.0 · Codex reset inbox and visible Dim state
+## v1.39.1 · Quota rings during alerts and menu account masking
 
-The Mac menu now follows public reset announcements from codex-reset.com and codex-resets.com. Unread announcements keep an orange bell visible (blinking unless Reduce Motion is enabled) and repeat system notifications every five minutes until explicitly acknowledged. Opening a source or dismissing a notification does not mark it read. Recent history covers 30 days; the latest explicit reset signal remains available after acknowledgement. These third-party announcements do not prove that your account's quota has reset.
+Unread Codex reset announcements preserve every quota ring. A yellow dot replaces Codex’s C, and only the Codex unit alternates between yellow and normal colors every 0.75 seconds. Quota data continues to update; Reduce Motion keeps the yellow frame steady. The Dim badge stays visible.
 
-A steady screen-and-moon badge appears while Step Away Dim is active, including alongside reset alerts, so its state is visible during remote access. [Release notes](./docs/releases/v1.39.0.en.md) · [Reset inbox behavior](./docs/codex-reset-alerts.md)
+Optional **Settings → General → Account display → Mask accounts in menus** hides account names and emails in both menus, off by default. Identity and sync are unchanged; settings pages can still show full accounts. Windows does not implement these two features.
+
+[Release notes](./docs/releases/v1.39.1.en.md) · [Reset inbox guide](./docs/codex-reset-alerts.md)
+
+Public reset announcements come from codex-reset.com and codex-resets.com. System notifications repeat every five minutes until explicitly acknowledged. Opening a source or dismissing a notification does not mark it read. Recent history covers 30 days; the latest explicit reset signal remains after acknowledgement. These third-party announcements do not prove that your account’s quota has reset.
 
 ## Windows v1.38.6-beta.1 · Native tray app
 
@@ -39,7 +43,7 @@ Unzip and run `AIQuotaBar/AIQuotaBar.exe` on 64-bit Windows 10 or later. The ZIP
 
 This beta includes Codex OAuth quota with CLI fallback, Kimi/GLM/MiniMax quota, Clash routes and connections, local usage, a read-only mobile dashboard and Codex task sleep protection. Settings → Providers manages per-account sharing and watched emails, with immediate Watch saves and refresh requests. Sharing is off by default; anyone knowing a shared email can query its published quota without joining a team. Provider credentials stay local.
 
-| Capability | macOS v1.39.0 | Windows v1.38.6-beta.1 |
+| Capability | macOS v1.39.1 | Windows v1.38.6-beta.1 |
 | --- | --- | --- |
 | Codex / Kimi / GLM / MiniMax quota | Available | Available; source controls differ |
 | Codex Watch by email | Available | Available; changes save immediately |
@@ -50,6 +54,7 @@ This beta includes Codex OAuth quota with CLI fallback, Kimi/GLM/MiniMax quota, 
 | Team creation/join and member views | Available in app | Client interfaces exist; desktop onboarding remains incomplete |
 | Per-display Dim / brightness keys / credential mirror | Available | Not ported |
 | Public reset inbox and Dim status badge | Available | Not ported |
+| Menu account masking | Available; opt-in, menus only | Not implemented |
 | Updates | Mac installer | Check/reminder and release-page link; replace ZIP manually |
 
 The Windows beta is a separate prerelease and does not replace the Mac stable download. The detailed platform limits and dated verification records are in the [Windows guide](./win/README.md).
@@ -355,6 +360,8 @@ Open **Settings → Usage & Team** to create a team. Its management password is 
 - Shared data includes usage statistics, quota metadata and account labels (which may contain email addresses), never provider credentials or conversations.
 
 ## Privacy and security boundaries
+
+On macOS v1.39.1, enable **Settings → General → Account display → Mask accounts in menus** to show names and emails in both menus as `a****g@example.com`. Off by default; the choice is saved. Short names hide extra characters. Account switching, collection and sync keep their original identities; Mobile Dashboard masking is separate. Menu renaming is paused and account action messages use neutral summaries while masking is on. Check settings pages for sensitive information before sharing screenshots.
 
 - MiniMax credentials are stored in macOS Keychain.
 - GLM API keys and imported web-request credentials are stored in macOS Keychain.

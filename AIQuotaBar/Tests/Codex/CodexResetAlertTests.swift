@@ -25,6 +25,26 @@ final class CodexResetAlertTests: XCTestCase {
             publishedAt: now.addingTimeInterval(-age), text: text, url: source.url, scheduledFor: nil)
     }
 
+    func testLocalPreviewSurvivesRefreshWithoutPersistingOrReplacingRealMessages() async throws {
+        let spy = ResetNotificationSpy()
+        let (store, defaults) = try makeStore(notifications: spy)
+        store.ingest([alert("real")], feed: .timeline, now: now)
+        let before = defaults.data(forKey: CodexResetAlertStore.storageKey)
+        await store.triggerLocalTest(now: now)
+        let preview = try XCTUnwrap(store.unread.first { $0.alert.isLocalTest })
+        XCTAssertEqual(store.unread.count, 2)
+        XCTAssertEqual(defaults.data(forKey: CodexResetAlertStore.storageKey), before)
+        XCTAssertEqual(spy.deliveries.count, 1)
+        store.ingest([alert("another")], feed: .timeline, now: now)
+        XCTAssertTrue(store.unread.contains { $0.id == preview.id })
+        let restored = CodexResetAlertStore(defaults: defaults, notifications: ResetNotificationSpy())
+        XCTAssertEqual(restored.unread.count, 2)
+        XCTAssertFalse(restored.entries.contains { $0.alert.isLocalTest })
+        store.acknowledge(ids: [preview.id])
+        XCTAssertFalse(store.entries.contains { $0.alert.isLocalTest })
+        XCTAssertEqual(store.unread.count, 2)
+    }
+
     func testRealTimelineKeepsPendingSeparateFromConfirmedAndIncludesBankedUpdates() throws {
         let alerts = try CodexResetFeed.timeline.decode(fixture("reset-timeline"), now: now)
         XCTAssertEqual(alerts.count, 6)

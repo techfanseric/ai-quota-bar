@@ -21,11 +21,13 @@ enum QuotaSymbolRenderer {
                      signedFill: Double?, status: Status = .ready, lowQuota: Bool = false,
                      foreground: NSColor = .labelColor, track: NSColor? = nil,
                      offlineOpacity: CGFloat = 1, liveOpacity: CGFloat = 1,
-                     trend: [MenuBarRingTrendPoint]? = nil) {
+                     trend: [MenuBarRingTrendPoint]? = nil,
+                     resetAlert: Bool = false, resetAlertBright: Bool = false) {
         withCanvas(in: rect) {
+            let foreground = resetAlertBright ? NSColor.systemYellow : foreground
             let muted = track ?? foreground.withAlphaComponent(0.18)
             let blocked = status == .offline || status == .failed || status == .unavailable
-            let ringColor: NSColor = blocked ? danger : lowQuota ? warning : foreground
+            let ringColor: NSColor = resetAlertBright ? .systemYellow : blocked ? danger : lowQuota ? warning : foreground
             // Do not encode a warning only in the remaining arc: at 0–5%
             // that arc all but disappears. The initial and active center keep
             // the warning visible without changing the remaining/pace geometry.
@@ -42,9 +44,14 @@ enum QuotaSymbolRenderer {
             ]
             let letter = initial as NSString
             let size = letter.size(withAttributes: attributes)
-            letter.draw(at: NSPoint(x: 183.5 - size.width / 2, y: 286), withAttributes: attributes)
+            if resetAlert {
+                NSColor.systemYellow.setFill()
+                NSBezierPath(ovalIn: NSRect(x: 141.5, y: 311, width: 84, height: 84)).fill()
+            } else {
+                letter.draw(at: NSPoint(x: 183.5 - size.width / 2, y: 286), withAttributes: attributes)
+            }
             if blocked {
-                danger.withAlphaComponent(status == .offline ? offlineOpacity : 1).setFill()
+                (resetAlertBright ? NSColor.systemYellow : danger).withAlphaComponent(status == .offline ? offlineOpacity : 1).setFill()
                 NSBezierPath(roundedRect: NSRect(x: 88.5, y: 157.5, width: 190, height: 52), xRadius: 26, yRadius: 26).fill()
                 return
             }

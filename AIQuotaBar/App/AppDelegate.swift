@@ -52,6 +52,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             await runAutomaticUpdateCheckIfNeeded()
         }
 
+        if CommandLine.arguments.contains("--test-reset-alert") {
+            Task { await CodexResetAlertStore.shared.triggerLocalTest() }
+        }
         if CommandLine.arguments.contains("--show-reset-alerts") {
             DispatchQueue.main.async { [weak self] in self?.statusBarController?.showResetAlerts() }
         }

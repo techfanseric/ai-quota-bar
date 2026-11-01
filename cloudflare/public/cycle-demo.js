@@ -28,7 +28,8 @@ export function visibleArcInterval(start,end) {
  return upper>lower?[Math.max(0,(lower-openingEnd)/span),Math.min(1,(upper-openingEnd)/span)]:null;
 }
 function draw(svg, elapsed, remaining, delta, tasks, initial) {
- const count=waveCount(tasks), children=[];
+ const alert = svg.matches('.desktop-strip [data-cycle-icon="codex"]') && svg.closest('[data-reset-demo]')?.dataset.unread === 'true';
+ const count=waveCount(alert ? 0 : tasks), children=[];
  children.push(node('path',{d:arc(0,1),fill:'none',stroke:'currentColor','stroke-opacity':.18,'stroke-width':2.68,'stroke-linecap':'round'}));
  if(remaining>0)children.push(node('path',{d:arc(0,Math.min(1,remaining)),fill:'none',stroke:remaining<=.2?'#d6a00a':'currentColor','stroke-opacity':1,'stroke-width':2.68,'stroke-linecap':'round'}));
  for(let i=0;i<count;i++) {
@@ -54,7 +55,8 @@ function draw(svg, elapsed, remaining, delta, tasks, initial) {
   const amount=Math.min(1,Math.max(0,fill-index));
   if(known&&delta*sign>0&&amount>0)children.push(node('path',{d:fanSectorPath(sign,inner,outer,amount),fill:'currentColor'}));
  }
- children.push(node('text',{x:11,y:6.6,'text-anchor':'middle','font-size':6.34,'font-weight':700,fill:'currentColor'},initial));
+ children.push(node('circle',{class:'reset-alert-dot',cx:11,cy:4.8,r:2.05,fill:'#e5bd00'}));
+ children.push(node('text',{class:'provider-initial',x:11,y:6.6,'text-anchor':'middle','font-size':6.34,'font-weight':700,fill:'currentColor'},initial));
  svg.replaceChildren(...children);
 }
 

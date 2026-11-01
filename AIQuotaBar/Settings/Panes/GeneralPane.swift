@@ -4,6 +4,7 @@ import SwiftUI
 /// General tab: app-wide system preferences.
 @MainActor
 struct GeneralPane: View {
+    @AppStorage(MenuAccountPrivacy.storageKey) private var masksMenuAccounts = false
     @Bindable var stepAwayPreferences: StepAwayPreferences = .shared
     @Bindable var viewModel: UsageViewModel
 
@@ -26,6 +27,15 @@ struct GeneralPane: View {
                 stepAwaySection
                 Divider()
                 menuBarSection
+                Divider()
+                SettingsSection(title: language == .simplifiedChinese ? "账号显示" : "Account display", contentSpacing: 12) {
+                    PreferenceToggleRow(
+                        title: language == .simplifiedChinese ? "菜单账号脱敏" : "Mask accounts in menus",
+                        subtitle: language == .simplifiedChinese
+                            ? "默认关闭。隐藏左右键菜单中的完整账号名和邮箱，例如 a****g@example.com。仅影响菜单显示；手机看板使用独立设置。脱敏时暂停菜单内重命名。"
+                            : "Off by default. Masks names and emails in both menus, e.g. a****g@example.com. Only affects menu display; Mobile Dashboard has its own setting. Menu renaming is paused while masking is on.",
+                        isOn: $masksMenuAccounts)
+                }
                 Divider()
                 AnonymousAnalyticsSection(analytics: .shared, language: language)
                 Divider()
