@@ -1,5 +1,13 @@
 # AI Quota Bar — Windows 迁移版
 
+## 源码修复（尚未发布到 Windows ZIP）
+
+控制中心按点击所在显示器定位，在窗口创建和 DPI 变化完成后重新布局；字体、间距与文字测量保持同一尺寸基准，账号与套餐过长时省略，额度元数据自动换行。自动回归覆盖 100%、125%、150%、175%、200%、250% 及重复切换；这不是所有窗口、所有显示器组合的保证。
+
+Watch 在额度刷新后提前报送，设置页显示报送成功时间、账号数量、等待或失败状态；失败日志包含 HTTP 状态。协议与 Mac 相同，分享默认关闭、仅报送本机已获取的选中 Codex 账号，取消分享仍用空列表全量撤销。Mac 的眼睛由读取端的 Watch 来源生成，不是发布字段；缺少眼睛需检查 Mac 的关注邮箱、读取状态与版本，不能仅凭开关判断成功。
+
+完整说明与验证记录见 [Windows DPI / Watch 修复记录](../docs/releases/unreleased-windows-dpi-watch.md)。已发布的 v1.38.6-beta.1 ZIP 不包含此修复。
+
 macOS 菜单栏应用 [AI Quota Bar](../README.md) 的 Windows 版本(C# / .NET 8 WinForms 托盘应用)。
 功能规格分析文档见 [`docs/win-migration/analysis/`](../docs/win-migration/analysis/),模块级迁移对照见下文。
 

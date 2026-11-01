@@ -16,7 +16,7 @@ public class QuotaHistoryStoreTests : IDisposable
         store.Record(Sample(remaining: 60), now.AddMinutes(5));
         store.Record(Sample(remaining: 40), now.AddMinutes(10));
 
-        var series = store.GetSeries(ProviderKind.Glm, "5h");
+        var series = store.GetSeries(ProviderKind.Glm, "5h", now);
         Assert.Equal(3, series.Count);
         Assert.Equal(80, series[0].RemainingPercent);
         Assert.Equal(40, series[^1].RemainingPercent);
@@ -29,7 +29,7 @@ public class QuotaHistoryStoreTests : IDisposable
         using var store = new QuotaHistoryStore(_path);
         store.Record(Sample(remaining: 50), now);
         store.Record(Sample(remaining: 49), now.AddSeconds(30));
-        Assert.Single(store.GetSeries(ProviderKind.Glm, "5h"));
+        Assert.Single(store.GetSeries(ProviderKind.Glm, "5h", now));
     }
 
     [Fact]
@@ -41,7 +41,7 @@ public class QuotaHistoryStoreTests : IDisposable
         first.Save();
 
         using var second = new QuotaHistoryStore(_path);
-        var series = second.GetSeries(ProviderKind.Glm, "5h");
+        var series = second.GetSeries(ProviderKind.Glm, "5h", now);
         Assert.Single(series);
         Assert.Equal(70, series[0].RemainingPercent);
     }
@@ -97,9 +97,9 @@ public class QuotaHistoryStoreTests : IDisposable
             },
         };
         store.Record(new Dictionary<ProviderKind, ProviderSnapshot> { [ProviderKind.Glm] = glm }, now);
-        Assert.Single(store.GetSeries(ProviderKind.Glm, "5h"));
-        Assert.Single(store.GetSeries(ProviderKind.Glm, "Weekly"));
-        Assert.Empty(store.GetSeries(ProviderKind.Codex, "5h"));
+        Assert.Single(store.GetSeries(ProviderKind.Glm, "5h", now));
+        Assert.Single(store.GetSeries(ProviderKind.Glm, "Weekly", now));
+        Assert.Empty(store.GetSeries(ProviderKind.Codex, "5h", now));
     }
 
     private static IReadOnlyDictionary<ProviderKind, ProviderSnapshot> Sample(double remaining) => new Dictionary<ProviderKind, ProviderSnapshot>

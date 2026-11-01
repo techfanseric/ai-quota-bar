@@ -35,6 +35,8 @@ public sealed class CodexWatchClient : IDisposable
 
     public string BaseUrl { get; }
 
+    public string? LastPublishError { get; private set; }
+
     /// <summary>
     /// Publishes the locally ticked accounts. Full-replace semantics: an empty list cancels
     /// all sharing. Returns false on any failure (the caller then keeps the previous state).
@@ -64,10 +66,12 @@ public sealed class CodexWatchClient : IDisposable
             };
             using var content = new StringContent(body.ToJsonString(), Encoding.UTF8, "application/json");
             using var response = await _http.PostAsync(BaseUrl + "/v1/watch/publish", content, cancellationToken);
+            LastPublishError = response.IsSuccessStatusCode ? null : "HTTP " + (int)response.StatusCode;
             return response.IsSuccessStatusCode;
         }
         catch (Exception e) when (e is HttpRequestException or TaskCanceledException or OperationCanceledException)
         {
+            LastPublishError = e is OperationCanceledException ? "timeout_or_cancelled" : "network_error";
             return false;
         }
     }

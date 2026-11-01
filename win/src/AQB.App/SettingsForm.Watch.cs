@@ -24,6 +24,8 @@ internal sealed partial class SettingsForm
         section.Controls.Add(sharing);
         var accounts = WatchLayout();
         section.Controls.Add(accounts);
+        var publishStatus = WatchLabel("");
+        section.Controls.Add(publishStatus);
         var reads = WatchLabel("");
         section.Controls.Add(reads);
         string? accountSignature = null;
@@ -119,6 +121,7 @@ internal sealed partial class SettingsForm
         }
         void UpdateStatuses()
         {
+            publishStatus.Text = _hostState().WatchPublishStatus ?? "等待首次报送确认…";
             reads.Text = string.Join("\n", _settings.CodexWatchSharedEmails.Select(email =>
             {
                 var count = _hostState().WatchReadCounts.GetValueOrDefault(WatchAccount.Normalize(email));

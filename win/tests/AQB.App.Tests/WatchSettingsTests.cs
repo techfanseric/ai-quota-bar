@@ -6,6 +6,7 @@ using Xunit;
 
 namespace AQB.App.Tests;
 
+[Collection("Windows UI")]
 public sealed class WatchSettingsTests
 {
     [Fact]

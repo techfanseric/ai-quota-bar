@@ -41,6 +41,8 @@ public sealed class HostState
 
     public volatile int DashboardPort;
 
+    public volatile string? WatchPublishStatus;
+
     /// <summary>Watched-account rows for the control center (email → status/quota).</summary>
     public volatile IReadOnlyList<WatchedRowView> WatchedRows = Array.Empty<WatchedRowView>();
     public volatile IReadOnlyDictionary<string, AQB.Team.CodexWatchReadCount> WatchReadCounts =

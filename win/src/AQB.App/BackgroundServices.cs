@@ -72,7 +72,12 @@ public sealed class BackgroundServices : IDisposable
         Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
         "AIQuotaBar", "quota-history.json"));
 
-    private void RecordQuotaHistory() => _history.Record(_orchestrator.Latest);
+    private void RecordQuotaHistory()
+    {
+        _history.Record(_orchestrator.Latest);
+        // Publish the refreshed sample rather than waiting for an unrelated timer.
+        if (_settings.CodexWatchSharingEnabled) RequestWatchRefresh();
+    }
 
     /// <summary>(Re)applies settings — safe to call after the settings dialog saves.</summary>
     public void ApplySettings()
@@ -273,12 +278,14 @@ public sealed class BackgroundServices : IDisposable
                             window.Name,
                             (int)Math.Clamp(window.RemainingPercent, 0, 100),
                             window.ResetsAtUtc > DateTimeOffset.MinValue ? window.ResetsAtUtc : null,
-                            window.CapturedAtUtc,
-                            window.WindowStartUtc)).ToList()));
+                            window.CapturedAtUtc > DateTimeOffset.MinValue ? window.CapturedAtUtc : codex.LastUpdatedUtc,
+                            window.WindowStartUtc > DateTimeOffset.MinValue && window.WindowStartUtc < window.ResetsAtUtc
+                                ? window.WindowStartUtc : null)).ToList()));
                 }
             }
             else
             {
+                _state.WatchPublishStatus = "等待本机 Codex 额度获取成功后报送。";
                 return;
             }
         }
@@ -286,9 +293,19 @@ public sealed class BackgroundServices : IDisposable
         try
         {
             var published = await client.PublishAsync(snapshots, cancellationToken);
-            if (!published && snapshots.Count > 0)
+            if (!published)
             {
-                AppLog.Warn("CodexWatch publish failed; sharing state unchanged on the server.");
+                _state.WatchPublishStatus = $"报送失败（{client.LastPublishError}），云端保留之前的数据；下次自动重试。";
+                AppLog.Warn($"CodexWatch publish failed ({client.LastPublishError}); sharing state unchanged on the server.");
+            }
+            else
+            {
+                _state.WatchPublishStatus = !_settings.CodexWatchSharingEnabled
+                    ? "分享已关闭，云端已撤销本设备的分享。"
+                    : snapshots.Count == 0
+                        ? "尚无可报送的选中账号，请勾选本机已获取额度的账号。"
+                        : $"报送成功 · {snapshots.Count} 个账号 · {DateTimeOffset.Now:g} · 每 10 分钟自动报送";
+                if (snapshots.Count > 0) AppLog.Info($"CodexWatch publish succeeded: accounts={snapshots.Count}.");
             }
 
             if (_settings.CodexWatchSharingEnabled && snapshots.Count > 0)
@@ -303,6 +320,7 @@ public sealed class BackgroundServices : IDisposable
         }
         catch (Exception e)
         {
+            _state.WatchPublishStatus = "报送失败，请检查网络；下次自动重试。";
             AppLog.Warn("CodexWatch publish failed: " + e.Message);
         }
     }
