@@ -160,6 +160,7 @@ final class StatusBarController {
     private var resetAlertActive = false
     private var resetAlertRenderState: CodexResetAlertRenderState?
     private var resetAlertImages: [NSImage] = []
+    private var resetAlertQuotaState: CompactStatusRenderState?
 
     private var compactAppearanceObservation: NSKeyValueObservation?
     /// Long-pressing the status item with the right button triggers the
@@ -730,7 +731,8 @@ final class StatusBarController {
             self.appearanceUpdateScheduled = false
             if self.resetAlertActive, let button = self.statusItem?.button,
                CodexResetAlertRenderState(button: button,
-                   isDimmingActive: self.stepAwayDimController.isActive) == self.resetAlertRenderState { return }
+                   isDimmingActive: self.stepAwayDimController.isActive) == self.resetAlertRenderState,
+               self.makeCompactRenderState(button: button, snapshots: self.resetAlertSnapshots) == self.resetAlertQuotaState { return }
             // Snapshot callbacks commonly report no persistent appearance change.
             // Avoid even layout/accessibility writes in that case.
             if let button = self.statusItem?.button,
@@ -752,6 +754,7 @@ final class StatusBarController {
             resetAlertActive = false
             resetAlertRenderState = nil
             resetAlertImages = []
+            resetAlertQuotaState = nil
             NSLog("aiquotabar: reset-alert attention stopped; restoring quota icon")
         }
         if viewModel.menuBarAppearance == .compactRing,
@@ -802,7 +805,7 @@ final class StatusBarController {
     }
 
     /// A native button image works in menu-bar replicas as well as the main
-    /// screen. Pause quota animation while the unread alert owns this image.
+    /// screen. Keep quota geometry visible while only Codex signals unread updates.
     private func presentResetAlert() {
         guard let button = statusItem?.button else { return }
         if !resetAlertActive {
@@ -812,12 +815,23 @@ final class StatusBarController {
         }
         let renderState = CodexResetAlertRenderState(button: button,
             isDimmingActive: stepAwayDimController.isActive)
-        if renderState != resetAlertRenderState {
+        let quotaState = makeCompactRenderState(button: button, snapshots: resetAlertSnapshots)
+        if renderState != resetAlertRenderState || quotaState != resetAlertQuotaState {
             // Publish the state before AppKit can reenter an appearance callback.
             resetAlertRenderState = renderState
+            resetAlertQuotaState = quotaState
+            let rings = StatusBarCompactRingsView()
+            rings.appearance = button.effectiveAppearance
+            rings.setSnapshots(resetAlertSnapshots, codexConnectivity: connectivityMonitor.state,
+                paceDisplayMode: viewModel.menuBarPaceDisplayMode,
+                taskWaveLayout: viewModel.menuBarTaskWaveLayout,
+                isSelfTesting: false, activeTaskCounts: sleepProtectionCoordinator.activeTaskCounts,
+                placeholderStyle: viewModel.menuBarPlaceholderStyle,
+                horizontalPadding: viewModel.menuBarCompactHorizontalPadding,
+                ringSpacing: viewModel.menuBarCompactRingSpacing, accessibilityLabel: quotaTooltip)
             resetAlertImages = [true, false].compactMap {
-                guard let image = CodexResetAlertIcon.image(bright: $0, appearance: button.effectiveAppearance)
-                else { return nil }
+                guard let image = rings.renderedFrames(scale: quotaState.scale,
+                    height: max(22, button.bounds.height), resetAlertBright: $0).first else { return nil }
                 return stepAwayDimController.isActive
                     ? StepAwayDimStatusIcon.image(addingTo: image, appearance: button.effectiveAppearance)
                     : image
@@ -827,12 +841,12 @@ final class StatusBarController {
         compactImageAnimationTask = nil
         compactRenderState = nil
         statusView.removeFromSuperview()
-        let length: CGFloat = 26 + (stepAwayDimController.isActive ? StepAwayDimStatusIcon.width : 0)
+        let length = resetAlertImages.first?.size.width ?? button.bounds.width
         if statusItem?.length != length { statusItem?.length = length }
         let chinese = viewModel.appLanguage == .simplifiedChinese
         let count = CodexResetAlertStore.shared.unread.count
-        let tooltip = dimmingTooltip(chinese ? "Codex 重置消息：\(count) 条未读。点击查看并确认已读。"
-            : "Codex reset updates: \(count) unread. Click to review and mark read.")
+        let tooltip = dimmingTooltip((chinese ? "Codex 重置消息：\(count) 条未读。点击查看并确认已读。"
+            : "Codex reset updates: \(count) unread. Click to review and mark read.") + "\n" + quotaTooltip)
         button.toolTip = tooltip
         button.setAccessibilityLabel(tooltip)
         drawResetAlertImage()
@@ -871,10 +885,23 @@ final class StatusBarController {
         button.addSubview(statusView)
     }
 
-    private func makeCompactRenderState(button: NSStatusBarButton) -> CompactStatusRenderState {
+    private var resetAlertSnapshots: [MenuBarSnapshot] {
+        var snapshots = displayedCompactOrSingleSnapshots
+        if !snapshots.contains(where: { $0.provider == .codex }) {
+            snapshots.append(viewModel.menuBarSnapshots.first(where: { $0.provider == .codex })
+                ?? MenuBarSnapshot(provider: .codex, modelName: nil,
+                    remainingPercent: nil, ringPercent: nil, paceDeltaPercent: nil,
+                    ringTrend: nil, resetsAt: nil, state: .needsSetup,
+                    isLowQuota: false, tooltip: "Codex"))
+        }
+        return snapshots
+    }
+
+    private func makeCompactRenderState(button: NSStatusBarButton,
+        snapshots: [MenuBarSnapshot]? = nil) -> CompactStatusRenderState {
         let scale = button.window?.backingScaleFactor ?? NSScreen.main?.backingScaleFactor ?? 2
         return CompactStatusRenderState(
-            snapshots: displayedCompactSnapshots, connectivity: connectivityMonitor.state,
+            snapshots: snapshots ?? displayedCompactSnapshots, connectivity: connectivityMonitor.state,
             pace: viewModel.menuBarPaceDisplayMode,
             taskWaveLayout: viewModel.menuBarTaskWaveLayout,
             selfTesting: viewModel.isMenuBarSelfTesting,
@@ -1297,15 +1324,24 @@ final class StatusBarCompactRingsView: NSView {
     func renderedFrames(
         scale: CGFloat,
         height: CGFloat,
-        showsProviderInitials: Bool = false
+        showsProviderInitials: Bool = false,
+        resetAlertBright: Bool? = nil
     ) -> [NSImage] {
-        ringViews.forEach { $0.setHovered(showsProviderInitials) }
-        defer { ringViews.forEach { $0.setHovered(false) } }
+        ringViews.forEach {
+            $0.resetAlertBright = resetAlertBright
+            $0.setHovered(showsProviderInitials)
+        }
+        defer {
+            ringViews.forEach {
+                $0.resetAlertBright = nil
+                $0.setHovered(false)
+            }
+        }
         let pointSize = NSSize(width: ceil(preferredWidth), height: ceil(height))
         // Native template tint follows the menu bar (including wallpaper and
         // replica appearances), independently of the application's appearance.
         // Semantic warning colors and the self-test retain their RGB frames.
-        let usesTemplate = !ringViews.contains { $0.requiresSemanticColorForRendering }
+        let usesTemplate = resetAlertBright == nil && !ringViews.contains { $0.requiresSemanticColorForRendering }
         ringViews.forEach { $0.rendersTemplateMask = usesTemplate }
         defer { ringViews.forEach { $0.rendersTemplateMask = false } }
         let hasTasks = ringViews.contains { $0.hasActiveTaskForRendering }
@@ -1314,7 +1350,7 @@ final class StatusBarCompactRingsView: NSView {
         let duration: Double = hasTasks && (hasSelfTest || hasOffline) ? 9
             : hasSelfTest ? 3 : hasTasks ? StatusBarAnimationCadence.taskWaveDuration : 1
         let animates = hasTasks || hasSelfTest || hasOffline
-        let frameCount = !showsProviderInitials && animates
+        let frameCount = resetAlertBright == nil && !showsProviderInitials && animates
             && !NSWorkspace.shared.accessibilityDisplayShouldReduceMotion
             ? Int(duration * Double(StatusBarAnimationCadence.taskWaveFramesPerSecond)) : 1
         // Every frame carries native 1x and Retina pixels, including when the
@@ -1660,7 +1696,7 @@ final class StatusBarCompactRingView: NSView {
         let percent = selfTestFrame?.ringPercent ?? snapshot.ringPercent
         let delta = selfTestFrame?.paceDeltaPercent ?? snapshot.paceDeltaPercent
         let glyph = MenuBarPaceGlyph(deltaPercent: delta, mode: paceDisplayMode)
-        if state == .placeholder {
+        if state == .placeholder && !showsResetAlert {
             let rect = bounds.insetBy(dx: 1, dy: 1)
             switch placeholderStyle {
             case .openAIConnectivity:
@@ -1694,8 +1730,9 @@ final class StatusBarCompactRingView: NSView {
             offlineOpacity: offlinePulseOpacity,
             liveOpacity: showsTaskEnergy ? Self.activeLiveRingOpacity : 1,
             // A self-test frame is a scripted demo of the fan, so it keeps the fan.
-            trend: selfTestFrame == nil ? snapshot.ringTrend : nil)
-        if showsTaskEnergy {
+            trend: selfTestFrame == nil ? snapshot.ringTrend : nil,
+            resetAlert: showsResetAlert, resetAlertBright: showsResetAlert && resetAlertBright == true)
+        if showsTaskEnergy && !showsResetAlert {
             let scale = min(symbolRect.width / 367, symbolRect.height / 410)
             switch taskWaveLayout {
             case .evenlySpaced:
@@ -1738,6 +1775,8 @@ final class StatusBarCompactRingView: NSView {
     // Only used while producing button images; direct AppKit/SwiftUI drawing
     // keeps its existing foreground/background colors.
     var rendersTemplateMask = false
+    var resetAlertBright: Bool?
+    private var showsResetAlert: Bool { snapshot.provider == .codex && resetAlertBright != nil }
 
     var requiresSemanticColorForRendering: Bool {
         if snapshot.state == .placeholder {

@@ -99,6 +99,15 @@ final class LeftMenuCodexAccountRenderTests: XCTestCase {
             menu, width: MenuBarPanelLayout.width, height: 1_200,
             name: "leftmenu-default", to: outputDirectory)
 
+        let privacySuite = "LeftMenuRenderPrivacy.\(UUID())"
+        let privacyDefaults = try XCTUnwrap(UserDefaults(suiteName: privacySuite))
+        defer { privacyDefaults.removePersistentDomain(forName: privacySuite) }
+        privacyDefaults.set(true, forKey: MenuAccountPrivacy.storageKey)
+        try render(
+            menu.defaultAppStorage(privacyDefaults),
+            width: MenuBarPanelLayout.width, height: 1_200,
+            name: "leftmenu-masked", to: outputDirectory)
+
         // 变体：当前账号组也是过期云端数据，验证展开态的快照行布局
         // （行头 + 胶囊条 + 元数据，不退化成只剩周期行）。
         let staleViewModel = UsageViewModel()

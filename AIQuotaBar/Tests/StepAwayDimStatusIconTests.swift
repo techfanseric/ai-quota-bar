@@ -26,20 +26,29 @@ final class StepAwayDimStatusIconTests: XCTestCase {
         for name in [NSAppearance.Name.aqua, .darkAqua] {
             let appearance = try XCTUnwrap(NSAppearance(named: name))
             for bright in [true, false] {
-                let base = try XCTUnwrap(CodexResetAlertIcon.image(bright: bright, appearance: appearance))
+                let rings = StatusBarCompactRingsView()
+                rings.appearance = appearance
+                rings.setSnapshots([MenuBarSnapshot(provider: .codex, modelName: nil,
+                    remainingPercent: 60, ringPercent: 60, paceDeltaPercent: 10,
+                    ringTrend: nil, resetsAt: nil, state: .ready, isLowQuota: false, tooltip: "Codex")],
+                    codexConnectivity: .reachable, paceDisplayMode: .staged,
+                    isSelfTesting: false, activeTaskCounts: [:],
+                    horizontalPadding: 4, ringSpacing: 4, accessibilityLabel: "Codex")
+                let base = try XCTUnwrap(rings.renderedFrames(scale: 2, height: 22,
+                    resetAlertBright: bright).first)
                 let result = StepAwayDimStatusIcon.image(addingTo: base, appearance: appearance, scale: 3)
-                XCTAssertEqual(result.size, NSSize(width: 37, height: 22))
+                XCTAssertEqual(result.size, NSSize(width: 46, height: 22))
                 XCTAssertFalse(result.isTemplate)
-                XCTAssertEqual(Set(result.representations.map(\.pixelsWide)), [37, 74, 111])
+                XCTAssertEqual(Set(result.representations.map(\.pixelsWide)), [46, 92, 138])
                 XCTAssertTrue(result.representations.allSatisfy { $0 is NSBitmapImageRep })
-                let bitmap = try XCTUnwrap(result.representations.first { $0.pixelsWide == 74 } as? NSBitmapImageRep)
+                let bitmap = try XCTUnwrap(result.representations.first { $0.pixelsWide == 92 } as? NSBitmapImageRep)
                 let original = try XCTUnwrap(base.representations.first as? NSBitmapImageRep)
-                for x in 0..<36 {
-                    for y in 0..<36 {
-                        XCTAssertEqual(bitmap.colorAt(x: x, y: y + 8), original.colorAt(x: x, y: y))
+                for x in 0..<54 {
+                    for y in 0..<44 {
+                        XCTAssertEqual(bitmap.colorAt(x: x, y: y), original.colorAt(x: x, y: y))
                     }
                 }
-                let badgeColors = (36..<74).flatMap { x in
+                let badgeColors = (54..<92).flatMap { x in
                     (0..<44).compactMap { y in bitmap.colorAt(x: x, y: y)?.usingColorSpace(.deviceRGB) }
                 }
                 XCTAssertTrue(badgeColors.contains {

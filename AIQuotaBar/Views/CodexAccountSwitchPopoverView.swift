@@ -4,6 +4,7 @@ import SwiftUI
 /// 免登录切换、登录新账号、重命名 / 删除 / 导入备份。
 @MainActor
 struct CodexAccountSwitchPopoverView: View {
+    @AppStorage(MenuAccountPrivacy.storageKey) private var masksMenuAccounts = false
     @Bindable var store: CodexAuthAccountStore
     let isCollapsed: Bool
     let onToggleCollapse: () -> Void
@@ -111,7 +112,7 @@ struct CodexAccountSwitchPopoverView: View {
         .frame(maxHeight: .infinity)
         .confirmationDialog(
             deleteCandidate.map {
-                language.codexAccountsDeleteConfirmationTitle($0.label)
+                language.codexAccountsDeleteConfirmationTitle(accountDisplay($0.label))
             } ?? "",
             isPresented: Binding(
                 get: { deleteCandidate != nil },
@@ -166,7 +167,7 @@ struct CodexAccountSwitchPopoverView: View {
     private var currentAccountTitle: String {
         switch store.currentStatus {
         case let .chatgptLogin(login):
-            return login.email ?? language.codexAccountsUnrecognizedFile()
+            return login.email.map(accountDisplay) ?? language.codexAccountsUnrecognizedFile()
         case .unauthenticated:
             return language.codexAccountsNotLoggedIn()
         case .apiKeyMode:
@@ -194,13 +195,13 @@ struct CodexAccountSwitchPopoverView: View {
                     .foregroundStyle(.primary)
                     .lineLimit(1)
                 Text(language.codexAccountsExternalSwitchDetail(
-                    from: change.previousEmail, to: change.email))
+                    from: change.previousEmail.map(accountDisplay), to: change.email.map(accountDisplay)))
                     .font(.system(size: 9))
                     .foregroundStyle(.secondary)
                     .lineLimit(1)
                     .truncationMode(.tail)
                     .help(language.codexAccountsStatusExternalSwitch(
-                        from: change.previousEmail, to: change.email))
+                        from: change.previousEmail.map(accountDisplay), to: change.email.map(accountDisplay)))
             }
 
             Spacer(minLength: 8)
@@ -218,7 +219,7 @@ struct CodexAccountSwitchPopoverView: View {
                 .foregroundStyle(stash.isLoggedIn ? Color.secondary : Color.orange)
                 .frame(width: 18)
 
-            if isRenaming(stash) {
+            if isRenaming(stash) && !masksMenuAccounts {
                 TextField(
                     language.codexAccountsRenamePlaceholder(),
                     text: $renameText
@@ -240,7 +241,7 @@ struct CodexAccountSwitchPopoverView: View {
                     // 重命名按钮直接跟在名称后面，示意更明确；
                     // 切换 / 删除保持在行尾。
                     HStack(spacing: 4) {
-                        Text(stash.label)
+                        Text(accountDisplay(stash.label))
                             .font(.system(size: 11, weight: .medium))
                             .lineLimit(1)
 
@@ -251,6 +252,7 @@ struct CodexAccountSwitchPopoverView: View {
                                 .font(.system(size: 9, weight: .semibold))
                         }
                         .buttonStyle(.plain)
+                        .disabled(masksMenuAccounts)
                         .foregroundStyle(.secondary)
                         .accessibilityLabel(
                             Text(language.codexAccountsRenameAccessibilityLabel()))
@@ -295,7 +297,7 @@ struct CodexAccountSwitchPopoverView: View {
     private func subtitle(for stash: CodexStashedAccount) -> String {
         switch stash.status {
         case let .chatgptLogin(login):
-            return login.email ?? language.codexAccountsUnrecognizedFile()
+            return login.email.map(accountDisplay) ?? language.codexAccountsUnrecognizedFile()
         case .unauthenticated:
             return language.codexAccountsNotLoggedIn()
         case .apiKeyMode:
@@ -422,7 +424,7 @@ struct CodexAccountSwitchPopoverView: View {
                 .foregroundStyle(.secondary)
                 .frame(width: 18)
 
-            Text(language.codexAccountsLegacyImportTitle(fileName))
+            Text(language.codexAccountsLegacyImportTitle(accountDisplay(fileName)))
                 .font(.system(size: 10))
                 .foregroundStyle(.secondary)
                 .lineLimit(1)
@@ -462,7 +464,13 @@ struct CodexAccountSwitchPopoverView: View {
     // MARK: - 状态行
 
     private func statusRow(_ message: CodexAccountSwitchStatusMessage) -> some View {
-        Text(message.text)
+        // Status messages can refer to deleted or renamed accounts that are no
+        // longer in the store. Use a neutral summary rather than risk leaking them.
+        Text(masksMenuAccounts
+            ? (message.isError
+                ? (language == .simplifiedChinese ? "账号操作失败。关闭菜单账号脱敏后可查看详情。" : "Account action failed. Turn off menu account masking to view details.")
+                : (language == .simplifiedChinese ? "账号状态已更新。" : "Account status updated."))
+            : message.text)
             .font(.system(size: 9))
             .foregroundStyle(message.isError ? Color.red : Color.secondary)
             .lineLimit(2)
@@ -472,6 +480,10 @@ struct CodexAccountSwitchPopoverView: View {
     }
 
     // MARK: - 重命名
+
+    private func accountDisplay(_ account: String) -> String {
+        MenuAccountPrivacy.display(account, masked: masksMenuAccounts)
+    }
 
     private func isRenaming(_ stash: CodexStashedAccount) -> Bool {
         renamingLabel == stash.label

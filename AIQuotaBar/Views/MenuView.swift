@@ -3,6 +3,7 @@ import CodexBarCore
 import SwiftUI
 
 struct MenuView: View {
+    @AppStorage(MenuAccountPrivacy.storageKey) private var masksMenuAccounts = false
     @State private var showsUsagePreview = false
     @State private var updates = UpdateChecker.shared
     /// 当前悬停着、等着出气泡的行。footer 里的按钮不在 ProviderModelsSection 里，
@@ -128,7 +129,7 @@ struct MenuView: View {
                             HStack(spacing: 8) {
                                 Image(systemName: "exclamationmark.triangle.fill")
                                     .foregroundStyle(.orange)
-                                Text("\(provider.displayName): \(language.errorDescription(for: error))")
+                                Text(MenuAccountPrivacy.redactEmails(in: "\(provider.displayName): \(language.errorDescription(for: error))", masked: masksMenuAccounts))
                                     .font(.system(size: 10))
                                     .foregroundStyle(.secondary)
                                     .lineLimit(2)
@@ -357,6 +358,7 @@ private struct MenuPlaceholderCard: View {
 }
 
 private struct ProviderModelsSection: View {
+    @AppStorage(MenuAccountPrivacy.storageKey) private var masksMenuAccounts = false
     let data: UsageData
     let language: AppLanguage
     let warningThreshold: Double
@@ -724,7 +726,7 @@ private struct ProviderModelsSection: View {
                             .foregroundStyle(.tertiary)
                             .frame(width: 8)
 
-                        Text(group.accountName ?? "Unknown account")
+                        Text(group.accountName.map { MenuAccountPrivacy.display($0, masked: masksMenuAccounts) } ?? "Unknown account")
                             .font(.system(size: 10, weight: .medium, design: .rounded))
                             .foregroundStyle(.secondary)
                             .lineLimit(1)
@@ -773,7 +775,7 @@ private struct ProviderModelsSection: View {
                 Spacer()
 
                 HStack(spacing: 4) {
-                    Text(group.accountName ?? "Unknown account")
+                    Text(group.accountName.map { MenuAccountPrivacy.display($0, masked: masksMenuAccounts) } ?? "Unknown account")
                         .font(.system(size: 10, weight: .medium, design: .rounded))
                         .foregroundStyle(.secondary)
                         .lineLimit(1)

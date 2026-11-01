@@ -8,7 +8,6 @@
  const inbox = root.querySelector('[data-demo-inbox]');
  const count = root.querySelector('[data-demo-unread]');
  const status = root.querySelector('[data-demo-status]');
- const bell = root.querySelector('.hero-alert-bell');
  const pause = root.querySelector('[data-pause-motion]');
  const history = root.querySelector('[data-reset-history]');
  const historyButton = root.querySelector('[data-demo-history]');
@@ -17,7 +16,6 @@
  const cancelArrival = () => { clearTimeout(timer); timer = undefined; };
  function paint() {
   root.dataset.unread = String(unread);
-  bell.hidden = !unread;
   count.textContent = unread ? '1' : '';
   count.hidden = !unread;
   root.querySelector('[data-read-all-alert]').hidden = !unread;

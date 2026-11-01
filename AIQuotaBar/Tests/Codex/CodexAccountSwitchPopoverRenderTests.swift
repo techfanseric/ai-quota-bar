@@ -26,6 +26,15 @@ final class CodexAccountSwitchPopoverRenderTests: XCTestCase {
             name: "accounts-normal",
             to: outputDirectory)
 
+        try render(
+            CodexAccountSwitchPopoverView(
+                store: normalStore,
+                isCollapsed: false,
+                onToggleCollapse: {}),
+            name: "accounts-masked",
+            to: outputDirectory,
+            masked: true)
+
         // 状态二：切换被守卫挂起（桌面版 + CLI 都在运行，手动模式）。
         let pendingDefaultsSuite = "CodexAccountRenderManual.\(UUID())"
         let pendingDefaults = try XCTUnwrap(UserDefaults(suiteName: pendingDefaultsSuite))
@@ -84,6 +93,15 @@ final class CodexAccountSwitchPopoverRenderTests: XCTestCase {
                 onToggleCollapse: {}),
             name: "accounts-external-change",
             to: outputDirectory)
+
+        try render(
+            CodexAccountSwitchPopoverView(
+                store: externalStore,
+                isCollapsed: false,
+                onToggleCollapse: {}),
+            name: "accounts-external-change-masked",
+            to: outputDirectory,
+            masked: true)
     }
 
     // MARK: - Fixtures
@@ -176,8 +194,13 @@ final class CodexAccountSwitchPopoverRenderTests: XCTestCase {
     private func render(
         _ view: CodexAccountSwitchPopoverView,
         name: String,
-        to directory: URL
+        to directory: URL,
+        masked: Bool = false
     ) throws {
+        let suite = "CodexAccountRenderPrivacy.\(UUID())"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+        defaults.set(masked, forKey: MenuAccountPrivacy.storageKey)
         let width = ClashPopoverLayout.width
         let height = max(
             ClashPopoverLayout.accountsSectionMinimumHeight,
@@ -187,7 +210,7 @@ final class CodexAccountSwitchPopoverRenderTests: XCTestCase {
                 hasPending: view.store.pendingRequest != nil,
                 hasStatus: view.store.statusMessage != nil))
         let hostingView = NSHostingView(
-            rootView: view.frame(width: width, height: height))
+            rootView: view.defaultAppStorage(defaults).frame(width: width, height: height))
         hostingView.frame = NSRect(origin: .zero, size: NSSize(width: width, height: height))
         hostingView.layoutSubtreeIfNeeded()
 
