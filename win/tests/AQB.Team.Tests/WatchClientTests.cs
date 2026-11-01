@@ -67,6 +67,7 @@ public sealed class CodexWatchClientTests : IDisposable
             }),
         });
         Assert.True(ok);
+        Assert.Null(client.LastPublishError);
         var request = handler.Requests.Single();
         Assert.Equal("POST", request.Method);
         Assert.Equal("https://sync.example.com/v1/watch/publish", request.Url);
@@ -86,6 +87,7 @@ public sealed class CodexWatchClientTests : IDisposable
         var handler = new FakeHandler { Status = HttpStatusCode.InternalServerError };
         using var client = new CodexWatchClient("publisher-1", "https://sync.example.com", handler);
         Assert.False(await client.PublishAsync(Array.Empty<CodexWatchAccountSnapshot>()));
+        Assert.Equal("HTTP 500", client.LastPublishError);
         Assert.Single(handler.Requests);
     }
 

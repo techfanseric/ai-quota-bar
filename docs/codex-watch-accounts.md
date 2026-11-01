@@ -141,6 +141,8 @@ UserDefaults 里的 `codexWatch.isServing` / `codexWatch.grants.v1` 仍会被读
 
 ## 已知边界
 
+Windows 源码版（尚未发布到 v1.38.6-beta.1 ZIP）在额度刷新后请求报送，并在 Providers 设置中显示本次报送结果、成功时间和账号数量，失败日志区分 HTTP 错误与网络超时。Mac 和 Windows 共用 `/v1/watch/publish` 协议；Mac 的眼睛来自读取后生成的 `Watch` 来源，不由发布者传递图标。应同时核对选中的邮箱、云端更新时间/采样时间、Mac 关注列表与读取状态。云端读取计数不能确定具体哪台设备读取过。
+
 - **只覆盖 Codex。** 其它 provider（Kimi / GLM / MiniMax）各有各的凭据模型，
   混进来会让「允许分享」语义变模糊。
 - **需要分享方那台 Mac 在运行。** 它关机或退出，云端里的快照会停在最后一次上报的时刻；

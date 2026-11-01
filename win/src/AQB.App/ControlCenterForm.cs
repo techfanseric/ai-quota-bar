@@ -40,7 +40,7 @@ internal sealed class ControlCenterForm : Form
         AutoScaleMode = AutoScaleMode.None;
         BackColor = _palette.Background;
         Size = new Size(P(360), P(60));
-        Font = new Font("Segoe UI", 9f);
+        Font = UiFont("Segoe UI", 9f);
 
         _flow.Dock = DockStyle.None;
         _flow.BackColor = _palette.Background;
@@ -100,74 +100,62 @@ internal sealed class ControlCenterForm : Form
         _pill.Invalidate();
     }
 
+    private readonly Screen _targetScreen = Screen.FromPoint(Cursor.Position);
     private float _scale;
 
     /// <summary>Dip → pixel scale of the monitor the flyout lands on. DeviceDpi only
     /// tracks a monitor once the handle exists — before that it reports the DPI the
-    /// process started with, which goes stale when the user changes display scaling
-    /// while the tray app runs. The primary's effective DPI is read from the monitor
-    /// directly, and every scale change re-lays the flyout out (see RescaleForMonitor).</summary>
-    private float Scale
+    /// process started with. Read the clicked monitor before handle creation, then
+    /// rebuild using the actual window DPI after every native DPI transition.</summary>
+    private float LayoutScale
     {
         get
         {
             if (_scale <= 0f)
             {
-                _scale = PrimaryMonitorDpi() / 96f;
+                _scale = TargetMonitorDpi() / 96f;
             }
 
             return _scale;
         }
     }
 
-    private int P(int dip) => (int)Math.Round(dip * Scale);
+    private int P(int dip) => (int)Math.Round(dip * LayoutScale);
 
     protected override void OnHandleCreated(EventArgs e)
     {
         base.OnHandleCreated(e);
         NativeChrome.ApplyRounded(this);
         NativeChrome.ApplyBorderlessShadow(this);
-        if (!RescaleForMonitor())
-        {
-            PositionNearTray();
-        }
+        ApplyLayoutDpi(DeviceDpi);
     }
 
     protected override void OnDpiChanged(DpiChangedEventArgs e)
     {
         base.OnDpiChanged(e);
-        RescaleForMonitor();
+        // Rebuild after WinForms finishes its native DPI transition and font scaling.
+        BeginInvoke(() => { if (!IsDisposed) ApplyLayoutDpi(DeviceDpi); });
     }
 
-    /// <summary>Re-syncs the layout scale with the monitor's current DPI and rebuilds
-    /// every card when it changed, so the flyout follows runtime changes of the system
-    /// scaling instead of keeping process-start pixel sizes. Returns true when a
-    /// rebuild ran at a new scale (it repositions the window too).</summary>
-    private bool RescaleForMonitor()
+    internal void ApplyLayoutDpi(int dpi)
     {
-        var dpi = PrimaryMonitorDpi();
-        if (Math.Abs(dpi / 96f - Scale) < 0.01f)
-        {
-            return false;
-        }
-
         _scale = dpi / 96f;
+        Font = UiFont("Segoe UI", 9f);
         _flow.Padding = new Padding(P(10));
         ClientSize = new Size(P(360), ClientSize.Height);
         Rebuild();
-        return true;
     }
 
-    private int PrimaryMonitorDpi()
+    private int TargetMonitorDpi()
     {
-        var bounds = Screen.PrimaryScreen?.Bounds ?? SystemInformation.VirtualScreen;
-        if (NativeChrome.TryGetMonitorDpi(new Point(bounds.Right - 1, bounds.Bottom - 1), out var dpi))
-        {
-            return (int)dpi;
-        }
-
-        return DeviceDpi;
+        return NativeChrome.TryGetMonitorDpi(_targetScreen.Bounds.Location, out var dpi)
+            ? (int)dpi : DeviceDpi;
     }
+
+    // Compensate for the window DPI so font metrics and manually scaled bounds
+    // stay in the same coordinate system during a layout rebuild.
+    private Font UiFont(string family, float points, FontStyle style = FontStyle.Regular) =>
+        new(family, points * 96f * LayoutScale / DeviceDpi, style, GraphicsUnit.Point);
 
     protected override void OnShown(EventArgs e)
     {
@@ -220,7 +208,7 @@ internal sealed class ControlCenterForm : Form
 
         var state = _state();
         _flow.SuspendLayout();
-        _flow.Controls.Clear();
+        while (_flow.Controls.Count > 0) _flow.Controls[0].Dispose();
 
         AddCard(BuildHeader(state));
         var providerCards = 0;
@@ -288,8 +276,8 @@ internal sealed class ControlCenterForm : Form
         var padding = _flow.Padding;
         var contentHeight = padding.Vertical
             + _flow.Controls.Cast<Control>().Sum(c => c.Height + c.Margin.Vertical);
-        var available = (Screen.PrimaryScreen?.WorkingArea ?? SystemInformation.WorkingArea).Height - P(24);
-        Height = Math.Clamp(contentHeight, P(320), Math.Max(P(320), available));
+        var available = Math.Max(1, _targetScreen.WorkingArea.Height - P(24));
+        Height = Math.Clamp(contentHeight, Math.Min(P(320), available), available);
         _flow.SetBounds(0, 0, ClientSize.Width, contentHeight);
         SetScrollOffset(_scrollOffset);
         PositionNearTray();
@@ -297,7 +285,7 @@ internal sealed class ControlCenterForm : Form
 
     private void AddCard(CardPanel card)
     {
-        card.FitToContent(Scale);
+        card.FitToContent(LayoutScale);
 
         // Icon buttons center vertically in their card instead of hugging the title line.
         foreach (Control control in card.Controls)
@@ -325,8 +313,10 @@ internal sealed class ControlCenterForm : Form
         // A refresh can be overdue (slow or failing fetches); never show a negative countdown.
         var nextText = nextIn >= 1 ? $"下次约 {nextIn} 分钟后" : "即将刷新";
 
-        card.Controls.Add(Label("AI Quota Bar", new Font("Segoe UI Semibold", 10.5f), _palette.TextPrimary, 14, 8));
-        var meta = Label($"更新于 {updatedText} · {nextText}", Font, _palette.TextFaint, 14, 30);
+        var title = Label("AI Quota Bar", UiFont("Segoe UI Semibold", 10.5f), _palette.TextPrimary, 14, 8);
+        card.Controls.Add(title);
+        var meta = Label($"更新于 {updatedText} · {nextText}", Font, _palette.TextFaint, 14, 34);
+        meta.Top = title.Bottom + P(4);
         meta.MaximumSize = new Size(card.Width - P(124), 0); // wraps before the icon buttons
         card.Controls.Add(meta);
 
@@ -335,6 +325,7 @@ internal sealed class ControlCenterForm : Form
         const string refreshGlyph = "\uE72C";
         var close = new IconButton(chromeClose)
         {
+            Font = UiFont("Segoe MDL2 Assets", 9f),
             Palette = _palette,
             Bounds = new Rectangle(card.Width - P(16) - P(28), P(8), P(28), P(28)),
             Anchor = AnchorStyles.Top | AnchorStyles.Right,
@@ -342,6 +333,7 @@ internal sealed class ControlCenterForm : Form
         close.Click += (_, _) => Close();
         var refresh = new IconButton(refreshGlyph)
         {
+            Font = UiFont("Segoe MDL2 Assets", 9f),
             Palette = _palette,
             Bounds = new Rectangle(card.Width - P(16) - P(60), P(8), P(28), P(28)),
             Anchor = AnchorStyles.Top | AnchorStyles.Right,
@@ -358,12 +350,12 @@ internal sealed class ControlCenterForm : Form
     {
         var collapsed = IsCollapsed(kind.WireName());
         var card = MakeCard();
-        const int headerBottom = 44;
+        var headerBottom = 44;
 
         var chevron = new Label
         {
             Text = collapsed ? "▸" : "▾",
-            Font = new Font("Segoe UI", 10f),
+            Font = UiFont("Segoe UI", 10f),
             ForeColor = _palette.TextFaint,
             BackColor = Color.Transparent,
             Location = new Point(P(12), P(11)),
@@ -372,7 +364,8 @@ internal sealed class ControlCenterForm : Form
         };
         chevron.Click += (_, _) => ToggleCollapsed(kind.WireName());
         card.Controls.Add(chevron);
-        card.Controls.Add(Label(kind.DisplayName(), new Font("Segoe UI Semibold", 10f), _palette.TextPrimary, 36, 8));
+        var title = Label(kind.DisplayName(), UiFont("Segoe UI Semibold", 10f), _palette.TextPrimary, 36, 8);
+        card.Controls.Add(title);
 
         if (snapshot is not null)
         {
@@ -380,8 +373,10 @@ internal sealed class ControlCenterForm : Form
             if (account is { Label.Length: > 0 })
             {
                 // Raw label (email or provider name) — masking is only for the remote dashboard.
-                var accountLabel = Label(account.Label, Font, _palette.TextFaint, 36, 24);
+                var accountLabel = EllipsizedLabel(account.Label, Font, _palette.TextFaint, 36, 24, card.Width - P(52), hand: false);
+                accountLabel.Top = title.Bottom + P(4);
                 _tips.SetToolTip(accountLabel, $"{account.SourceLabel} · {snapshot.LastUpdatedUtc?.ToLocalTime():MM-dd HH:mm}");
+                if (collapsed) accountLabel.Width = Math.Max(P(40), accountLabel.Width - P(64));
                 card.Controls.Add(accountLabel);
             }
 
@@ -390,9 +385,10 @@ internal sealed class ControlCenterForm : Form
                 : null;
             if (badgeText is not null)
             {
-                var badge = Label(badgeText, Font, _palette.TextFaint, 0, 12);
+                var badge = EllipsizedLabel(badgeText, Font, _palette.TextFaint, 0, 12,
+                    Math.Min(P(150), Math.Max(P(40), card.Width - title.Right - P(32))), hand: false);
                 badge.Anchor = AnchorStyles.Top | AnchorStyles.Right;
-                badge.Location = new Point(card.Width - P(16) - badge.PreferredWidth, P(12));
+                badge.Location = new Point(card.Width - P(16) - badge.Width, P(12));
                 card.Controls.Add(badge);
             }
         }
@@ -405,15 +401,16 @@ internal sealed class ControlCenterForm : Form
         {
             if (snapshot?.Accounts.FirstOrDefault()?.Windows.FirstOrDefault() is { } primary)
             {
-                var big = Label($"{primary.RemainingPercent:0}%", new Font("Segoe UI", 11f, FontStyle.Bold), _palette.QuotaColor(primary.RemainingPercent), 0, 0);
+                var big = Label($"{primary.RemainingPercent:0}%", UiFont("Segoe UI", 11f, FontStyle.Bold), _palette.QuotaColor(primary.RemainingPercent), 0, 0);
                 big.Anchor = AnchorStyles.Top | AnchorStyles.Right;
-                big.Location = new Point(card.Width - P(16) - big.PreferredWidth, P(26));
+                big.Location = new Point(card.Width - P(16) - big.PreferredWidth, title.Bottom + P(4));
                 card.Controls.Add(big);
             }
 
             return card;
         }
 
+        headerBottom = Math.Max(headerBottom, (int)Math.Ceiling(card.Controls.Cast<Control>().Max(c => c.Bottom) / LayoutScale));
         var top = headerBottom + 10;
 
         // Local usage lives inside the Codex section (mac CodexLocalUsageMenuCard sits
@@ -421,12 +418,14 @@ internal sealed class ControlCenterForm : Form
         // renders even without quota data — it reads the local session logs.
         if (kind == ProviderKind.Codex && state.Usage is { } usage)
         {
-            card.Controls.Add(Label("本机用量", new Font("Segoe UI Semibold", 9.5f), _palette.TextSecondary, 16, top));
-            card.Controls.Add(Label($"今日 {usage.TodayTokensText} · 35 天 {usage.TotalTokensText}", Font, _palette.TextFaint, 16, top + 17));
-            card.Controls.Add(Label(
-                $"缓存命中 {usage.CacheHitRateText}" + (usage.CostText is { } cost ? $" · 成本 {cost}" : ""),
-                Font, _palette.TextFaint, 16, top + 34));
-            top += 52;
+            foreach (var text in new[] { "本机用量", $"今日 {usage.TodayTokensText} · 35 天 {usage.TotalTokensText}",
+                $"缓存命中 {usage.CacheHitRateText}" + (usage.CostText is { } cost ? $" · 成本 {cost}" : "") })
+            {
+                var line = WrappedLabel(text, _palette.TextSecondary, 16, top);
+                card.Controls.Add(line);
+                top += (int)Math.Ceiling(line.PreferredHeight / LayoutScale) + 4;
+            }
+            top += 4;
         }
 
         if (snapshot is null || snapshot.Status is ProviderStatus.Failed or ProviderStatus.Offline)
@@ -444,7 +443,7 @@ internal sealed class ControlCenterForm : Form
             _tips.SetToolTip(warning, snapshot.Error);
             card.Controls.Add(warning);
             if (!hasPrevious) return card;
-            top += (int)Math.Ceiling(warning.GetPreferredSize(new Size(CardWidth - P(28), 0)).Height / Scale) + 10;
+            top += (int)Math.Ceiling(warning.GetPreferredSize(new Size(CardWidth - P(28), 0)).Height / LayoutScale) + 10;
         }
 
         var account2 = snapshot.Accounts.FirstOrDefault();
@@ -493,7 +492,7 @@ internal sealed class ControlCenterForm : Form
                 Bounds = new Rectangle(card.Width - P(136), P(top + 5), P(120), P(6)),
                 Percent = 100 - model.UsedPercent,
             });
-            top += 21;
+            top = NextContentTop(card);
         }
 
         // Additional account rows (Codex pool).
@@ -502,13 +501,13 @@ internal sealed class ControlCenterForm : Form
             card.Controls.Add(EllipsizedLabel(other.Label, Font, _palette.TextSecondary, 14, top, card.Width - P(80), hand: false));
             if (other.Windows.FirstOrDefault() is { } otherWindow)
             {
-                var value = Label($"{otherWindow.RemainingPercent:0}%", new Font("Segoe UI", 9f, FontStyle.Bold), _palette.QuotaColor(otherWindow.RemainingPercent), 0, top);
+                var value = Label($"{otherWindow.RemainingPercent:0}%", UiFont("Segoe UI", 9f, FontStyle.Bold), _palette.QuotaColor(otherWindow.RemainingPercent), 0, top);
                 value.Anchor = AnchorStyles.Top | AnchorStyles.Right;
                 value.Location = new Point(card.Width - P(16) - value.PreferredWidth, P(top));
                 card.Controls.Add(value);
             }
 
-            top += 22;
+            top = NextContentTop(card);
         }
 
         return card;
@@ -546,12 +545,12 @@ internal sealed class ControlCenterForm : Form
         var tint = _palette.QuotaColor(window.RemainingPercent);
 
         // Header: window name left, big tinted remaining percent right.
-        card.Controls.Add(EllipsizedLabel(window.Name, new Font("Segoe UI", 9.5f), _palette.TextSecondary, 16, top, card.Width / 2, hand: false));
-        var percent = Label($"{window.RemainingPercent:0}%", new Font("Segoe UI", 12f, FontStyle.Bold), tint, 0, top - 3);
+        card.Controls.Add(EllipsizedLabel(window.Name, UiFont("Segoe UI", 9.5f), _palette.TextSecondary, 16, top, card.Width / 2, hand: false));
+        var percent = Label($"{window.RemainingPercent:0}%", UiFont("Segoe UI", 12f, FontStyle.Bold), tint, 0, top - 3);
         percent.Anchor = AnchorStyles.Top | AnchorStyles.Right;
         percent.Location = new Point(card.Width - P(16) - percent.PreferredWidth, P(top - 3));
         card.Controls.Add(percent);
-        top += 24;
+        top = Math.Max(top + 24, (int)Math.Ceiling(percent.Bottom / LayoutScale) + 5);
 
         var series = state.History?.GetSeries(kind, window.Name) ?? Array.Empty<QuotaSamplePoint>();
 
@@ -605,35 +604,22 @@ internal sealed class ControlCenterForm : Form
 
         // Metadata line: pace deviation on short rows (only off schedule — macOS hides
         // on-track pace), reset time on long rows, MiniMax's weekly info last.
-        var metaFont = new Font("Segoe UI", 8.5f);
-        var metaX = 16;
+        var parts = new List<string>();
         if (isShort && pace is { } p && p.Bucket != PaceBucket.OnTrack)
-        {
-            var paceColor = p.IsReserve
-                ? (_palette.IsDark ? Color.FromArgb(96, 200, 145) : Color.FromArgb(35, 150, 95))
-                : Color.FromArgb(235, 170, 70);
-            var paceLabel = Label((p.IsReserve ? "结余 " : "亏空 ") + $"{p.DeltaPercent:+0.0;-0.0}pp", metaFont, paceColor, metaX, top);
-            card.Controls.Add(paceLabel);
-            metaX += paceLabel.PreferredWidth + 8;
-        }
-
+            parts.Add((p.IsReserve ? "结余 " : "亏空 ") + $"{p.DeltaPercent:+0.0;-0.0}pp");
         if (!isShort && window.ResetsAtUtc > DateTimeOffset.MinValue)
-        {
-            var resetText = "重置 " + window.ResetsAtUtc.ToLocalTime().ToString("MM-dd HH:mm");
-            card.Controls.Add(Label(resetText, metaFont, _palette.TextFaint, metaX, top));
-            metaX += TextRenderer.MeasureText(resetText, metaFont).Width + 8;
-        }
-
+            parts.Add("重置 " + window.ResetsAtUtc.ToLocalTime().ToString("MM-dd HH:mm"));
         if (weeklyMeta is not null)
+            parts.Add($"周 {weeklyMeta.RemainingPercent:0}%" + (weeklyMeta.ResetsAtUtc > DateTimeOffset.MinValue
+                ? " · 重置 " + weeklyMeta.ResetsAtUtc.ToLocalTime().ToString("MM-dd HH:mm") : ""));
+        if (parts.Count > 0)
         {
-            var weeklyText = $"周 {weeklyMeta.RemainingPercent:0}%"
-                + (weeklyMeta.ResetsAtUtc > DateTimeOffset.MinValue
-                    ? " · 重置 " + weeklyMeta.ResetsAtUtc.ToLocalTime().ToString("MM-dd HH:mm")
-                    : "");
-            card.Controls.Add(Label(weeklyText, metaFont, _palette.TextFaint, metaX, top));
+            var meta = WrappedLabel(string.Join(" · ", parts), _palette.TextFaint, 16, top);
+            meta.MaximumSize = new Size(card.Width - P(32), 0);
+            card.Controls.Add(meta);
+            top = (int)Math.Ceiling(meta.PreferredHeight / LayoutScale) + top + 4;
         }
-
-        top += 16;
+        else top += 16;
 
         // Cross-cycle utilization bars (mac ModelUtilizationBarsView): one bar per
         // cycle, height = peak used percent; only meaningful under a chart row.
@@ -660,8 +646,8 @@ internal sealed class ControlCenterForm : Form
         }
 
         var card = MakeCard();
-        card.Controls.Add(Label("关注的账号", new Font("Segoe UI Semibold", 9.5f), _palette.TextPrimary, 14, 9));
-        var top = 30;
+        card.Controls.Add(Label("关注的账号", UiFont("Segoe UI Semibold", 9.5f), _palette.TextPrimary, 14, 9));
+        var top = NextContentTop(card);
         foreach (var row in rows)
         {
             var detail = row.StatusText == "available" && row.RemainingPercent is { } remaining
@@ -675,7 +661,7 @@ internal sealed class ControlCenterForm : Form
                 _ => Color.FromArgb(232, 90, 90),
             };
             card.Controls.Add(EllipsizedLabel($"{row.Email} — {detail}" + (row.ReadCount > 0 ? $" · 被读 {row.ReadCount} 次" : ""), Font, color, 14, top, card.Width - P(28), hand: false));
-            top += 22;
+            top = NextContentTop(card);
         }
 
         return card;
@@ -696,7 +682,7 @@ internal sealed class ControlCenterForm : Form
         {
             card.Controls.Add(Label($"活动任务 {tasks}({providers})· 防睡眠 {status}", Font,
                 _palette.IsDark ? Color.FromArgb(96, 200, 145) : Color.FromArgb(35, 150, 95), 14, top));
-            top += 19;
+            top = NextContentTop(card);
         }
 
         if (hasRoute)
@@ -704,11 +690,11 @@ internal sealed class ControlCenterForm : Form
             var route = EllipsizedLabel($"路由 {group} → {selected ?? "—"}{(delayMs is > 0 ? $"({delayMs}ms)" : "")}", _palette.TextPrimary, 14, top);
             route.Click += (_, _) => { _openClash(); Close(); };
             card.Controls.Add(route);
-            top += 19;
+            top = NextContentTop(card);
             var conn = EllipsizedLabel($"OpenAI 连接 {openAi} · ↓{FormatBps(downBps)} ↑{FormatBps(upBps)}", _palette.TextFaint, 14, top);
             conn.Click += (_, _) => { _openConnections(); Close(); };
             card.Controls.Add(conn);
-            top += 19;
+            top = NextContentTop(card);
             card.Controls.Add(Label(
                 state.DashboardRunning ? $"手机看板运行中 :{state.DashboardPort}" : "手机看板未启用(设置中开启)",
                 Font, _palette.TextFaint, 14, top));
@@ -751,7 +737,7 @@ internal sealed class ControlCenterForm : Form
         Font = font,
         ForeColor = color,
         BackColor = Color.Transparent,
-        Bounds = new Rectangle(P(x), P(y), widthPx, TextRenderer.MeasureText(text, font).Height),
+        Bounds = new Rectangle(P(x), P(y), widthPx, (int)Math.Ceiling(font.GetHeight(DeviceDpi)) + P(4)),
         AutoSize = false,
         AutoEllipsis = true,
         Cursor = hand ? Cursors.Hand : Cursors.Default,
@@ -823,6 +809,9 @@ internal sealed class ControlCenterForm : Form
         Margin = new Padding(0, 0, 0, P(8)),
     };
 
+    private int NextContentTop(CardPanel card) =>
+        (int)Math.Ceiling(card.Controls.Cast<Control>().Max(c => c.Bottom) / LayoutScale) + 4;
+
     private Label Label(string text, Font font, Color color, int x, int y) => new()
     {
         Text = text,
@@ -860,7 +849,7 @@ internal sealed class ControlCenterForm : Form
 
     private void PositionNearTray()
     {
-        var screen = Screen.PrimaryScreen?.WorkingArea ?? SystemInformation.WorkingArea;
+        var screen = _targetScreen.WorkingArea;
         Location = new Point(screen.Right - Width - P(12), screen.Bottom - Height - P(12));
     }
 
@@ -875,7 +864,7 @@ internal sealed class ControlCenterForm : Form
         if (disposing)
         {
             _orchestrator.SnapshotsChanged -= OnSnapshotsChanged;
-            _refreshTimer.Stop();
+            _refreshTimer.Dispose();
             _tips.Dispose();
         }
 

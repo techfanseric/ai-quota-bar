@@ -67,6 +67,7 @@ internal sealed class IconButton : Control
     public IconButton(string glyph)
     {
         Glyph = glyph;
+        Font = new Font("Segoe MDL2 Assets", 9f);
         SetStyle(ControlStyles.AllPaintingInWmPaint | ControlStyles.OptimizedDoubleBuffer | ControlStyles.ResizeRedraw | ControlStyles.UserPaint, true);
         Cursor = Cursors.Hand;
     }
@@ -118,8 +119,7 @@ internal sealed class IconButton : Control
             g.FillPath(brush, path);
         }
 
-        using var font = new Font("Segoe MDL2 Assets", 9f);
-        TextRenderer.DrawText(g, Glyph, font, ClientRectangle,
+        TextRenderer.DrawText(g, Glyph, Font, ClientRectangle,
             _hover ? Palette.TextPrimary : Palette.TextSecondary,
             TextFormatFlags.HorizontalCenter | TextFormatFlags.VerticalCenter | TextFormatFlags.NoPadding);
     }
