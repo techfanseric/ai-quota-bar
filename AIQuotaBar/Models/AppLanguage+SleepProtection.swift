@@ -423,7 +423,7 @@ extension AppLanguage {
         }
     }
 
-    func stepAwayActiveStatus(smartRestore: Bool = false) -> String {
+    func stepAwayActiveStatus(smartRestore: Bool = true) -> String {
         if !smartRestore {
             switch self {
             case .english: return "Dimmed · hold right-click or click Restore to restore."
@@ -432,9 +432,9 @@ extension AppLanguage {
         }
         switch self {
         case .english:
-            return "Dimmed · move the pointer or press any key to restore."
+            return "Dimmed · any pointer movement or key press restores."
         case .simplifiedChinese:
-            return "已调暗 · 晃动鼠标或按任意键恢复。"
+            return "已调暗 · 移动触控板/鼠标或按任意键恢复。"
         }
     }
 
@@ -461,15 +461,15 @@ extension AppLanguage {
 
     func stepAwaySmartRestoreLabel() -> String {
         switch self {
-        case .english: return "Smart restore"
-        case .simplifiedChinese: return "智能还原"
+        case .english: return "Restore on input"
+        case .simplifiedChinese: return "输入即恢复"
         }
     }
 
     func stepAwaySmartRestoreDescription() -> String {
         switch self {
-        case .english: return "Automatically restore brightness on mouse or keyboard activity. Off by default; otherwise hold right-click or click Restore."
-        case .simplifiedChinese: return "勾选后，移动鼠标或按键会自动还原亮度。默认不勾选，需长按右键或点击恢复按钮还原。"
+        case .english: return "On by default. Any built-in trackpad/keyboard or Bluetooth mouse/keyboard movement, click, scroll or key press restores brightness. Keyboard detection requires Accessibility permission. Turn this off to restore only by holding right-click or clicking Restore."
+        case .simplifiedChinese: return "默认开启。内置触控板/键盘或蓝牙鼠标/键盘的移动、点击、滚动或按键都会恢复亮度；键盘检测需要辅助功能权限。关闭后仅可长按右键或点击恢复按钮。"
         }
     }
 
@@ -493,9 +493,9 @@ extension AppLanguage {
     func stepAwayHardwareDescription() -> String {
         switch self {
         case .english:
-            return "Lowers supported displays to the selected hardware brightness on the next Dim. Displays already dimmer stay unchanged. Hold right-click or click Restore to restore. Enable Smart restore beside Dim to restore on mouse or keyboard activity. Unsupported displays stay unchanged. Gamma extends dimming below the external display hardware minimum. No overlay; monitor contrast and RGB gains stay unchanged."
+            return "Lowers supported displays to the selected hardware brightness on the next Dim. Displays already dimmer stay unchanged. Restore on input is enabled by default: built-in trackpad/keyboard or Bluetooth mouse/keyboard activity restores brightness. Keyboard detection requires Accessibility permission. Turn it off to restore only by holding right-click or clicking Restore. Unsupported displays stay unchanged. Gamma extends dimming below the external display hardware minimum. No overlay; monitor contrast and RGB gains stay unchanged."
         case .simplifiedChinese:
-            return "下次调暗时，将支持的屏幕真实亮度降至所选百分比；当前亮度更低时不会调亮。再次长按右键或点击恢复按钮还原；勾选调暗按钮旁的「智能还原」后，才会在鼠标或键盘活动时自动还原。不支持硬件调节的屏幕保持原样；外接屏通过 Gamma 延伸低亮度范围，不使用遮罩，不修改显示器对比度和 RGB 增益。"
+            return "下次调暗时，将支持的屏幕真实亮度降至所选百分比；当前亮度更低时不会调亮。「输入即恢复」默认开启：内置触控板/键盘或蓝牙鼠标/键盘的任意移动、点击、滚动或按键都会还原亮度；键盘检测需要辅助功能权限。关闭后仅可长按右键或点击恢复按钮。不支持硬件调节的屏幕保持原样；外接屏通过 Gamma 延伸低亮度范围，不使用遮罩，不修改显示器对比度和 RGB 增益。"
         }
     }
 }
