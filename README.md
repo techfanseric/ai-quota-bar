@@ -25,6 +25,14 @@ AI coding work is hard to manage when quota, network routes, and Mac sleep setti
   <img src="./docs/images/control-center.png" alt="AI Quota Bar control center" width="342">
 </p>
 
+## v1.39.2 · Dim restores on local input by default
+
+**Restore on input** is now the default Dim behavior on macOS. Moving, clicking or scrolling with the built-in trackpad or a Bluetooth mouse, and pressing the built-in or Bluetooth keyboard, restores the saved brightness. Keyboard detection requires Accessibility permission; pointer activity continues to work without it. Users can turn the option off to keep manual Restore and the menu-bar right-button hold as the only restore paths. An explicitly saved on/off choice is preserved across upgrades.
+
+Windows does not yet provide per-display Dim or this restore option.
+
+[Release notes](./docs/releases/v1.39.2.en.md)
+
 ## v1.39.1 · Quota rings during alerts and menu account masking
 
 Unread Codex reset announcements preserve every quota ring. A yellow dot replaces Codex’s C, and only the Codex unit alternates between yellow and normal colors every 0.75 seconds. Quota data continues to update; Reduce Motion keeps the yellow frame steady. The Dim badge stays visible.
@@ -43,7 +51,7 @@ Unzip and run `AIQuotaBar/AIQuotaBar.exe` on 64-bit Windows 10 or later. The ZIP
 
 This beta includes Codex OAuth quota with CLI fallback, Kimi/GLM/MiniMax quota, Clash routes and connections, local usage, a read-only mobile dashboard and Codex task sleep protection. Settings → Providers manages per-account sharing and watched emails, with immediate Watch saves and refresh requests. Sharing is off by default; anyone knowing a shared email can query its published quota without joining a team. Provider credentials stay local.
 
-| Capability | macOS v1.39.1 | Windows v1.38.6-beta.1 |
+| Capability | macOS v1.39.2 | Windows v1.38.6-beta.1 |
 | --- | --- | --- |
 | Codex / Kimi / GLM / MiniMax quota | Available | Available; source controls differ |
 | Codex Watch by email | Available | Available; changes save immediately |

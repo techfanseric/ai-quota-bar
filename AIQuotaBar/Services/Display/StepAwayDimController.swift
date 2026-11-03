@@ -12,10 +12,11 @@ protocol ActivityMonitorInstalling: AnyObject {
     func removeAll()
 }
 
-/// Global input activity monitor: pointer moves, drags and scroll wheels
-/// arrive through NSEvent global/local monitors (no permission needed),
-/// key presses through a listen-only CGEventTap which requires the
-/// Accessibility permission and is silently skipped when it is missing.
+/// Global input activity monitor: built-in trackpad/mouse and Bluetooth
+/// pointer moves, clicks, drags and scroll wheels arrive through NSEvent
+/// global/local monitors (no permission needed). Keyboard presses and
+/// modifier-key changes arrive through a listen-only CGEventTap, which
+/// requires Accessibility permission and is silently skipped when missing.
 @MainActor
 final class GlobalActivityMonitorInstaller: ActivityMonitorInstalling {
     private var globalMonitors: [Any] = []
@@ -65,7 +66,9 @@ final class GlobalActivityMonitorInstaller: ActivityMonitorInstalling {
     }
 
     private func installKeyEventTap(handler: @escaping () -> Void) {
-        let mask = CGEventMask(1 << CGEventType.keyDown.rawValue)
+        let mask = CGEventMask(
+            (1 << CGEventType.keyDown.rawValue)
+                | (1 << CGEventType.flagsChanged.rawValue))
         guard let tap = CGEvent.tapCreate(
             tap: .cgSessionEventTap,
             place: .headInsertEventTap,
@@ -91,7 +94,7 @@ private enum KeyEventTapBridge {
     nonisolated(unsafe) static var handler: (() -> Void)?
 
     nonisolated(unsafe) static let callback: CGEventTapCallBack = { _, _, event, _ in
-        if event.type == .keyDown {
+        if event.type == .keyDown || event.type == .flagsChanged {
             DispatchQueue.main.async {
                 handler?()
             }
@@ -200,7 +203,8 @@ final class StepAwayDimController {
     /// True while the blocking brightness round-trip is in flight.
     private(set) var isTransitioning = false
 
-    /// Opt-in automatic restoration on input activity. Manual mode is default.
+    /// Automatic restoration on local input activity. Enabled by default for
+    /// new/default configurations; an explicitly persisted choice wins.
     var smartRestoreEnabled: Bool {
         didSet {
             defaults.set(smartRestoreEnabled, forKey: Self.smartRestoreKey)
@@ -244,7 +248,9 @@ final class StepAwayDimController {
         self.maintenance = maintenance ?? DimmingMaintenanceMonitor()
         self.preferences = preferences
         self.defaults = defaults
-        self.smartRestoreEnabled = defaults.bool(forKey: Self.smartRestoreKey)
+        self.smartRestoreEnabled = defaults.object(
+            forKey: Self.smartRestoreKey
+        ) as? Bool ?? true
         self.gracePeriod = gracePeriod
     }
 

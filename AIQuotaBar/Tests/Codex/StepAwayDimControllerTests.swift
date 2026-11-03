@@ -586,13 +586,15 @@ final class StepAwayDimControllerTests: XCTestCase {
         await runBackgroundWork()
     }
 
-    func testSmartRestoreDefaultsOffAndPersistsOptIn() {
+    func testInputRestoreDefaultsOnAndPersistsExplicitChoice() {
         let controller = StepAwayDimController(defaults: defaults)
-        XCTAssertFalse(controller.smartRestoreEnabled)
-        controller.smartRestoreEnabled = true
-        XCTAssertTrue(StepAwayDimController(defaults: defaults).smartRestoreEnabled)
+        XCTAssertTrue(controller.smartRestoreEnabled)
+
         controller.smartRestoreEnabled = false
         XCTAssertFalse(StepAwayDimController(defaults: defaults).smartRestoreEnabled)
+
+        controller.smartRestoreEnabled = true
+        XCTAssertTrue(StepAwayDimController(defaults: defaults).smartRestoreEnabled)
     }
 
     func testManualModeIgnoresActivityAndSecondToggleRestores() async {
