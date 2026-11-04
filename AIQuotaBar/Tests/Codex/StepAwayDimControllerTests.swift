@@ -124,7 +124,9 @@ final class StepAwayDimControllerTests: XCTestCase {
 
     private func makeController(
         gracePeriod: TimeInterval = 0,
-        smartRestore: Bool = true
+        smartRestore: Bool = true,
+        accessibilityPermissionGranted: Bool = true,
+        accessibilitySettingsOpener: @escaping () -> Void = {}
     ) -> StepAwayDimController {
         let controller = StepAwayDimController(
             builtinBrightness: builtin,
@@ -132,11 +134,36 @@ final class StepAwayDimControllerTests: XCTestCase {
             gamma: gamma,
             maintenance: maintenance,
             monitors: monitors,
+            accessibilityPermissionProvider: { accessibilityPermissionGranted },
+            accessibilitySettingsOpener: accessibilitySettingsOpener,
             preferences: preferences,
             defaults: defaults,
             gracePeriod: gracePeriod)
         controller.smartRestoreEnabled = smartRestore
         return controller
+    }
+
+    func testKeyboardRestorePermissionStatusOnlyAppearsWhenInputRestoreIsEnabled() {
+        let controller = makeController(
+            smartRestore: true,
+            accessibilityPermissionGranted: false)
+
+        XCTAssertTrue(controller.needsAccessibilityForKeyboardRestore)
+
+        controller.smartRestoreEnabled = false
+
+        XCTAssertFalse(controller.needsAccessibilityForKeyboardRestore)
+    }
+
+    func testKeyboardRestorePermissionActionOpensAccessibilitySettings() {
+        var opened = false
+        let controller = makeController(
+            accessibilityPermissionGranted: false,
+            accessibilitySettingsOpener: { opened = true })
+
+        controller.openAccessibilitySettings()
+
+        XCTAssertTrue(opened)
     }
 
     private func runBackgroundWork() async {

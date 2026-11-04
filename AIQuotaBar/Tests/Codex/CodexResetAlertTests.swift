@@ -191,6 +191,20 @@ final class CodexResetAlertTests: XCTestCase {
         XCTAssertEqual(store.unread.map(\.id), [delayed.id])
     }
 
+    func testOnlyLast24HoursDisplayAndDismissalPreventsReturn() throws {
+        let (store, _) = try makeStore()
+        let current = alert("current")
+        let expired = alert("expired", age: CodexResetAlertStore.displayInterval + 1)
+        store.ingest([], feed: .timeline, now: now)
+        store.ingest([current, expired], feed: .timeline, now: now)
+        XCTAssertEqual(store.displayEntries(now: now).map(\.id), [current.id])
+
+        store.dismiss(ids: [current.id])
+        XCTAssertTrue(store.displayEntries(now: now).isEmpty)
+        store.ingest([current], feed: .timeline, now: now)
+        XCTAssertTrue(store.displayEntries(now: now).isEmpty)
+    }
+
     func testOneFailedFeedDoesNotBlockOtherSiteAndRemindersRepeatUntilAcknowledged() async throws {
         let config = URLSessionConfiguration.ephemeral
         config.protocolClasses = [ResetFeedProtocol.self]
@@ -240,6 +254,11 @@ final class CodexResetAlertTests: XCTestCase {
         let status = try CodexResetFeed.status.decode(fixture("resets-status"), now: now)
         store.ingest(status, feed: .status, now: now)
         store.ingest([alert("clue", text: "Day 23/ Much requested iCloud Mail & Calendar plugins. Just kidding, today is a reset.")], feed: .timeline, now: now)
+        let current = CodexResetAlert(
+            key: "render-current", source: .reset, kind: .confirmed,
+            publishedAt: .now, text: "A current reset update for rendering.",
+            url: CodexResetAlert.Source.reset.url, scheduledFor: nil)
+        store.ingest([current], feed: .timeline, now: .now)
         let output = FileManager.default.temporaryDirectory.appendingPathComponent("ai-quota-reset-preview")
         try FileManager.default.createDirectory(at: output, withIntermediateDirectories: true)
         for language in [AppLanguage.simplifiedChinese, .english] {
@@ -254,7 +273,7 @@ final class CodexResetAlertTests: XCTestCase {
             host.cacheDisplay(in: host.bounds, to: bitmap)
             let data = try XCTUnwrap(bitmap.representation(using: .png, properties: [:]))
             try data.write(to: output.appendingPathComponent("inbox-\(language == .simplifiedChinese ? "zh" : "en").png"))
-            XCTAssertGreaterThan(host.frame.height, 180)
+            XCTAssertGreaterThan(host.frame.height, 100)
             XCTAssertLessThan(host.frame.height, 700)
         }
     }

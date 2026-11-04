@@ -473,6 +473,35 @@ extension AppLanguage {
         }
     }
 
+    func stepAwayKeyboardPermissionStatus(dimmed: Bool) -> String {
+        switch self {
+        case .english:
+            return dimmed
+                ? "Dimmed · pointer restores; allow Accessibility for keys."
+                : "Pointer restores; allow Accessibility for keyboard input."
+        case .simplifiedChinese:
+            return dimmed
+                ? "已调暗 · 指针可恢复；按键需辅助功能权限。"
+                : "指针可恢复；键盘输入需辅助功能权限。"
+        }
+    }
+
+    func stepAwayOpenAccessibilityActionTitle() -> String {
+        switch self {
+        case .english: return "Allow"
+        case .simplifiedChinese: return "授权"
+        }
+    }
+
+    func stepAwayKeyboardPermissionDescription() -> String {
+        switch self {
+        case .english:
+            return "Allow AI Quota Bar in System Settings → Privacy & Security → Accessibility so keyboard input can restore Dim. Pointer activity already works without it."
+        case .simplifiedChinese:
+            return "前往“系统设置 → 隐私与安全性 → 辅助功能”允许 AI Quota Bar，以便按键恢复 Dim；指针活动无需此权限。"
+        }
+    }
+
     func stepAwayTargetBrightnessLabel() -> String {
         switch self {
         case .english: return "Dim target brightness"

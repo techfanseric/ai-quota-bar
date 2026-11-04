@@ -3,7 +3,7 @@ main = "src/worker.js"
 compatibility_date = "2026-05-14"
 
 [vars]
-APP_LATEST_VERSION = "1.39.2"
+APP_LATEST_VERSION = "1.39.3"
 # Leave false for an existing database until migrations/0001_latest_heads.sql
 # has completed, then switch to true and redeploy.
 LATEST_INDEX_ENABLED = "false"

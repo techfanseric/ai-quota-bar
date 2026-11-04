@@ -211,9 +211,9 @@ final class StatusBarController {
         observeCredentialVaultDidLoad()
     }
 
-    /// 「跟随运行中的应用」下，右键面板的 OpenAI 分区与它们的后台工作
-    /// 跟随 Codex 运行状态：未运行 → 自动收起 + 暂停连接后台轮询与
-    /// 连通性探测；运行或跟随关闭 → 展开 + 恢复。
+    /// 「跟随运行中的应用」下，连接监控区与后台工作跟随 Codex 运行状态：
+    /// 未运行 → 自动收起 + 暂停连接后台轮询与连通性探测；运行或跟随关闭
+    /// → 展开 + 恢复。路由区始终由 OpenAI 连通性状态控制。
     private func updateClashWorkGating() {
         let codexRunning = viewModel.appPresenceMonitor.isRunning(.codex)
         let followEnabled = viewModel.followRunningApps
@@ -571,6 +571,8 @@ final class StatusBarController {
 
     private func handleConnectivityCheck() {
         updateStatusItem()
+        clashPanelDisplayStore.alignRoutesWithConnectivity(
+            connectivityMonitor.state)
 
         guard viewModel.configuredProviders.contains(.codex) else {
             consecutiveUnreachableChecks = 0

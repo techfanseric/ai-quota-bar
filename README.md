@@ -25,6 +25,14 @@ AI coding work is hard to manage when quota, network routes, and Mac sleep setti
   <img src="./docs/images/control-center.png" alt="AI Quota Bar control center" width="342">
 </p>
 
+## v1.39.3 · Reset alerts: 24-hour window and smarter routes panel
+
+The reset-alert panel now shows only the last 24 hours: the unread count, pinned signal and clock history share that window, while older announcements stay archived locally for 30 days for revision deduplication. Each message gains a **Dismiss** action — the same revision cannot return on the next poll.
+
+The right-click panel's OpenAI routes section now starts collapsed: it auto-expands only when OpenAI connectivity is unreachable and collapses again once reachable; "Follow running apps" aligns only the connections section. When "Restore on input" lacks Accessibility permission, the Dim controls show an orange hint with an **Allow** button that opens the Accessibility pane in System Settings.
+
+[Release notes](./docs/releases/v1.39.3.en.md)
+
 ## v1.39.2 · Dim restores on local input by default
 
 **Restore on input** is now the default Dim behavior on macOS. Moving, clicking or scrolling with the built-in trackpad or a Bluetooth mouse, and pressing the built-in or Bluetooth keyboard, restores the saved brightness. Keyboard detection requires Accessibility permission; pointer activity continues to work without it. Users can turn the option off to keep manual Restore and the menu-bar right-button hold as the only restore paths. An explicitly saved on/off choice is preserved across upgrades.
@@ -41,7 +49,7 @@ Optional **Settings → General → Account display → Mask accounts in menus**
 
 [Release notes](./docs/releases/v1.39.1.en.md) · [Reset inbox guide](./docs/codex-reset-alerts.md)
 
-Public reset announcements come from codex-reset.com and codex-resets.com. System notifications repeat every five minutes until explicitly acknowledged. Opening a source or dismissing a notification does not mark it read. Recent history covers 30 days; the latest explicit reset signal remains after acknowledgement. These third-party announcements do not prove that your account’s quota has reset.
+Public reset announcements come from codex-reset.com and codex-resets.com. System notifications repeat every five minutes until explicitly acknowledged. Opening a source or dismissing a notification does not mark it read. The panel shows the last 24 hours (older entries stay archived locally for 30 days for deduplication); the latest explicit reset signal remains after acknowledgement, and individual updates can be dismissed. These third-party announcements do not prove that your account’s quota has reset.
 
 ## Windows v1.38.6-beta.1 · Native tray app
 
@@ -51,7 +59,7 @@ Unzip and run `AIQuotaBar/AIQuotaBar.exe` on 64-bit Windows 10 or later. The ZIP
 
 This beta includes Codex OAuth quota with CLI fallback, Kimi/GLM/MiniMax quota, Clash routes and connections, local usage, a read-only mobile dashboard and Codex task sleep protection. Settings → Providers manages per-account sharing and watched emails, with immediate Watch saves and refresh requests. Sharing is off by default; anyone knowing a shared email can query its published quota without joining a team. Provider credentials stay local.
 
-| Capability | macOS v1.39.2 | Windows v1.38.6-beta.1 |
+| Capability | macOS v1.39.3 | Windows v1.38.6-beta.1 |
 | --- | --- | --- |
 | Codex / Kimi / GLM / MiniMax quota | Available | Available; source controls differ |
 | Codex Watch by email | Available | Available; changes save immediately |

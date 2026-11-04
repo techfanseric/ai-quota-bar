@@ -217,6 +217,8 @@ final class StepAwayDimController {
     private let gamma: DisplayGammaControlling
     private let maintenance: DimmingMaintenanceMonitoring
     private let monitors: ActivityMonitorInstalling
+    private let accessibilityPermissionProvider: () -> Bool
+    private let accessibilitySettingsOpener: () -> Void
     private let defaults: UserDefaults
     private let preferences: StepAwayPreferences
     private let gracePeriod: TimeInterval
@@ -236,6 +238,11 @@ final class StepAwayDimController {
         gamma: DisplayGammaControlling = DisplayGammaController(),
         maintenance: DimmingMaintenanceMonitoring? = nil,
         monitors: ActivityMonitorInstalling? = nil,
+        accessibilityPermissionProvider: @escaping () -> Bool = { AXIsProcessTrusted() },
+        accessibilitySettingsOpener: @escaping () -> Void = {
+            guard let url = URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility") else { return }
+            NSWorkspace.shared.open(url)
+        },
         preferences: StepAwayPreferences = .shared,
         defaults: UserDefaults = .standard,
         gracePeriod: TimeInterval = StepAwayDimController
@@ -245,6 +252,8 @@ final class StepAwayDimController {
         self.externalBrightness = externalBrightness
         self.gamma = gamma
         self.monitors = monitors ?? GlobalActivityMonitorInstaller()
+        self.accessibilityPermissionProvider = accessibilityPermissionProvider
+        self.accessibilitySettingsOpener = accessibilitySettingsOpener
         self.maintenance = maintenance ?? DimmingMaintenanceMonitor()
         self.preferences = preferences
         self.defaults = defaults
@@ -252,6 +261,16 @@ final class StepAwayDimController {
             forKey: Self.smartRestoreKey
         ) as? Bool ?? true
         self.gracePeriod = gracePeriod
+    }
+
+    /// Pointer activity continues to restore without Accessibility. This only
+    /// describes whether the optional keyboard portion can be monitored.
+    var needsAccessibilityForKeyboardRestore: Bool {
+        smartRestoreEnabled && !accessibilityPermissionProvider()
+    }
+
+    func openAccessibilitySettings() {
+        accessibilitySettingsOpener()
     }
 
     /// All normal brightness operations share the Dim/preview hardware gate.

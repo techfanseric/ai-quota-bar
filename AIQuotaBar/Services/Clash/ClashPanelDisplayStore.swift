@@ -34,7 +34,8 @@ final class ClashPanelDisplayStore {
                 from: data) {
             collapsedSections = decoded
         } else {
-            collapsedSections = []
+            // 路由列表只在 OpenAI 不可达时自动展开；首次使用不占右键面板空间。
+            collapsedSections = [.routes]
         }
     }
 
@@ -67,15 +68,20 @@ final class ClashPanelDisplayStore {
         setCollapsed(!collapsedSections.contains(section), section: section)
     }
 
-    /// 跟随运行中的应用开启时，把两段对齐到 Codex 的运行状态；
-    /// 跟随关闭时不做任何自动变动（保持用户手动状态）。
+    /// 跟随运行中的应用开启时，只让连接监控区跟随 Codex 运行状态。
+    /// 路由区由 OpenAI 连通性决定：默认收起，探测不可达才自动展开。
     func alignWithCodexPresence(
         isRunning: Bool,
         followRunningAppsEnabled: Bool
     ) {
         guard followRunningAppsEnabled else { return }
-        setCollapsed(!isRunning, section: .routes)
         setCollapsed(!isRunning, section: .connections)
+    }
+
+    /// OpenAI 连通性异常时露出路由选择器，恢复后回到默认收起状态。
+    /// `.unknown` 不视为故障，避免启动探测尚未完成时闪现展开。
+    func alignRoutesWithConnectivity(_ state: CodexConnectivityState) {
+        setCollapsed(state != .unreachable, section: .routes)
     }
 
     private func persist() {

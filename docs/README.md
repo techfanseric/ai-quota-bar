@@ -7,7 +7,7 @@
 - [官网首屏重置提醒体验](./website-hero-reset-experience-2026-10-28.md)：通知到达、持续未读、明确确认与可交互演示。
 
 - [Dim 输入恢复说明](./releases/v1.39.2.zh-CN.md)：macOS v1.39.2 默认输入即恢复、辅助功能权限与隐私边界。
-- [Codex 重置提醒使用说明](./codex-reset-alerts.md)：Mac v1.39.1 的黄点圆环、确认、通知、30 天历史、常驻线索和 Dim 状态；[调研与接口记录](./research/codex-reset-alerts-2026-10-28.md)。
+- [Codex 重置提醒使用说明](./codex-reset-alerts.md)：Mac v1.39.3 的黄点圆环、确认、通知、24 小时显示窗口、逐条消除、常驻线索和 Dim 状态；[调研与接口记录](./research/codex-reset-alerts-2026-10-28.md)。
 - [Windows 安装与功能指南](../win/README.md)：v1.38.6-beta.1 的安装更新、设置、凭据、Watch、手机看板与实际平台差异。
 - [官网现状与差异审查（2026-10-28）](./website-status-audit-2026-10-28.md)：源码/发布/生产部署三层核对与整改证据。
 - [推送与官网发布规则](../AGENTS.md)：每次推送评估官网影响、版本门禁、双语同步与线上验证。
@@ -22,6 +22,7 @@
 
 ## 发布说明
 
+- [macOS v1.39.3](./releases/v1.39.3.zh-CN.md)：重置消息 24 小时窗口与逐条消除、线路区按连通性收起、Dim 权限引导；[发布验证记录](./releases/v1.39.3-checklist.md)。
 - [macOS v1.39.2](./releases/v1.39.2.zh-CN.md)：Dim 默认输入即恢复；[发布验证记录](./releases/v1.39.2-checklist.md)。
 - [macOS v1.39.1](./releases/v1.39.1.zh-CN.md)：黄点圆环提醒、菜单账号脱敏；[发布验证记录](./releases/v1.39.1-checklist.md)。
 - [macOS v1.39.0](./releases/v1.39.0.zh-CN.md)：Codex 重置收件箱、Dim 状态、官网与 Windows 指南同步；[发布验证记录](./releases/v1.39.0-checklist.md)。

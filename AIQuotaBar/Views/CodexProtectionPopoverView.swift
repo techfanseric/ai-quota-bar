@@ -171,6 +171,15 @@ struct CodexProtectionPopoverView: View {
 
             Spacer(minLength: 8)
 
+            if stepAwayDimController.needsAccessibilityForKeyboardRestore {
+                Button(language.stepAwayOpenAccessibilityActionTitle()) {
+                    stepAwayDimController.openAccessibilitySettings()
+                }
+                .controlSize(.mini)
+                .tint(.orange)
+                .help(language.stepAwayKeyboardPermissionDescription())
+            }
+
             Toggle(
                 language.stepAwaySmartRestoreLabel(),
                 isOn: $stepAwayDimController.smartRestoreEnabled
@@ -194,7 +203,11 @@ struct CodexProtectionPopoverView: View {
     }
 
     private var stepAwayStatusText: String {
-        stepAwayDimController.isActive
+        if stepAwayDimController.needsAccessibilityForKeyboardRestore {
+            return language.stepAwayKeyboardPermissionStatus(
+                dimmed: stepAwayDimController.isActive)
+        }
+        return stepAwayDimController.isActive
             ? language.stepAwayActiveStatus(
                 smartRestore: stepAwayDimController.smartRestoreEnabled)
             : language.stepAwayIdleStatus()
@@ -207,7 +220,10 @@ struct CodexProtectionPopoverView: View {
     }
 
     private var stepAwayColor: Color {
-        stepAwayDimController.isActive ? .green : .secondary
+        if stepAwayDimController.needsAccessibilityForKeyboardRestore {
+            return .orange
+        }
+        return stepAwayDimController.isActive ? .green : .secondary
     }
 
     private var protectionStatusText: String {
