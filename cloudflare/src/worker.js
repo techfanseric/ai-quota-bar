@@ -331,7 +331,7 @@ const PREFERRED_INSTALLER = "AIQuotaBar.pkg";
 const INSTALLER_ASSET_NAMES = [PREFERRED_INSTALLER, "AIQuotaBar.dmg"];
 
 async function appUpdateManifest(env) {
-  const fallbackVersion = env.APP_LATEST_VERSION || "1.39.2";
+  const fallbackVersion = env.APP_LATEST_VERSION || "1.39.3";
   const fallbackURL = env.APP_RELEASE_URL || `https://github.com/techfanseric/ai-quota-bar/releases/tag/v${fallbackVersion}`;
   const fallbackDownloadURL = env.APP_DOWNLOAD_URL || `https://github.com/techfanseric/ai-quota-bar/releases/download/v${fallbackVersion}/${PREFERRED_INSTALLER}`;
 

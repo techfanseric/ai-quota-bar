@@ -5,26 +5,26 @@ import XCTest
 final class ClashPanelDisplayStoreTests: XCTestCase {
     func testTogglePersistsAndRoundTripsThroughDefaults() throws {
         let fixture = try makeFixture()
-        XCTAssertFalse(fixture.store.isRoutesCollapsed)
+        XCTAssertTrue(fixture.store.isRoutesCollapsed)
         XCTAssertFalse(fixture.store.isConnectionsCollapsed)
 
         fixture.store.toggle(.routes)
 
-        XCTAssertTrue(fixture.store.isRoutesCollapsed)
+        XCTAssertFalse(fixture.store.isRoutesCollapsed)
         XCTAssertFalse(fixture.store.isConnectionsCollapsed)
 
         let reloaded = ClashPanelDisplayStore(defaults: fixture.defaults)
-        XCTAssertTrue(reloaded.isRoutesCollapsed)
+        XCTAssertFalse(reloaded.isRoutesCollapsed)
         XCTAssertFalse(reloaded.isConnectionsCollapsed)
     }
 
-    func testFollowEnabledAlignsBothSectionsToCodexPresence() throws {
+    func testFollowEnabledAlignsOnlyConnectionsToCodexPresence() throws {
         let fixture = try makeFixture()
 
         fixture.store.alignWithCodexPresence(
             isRunning: true,
             followRunningAppsEnabled: true)
-        XCTAssertFalse(fixture.store.isRoutesCollapsed)
+        XCTAssertTrue(fixture.store.isRoutesCollapsed)
         XCTAssertFalse(fixture.store.isConnectionsCollapsed)
 
         fixture.store.alignWithCodexPresence(
@@ -46,7 +46,7 @@ final class ClashPanelDisplayStoreTests: XCTestCase {
         XCTAssertFalse(fixture.store.isConnectionsCollapsed)
     }
 
-    func testManualExpandHoldsUntilNextPresenceAlignment() throws {
+    func testManualRouteExpandIsNotOverriddenByPresenceAlignment() throws {
         let fixture = try makeFixture()
         fixture.store.alignWithCodexPresence(
             isRunning: false,
@@ -55,13 +55,26 @@ final class ClashPanelDisplayStoreTests: XCTestCase {
         fixture.store.setCollapsed(false, section: .routes)
         XCTAssertFalse(fixture.store.isRoutesCollapsed)
 
-        // 下一次 presence 对齐（最后操作生效），手动展开被重新收起——
-        // 与左键菜单供应商区语义一致。
+        // Presence 对齐只影响 connections，手动展开路由区保持有效。
         fixture.store.alignWithCodexPresence(
             isRunning: false,
             followRunningAppsEnabled: true)
-        XCTAssertTrue(fixture.store.isRoutesCollapsed)
+        XCTAssertFalse(fixture.store.isRoutesCollapsed)
         XCTAssertTrue(fixture.store.isConnectionsCollapsed)
+    }
+
+    func testConnectivityExpandsRoutesOnlyWhenOpenAIIsUnreachable() throws {
+        let fixture = try makeFixture()
+        XCTAssertTrue(fixture.store.isRoutesCollapsed)
+
+        fixture.store.alignRoutesWithConnectivity(.unknown)
+        XCTAssertTrue(fixture.store.isRoutesCollapsed)
+
+        fixture.store.alignRoutesWithConnectivity(.unreachable)
+        XCTAssertFalse(fixture.store.isRoutesCollapsed)
+
+        fixture.store.alignRoutesWithConnectivity(.reachable)
+        XCTAssertTrue(fixture.store.isRoutesCollapsed)
     }
 
     func testPanelHeightGrowsWithAccountsAndKeepsConnectionsWhole() {

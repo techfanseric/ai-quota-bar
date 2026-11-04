@@ -19,11 +19,14 @@ struct CodexResetAlertsView: View {
     }
 
     private var chinese: Bool { language == .simplifiedChinese }
+    private var displayUnread: [CodexResetAlertStore.Entry] {
+        store.displayUnread()
+    }
     private var visibleEntries: [CodexResetAlertStore.Entry] {
-        if showsHistory { return store.history() }
-        let unread = store.unread
+        if showsHistory { return store.displayEntries() }
+        let unread = displayUnread
         if !unread.isEmpty { return unread }
-        return store.pinnedSignal.map { [$0] } ?? []
+        return store.displayPinnedSignal().map { [$0] } ?? []
     }
 
     var body: some View {
@@ -34,17 +37,17 @@ struct CodexResetAlertsView: View {
                     .font(.system(size: 11, weight: .semibold))
                     .help(chinese ? "未读时菜单栏闪烁，每 5 分钟通知，直到确认已读。" : "The menu-bar icon flashes and notifications repeat every 5 minutes until marked read.")
                 Spacer(minLength: 4)
-                if !store.unread.isEmpty {
-                    Text("\(store.unread.count)").font(.system(size: 10, weight: .semibold))
+                if !displayUnread.isEmpty {
+                    Text("\(displayUnread.count)").font(.system(size: 10, weight: .semibold))
                         .foregroundStyle(.orange)
-                        .help(chinese ? "\(store.unread.count) 条未读" : "\(store.unread.count) unread")
+                        .help(chinese ? "\(displayUnread.count) 条未读" : "\(displayUnread.count) unread")
                     iconButton("checkmark.circle", title: chinese ? "全部标为已读" : "Mark all read") {
-                        store.acknowledge(ids: Set(store.unread.map(\.id)))
+                        store.acknowledge(ids: Set(displayUnread.map(\.id)))
                     }
                 }
                 iconButton(showsHistory ? "clock.fill" : "clock.arrow.circlepath",
-                           title: chinese ? (showsHistory ? "收起最近 30 天历史" : "查看最近 30 天历史")
-                               : (showsHistory ? "Hide 30-day history" : "View 30-day history")) {
+                           title: chinese ? (showsHistory ? "收起最近 24 小时历史" : "查看最近 24 小时历史")
+                               : (showsHistory ? "Hide last 24 hours" : "View last 24 hours")) {
                     showsHistory.toggle()
                 }
                 .foregroundStyle(showsHistory ? Color.accentColor : Color.primary)
@@ -53,12 +56,12 @@ struct CodexResetAlertsView: View {
                 }.disabled(store.isRefreshing)
             }
             if showsHistory {
-                Text(chinese ? "最近 30 天 · \(visibleEntries.count) 条" : "Last 30 days · \(visibleEntries.count) updates")
+                Text(chinese ? "最近 24 小时 · \(visibleEntries.count) 条" : "Last 24 hours · \(visibleEntries.count) updates")
                     .font(.system(size: 9)).foregroundStyle(.secondary)
             }
             ForEach(visibleEntries) { entry in row(entry) }
             if showsHistory && visibleEntries.isEmpty {
-                Text(chinese ? "最近 30 天暂无消息" : "No updates in the last 30 days")
+                Text(chinese ? "最近 24 小时暂无消息" : "No updates in the last 24 hours")
                     .font(.system(size: 10)).foregroundStyle(.secondary)
                     .padding(.vertical, 4)
             }
@@ -92,6 +95,9 @@ struct CodexResetAlertsView: View {
                 Spacer(minLength: 4)
                 iconButton("arrow.up.right.square", title: chinese ? "查看原文（关闭菜单）" : "View source (closes menu)") {
                     onViewSource(alert.url)
+                }
+                iconButton("xmark.circle", title: chinese ? "消除此消息" : "Dismiss this update") {
+                    store.dismiss(ids: [entry.id])
                 }
                 if !entry.isRead {
                     iconButton("checkmark.circle", title: chinese ? "确认已读（保持菜单打开）" : "Mark read (keeps menu open)") {

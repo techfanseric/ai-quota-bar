@@ -9,7 +9,10 @@ final class CodexResetAlertStore {
     static let shared = CodexResetAlertStore()
     nonisolated static let pollInterval: TimeInterval = 60
     nonisolated static let reminderInterval: TimeInterval = 5 * 60
+    /// Reset announcements remain in the local archive for 30 days so their
+    /// revisions can be deduplicated, but the UI only displays the last 24h.
     nonisolated static let historyInterval: TimeInterval = 30 * 24 * 60 * 60
+    nonisolated static let displayInterval: TimeInterval = 24 * 60 * 60
     static let storageKey = "codexResetAlerts.v1"
 
     struct Entry: Codable, Equatable, Identifiable {
@@ -91,6 +94,22 @@ final class CodexResetAlertStore {
 
     func history(now: Date = .now) -> [Entry] {
         entries.filter { $0.alert.publishedAt >= now.addingTimeInterval(-Self.historyInterval) }
+    }
+
+    /// Entries eligible for the reset panel. Older records remain archived for
+    /// deduplication and notification bookkeeping, but never appear in the UI.
+    func displayEntries(now: Date = .now) -> [Entry] {
+        entries.filter {
+            $0.alert.publishedAt >= now.addingTimeInterval(-Self.displayInterval)
+        }
+    }
+
+    func displayUnread(now: Date = .now) -> [Entry] {
+        displayEntries(now: now).filter { !$0.isRead }
+    }
+
+    func displayPinnedSignal(now: Date = .now) -> Entry? {
+        Self.latestReliable(in: displayEntries(now: now))
     }
 
     func start() {
@@ -212,6 +231,17 @@ final class CodexResetAlertStore {
         // Keep the current summary visible when other messages remain unread.
         if unread.isEmpty { notifications.clearDeliveredNotification() }
         NSLog("aiquotabar: reset-alert acknowledged; unread=%ld", unread.count)
+    }
+
+    /// Removes announcements from the panel immediately. Their revisions stay
+    /// in `seen`, so the next polling response cannot make the same message
+    /// reappear; a newer revision is still delivered normally.
+    func dismiss(ids: Set<String>) {
+        guard entries.contains(where: { ids.contains($0.id) }) else { return }
+        entries.removeAll { ids.contains($0.id) }
+        persist()
+        if unread.isEmpty { notifications.clearDeliveredNotification() }
+        NSLog("aiquotabar: reset-alert dismissed; remaining=%ld", entries.count)
     }
 
     private func pruneReadHistory(now: Date) {
