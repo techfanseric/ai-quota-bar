@@ -1,5 +1,23 @@
 # Repository working rules
 
+## Destructive operations against other applications
+
+Never let a default construction site end, quit, or relaunch another user's
+application. Any capability that terminates or launches a companion app
+(ChatGPT, Codex, or a provider client) must be injected explicitly and must
+default to a no-op.
+
+- Production singletons opt in by passing the real implementation; every other
+  construction site (unit tests, SwiftUI previews, render harnesses) receives
+  an inert default.
+- Dependency-injected helpers that quit an app must be covered by a test that
+  asserts the inert default leaves the request pending instead of acting.
+- Before running the test suite, confirm no test wires a live terminating
+  implementation into a store that reports a companion app as running. A test
+  run must never close a window the user is working in.
+- Run the suite in the background rather than in the foreground, so an
+  interrupted session cannot leave a test process alive.
+
 ## Website and release synchronization
 
 Before every push, assess whether the change affects a user-visible feature, behavior,

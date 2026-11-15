@@ -553,6 +553,46 @@ final class CodexAuthAccountStoreTests: XCTestCase {
                 "Relaunch delay \(delay) s is outside the 1–2 s human window")
         }
     }
+
+    /// 结束 ChatGPT 桌面版是不可逆的破坏性操作，只能由生产共享实例显式
+    /// 注入真实实现。任何未注入的构造（测试、预览）都必须保持惰性，
+    /// 否则一次测试运行就会把用户正在用的客户端窗口关掉。
+    func testStoresWithoutExplicitAutoQuitNeverQuitTheDesktopApp() throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("codex-home-\(UUID().uuidString)")
+        let accounts = root.appendingPathComponent("accounts", isDirectory: true)
+        try FileManager.default.createDirectory(
+            at: accounts, withIntermediateDirectories: true)
+        let suiteName = "CodexAuthNoQuit.\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suiteName))
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        try Self.writeLoginFixture(
+            accountEmail: "alice@example.com", accountID: "account-a",
+            to: root.appendingPathComponent("auth.json"))
+        try Self.writeLoginFixture(
+            accountEmail: "bob@example.com", accountID: "account-b",
+            to: accounts.appendingPathComponent("bob.json"))
+        let store = CodexAuthAccountStore(
+            codexHome: root,
+            defaults: defaults,
+            authMirror: CodexAuthMirror(
+                directory: root.appendingPathComponent("mirror", isDirectory: true)),
+            companionAppsProvider: {
+                [RunningAppSnapshot(
+                    bundleIdentifier: "com.openai.chat",
+                    processName: "ChatGPT")]
+            },
+            cliProcessChecker: { false })
+        store.refresh()
+        store.exitMode = .automatic
+
+        store.requestSwitch(to: "bob")
+        store.evaluatePendingRequest()
+
+        // 请求仍然挂起等待：没有授权就不代替用户退出桌面版。
+        XCTAssertEqual(store.pendingRequest, .switchTo(label: "bob"))
+        store.cancelPendingRequest()
+    }
 }
 
 // MARK: - 线程安全的测试记录器

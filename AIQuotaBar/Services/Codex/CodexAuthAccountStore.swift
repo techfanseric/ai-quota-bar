@@ -80,7 +80,10 @@ struct CodexAccountSwitchStatusMessage: Equatable {
 @Observable
 final class CodexAuthAccountStore {
     /// 面板与设置面板共用的实例。
-    static let shared = CodexAuthAccountStore()
+    /// 只有这个实例被授权真的结束 ChatGPT/Codex 桌面版。
+    static let shared = CodexAuthAccountStore(
+        openCompanionApp: CodexAuthAccountStore.liveOpenCompanionApp,
+        autoQuitPerformer: CodexAuthAccountStore.liveAutoQuitDesktopApp)
 
     private(set) var currentStatus: CodexAuthFileStatus = .unreadable
     private(set) var currentQuotaSnapshot: CodexAccountQuotaSnapshot?
@@ -146,13 +149,19 @@ final class CodexAuthAccountStore {
         notify: @escaping (_ title: String, _ body: String) -> Void =
             CodexAuthAccountStore.liveNotify,
         openCompanionApp: @escaping () -> Void =
-            CodexAuthAccountStore.liveOpenCompanionApp,
+            // Launching is only safe for the production instance; test and
+            // preview stores must not bring a real ChatGPT window up either.
+            { },
         quotaSnapshotProvider: @escaping @MainActor (String) -> CodexAccountQuotaSnapshot? =
             { CodexAccountQuotaStore.shared.snapshot(for: $0) },
         usageAccountRefresher: @escaping @MainActor () -> Void =
             { CodexLocalUsageModel.shared.refreshCurrentAccount() },
         autoQuitPerformer: @escaping () -> Bool =
-            CodexAuthAccountStore.liveAutoQuitDesktopApp,
+            // Ending another user's app is destructive and must be opted into
+            // explicitly. The shared production store wires the real
+            // performer below; every other construction site (tests, previews)
+            // gets the inert default so no stray instance can quit ChatGPT.
+            { false },
         relaunchDelayProvider: @escaping () -> TimeInterval? =
             CodexAuthAccountStore.randomRelaunchDelay
     ) {

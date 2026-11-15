@@ -216,6 +216,7 @@ final class StepAwayDimController {
     private let externalBrightness: ExternalDisplayBrightnessControlling
     private let gamma: DisplayGammaControlling
     private let maintenance: DimmingMaintenanceMonitoring
+    private let topology: DisplayTopologyMonitoring
     private let monitors: ActivityMonitorInstalling
     private let accessibilityPermissionProvider: () -> Bool
     private let accessibilitySettingsOpener: () -> Void
@@ -237,6 +238,7 @@ final class StepAwayDimController {
             DDCBrightnessController(),
         gamma: DisplayGammaControlling = DisplayGammaController(),
         maintenance: DimmingMaintenanceMonitoring? = nil,
+        topology: DisplayTopologyMonitoring? = nil,
         monitors: ActivityMonitorInstalling? = nil,
         accessibilityPermissionProvider: @escaping () -> Bool = { AXIsProcessTrusted() },
         accessibilitySettingsOpener: @escaping () -> Void = {
@@ -255,12 +257,20 @@ final class StepAwayDimController {
         self.accessibilityPermissionProvider = accessibilityPermissionProvider
         self.accessibilitySettingsOpener = accessibilitySettingsOpener
         self.maintenance = maintenance ?? DimmingMaintenanceMonitor()
+        self.topology = topology ?? DisplayTopologyMonitor()
         self.preferences = preferences
         self.defaults = defaults
         self.smartRestoreEnabled = defaults.object(
             forKey: Self.smartRestoreKey
         ) as? Bool ?? true
         self.gracePeriod = gracePeriod
+        self.topology.install { [weak self] in
+            // A display was attached or detached: rebuild the list so a newly
+            // connected screen appears without waiting for a manual refresh.
+            // While Dim is active, refreshDisplays declines and the
+            // maintenance path already rebuilds the list with readings.
+            self?.refreshDisplays()
+        }
     }
 
     /// Pointer activity continues to restore without Accessibility. This only

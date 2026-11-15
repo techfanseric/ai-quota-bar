@@ -101,6 +101,7 @@ final class StepAwayDimControllerTests: XCTestCase {
     private var monitors = FakeActivityMonitors()
     private var gamma = FakeDisplayGamma()
     private var maintenance = FakeDimmingMaintenance()
+    private var topology = FakeDisplayTopologyMonitor()
     private var preferences: StepAwayPreferences!
     private var suiteName = ""
     private var defaults: UserDefaults!
@@ -111,6 +112,7 @@ final class StepAwayDimControllerTests: XCTestCase {
         external = FakeStepAwayExternalBrightness()
         gamma = FakeDisplayGamma()
         maintenance = FakeDimmingMaintenance()
+        topology = FakeDisplayTopologyMonitor()
         monitors = FakeActivityMonitors()
         suiteName = "StepAwayDim-" + UUID().uuidString
         defaults = UserDefaults(suiteName: suiteName)!
@@ -133,6 +135,7 @@ final class StepAwayDimControllerTests: XCTestCase {
             externalBrightness: external,
             gamma: gamma,
             maintenance: maintenance,
+            topology: topology,
             monitors: monitors,
             accessibilityPermissionProvider: { accessibilityPermissionGranted },
             accessibilitySettingsOpener: accessibilitySettingsOpener,
@@ -857,6 +860,18 @@ final class StepAwayDimControllerTests: XCTestCase {
         XCTAssertTrue(builtin.appliedValues.isEmpty)
         XCTAssertTrue(external.writes.isEmpty)
     }
+
+    func testAttachingOrDetachingADisplayRebuildsTheListWithoutAManualRefresh() async {
+        let controller = makeController()
+        XCTAssertTrue(topology.isInstalled)
+
+        // A newly attached screen must appear without a manual refresh.
+        topology.fire()
+        await runBackgroundWork()
+
+        XCTAssertFalse(controller.isRefreshing)
+        XCTAssertFalse(controller.displays.isEmpty)
+    }
 }
 
 // MARK: - Fakes
@@ -1047,4 +1062,12 @@ private final class FakeDimmingMaintenance: DimmingMaintenanceMonitoring {
     func install(onCheck: @escaping (Bool) -> Void) { handler = onCheck }
     func removeAll() { handler = nil }
     func fire(configurationChanged: Bool) { handler?(configurationChanged) }
+}
+
+private final class FakeDisplayTopologyMonitor: DisplayTopologyMonitoring {
+    private var handler: (() -> Void)?
+    var isInstalled: Bool { handler != nil }
+    func install(onChange: @escaping () -> Void) { handler = onChange }
+    func removeAll() { handler = nil }
+    func fire() { handler?() }
 }
