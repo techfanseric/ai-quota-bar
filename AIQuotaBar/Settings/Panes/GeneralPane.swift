@@ -5,6 +5,7 @@ import SwiftUI
 @MainActor
 struct GeneralPane: View {
     @AppStorage(MenuAccountPrivacy.storageKey) private var masksMenuAccounts = false
+    @Bindable var lightweightMode = LightweightModeController.shared
     @Bindable var stepAwayPreferences: StepAwayPreferences = .shared
     @Bindable var viewModel: UsageViewModel
 
@@ -74,6 +75,11 @@ struct GeneralPane: View {
                 subtitle: language.text(.launchAtLoginDescription),
                 isOn: $viewModel.launchAtLogin
             )
+
+            PreferenceToggleRow(
+                title: language.lightweightModeTitle,
+                subtitle: language.lightweightModeDescription,
+                isOn: $lightweightMode.isEnabled)
         }
     }
 

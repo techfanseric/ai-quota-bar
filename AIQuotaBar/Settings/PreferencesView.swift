@@ -7,11 +7,12 @@ import SwiftUI
 struct PreferencesView: View {
     @Bindable var viewModel: UsageViewModel
     @Bindable var mobileDashboardService: MobileDashboardService
-    @State private var selection = PreferencesSelection()
+    @Bindable var selection: PreferencesSelection
+    let lightweightMode: LightweightModeController
 
     var body: some View {
         TabView(selection: $selection.tab) {
-            GeneralPane(viewModel: viewModel)
+            GeneralPane(lightweightMode: lightweightMode, viewModel: viewModel)
                 .tabItem {
                     Label(viewModel.appLanguage.text(.tabGeneral),
                           systemImage: PreferencesTab.general.systemImage)
@@ -59,7 +60,6 @@ struct PreferencesView: View {
                 }
                 .tag(PreferencesTab.about)
         }
-        .onAppear { if !viewModel.hasAnyCredential && !viewModel.cloudSyncEnabled { selection.tab = .providers } }
         .padding(.horizontal, 24)
         .padding(.vertical, 16)
         .frame(width: PreferencesTab.providersWidth, height: PreferencesTab.windowHeight)

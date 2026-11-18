@@ -7,6 +7,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     private var warningPanelController: WarningPanelController?
     private var settingsWindowController: SettingsWindowController?
     private var dailyUpdateTimer: Timer?
+    private let dimControlBridge = DimControlBridge()
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         // Set LSUIElement to hide from Dock
@@ -46,6 +47,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         statusBarController?.viewModel.startAutoRefresh()
 
         PointerBrightnessController.shared.start()
+        dimControlBridge.start()
 
         scheduleDailyUpdateChecks()
         Task {
@@ -62,18 +64,22 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
     func applicationWillTerminate(_ notification: Notification) {
         CodexResetAlertStore.shared.stop()
+        dimControlBridge.stop()
         PointerBrightnessController.shared.stop()
         CodexLocalUsageModel.shared.stop()
         AppUsageAnalytics.shared.stop()
         statusBarController?.viewModel.stopAutoRefresh()
         statusBarController?.stop()
+        LightweightModeController.shared.stop()
         dailyUpdateTimer?.invalidate()
         dailyUpdateTimer = nil
     }
 
     @objc private func showWarningIfNeeded(_ notification: Notification) {
         guard let usageData = notification.object as? UsageData else { return }
-        warningPanelController?.show(usageData: usageData)
+        Task { @MainActor [weak self] in
+            self?.warningPanelController?.show(usageData: usageData)
+        }
     }
 
     // MARK: - Window Controllers

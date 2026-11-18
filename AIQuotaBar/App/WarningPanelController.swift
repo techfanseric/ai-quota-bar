@@ -1,9 +1,16 @@
 import AppKit
 import SwiftUI
 
-final class WarningPanelController {
+@MainActor
+final class WarningPanelController: NSObject, NSWindowDelegate {
     private var panel: NSPanel?
     private var hostingView: NSHostingView<WarningPanelView>?
+    private let lightweightMode: LightweightModeController
+
+    init(lightweightMode: LightweightModeController? = nil) {
+        self.lightweightMode = lightweightMode ?? .shared
+        super.init()
+    }
 
     func show(usageData: UsageData) {
         if panel == nil {
@@ -12,10 +19,16 @@ final class WarningPanelController {
 
         hostingView?.rootView = WarningPanelView(usageData: usageData, language: AppLanguage.current)
         panel?.orderFrontRegardless()
+        lightweightMode.didShow("warning")
     }
 
     func hide() {
         panel?.orderOut(nil)
+        lightweightMode.didHide("warning")
+    }
+
+    func windowWillClose(_ notification: Notification) {
+        lightweightMode.didHide("warning")
     }
 
     private func createPanel() {
@@ -32,6 +45,8 @@ final class WarningPanelController {
         panel.isMovableByWindowBackground = false
         panel.backgroundColor = NSColor.clear
         panel.hasShadow = true
+        panel.isReleasedWhenClosed = false
+        panel.delegate = self
 
         // Position at bottom-right
         if let screen = NSScreen.main {
@@ -53,5 +68,14 @@ final class WarningPanelController {
         panel.contentView = hostingView
         self.panel = panel
         self.hostingView = hostingView
+        lightweightMode.register("warning", isOpen: { [weak panel] in
+            LightweightModeController.isOpen(panel)
+        }, release: { [weak self] in
+            self?.panel?.delegate = nil
+            self?.panel?.contentView = nil
+            self?.hostingView = nil
+            self?.panel?.close()
+            self?.panel = nil
+        })
     }
 }

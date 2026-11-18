@@ -9,9 +9,10 @@ final class ClashRoutePopoverController: NSObject {
     private let displayStore: ClashPanelDisplayStore
     private let accountStore: CodexAuthAccountStore
     private let stepAwayDimController: StepAwayDimController
-    private let panel: MenuBarPanel
-    private let hostingView:
-        NSHostingView<MenuBarPanelSurface<ClashPopoverView>>
+    private var panel: MenuBarPanel?
+    private var hostingView:
+        NSHostingView<MenuBarPanelSurface<ClashPopoverView>>?
+    private let lightweightMode: LightweightModeController
     private weak var anchoredButton: NSStatusBarButton?
 
     init(
@@ -20,7 +21,8 @@ final class ClashRoutePopoverController: NSObject {
         sleepProtectionCoordinator: CodexSleepProtectionCoordinator,
         displayStore: ClashPanelDisplayStore,
         accountStore: CodexAuthAccountStore,
-        stepAwayDimController: StepAwayDimController
+        stepAwayDimController: StepAwayDimController,
+        lightweightMode: LightweightModeController? = nil
     ) {
         self.routeViewModel = routeViewModel
         self.connectionViewModel = connectionViewModel
@@ -28,9 +30,18 @@ final class ClashRoutePopoverController: NSObject {
         self.displayStore = displayStore
         self.accountStore = accountStore
         self.stepAwayDimController = stepAwayDimController
+        self.lightweightMode = lightweightMode ?? .shared
+        super.init()
+        observeSectionChanges()
+    }
+
+    var loadedPanel: MenuBarPanel? { panel }
+
+    func loadPanelIfNeeded() {
+        guard panel == nil else { return }
         let popoverPanel = MenuBarPanel()
         panel = popoverPanel
-        hostingView = NSHostingView(
+        let host = NSHostingView(
             rootView: MenuBarPanelSurface {
                 ClashPopoverView(
                     routeViewModel: routeViewModel,
@@ -44,7 +55,7 @@ final class ClashRoutePopoverController: NSObject {
                         popoverPanel?.dismiss()
                     })
             })
-        super.init()
+        hostingView = host
 
         let contentSize = NSSize(
             width: ClashPopoverLayout.width,
@@ -52,30 +63,43 @@ final class ClashRoutePopoverController: NSObject {
                 routesCollapsed: displayStore.isRoutesCollapsed,
                 connectionsCollapsed: displayStore.isConnectionsCollapsed,
                 accountsCollapsed: displayStore.isAccountsCollapsed))
-        hostingView.frame = NSRect(
+        host.frame = NSRect(
             origin: .zero,
             size: contentSize)
-        hostingView.autoresizingMask = [.width, .height]
-        panel.contentView = hostingView
-        panel.setContentSize(contentSize)
-        panel.onDismiss = { [weak self] in
+        host.autoresizingMask = [.width, .height]
+        popoverPanel.contentView = host
+        popoverPanel.setContentSize(contentSize)
+        popoverPanel.onDismiss = { [weak self] in
             self?.connectionViewModel.endLiveUpdates()
             self?.routeViewModel.endFilterEditing()
             self?.accountStore.endDisplayRefresh()
+            self?.lightweightMode.didHide("control-panel")
         }
-        observeSectionChanges()
+        lightweightMode.register("control-panel", isOpen: { [weak popoverPanel] in
+            LightweightModeController.isOpen(popoverPanel)
+        }, release: { [weak self] in self?.releasePanel() })
+    }
+
+    private func releasePanel() {
+        panel?.onDismiss = nil
+        panel?.contentView = nil
+        hostingView = nil
+        panel?.close()
+        panel = nil
+        anchoredButton = nil
+        CodexLocalUsageModel.shared.releasePresentationCaches()
     }
 
     var isShown: Bool {
-        panel.isVisible
+        panel?.isVisible == true
     }
 
     func toggle(
         relativeTo button: NSStatusBarButton,
         automaticallyTest: Bool = true
     ) {
-        if panel.isVisible {
-            panel.dismiss()
+        if panel?.isVisible == true {
+            panel?.dismiss()
         } else {
             show(relativeTo: button, automaticallyTest: automaticallyTest)
         }
@@ -85,9 +109,11 @@ final class ClashRoutePopoverController: NSObject {
         relativeTo button: NSStatusBarButton,
         automaticallyTest: Bool
     ) {
-        guard !panel.isVisible,
+        guard panel?.isVisible != true,
               let placement = MenuBarPanelPlacement.resolve(
                 relativeTo: button) else { return }
+        loadPanelIfNeeded()
+        guard let panel, let hostingView else { return }
 
         let appearance = StatusItemMenuAppearance.resolved(
             from: NSApp.effectiveAppearance)
@@ -101,6 +127,7 @@ final class ClashRoutePopoverController: NSObject {
             relativeTo: button,
             placement: placement,
             contentSize: currentContentSize())
+        lightweightMode.didShow("control-panel")
         if !displayStore.isConnectionsCollapsed {
             connectionViewModel.beginLiveUpdates()
         }
@@ -113,7 +140,7 @@ final class ClashRoutePopoverController: NSObject {
 
     func close() {
         connectionViewModel.endLiveUpdates()
-        panel.dismiss()
+        panel?.dismiss()
     }
 
     private func currentContentSize() -> NSSize {
@@ -134,7 +161,7 @@ final class ClashRoutePopoverController: NSObject {
     /// 展开收起变化时：重算面板高度；收起/展开 connections 增删 live 轮询；
     /// 展开 routes 时补一次自动测速（"用户想看"）。
     private func handleSectionsChanged() {
-        guard panel.isVisible else { return }
+        guard panel?.isVisible == true else { return }
         resizePanel()
         if displayStore.isConnectionsCollapsed {
             connectionViewModel.endLiveUpdates()
@@ -149,7 +176,7 @@ final class ClashRoutePopoverController: NSObject {
     }
 
     private func resizePanel() {
-        guard let button = anchoredButton,
+        guard let panel, let hostingView, let button = anchoredButton,
               let placement = MenuBarPanelPlacement.resolve(
                 relativeTo: button) else { return }
         // 屏幕可能变了（外接显示器插拔），重新测定可用高度。
