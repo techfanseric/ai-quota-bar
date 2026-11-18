@@ -30,6 +30,8 @@
 
 - [未发布 · 后台额度与常驻圆环](./releases/unreleased-background-quota.zh-CN.md)：[Magpie 源码方案对照与使用步骤](./research/magpie-quota-2026-11-12.md)；[验证记录](./releases/unreleased-background-quota-checklist.md)。
 
+- [未发布 · 官网上线记录](./releases/unreleased-website-deployment-checklist.md)：上述两项未发布功能的中英文官网同步与生产环境核验。
+
 - [macOS v1.39.3](./releases/v1.39.3.zh-CN.md)：重置消息 24 小时窗口与逐条消除、线路区按连通性收起、Dim 权限引导；[发布验证记录](./releases/v1.39.3-checklist.md)。
 - [macOS v1.39.2](./releases/v1.39.2.zh-CN.md)：Dim 默认输入即恢复；[发布验证记录](./releases/v1.39.2-checklist.md)。
 - [macOS v1.39.1](./releases/v1.39.1.zh-CN.md)：黄点圆环提醒、菜单账号脱敏；[发布验证记录](./releases/v1.39.1-checklist.md)。
