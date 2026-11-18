@@ -176,6 +176,16 @@ struct ModelUsageData: Codable, Identifiable {
     /// 不是"这一行来自哪里"。
     var mergedSourceKinds: Set<AccountSourceKind> = []
 
+    /// 这一行所属账号的**规范身份**（邮箱，小写）。
+    ///
+    /// `accountName` 是给用户看的名字 —— Magpie 的卡用 `alias ?? user`，
+    /// 用户给账号起了别名时它就不是邮箱了。而网关报的是邮箱。所以凡是
+    /// 要拿"是哪个账号"做判断的地方（把在途请求归属到某个账号的环），
+    /// 用它，不用 `accountName`。
+    ///
+    /// 空 = 这一行不绑定某个具体账号（池行、Current 行）。
+    var accountKey: String? = nil
+
     var id: String {
         guard let accountName, !accountName.isEmpty else {
             return "\(provider.rawValue):\(modelName)"
@@ -233,7 +243,8 @@ struct ModelUsageData: Codable, Identifiable {
     private func copy(
         accountName nextAccountName: String?,
         detailText nextDetailText: String?,
-        mergedSourceKinds nextKinds: Set<AccountSourceKind>? = nil
+        mergedSourceKinds nextKinds: Set<AccountSourceKind>? = nil,
+        accountKey nextAccountKey: String? = nil
     ) -> ModelUsageData {
         return ModelUsageData(
             provider: provider,
@@ -255,7 +266,13 @@ struct ModelUsageData: Codable, Identifiable {
             progressBarPercentOverride: progressBarPercentOverride,
             progressBarRightText: progressBarRightText,
             sampledAt: sampledAt,
-            mergedSourceKinds: nextKinds ?? mergedSourceKinds)
+            mergedSourceKinds: nextKinds ?? mergedSourceKinds,
+            accountKey: nextAccountKey ?? accountKey)
+    }
+
+    /// 记下这一行的规范账号身份（邮箱，小写）。
+    func withAccountKey(_ key: String) -> ModelUsageData {
+        copy(accountName: accountName, detailText: detailText, accountKey: key)
     }
 
     /// 记下"这个账号参与过哪些来源"。合并层用它保住落选那一侧的存在 ——
@@ -923,6 +940,18 @@ private extension KeyedDecodingContainer {
 }
 
 extension ModelUsageData {
+    var isCodexPoolQuota: Bool {
+        provider == .codex && modelName == "Codex Pool"
+    }
+
+    var isCodexCurrentAccountQuota: Bool {
+        provider == .codex && modelName == "Codex Current"
+    }
+
+    var isMagpieQuotaRow: Bool {
+        provider == .codex && parsedDetail.source == "Magpie"
+    }
+
     var isExhaustedCurrentInterval: Bool {
         if let percent = currentIntervalRemainingPercent {
             return percent <= 0
@@ -957,10 +986,11 @@ extension ModelUsageData {
     }
 
     /// 判断 detailText 段落是否像 Codex plan 展示名。
-    /// 覆盖 CodexPlanFormatting 输出的常见形态：Pro / Pro 20x / Pro 5x / Plus / Team / Enterprise。
+    /// 覆盖 CodexPlanFormatting 输出的常见形态：Pro / ProLite / Pro 20x / Pro 5x / Plus / Team / Enterprise。
     private static func looksLikeCodexPlanName(_ part: String) -> Bool {
         let lower = part.lowercased()
-        if lower == "pro" || lower == "plus" || lower == "team" || lower == "enterprise" {
+        if lower == "pro" || lower == "prolite" || lower == "plus"
+            || lower == "team" || lower == "enterprise" {
             return true
         }
         if lower.hasPrefix("pro ") || lower.hasPrefix("pro_") || lower.hasPrefix("pro-") {

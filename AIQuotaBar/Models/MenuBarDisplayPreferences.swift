@@ -117,6 +117,17 @@ enum MenuBarTaskWaveLayout: String, CaseIterable, Codable, Identifiable {
     var id: String { rawValue }
 }
 
+/// How the Codex ring interprets a multi-account Magpie report. The current
+/// account is Magpie's explicitly marked active card; the pool remains an
+/// opt-in aggregate for users who want every saved subscription at once.
+enum CodexMagpieRingScope: String, CaseIterable, Codable, Identifiable {
+    case currentAccount
+    case allAccounts
+
+    static let storageKey = "codexMagpieRingScope"
+    var id: String { rawValue }
+}
+
 /// Which quota window supplies the compact ring's outer arc. Providers without
 /// a weekly window keep using their current window. `.total` is the provider's
 /// monthly overall quota (Kimi "Total usage").
@@ -409,7 +420,17 @@ struct MenuBarSnapshot: Equatable {
     let resetsAt: Date?
     let state: MenuBarSnapshotState
     let isLowQuota: Bool
-    let tooltip: String
+    var tooltip: String
+    /// 账号（小写邮箱）。Codex 有多个账号同时在用时，同一个 provider
+    /// 会有多个快照，靠它区分。
+    ///
+    /// nil = 这个快照不绑定具体账号（其它三个供应商，或 Codex 的池行）。
+    var accountKey: String? = nil
+    /// 这个账号此刻正在被用。
+    ///
+    /// 画在环上，让用户一眼看到哪个是当前活跃的账号 —— 多个 C 环的字母
+    /// 是一样的，光靠位置区分不够。
+    var isAccountActive: Bool = false
     /// 仅 `.placeholder` 状态使用：已启用的供应商数量（计数徽标开关用）。
     var placeholderProviderCount: Int? = nil
 

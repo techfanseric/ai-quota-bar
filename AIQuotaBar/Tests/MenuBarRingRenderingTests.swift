@@ -537,6 +537,67 @@ final class MenuBarRingRenderingTests: XCTestCase {
     }
 
     @MainActor
+    func testCompactStripRendersMultipleRingsForTheSameProvider() {
+        // 多个 Codex 账号同时在用时，Codex 那一栏是多个环 —— 字母一样，
+        // 靠位置、tooltip 和活跃标记区分。
+        let view = StatusBarCompactRingsView()
+        let snapshots = [
+            MenuBarSnapshot(provider: .codex, modelName: "Weekly",
+                remainingPercent: 71, ringPercent: 71, paceDeltaPercent: nil,
+                ringTrend: nil, resetsAt: nil, state: .ready, isLowQuota: false,
+                tooltip: "a@example.com", accountKey: "a@example.com",
+                isAccountActive: true),
+            MenuBarSnapshot(provider: .codex, modelName: "Weekly",
+                remainingPercent: 44, ringPercent: 44, paceDeltaPercent: nil,
+                ringTrend: nil, resetsAt: nil, state: .ready, isLowQuota: false,
+                tooltip: "b@example.com", accountKey: "b@example.com",
+                isAccountActive: true),
+            MenuBarSnapshot(provider: .kimi, modelName: "Kimi",
+                remainingPercent: 60, ringPercent: 60, paceDeltaPercent: nil,
+                ringTrend: nil, resetsAt: nil, state: .ready, isLowQuota: false,
+                tooltip: "Kimi"),
+        ]
+        view.setSnapshots(
+            snapshots,
+            codexConnectivity: .reachable,
+            paceDisplayMode: .staged,
+            isSelfTesting: false,
+            activeTaskCounts: [:],
+            accessibilityLabel: "Codex accounts and Kimi")
+
+        XCTAssertEqual(view.providerInitialCountForTesting, 3)
+        XCTAssertEqual(view.accountKeysForTesting,
+            ["a@example.com", "b@example.com", nil])
+    }
+
+    @MainActor
+    func testActiveAccountRingIsVisuallyDistinctFromAnIdleOne() {
+        // 活跃账号的实心点是第二个不依赖位置的区分通道。
+        func pixels(isActive: Bool) -> [UInt8] {
+            let view = StatusBarCompactRingView(
+                frame: NSRect(x: 0, y: 0, width: 22, height: 22))
+            view.setSnapshot(
+                MenuBarSnapshot(provider: .codex, modelName: "Weekly",
+                    remainingPercent: 50, ringPercent: 50, paceDeltaPercent: nil,
+                    ringTrend: nil, resetsAt: nil, state: .ready, isLowQuota: false,
+                    tooltip: "x", accountKey: "a@example.com",
+                    isAccountActive: isActive),
+                connectivity: .reachable,
+                paceDisplayMode: .staged,
+                accessibilityLabel: "x")
+            view.setAnimationTimeForRendering(0)
+            let bitmap = view.bitmapImageRepForCachingDisplay(in: view.bounds)!
+            view.cacheDisplay(in: view.bounds, to: bitmap)
+            guard let data = bitmap.bitmapData else { return [] }
+            // 比**整张图**的字节，不只是像素值的集合 —— 两个不同的排布
+            // 可以有完全相同的一组像素值，那样这个断言就永远为真。
+            let count = bitmap.bytesPerRow * bitmap.pixelsHigh
+            return Array(UnsafeBufferPointer(start: data, count: count))
+        }
+        XCTAssertNotEqual(pixels(isActive: true), pixels(isActive: false))
+    }
+
+    @MainActor
     func testCompactStripRoutesActivityCountsToMatchingProviderRings() {
         let view = StatusBarCompactRingsView()
         let snapshots = [UsageProvider.codex, .kimi].map { provider in

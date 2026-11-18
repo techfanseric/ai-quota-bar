@@ -69,9 +69,13 @@ struct CompactStatusRenderState: Equatable {
 @MainActor
 final class StatusBarController {
     let viewModel = UsageViewModel()
-    let sleepProtectionCoordinator = CodexSleepProtectionCoordinator()
+    let sleepProtectionCoordinator = CodexSleepProtectionCoordinator(
+        magpieActivityProvider: MagpieModelActivityDetector())
     private var statusItem: NSStatusItem?
-    private let usagePanel = MenuBarPanel()
+    /// 当前被悬停的环。多个 Codex 账号同时在用时，同一个 provider 有多个
+    /// 环，tooltip 必须跟着指针走。
+    private var hoveredRingView: StatusBarCompactRingView?
+    private var usagePanel: MenuBarPanel?
     private var usagePanelPlacement: MenuBarPanelPlacement?
     private var isUsageMenuOpen = false
     private var hostingView: NSHostingView<MenuView>?
@@ -141,13 +145,8 @@ final class StatusBarController {
     private let clashPanelDisplayStore = ClashPanelDisplayStore()
     private let codexAuthAccountStore = CodexAuthAccountStore.shared
     let stepAwayDimController = StepAwayDimController.shared
-    private lazy var clashRoutePopoverController = ClashRoutePopoverController(
-        routeViewModel: clashRouteViewModel,
-        connectionViewModel: clashConnectionViewModel,
-        sleepProtectionCoordinator: sleepProtectionCoordinator,
-        displayStore: clashPanelDisplayStore,
-        accountStore: codexAuthAccountStore,
-        stepAwayDimController: stepAwayDimController)
+    private var clashRoutePopoverController: ClashRoutePopoverController?
+    private let lightweightMode = LightweightModeController.shared
     private let initialStatusItemLength: CGFloat = 110
     private var screenObserverTokens: [NSObjectProtocol] = []
     private var accessibilityDisplayObserver: NSObjectProtocol?
@@ -313,8 +312,23 @@ final class StatusBarController {
         observeProperties(sleepProtectionCoordinator) { coordinator in
             _ = coordinator.activeTurnCount
             _ = coordinator.activeTaskCounts
+            _ = coordinator.ringActivityCounts
+            _ = coordinator.modelActivity
+            _ = coordinator.codexAccountUsage
         } onChange: { [weak self] in
-            self?.updateStatusItem()
+            guard let self else { return }
+            // 账号归属决定 Codex 那一栏画几个环，必须先落到 view model，
+            // 再由它重建快照。
+            self.viewModel.codexAccountUsage = self.sleepProtectionCoordinator.codexAccountUsage
+            self.updateStatusItem()
+        }
+
+        // 指针移到另一个环上时，tooltip 立刻跟着换。菜单栏的 tooltip 是
+        // 按钮的属性，不主动刷新就会一直停在进入时的那个环。
+        statusView.onRingHoverChanged = { [weak self] ringView, isHovered in
+            guard let self else { return }
+            self.hoveredRingView = isHovered ? ringView : nil
+            self.refreshStatusItemTooltip()
         }
 
         // 应用启动 / 退出 → 跟随模式下的菜单栏与左键菜单显示集合。
@@ -362,6 +376,15 @@ final class StatusBarController {
     }
 
     private func setupMenu() {
+        // The menu's SwiftUI tree is made on demand. Ring-only operation
+        // must not create hidden charts or a control panel at startup.
+        observeMenuLayoutChanges()
+    }
+
+    private func ensureUsagePanel() {
+        guard usagePanel == nil else { return }
+        let panel = MenuBarPanel()
+        usagePanel = panel
         let menuView = MenuView(
             viewModel: viewModel,
             presentationSizing: menuPresentationSizing,
@@ -393,11 +416,37 @@ final class StatusBarController {
         surface.layer?.cornerRadius = MenuBarPanelLayout.cornerRadius
         surface.layer?.masksToBounds = true
         surface.addSubview(hostingView)
-        usagePanel.contentView = surface
-        usagePanel.onDismiss = { [weak self] in self?.isUsageMenuOpen = false }
+        panel.contentView = surface
+        panel.onDismiss = { [weak self] in
+            self?.isUsageMenuOpen = false
+            self?.lightweightMode.didHide("quota-menu")
+        }
         updateMenuLayout(force: true)
+        lightweightMode.register("quota-menu", isOpen: { [weak panel] in
+            LightweightModeController.isOpen(panel)
+        }, release: { [weak self] in
+            guard let self else { return }
+            self.usagePanel?.onDismiss = nil
+            self.usagePanel?.contentView = nil
+            self.hostingView = nil
+            self.usagePanel?.close()
+            self.usagePanel = nil
+            self.usagePanelPlacement = nil
+            CodexLocalUsageModel.shared.releasePresentationCaches()
+        })
+    }
 
-        observeMenuLayoutChanges()
+    private func controlPanelController() -> ClashRoutePopoverController {
+        if let clashRoutePopoverController { return clashRoutePopoverController }
+        let controller = ClashRoutePopoverController(
+            routeViewModel: clashRouteViewModel,
+            connectionViewModel: clashConnectionViewModel,
+            sleepProtectionCoordinator: sleepProtectionCoordinator,
+            displayStore: clashPanelDisplayStore,
+            accountStore: codexAuthAccountStore,
+            stepAwayDimController: stepAwayDimController)
+        clashRoutePopoverController = controller
+        return controller
     }
 
     /// 持续追踪下拉菜单用到的所有 keyPath，任意一个变化时重算 menu 尺寸。
@@ -433,11 +482,11 @@ final class StatusBarController {
             dismissMenu()
             clashRouteViewModel.language = viewModel.appLanguage
             clashConnectionViewModel.language = viewModel.appLanguage
-            clashRoutePopoverController.toggle(
+            controlPanelController().toggle(
                 relativeTo: sender,
                 automaticallyTest: true)
         } else {
-            clashRoutePopoverController.close()
+            clashRoutePopoverController?.close()
             showMenu(relativeTo: sender)
         }
     }
@@ -502,21 +551,23 @@ final class StatusBarController {
     func showResetAlerts() {
         guard let button = statusItem?.button else { return }
         NSApp.activate(ignoringOtherApps: true)
-        if usagePanel.isVisible { usagePanel.makeKeyAndOrderFront(nil) }
+        if usagePanel?.isVisible == true { usagePanel?.makeKeyAndOrderFront(nil) }
         else { showMenu(relativeTo: button) }
     }
 
     private func showMenu(relativeTo button: NSStatusBarButton) {
-        if usagePanel.isVisible {
+        if usagePanel?.isVisible == true {
             dismissMenu()
             return
         }
-        guard let placement = MenuBarPanelPlacement.resolve(relativeTo: button), let hostingView else { return }
+        ensureUsagePanel()
+        guard let usagePanel, let placement = MenuBarPanelPlacement.resolve(relativeTo: button), let hostingView else { return }
         usagePanelPlacement = placement
         updateMenuConstraints(visibleHeight: placement.visibleFrame.height)
         isUsageMenuOpen = true
         updateMenuLayout(force: true)
         usagePanel.present(relativeTo: button, placement: placement, contentSize: hostingView.frame.size)
+        lightweightMode.didShow("quota-menu")
     }
 
     private func updateMenuLayout(force: Bool = false) {
@@ -530,9 +581,9 @@ final class StatusBarController {
             width: ceil(fittingSize.width),
             height: ceil(min(fittingSize.height, maximumMenuHeight))
         )
-        usagePanel.contentView?.setFrameSize(size)
+        usagePanel?.contentView?.setFrameSize(size)
         hostingView.frame = NSRect(origin: .zero, size: size)
-        if usagePanel.isVisible, let placement = usagePanelPlacement {
+        if let usagePanel, usagePanel.isVisible, let placement = usagePanelPlacement {
             let frame = placement.panelFrame(contentSize: size)
             if usagePanel.frame != frame {
                 usagePanel.setFrame(frame, display: true, animate: false)
@@ -551,7 +602,7 @@ final class StatusBarController {
     }
 
     private func dismissMenu() {
-        usagePanel.dismiss()
+        usagePanel?.dismiss()
         isUsageMenuOpen = false
     }
 
@@ -564,7 +615,7 @@ final class StatusBarController {
         dismissMenu()
         clashRouteViewModel.language = viewModel.appLanguage
         clashConnectionViewModel.language = viewModel.appLanguage
-        clashRoutePopoverController.show(
+        controlPanelController().show(
             relativeTo: button,
             automaticallyTest: automaticallyTest)
     }
@@ -701,7 +752,7 @@ final class StatusBarController {
         sleepProtectionCoordinator.stop()
         viewModel.appPresenceMonitor.stop()
         dismissMenu()
-        clashRoutePopoverController.close()
+        clashRoutePopoverController?.close()
         clashConnectionViewModel.stop()
         connectivityMonitor.stop()
         mobileDashboardService.stopForApplicationTermination()
@@ -792,7 +843,7 @@ final class StatusBarController {
                 paceDisplayMode: viewModel.menuBarPaceDisplayMode,
                 taskWaveLayout: viewModel.menuBarTaskWaveLayout,
                 isSelfTesting: viewModel.isMenuBarSelfTesting,
-                activeTaskCounts: sleepProtectionCoordinator.activeTaskCounts,
+                activeTaskCounts: sleepProtectionCoordinator.ringActivityCounts,
                 placeholderStyle: viewModel.menuBarPlaceholderStyle,
                 horizontalPadding: viewModel.menuBarCompactHorizontalPadding,
                 ringSpacing: viewModel.menuBarCompactRingSpacing,
@@ -827,7 +878,7 @@ final class StatusBarController {
             rings.setSnapshots(resetAlertSnapshots, codexConnectivity: connectivityMonitor.state,
                 paceDisplayMode: viewModel.menuBarPaceDisplayMode,
                 taskWaveLayout: viewModel.menuBarTaskWaveLayout,
-                isSelfTesting: false, activeTaskCounts: sleepProtectionCoordinator.activeTaskCounts,
+                isSelfTesting: false, activeTaskCounts: sleepProtectionCoordinator.ringActivityCounts,
                 placeholderStyle: viewModel.menuBarPlaceholderStyle,
                 horizontalPadding: viewModel.menuBarCompactHorizontalPadding,
                 ringSpacing: viewModel.menuBarCompactRingSpacing, accessibilityLabel: quotaTooltip)
@@ -907,7 +958,7 @@ final class StatusBarController {
             pace: viewModel.menuBarPaceDisplayMode,
             taskWaveLayout: viewModel.menuBarTaskWaveLayout,
             selfTesting: viewModel.isMenuBarSelfTesting,
-            tasks: sleepProtectionCoordinator.activeTaskCounts,
+            tasks: sleepProtectionCoordinator.ringActivityCounts,
             padding: viewModel.menuBarCompactHorizontalPadding, spacing: viewModel.menuBarCompactRingSpacing,
             appearance: button.effectiveAppearance.bestMatch(from: [.accessibilityHighContrastDarkAqua, .accessibilityHighContrastAqua, .darkAqua, .aqua])?.rawValue ?? "",
             scale: scale, height: statusView.frame.height,
@@ -981,6 +1032,15 @@ final class StatusBarController {
         dimmingTooltip(quotaTooltip)
     }
 
+    /// 指针换了环之后刷新按钮的 tooltip。
+    private func refreshStatusItemTooltip() {
+        guard let button = statusItem?.button else { return }
+        let tooltip = statusItemTooltip
+        guard button.toolTip != tooltip else { return }
+        button.toolTip = tooltip
+        button.setAccessibilityLabel(tooltip)
+    }
+
     private func dimmingTooltip(_ base: String) -> String {
         guard stepAwayDimController.isActive else { return base }
         return viewModel.appLanguage.stepAwayActiveStatus(
@@ -991,7 +1051,19 @@ final class StatusBarController {
         let displayedSnapshots = viewModel.menuBarAppearance == .compactRing
             ? displayedCompactSnapshots
             : [viewModel.menuBarSnapshot]
-        let base = displayedSnapshots.map(\.tooltip).joined(separator: "\n")
+        // 多个账号环并存时，tooltip 跟着指针走 —— 多个 C 环的字母一样，
+        // 整条一份 tooltip 用户分不出是哪个账号。
+        //
+        // 只在**确实有多个同 provider 的环**时启用：否则保留"悬停整条看到
+        // 全部 provider"的既有行为，不为一个新功能改掉所有人都习惯的交互。
+        if let focused = focusedRingTooltip(displayedSnapshots: displayedSnapshots) {
+            return focused
+        }
+        let quota = displayedSnapshots.map(\.tooltip).joined(separator: "\n")
+        let activity = sleepProtectionCoordinator.modelActivity.tooltip(
+            language: viewModel.appLanguage,
+            providers: Set(displayedSnapshots.map(\.provider)))
+        let base = activity.isEmpty ? quota : quota + "\n\n" + activity
         if viewModel.menuBarAppearance == .compactRing,
            viewModel.isMenuBarSelfTesting,
            displayedSnapshots.contains(where: { $0.provider == .codex }) {
@@ -1002,6 +1074,22 @@ final class StatusBarController {
             return placeholderConnectivityTooltipSuffix(base) ?? base
         }
         return viewModel.appLanguage.codexConnectivityUnavailableTooltip(base: base)
+    }
+
+    /// 指针下的那个环的 tooltip；没有可聚焦的环时返回 nil（走整条 tooltip）。
+    private func focusedRingTooltip(
+        displayedSnapshots: [MenuBarSnapshot]
+    ) -> String? {
+        guard let hoveredRingView else { return nil }
+        // 只有一个环时没有"是哪一个"的问题，保持整条 tooltip。
+        let codexRingCount = displayedSnapshots.filter { $0.provider == .codex }.count
+        guard codexRingCount > 1 else { return nil }
+        let tooltip = hoveredRingView.snapshotTooltip
+        guard !tooltip.isEmpty else { return nil }
+        let activity = sleepProtectionCoordinator.modelActivity.tooltip(
+            language: viewModel.appLanguage,
+            providers: Set(displayedSnapshots.map(\.provider)))
+        return activity.isEmpty ? tooltip : tooltip + "\n\n" + activity
     }
 
     /// 占位用连通性形态时的 tooltip 追加行。
@@ -1028,7 +1116,7 @@ final class StatusBarController {
         MenuBarCompactSnapshotSelector.select(
             mode: viewModel.menuBarRingDisplayMode,
             snapshots: viewModel.menuBarSnapshots,
-            activeProviders: sleepProtectionCoordinator.activeProviders)
+            activeProviders: sleepProtectionCoordinator.ringActiveProviders)
     }
 
     private func updateStatusItemLength() {
@@ -1102,6 +1190,13 @@ final class StatusBarContentView: NSView {
             dimIndicator.isHidden = !isDimmingActive || isCompact
             needsLayout = true
         }
+    }
+    /// 某个环被悬停时回调（环自己，悬停与否）。
+    ///
+    /// 多个 C 环的字母一样，tooltip 必须能说出是哪一个环被指着 —— 这是
+    /// 整条一个 tooltip 做不到的。
+    var onRingHoverChanged: ((StatusBarCompactRingView, Bool) -> Void)? {
+        didSet { compactView.onHoverChanged = onRingHoverChanged }
     }
 
     var preferredWidth: CGFloat {
@@ -1177,6 +1272,7 @@ final class StatusBarContentView: NSView {
             horizontalPadding: horizontalPadding,
             ringSpacing: ringSpacing,
             accessibilityLabel: accessibilityLabel)
+        compactView.onHoverChanged = onRingHoverChanged
         detailedView.isHidden = true
         compactView.isHidden = false
         needsLayout = true
@@ -1220,6 +1316,8 @@ final class StatusBarCompactRingsView: NSView {
         MenuBarCompactLayoutPreferences.defaultHorizontalPadding)
     private var ringSpacing = CGFloat(
         MenuBarCompactLayoutPreferences.defaultRingSpacing)
+    /// 某个环被悬停时向外转发。
+    var onHoverChanged: ((StatusBarCompactRingView, Bool) -> Void)?
 
     var preferredWidth: CGFloat {
         let count = max(1, ringViews.count)
@@ -1250,6 +1348,9 @@ final class StatusBarCompactRingsView: NSView {
         let displayedSnapshots = snapshots.isEmpty ? [] : snapshots
         while ringViews.count < displayedSnapshots.count {
             let ringView = StatusBarCompactRingView()
+            ringView.onHoverChanged = { [weak self] view, isHovered in
+                self?.onHoverChanged?(view, isHovered)
+            }
             ringViews.append(ringView)
             addSubview(ringView)
         }
@@ -1433,6 +1534,11 @@ final class StatusBarCompactRingsView: NSView {
 
     var activeTaskCountsForTesting: [Int] {
         ringViews.map(\.activeTaskCountForTesting)
+    }
+
+    /// 每个环绑定的账号（nil = 不绑定具体账号）。
+    var accountKeysForTesting: [String?] {
+        ringViews.map(\.accountKeyForTesting)
     }
 #endif
 }
@@ -1634,6 +1740,10 @@ final class StatusBarCompactRingView: NSView {
     private var taskEnergyTask: Task<Void, Never>?
     private var isHovered = false
     private var placeholderStyle: MenuBarPlaceholderStyle = .openAIConnectivity
+    private var hoverTrackingArea: NSTrackingArea?
+    /// 这个环自己被悬停时回调 —— 多个 C 环的字母一样，tooltip 必须能
+    /// 说出是哪一个环被指着。
+    var onHoverChanged: ((StatusBarCompactRingView, Bool) -> Void)?
 
     override var isFlipped: Bool { false }
 
@@ -1653,6 +1763,35 @@ final class StatusBarCompactRingView: NSView {
         guard value != isHovered else { return }
         isHovered = value
         needsDisplay = true
+    }
+
+    /// 这个环自己的 tooltip。
+    var snapshotTooltip: String { snapshot.tooltip }
+
+    override func updateTrackingAreas() {
+        super.updateTrackingAreas()
+        if let hoverTrackingArea {
+            removeTrackingArea(hoverTrackingArea)
+        }
+        // 只跟踪这个环自己的边界：整条一个 tracking area 的话，悬停哪个
+        // 环都是同一份 tooltip，多个账号环就分不出谁是谁。
+        let trackingArea = NSTrackingArea(
+            rect: bounds,
+            options: [.mouseEnteredAndExited, .activeAlways],
+            owner: self,
+            userInfo: nil)
+        addTrackingArea(trackingArea)
+        hoverTrackingArea = trackingArea
+    }
+
+    override func mouseEntered(with event: NSEvent) {
+        setHovered(true)
+        onHoverChanged?(self, true)
+    }
+
+    override func mouseExited(with event: NSEvent) {
+        setHovered(false)
+        onHoverChanged?(self, false)
     }
 
     func setSnapshot(
@@ -1733,7 +1872,8 @@ final class StatusBarCompactRingView: NSView {
             liveOpacity: showsTaskEnergy ? Self.activeLiveRingOpacity : 1,
             // A self-test frame is a scripted demo of the fan, so it keeps the fan.
             trend: selfTestFrame == nil ? snapshot.ringTrend : nil,
-            resetAlert: showsResetAlert, resetAlertBright: showsResetAlert && resetAlertBright == true)
+            resetAlert: showsResetAlert, resetAlertBright: showsResetAlert && resetAlertBright == true,
+            isAccountActive: snapshot.isAccountActive)
         if showsTaskEnergy && !showsResetAlert {
             let scale = min(symbolRect.width / 367, symbolRect.height / 410)
             switch taskWaveLayout {
@@ -1955,6 +2095,7 @@ final class StatusBarCompactRingView: NSView {
 #if DEBUG
     var isShowingProviderInitialForTesting: Bool { true }
     var activeTaskCountForTesting: Int { activeTaskCount }
+    var accountKeyForTesting: String? { snapshot.accountKey }
 
     func setHoveredForTesting(_ value: Bool) {
         setHovered(value)

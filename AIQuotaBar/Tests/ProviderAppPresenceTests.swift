@@ -1,3 +1,5 @@
+import struct CodexBarCore.RateWindow
+import struct CodexBarCore.UsageSnapshot
 import XCTest
 @testable import AIQuotaBar
 
@@ -95,9 +97,13 @@ final class ProviderAppPresenceTests: XCTestCase {
                     processName: nil)
             }
         }
-        return UsageViewModel(
+        let viewModel = UsageViewModel(
             providerPresence: { _ in true },
             appPresenceMonitor: monitor)
+        let previousMode = UserDefaults.standard.object(forKey: MenuBarRingDisplayMode.storageKey)
+        addTeardownBlock { UserDefaults.standard.set(previousMode, forKey: MenuBarRingDisplayMode.storageKey) }
+        viewModel.menuBarRingDisplayMode = .automatic
+        return viewModel
     }
 
     @MainActor
@@ -120,6 +126,73 @@ final class ProviderAppPresenceTests: XCTestCase {
         XCTAssertTrue(viewModel.isProviderDisplayedInMenus(.codex))
         XCTAssertTrue(viewModel.isProviderDisplayedInMenus(.glm))
         XCTAssertTrue(viewModel.isProviderDisplayedInMenus(.miniMax))
+    }
+
+    @MainActor
+    func testAlwaysVisibleRingsOverrideFollowWithEveryAppClosed() {
+        let defaults = UserDefaults.standard
+        let keys = [MenuBarAppearance.storageKey, MenuBarRingDisplayMode.storageKey,
+                    MenuBarProviderRingWindows.storageKey,
+                    MenuBarRingPreferences.providersKey, UsageViewModel.followRunningAppsKey,
+                    UsageViewModel.pausedProvidersKey,
+                    LeftClickMenuDisplayPreferences.storageKey]
+        let saved = keys.map { ($0, defaults.object(forKey: $0)) }
+        defer { saved.forEach { defaults.set($0.1, forKey: $0.0) } }
+        defaults.removeObject(forKey: UsageViewModel.pausedProvidersKey)
+        let viewModel = makeViewModel(running: [])
+        viewModel.followRunningApps = true
+        viewModel.menuBarAppearance = .compactRing
+        viewModel.menuBarRingDisplayMode = .all
+        viewModel.menuBarProviderRingWindows = [.codex: .init(outer: .current, center: nil)]
+        viewModel.selectAllMenuBarRingProviders()
+
+        XCTAssertFalse(viewModel.isMenuBarDisplayIntentionallyHidden)
+        XCTAssertEqual(viewModel.menuBarSnapshots.map(\.provider), MenuBarRingPreferences.providerOrder)
+        XCTAssertTrue(UsageProvider.allCases.allSatisfy(viewModel.isProviderDisplayedInMenus))
+        // Following still collapses the left-click sections independently.
+        XCTAssertTrue(UsageProvider.allCases.allSatisfy(viewModel.isProviderCollapsed))
+
+        viewModel.usageData = CodexUsageDataMapper.mapToUsageData(
+            snapshot: UsageSnapshot(
+                primary: RateWindow(usedPercent: 35, windowMinutes: 300,
+                                    resetsAt: Date().addingTimeInterval(3600), resetDescription: nil),
+                secondary: nil, updatedAt: Date()),
+            credits: nil, sourceLabel: "oauth")
+        XCTAssertEqual(viewModel.menuBarSnapshots.first?.state, .ready)
+        XCTAssertEqual(viewModel.menuBarSnapshots.first?.ringPercent, 65)
+        viewModel.setProviderEnabled(false, provider: .codex)
+        XCTAssertFalse(viewModel.menuBarSnapshots.contains { $0.provider == .codex })
+        viewModel.setProviderEnabled(true, provider: .codex)
+
+        viewModel.menuBarRingDisplayMode = .automatic
+        XCTAssertTrue(viewModel.isMenuBarDisplayIntentionallyHidden)
+        XCTAssertTrue(UsageProvider.allCases.allSatisfy { !viewModel.isProviderDisplayedInMenus($0) })
+        viewModel.menuBarRingDisplayMode = .all
+        viewModel.menuBarAppearance = .detailedText
+        XCTAssertTrue(viewModel.isMenuBarDisplayIntentionallyHidden)
+    }
+
+    @MainActor
+    func testClosedCodexAppStillRefreshesAndReportsErrors() async {
+        let defaults = UserDefaults.standard
+        let keys = [UsageViewModel.pausedProvidersKey, UsageViewModel.followRunningAppsKey,
+                    LeftClickMenuDisplayPreferences.storageKey]
+        let saved = keys.map { ($0, defaults.object(forKey: $0)) }
+        defer { saved.forEach { defaults.set($0.1, forKey: $0.0) } }
+        defaults.set(["kimi", "glm", "minimax"], forKey: UsageViewModel.pausedProvidersKey)
+        let monitor = ProviderAppPresenceMonitor { [] }
+        let viewModel = UsageViewModel(
+            providerPresence: { $0 == .codex },
+            appPresenceMonitor: monitor,
+            fetchProviderUsage: { provider in
+                XCTAssertEqual(provider, .codex)
+                throw UsageError.apiError("test quota endpoint unavailable")
+            })
+        viewModel.followRunningApps = true
+        await viewModel.refresh(showIconSelfTest: false)
+
+        XCTAssertNotNil(viewModel.providerErrors[.codex], "A closed client must still query the quota source and surface its error.")
+        viewModel.stopAutoRefresh()
     }
 
     @MainActor

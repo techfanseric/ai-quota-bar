@@ -77,14 +77,13 @@ Kimi Work 桌面会话从不可见变为精确 turn 级检测。
 
 ## 待实施(实验驱动,按优先级)
 
-### 1. Codex:Esc 中断实验 + 双源对账(需实验 3)
+### 1. Codex:双源对账已实施（2026-11-12，未发布）
 
 - **已完成**:turn 级 TTL(见上文"已实施:Codex hook turn TTL")。
 - **待做实验**:开一个 Codex 任务 → 中途按 Esc 中断 → 观察 os_log
   (`log stream --predicate 'subsystem == "com.techfanseric.aiquotabar" AND category == "CodexActivity"'`)
   是否出现 Stop 事件,以及 rollout 是否写 `turn_aborted`。
-- **若实验证实 Esc 不触发 Stop**:增加双源对账——rollout 判定回合已结束
-  (`task_complete`/`turn_aborted`/`task_aborted`)而 hook 侧仍活跃时,采纳文件结论摘除 turn。
+- **已实施**:rollout 的明确完成/中断事件与 Hook 按会话/回合对账，补足漏收 Stop；Hook 已结束时抑制滞后日志，合并已知父子身份。关闭电源保护后继续统计 Hook。仅有空白读取不会推断任务完成。Esc 的真实客户端现场实验仍未完成，不宣称所有 Esc 路径都已验证。实现边界及验证见[任务流光对账](./task-activity-reconciliation.md)。
 
 ### 2. Kimi:已完成(2026-09-28)
 

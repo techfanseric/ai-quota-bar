@@ -73,6 +73,12 @@ struct UsagePane: View {
                 subtitle: language.text(.refreshOnLaunchDescription),
                 isOn: $viewModel.autoRefreshOnLaunch
             )
+
+            PreferenceToggleRow(
+                title: language.text(.cycleEndNotifications),
+                subtitle: language.text(.cycleEndNotificationsDescription),
+                isOn: $viewModel.quotaCycleEndNotificationsEnabled
+            )
         }
     }
 

@@ -4,6 +4,10 @@
 
 ## 当前文档
 
+- [一分钟轻量模式](./research/lightweight-mode-2026-11-12.md)：Magpie / Clash Verge 源码对照、默认开启的 macOS 原生界面回收、ring 与后台服务边界。
+
+- [任务与模型流光归属](./task-activity-reconciliation.md)：未发布的 macOS 本地 Magpie 实际路由、四个服务商环及模型悬停明细，Codex Hook/日志终态对账、子会话去重和检测限制。
+
 - [官网首屏重置提醒体验](./website-hero-reset-experience-2026-10-28.md)：通知到达、持续未读、明确确认与可交互演示。
 
 - [Dim 输入恢复说明](./releases/v1.39.2.zh-CN.md)：macOS v1.39.2 默认输入即恢复、辅助功能权限与隐私边界。
@@ -21,6 +25,10 @@
 - [Windows 迁移](./win-migration/analysis/)：macOS 版六大模块的功能规格分析（Codex／提供方／Clash／电源／UI·设置／云团队），Windows 版实现见 [`win/`](../win/)。
 
 ## 发布说明
+
+- [未发布 · 一分钟轻量模式](./releases/unreleased-lightweight.zh-CN.md)：[验证记录](./releases/unreleased-lightweight-checklist.md)，仅 macOS，公开下载不变。
+
+- [未发布 · 后台额度与常驻圆环](./releases/unreleased-background-quota.zh-CN.md)：[Magpie 源码方案对照与使用步骤](./research/magpie-quota-2026-11-12.md)；[验证记录](./releases/unreleased-background-quota-checklist.md)。
 
 - [macOS v1.39.3](./releases/v1.39.3.zh-CN.md)：重置消息 24 小时窗口与逐条消除、线路区按连通性收起、Dim 权限引导；[发布验证记录](./releases/v1.39.3-checklist.md)。
 - [macOS v1.39.2](./releases/v1.39.2.zh-CN.md)：Dim 默认输入即恢复；[发布验证记录](./releases/v1.39.2-checklist.md)。

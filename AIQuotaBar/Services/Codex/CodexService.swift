@@ -10,12 +10,19 @@ final class CodexService {
     private let fetcher: UsageFetcher
     private let browserDetection: BrowserDetection
     private let claudeFetcher: ClaudeUsageFetcher
+    private let magpieQuotaService: any MagpieCodexQuotaProviding
+    private let activeUsageFetcher: (@Sendable () async throws -> UsageData)?
 
-    private init() {
+    init(
+        magpieQuotaService: any MagpieCodexQuotaProviding = MagpieCodexQuotaService(),
+        activeUsageFetcher: (@Sendable () async throws -> UsageData)? = nil
+    ) {
         self.descriptor = CodexProviderDescriptor.descriptor
         self.fetcher = UsageFetcher()
         self.browserDetection = BrowserDetection()
         self.claudeFetcher = ClaudeUsageFetcher(browserDetection: browserDetection)
+        self.magpieQuotaService = magpieQuotaService
+        self.activeUsageFetcher = activeUsageFetcher
     }
 
     /// 当前 source mode（持久化在 UserDefaults）
@@ -36,10 +43,29 @@ final class CodexService {
 
     /// 拉取当前 source mode 下的 Codex usage
     func fetchUsage() async throws -> UsageData {
-        guard CodexAppPresence.isRunning else {
-            throw UsageError.apiError("Codex app is not running; usage refresh skipped.")
+        // Magpie is the preferred source when it owns several saved Codex
+        // accounts. Every failure falls back to the original active-account
+        // reader below, preserving behavior on machines without Magpie.
+        do {
+            if let data = try await magpieQuotaService.fetchUsage() {
+                return data
+            }
+        } catch is CancellationError {
+            throw CancellationError()
+        } catch {
+            // A missing, unconfigured or unhealthy gateway is expected; the
+            // original active-account reader remains the compatible path.
         }
 
+        if let activeUsageFetcher {
+            return try await activeUsageFetcher()
+        }
+        return try await fetchActiveAccountUsage()
+    }
+
+    private func fetchActiveAccountUsage() async throws -> UsageData {
+        // OAuth reads the vendor's quota endpoint using the saved sign-in.
+        // Desktop app presence is a display preference, never a refresh prerequisite.
         let authRoot = URL(fileURLWithPath: ProcessInfo.processInfo.environment["CODEX_HOME"] ?? NSHomeDirectory() + "/.codex")
         let accountBefore = UsageAccountObservation.read(root: authRoot)
         let context = makeContext(sourceMode: sourceMode)

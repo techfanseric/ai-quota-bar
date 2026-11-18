@@ -22,7 +22,8 @@ enum QuotaSymbolRenderer {
                      foreground: NSColor = .labelColor, track: NSColor? = nil,
                      offlineOpacity: CGFloat = 1, liveOpacity: CGFloat = 1,
                      trend: [MenuBarRingTrendPoint]? = nil,
-                     resetAlert: Bool = false, resetAlertBright: Bool = false) {
+                     resetAlert: Bool = false, resetAlertBright: Bool = false,
+                     isAccountActive: Bool = false) {
         withCanvas(in: rect) {
             let foreground = resetAlertBright ? NSColor.systemYellow : foreground
             let muted = track ?? foreground.withAlphaComponent(0.18)
@@ -54,6 +55,12 @@ enum QuotaSymbolRenderer {
                 (resetAlertBright ? NSColor.systemYellow : danger).withAlphaComponent(status == .offline ? offlineOpacity : 1).setFill()
                 NSBezierPath(roundedRect: NSRect(x: 88.5, y: 157.5, width: 190, height: 52), xRadius: 26, yRadius: 26).fill()
                 return
+            }
+            // 「正在被用」标记：多个 C 环的字母一样，位置是用户唯一能用来
+            // 区分它们的线索，但位置也会随负载波动而变 —— 一枚实心点给出
+            // 第二个不依赖位置的通道：哪个是当前活跃的账号。
+            if isAccountActive {
+                drawActiveAccountDot(color: activeForeground)
             }
             // The trend and the fan share the same inner disc, so only one of them
             // can be the inner channel. A weekly-only account has no short window to
@@ -245,6 +252,26 @@ enum QuotaSymbolRenderer {
         path.lineCapStyle = .round
         color.setStroke()
         path.stroke()
+    }
+
+    /// 活跃账号的小实心点，画在环外的右上角。
+    ///
+    /// 放在环外（而不是内圈）是有意的：内圈已经被趋势曲线或双向扇形占着，
+    /// 在那里加东西会和那两种形状抢同一个位置。
+    private static func drawActiveAccountDot(color: NSColor) {
+        let radius = 15.0
+        let center = NSPoint(x: 183.5, y: 183.5)
+        // 环的缺口在正上方（38° 起、扫 256°），右上角是实弧，点画在那里
+        // 不会被缺口的背景吃掉。
+        let angle = 28.0 * .pi / 180
+        let point = NSPoint(
+            x: center.x + cos(angle) * 172.0,
+            y: center.y + sin(angle) * 172.0)
+        let dot = NSBezierPath(ovalIn: NSRect(
+            x: point.x - radius, y: point.y - radius,
+            width: radius * 2, height: radius * 2))
+        color.setFill()
+        dot.fill()
     }
 
     /// 菜单栏占位：所有供应商都被隐藏时显示。默认复刻 App 图标的完整

@@ -734,6 +734,13 @@ private struct ProviderModelsSection: View {
                             // 各行字号就不一致了（远看像某个账号"特殊"）。
                             .truncationMode(.tail)
 
+                        if isAccountInUse(group) {
+                            Circle()
+                                .fill(Color.accentColor)
+                                .frame(width: 5, height: 5)
+                                .accessibilityLabel(language == .simplifiedChinese ? "正在使用" : "In use now")
+                        }
+
                         if let plan = accountPlanSummary(group.models) {
                             Text("·")
                                 .foregroundStyle(.tertiary)
@@ -1009,7 +1016,19 @@ private struct ProviderModelsSection: View {
     private func isAccountCollapsed(_ group: AccountModelGroup, isCurrent: Bool) -> Bool {
         // 折叠语义只属于 Codex 的账号分组；其他供应商的分组始终展开。
         guard data.provider == .codex else { return false }
-        return accountCollapseOverrides[accountCollapseKey(group)] ?? !isCurrent
+        if let override = accountCollapseOverrides[accountCollapseKey(group)] {
+            return override
+        }
+        // 正在被用的账号默认展开：用户问的是"这个账号还剩多少"，而它此刻
+        // 正在消耗额度 —— 把它折起来等于把最该看的数字藏起来。
+        if isAccountInUse(group) { return false }
+        return !isCurrent
+    }
+
+    /// 这个账号此刻正在被用（网关报的在途请求落在它名下）。
+    private func isAccountInUse(_ group: AccountModelGroup) -> Bool {
+        data.provider == .codex
+            && viewModel.isCodexAccountInUse(group.accountName)
     }
 
     private func toggleAccountCollapsed(_ group: AccountModelGroup) {

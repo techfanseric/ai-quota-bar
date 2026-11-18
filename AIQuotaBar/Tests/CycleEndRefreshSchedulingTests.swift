@@ -59,7 +59,7 @@ final class CycleEndRefreshSchedulingTests: XCTestCase {
                 weeklyEndTime: nil),
         ]
 
-        // Codex app not running → only Kimi participates.
+        // Explicitly excluded/paused Codex → only Kimi participates.
         XCTAssertEqual(
             viewModel.nextCycleEndDate(
                 at: base,

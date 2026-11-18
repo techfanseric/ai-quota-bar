@@ -25,6 +25,16 @@ AI coding work is hard to manage when quota, network routes, and Mac sleep setti
   <img src="./docs/images/control-center.png" alt="AI Quota Bar control center" width="342">
 </p>
 
+## Unreleased · One-minute lightweight mode
+
+On macOS, **Settings → General → System → Lightweight mode** is on by default. Closed menus and settings release their native interface resources after one minute and rebuild on the next click. Quota rings, live model lights, hover details, alerts and background services keep running. Open/minimized windows are protected. Saved settings remain; unsaved temporary input may be cleared. This is not yet in the public v1.39.3 download and is not ported to Windows. [Research and behavior](./docs/research/lightweight-mode-2026-11-12.md) · [Unreleased notes](./docs/releases/unreleased-lightweight.en.md).
+
+## Unreleased · Quota refresh with provider apps closed
+
+On macOS, Codex now refreshes using the saved-sign-in OAuth-first pipeline even with Codex/ChatGPT closed. If Codex is configured for a local Magpie gateway, the Codex ring prefers Magpie's multi-account quota report. The default ring follows the current account; **each account with a request actively being processed upstream now gets its own C ring** (up to three), replacing the single Codex ring while those accounts are active. Each account ring shows that account's quota and an active dot, and hovering identifies it using the existing account-masking preference. The left-click menu expands every in-use account by default, including aliased accounts, while respecting manual collapse. Idle activity returns to the existing single ring; ambiguous or temporarily unavailable account activity is explained rather than presented as idle. AIQuotaBar never touches Magpie's credentials. When Magpie is missing or unhealthy, the original active-account reader is used automatically. In **Settings → General → Menu bar**, choose **Always visible** and **Select all** to show every configured, enabled quota ring. Always-visible rings override **Follow running apps**; left-click sections still collapse automatically. Quota cycle notifications are also enabled by default: after a registered 5h/weekly/monthly window ends, AI Quota Bar refreshes and sends one deduplicated summary covering whether the old cycle was exhausted and what the new cycle has left. Notifications honor macOS permission/Focus settings, use menu account masking, and can be turned off in **Settings → Usage & Team → Refresh**. AI Quota Bar itself must keep running. These changes are source-only and are not in the v1.39.3 download. [Ring scheduling research](./docs/research/magpie-ring-scheduling-2026-11-17.md) · [Unreleased notes](./docs/releases/unreleased-background-quota.en.md).
+
+The unreleased macOS source also reconciles Codex hooks and rollout logs by turn, clearing finished/canceled work without double-counting a known child session. Turning sleep protection off no longer stops hook activity counting. Lights now follow the **model family**, not the Codex client: configured local Magpie routes drive live request counts on the Codex/Kimi/GLM/MiniMax rings, with model names and counts on hover. Direct local model tasks keep their lifecycle signal; gateway requests are not added to those same tasks. Tool gaps may show no gateway lights while task sleep protection continues. [Activity behavior and limits](./docs/task-activity-reconciliation.md).
+
 ## v1.39.3 · Reset alerts: 24-hour window and smarter routes panel
 
 The reset-alert panel now shows only the last 24 hours: the unread count, pinned signal and clock history share that window, while older announcements stay archived locally for 30 days for revision deduplication. Each message gains a **Dismiss** action — the same revision cannot return on the next poll.
@@ -38,6 +48,10 @@ The right-click panel's OpenAI routes section now starts collapsed: it auto-expa
 **Restore on input** is now the default Dim behavior on macOS. Moving, clicking or scrolling with the built-in trackpad or a Bluetooth mouse, and pressing the built-in or Bluetooth keyboard, restores the saved brightness. Keyboard detection requires Accessibility permission; pointer activity continues to work without it. Users can turn the option off to keep manual Restore and the menu-bar right-button hold as the only restore paths. An explicitly saved on/off choice is preserved across upgrades.
 
 Windows does not yet provide per-display Dim or this restore option.
+
+### Local dim automation
+
+While AI Quota Bar is running, local automation in the same login session can request Dim by posting `com.techfanseric.aiquotabar.control.dim.request.v1` through `NSDistributedNotificationCenter`, with a non-empty `requestID` in `userInfo`. Completion is acknowledged on `com.techfanseric.aiquotabar.control.dim.response.v1` with the same `requestID` and a Boolean `success`. This surface is deliberately dim-only and does not expose Restore.
 
 [Release notes](./docs/releases/v1.39.2.en.md)
 
@@ -61,6 +75,11 @@ This beta includes Codex OAuth quota with CLI fallback, Kimi/GLM/MiniMax quota, 
 
 | Capability | macOS v1.39.3 | Windows v1.38.6-beta.1 |
 | --- | --- | --- |
+| All rings with companion apps closed | Unreleased source: Always visible overrides Follow running apps | No equivalent ring controls |
+| One-minute lightweight mode | Unreleased source: on by default; releases closed UI, keeps full rings | Not ported |
+| Model-based activity rings | Unreleased source: local model metadata and actual local Magpie routes; hover shows models/counts | Not ported |
+| Quota cycle-reset notifications | Unreleased source: one deduplicated summary per registered account/model window after a successful refresh | Not ported |
+| Codex hook/log lifecycle reconciliation | Unreleased source: terminal events and child identities reconciled | Not ported |
 | Codex / Kimi / GLM / MiniMax quota | Available | Available; source controls differ |
 | Codex Watch by email | Available | Available; changes save immediately |
 | Clash/Mihomo routes and connections | Available | Available |

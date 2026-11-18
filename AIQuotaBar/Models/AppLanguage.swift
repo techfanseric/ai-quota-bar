@@ -69,6 +69,8 @@ enum AppLanguage: String, CaseIterable, Codable, Identifiable {
             case .lowQuotaWarningDescription: return "Show the reminder panel once the remaining percentage drops below this threshold."
             case .refreshOnLaunch: return "Refresh on launch"
             case .refreshOnLaunchDescription: return "Immediately fetch quota after the menu bar item appears."
+            case .cycleEndNotifications: return "Cycle reset notifications"
+            case .cycleEndNotificationsDescription: return "Send one notification for every registered quota window when it ends, summarizing what was used and the refreshed allowance."
             case .appearanceEyebrow: return "Appearance"
             case .appearanceTitle: return "Language"
             case .appearanceDescription: return "Choose the language used across the app."
@@ -172,6 +174,8 @@ enum AppLanguage: String, CaseIterable, Codable, Identifiable {
             case .lowQuotaWarningDescription: return "当剩余额度百分比低于这个阈值时，显示提醒面板。"
             case .refreshOnLaunch: return "启动时刷新"
             case .refreshOnLaunchDescription: return "菜单栏应用启动后立刻请求一次最新额度。"
+            case .cycleEndNotifications: return "周期重置通知"
+            case .cycleEndNotificationsDescription: return "每个已登记额度窗口到期时通知一次，总结上个周期消耗并显示刷新后的新额度。"
             case .appearanceEyebrow: return "外观"
             case .appearanceTitle: return "语言"
             case .appearanceDescription: return "选择应用所使用的语言。"
@@ -1460,8 +1464,8 @@ enum AppLanguage: String, CaseIterable, Codable, Identifiable {
 
     var ringDisplayModeDescription: String {
         self == .english
-            ? "Work-aware follows Codex/Kimi activity; selected MiniMax and GLM quotas stay visible."
-            : "工作感知根据 Codex/Kimi 的任务活动显示；选中的 MiniMax 和 GLM 额度保持常驻。"
+            ? "Always visible keeps selected quota rings on screen even when provider apps are closed. Work-aware follows Codex/Kimi activity."
+            : "常驻显示在服务商应用关闭时仍保留选中的额度环；工作感知根据 Codex/Kimi 的任务活动显示。"
     }
 
     func ringDisplayModeName(_ mode: MenuBarRingDisplayMode) -> String {
@@ -1478,8 +1482,8 @@ enum AppLanguage: String, CaseIterable, Codable, Identifiable {
     }
     var ringProvidersDescription: String {
         self == .english
-            ? "Choose at least one. Quotas appear after the provider is configured and enabled."
-            : "至少选择一家；服务商配置并启用后显示额度。"
+            ? "Choose at least one. Configure and enable each provider, then choose Always visible and Select all to keep every quota ring visible. AI Quota Bar must remain running."
+            : "至少选择一家；配置并启用服务商后，选择「常驻显示」和「全选」即可保留全部额度环。AI Quota Bar 本身仍需运行。"
     }
 
     // MARK: - Follow running apps
@@ -1494,8 +1498,8 @@ enum AppLanguage: String, CaseIterable, Codable, Identifiable {
 
     var followRunningAppsDescription: String {
         self == .english
-            ? "Show a provider in the menu bar only while its app is open, and collapse its left-click menu section when the app quits: ChatGPT (Codex), ZCode (GLM), Kimi, MiniMax Code. Sections can still be expanded or collapsed manually. Quota refresh and Settings are unaffected."
-            : "菜单栏仅在对应应用打开时显示该供应商，应用退出后左键菜单中的对应分区自动收起：ChatGPT（Codex）、ZCode（GLM）、Kimi、MiniMax Code。分区仍可手动展开或收起。不影响后台配额刷新与设置页。"
+            ? "Follow ChatGPT (Codex), ZCode (GLM), Kimi and MiniMax Code for menu-bar visibility and automatic left-click section collapse. Always visible quota rings override this visibility filter. Sections can still be toggled manually; quota refresh works with provider apps closed."
+            : "按 ChatGPT（Codex）、ZCode（GLM）、Kimi、MiniMax Code 的运行状态控制菜单栏显示和左键分区自动收起。「常驻显示」的额度环优先于此过滤。分区仍可手动切换；服务商应用关闭后也会刷新额度。"
     }
 
     var menuBarPlaceholderSectionTitle: String {
@@ -1805,7 +1809,9 @@ enum AppLanguage: String, CaseIterable, Codable, Identifiable {
         remainingText: String,
         weeklyRemainingPercent: Double?,
         paceDeltaPercent: Double?,
-        resetText: String
+        resetText: String,
+        accountName: String? = nil,
+        isAccountActive: Bool = false
     ) -> String {
         let paceText: String
         if let paceDeltaPercent {
@@ -1833,12 +1839,18 @@ enum AppLanguage: String, CaseIterable, Codable, Identifiable {
             let weeklyText = weeklyRemainingPercent.map {
                 "\nWeekly: \(Int($0.rounded()))% remaining"
             } ?? ""
-            return "\(provider.displayName) · \(modelName)\n\(remainingText) remaining\(weeklyText)\n\(paceText)\nResets in \(resetText)"
+            // 账号环上要说得清是哪个账号：多个 C 环的字母和模型名一样，
+            // 账号名是唯一能区分它们的文字。
+            let accountText = accountName.map { "\($0) · " } ?? ""
+            let activeText = isAccountActive ? "\nIn use now" : ""
+            return "\(accountText)\(provider.displayName) · \(modelName)\n\(remainingText) remaining\(weeklyText)\n\(paceText)\nResets in \(resetText)\(activeText)"
         case .simplifiedChinese:
             let weeklyText = weeklyRemainingPercent.map {
                 "\nWeekly 剩余 \(Int($0.rounded()))%"
             } ?? ""
-            return "\(provider.displayName) · \(modelName)\n剩余 \(remainingText)\(weeklyText)\n\(paceText)\n\(resetText) 后重置"
+            let accountText = accountName.map { "\($0) · " } ?? ""
+            let activeText = isAccountActive ? "\n正在使用" : ""
+            return "\(accountText)\(provider.displayName) · \(modelName)\n剩余 \(remainingText)\(weeklyText)\n\(paceText)\n\(resetText) 后重置\(activeText)"
         }
     }
 
@@ -1926,6 +1938,8 @@ enum AppText {
     case lowQuotaWarningDescription
     case refreshOnLaunch
     case refreshOnLaunchDescription
+    case cycleEndNotifications
+    case cycleEndNotificationsDescription
     case appearanceEyebrow
     case appearanceTitle
     case appearanceDescription

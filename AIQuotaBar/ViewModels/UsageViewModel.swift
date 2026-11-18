@@ -69,6 +69,14 @@ final class UsageViewModel {
         }
     }
 
+    var quotaCycleEndNotificationsEnabled: Bool {
+        didSet {
+            UserDefaults.standard.set(
+                quotaCycleEndNotificationsEnabled,
+                forKey: Self.quotaCycleEndNotificationsEnabledKey)
+        }
+    }
+
     var appLanguage: AppLanguage {
         didSet {
             UserDefaults.standard.set(appLanguage.rawValue, forKey: AppLanguage.storageKey)
@@ -93,6 +101,15 @@ final class UsageViewModel {
     var menuBarRingDisplayMode: MenuBarRingDisplayMode {
         didSet {
             saveRingPreferences()
+            updateStatusBarText()
+        }
+    }
+
+    var codexMagpieRingScope: CodexMagpieRingScope {
+        didSet {
+            UserDefaults.standard.set(
+                codexMagpieRingScope.rawValue,
+                forKey: CodexMagpieRingScope.storageKey)
             updateStatusBarText()
         }
     }
@@ -254,6 +271,20 @@ final class UsageViewModel {
     /// 对外提供给他人的关注应答缓存（那里读的是刷新后的数据）。
     @ObservationIgnored var onUsageDidRefresh: (@MainActor () -> Void)?
 
+    /// Codex 账号此刻的归属状态。
+    ///
+    /// 由 `CodexSleepProtectionCoordinator` 在读到网关活动后写入。它决定
+    /// Codex 那一栏画几个环、每个环画哪个账号的额度。
+    ///
+    /// 设为 nil（默认）表示"没有账号归属信息"，Codex 退回单个环 —— 这是
+    /// 没接 Magpie 的机器上的既有行为。
+    var codexAccountUsage: MagpieAccountUsage? {
+        didSet {
+            guard codexAccountUsage != oldValue else { return }
+            updateStatusBarText()
+        }
+    }
+
     var utilizationHistoryMode: UtilizationHistoryMode {
         didSet {
             UserDefaults.standard.set(utilizationHistoryMode.rawValue, forKey: Self.utilizationHistoryModeKey)
@@ -313,7 +344,7 @@ final class UsageViewModel {
         }
     }
 
-    /// 开启后，菜单栏只显示对应桌面应用正在运行的供应商，左键菜单中
+    /// 开启后，菜单栏（常驻 ring 除外）只显示对应桌面应用正在运行的供应商，左键菜单中
     /// 未运行应用的供应商区自动收起。不影响配额刷新与设置页。
     var followRunningApps: Bool {
         didSet {
@@ -352,6 +383,7 @@ final class UsageViewModel {
     private static let cloudDataRetentionLimitKey = CloudDataRetentionLimit.storageKey
     static let pausedProvidersKey = "pausedUsageProviders"
     static let followRunningAppsKey = "menuFollowsRunningApps"
+    private static let quotaCycleEndNotificationsEnabledKey = "quotaCycleEndNotificationsEnabled"
     /// 账号 → 选中的 cycle（窗口名）。折叠状态下头部直接显示这个 cycle 的
     /// 剩余量，所以用户要能记住自己选的是 5h 还是 Weekly。
     ///
@@ -515,7 +547,7 @@ final class UsageViewModel {
                 state: state,
                 placeholderProviderCount: configuredProviders.count)]
         }
-        return visible.map { provider in
+        return visible.flatMap { provider -> [MenuBarSnapshot] in
                 let currentModels = models.filter {
                     $0.provider == provider
                         && ($0.endTime.map { $0 > now } ?? true)
@@ -531,13 +563,230 @@ final class UsageViewModel {
                         $0.modelName.localizedCaseInsensitiveContains("5h")
                     }) ?? pickPrimary(from: currentModels)
                     : pickPrimary(from: currentModels)
-                if let primary {
-                    return makeMenuBarSnapshot(primary: primary, models: models)
+                // Codex 有多个账号同时在用时，一个账号一个环。
+                if provider == .codex {
+                    let accountSnapshots = codexAccountRingSnapshots(
+                        models: models, currentModels: currentModels)
+                    if !accountSnapshots.isEmpty { return accountSnapshots }
                 }
-                return makeMenuBarStateSnapshot(
+                if let primary {
+                    var snapshot = makeMenuBarSnapshot(primary: primary, models: models)
+                    if provider == .codex,
+                       let notice = codexUnrepresentedAccountNotice(
+                            includeActiveAccounts: false) {
+                        snapshot.tooltip += notice
+                    }
+                    return [snapshot]
+                }
+                return [makeMenuBarStateSnapshot(
                     provider: provider,
-                    state: providerErrors[provider] == nil ? defaultState : .failed)
+                    state: providerErrors[provider] == nil ? defaultState : .failed)]
             }
+    }
+
+    /// Codex 账号环：每个正在被用的账号一个。
+    ///
+    /// **替换**而不是叠加：Codex 那一栏的语义是"你正在用���些账号"，不是
+    /// "Codex 模型族"再叠一层账号。叠加会让两个 Codex 环的百分比含义不同
+    /// （一个是池平均、一个是单账号），用户分不清哪个是真的。
+    ///
+    /// 没有账号在用时返回空数组，调用方退回现有的单个 Codex 环 ——
+    /// 行为与改动前完全一致。
+    private func codexAccountRingSnapshots(
+        models: [ModelUsageData],
+        currentModels: [ModelUsageData]
+    ) -> [MenuBarSnapshot] {
+        guard let usage = codexAccountUsage else { return [] }
+        switch usage.state {
+        case .idle:
+            return []
+        case .ambiguous:
+            // 归属不到具体账号：不猜。退回单个 Codex 环。
+            return []
+        case .active, .unavailable:
+            // 用 `activeAccounts` 而不是 `state` 里的原数组：环的顺序是
+            // 用户唯一能用来区分多个 C 环的线索，必须由这一层自己定死，
+            // 不能指望上游每次都恰好排好。
+            // unavailable 在这里保留**最后一次可信**的账号与额度，不突然
+            // 换成 Current；附带的提示会说明活动信息已暂时不可读。
+            let limited = Array(usage.activeAccounts.prefix(Self.maximumCodexAccountRings))
+            var snapshots: [MenuBarSnapshot] = limited.map { account in
+                guard let primary = codexPrimaryModel(
+                    forAccount: account, in: currentModels) else {
+                    // 正在使用但额度行暂时缺失，不是一个可以静默删掉的环。
+                    // 否则「有三个账号在跑」会突然只画两个，另一个连原因
+                    // 都看不到。
+                    var unavailable = makeMenuBarStateSnapshot(
+                        provider: .codex, state: .unavailable)
+                    let displayName = Self.codexAccountDisplayName(
+                        account, fallback: nil)
+                    unavailable.accountKey = account
+                    unavailable.isAccountActive = true
+                    unavailable.tooltip = appLanguage.menuBarReadyTooltip(
+                        provider: .codex,
+                        modelName: "Magpie",
+                        remainingText: appLanguage == .simplifiedChinese ? "不可用" : "unavailable",
+                        weeklyRemainingPercent: nil,
+                        paceDeltaPercent: nil,
+                        resetText: appLanguage == .simplifiedChinese ? "未知" : "unknown",
+                        accountName: displayName,
+                        isAccountActive: true)
+                    return unavailable
+                }
+                // 显示名用那一行自己的账号名（Magpie 给的别名，没有别名就是
+                // 邮箱），不是网关的邮箱 —— 别名是用户自己起的，正是给他看的。
+                let displayName = Self.codexAccountDisplayName(
+                    account, fallback: primary.accountName)
+                var snapshot = makeMenuBarSnapshot(
+                    primary: primary, models: models,
+                    accountName: displayName, isAccountActive: true)
+                snapshot.accountKey = account
+                return snapshot
+            }
+            let represented = Set(snapshots.compactMap(\.accountKey))
+            let omitted = usage.activeAccounts.filter { !represented.contains($0) }
+            let notices = [
+                omitted.isEmpty ? nil : codexUnrepresentedAccountNotice(
+                    omittedAccounts: omitted),
+                codexUnrepresentedAccountNotice(includeActiveAccounts: false),
+            ].compactMap { $0 }
+            if !notices.isEmpty, !snapshots.isEmpty {
+                snapshots[0].tooltip += notices.joined()
+            }
+            return snapshots
+        }
+    }
+
+    /// 没法独占一个环的在用账号，以及归属不明的活动说明。
+    ///
+    /// 三环上限只限制菜单栏宽度，不能把第四个正在消耗额度的账号从用户
+    /// 视野里抹掉；归属不明也不能伪装成"现在没有账号在用"。
+    private func codexUnrepresentedAccountNotice(
+        omittedAccounts: [String]? = nil,
+        includeActiveAccounts: Bool = true
+    ) -> String? {
+        guard let usage = codexAccountUsage else { return nil }
+        let chinese = appLanguage == .simplifiedChinese
+        switch usage.state {
+        case .idle:
+            return nil
+        case .unavailable:
+            // 网关读不到 ≠ 空闲。上一条快照里的在用账号也一并交代，
+            // 避免环突然退回 Current 后看起来像"已经没人用了"。
+            let previousAccounts = usage.activeAccounts.map {
+                Self.codexAccountDisplayName($0, fallback: nil)
+            }.joined(separator: ", ")
+            let suffix = previousAccounts.isEmpty
+                ? ""
+                : (chinese ? "（上次：\(previousAccounts)）" : " (last known: \(previousAccounts))")
+            return chinese
+                ? "\n\n无法读取正在使用的账号\(suffix)"
+                : "\n\nActive account information is unavailable\(suffix)"
+        case .ambiguous:
+            let count = usage.unattributedRequests
+            return chinese
+                ? "\n\n\(count) 个请求在途，无法确定使用账号"
+                : "\n\n\(count) request\(count == 1 ? "" : "s") in flight; account attribution is unavailable"
+        case .active:
+            guard includeActiveAccounts else { return nil }
+            let accounts = omittedAccounts ?? usage.activeAccounts
+            guard !accounts.isEmpty else { return nil }
+            let names = accounts.map {
+                Self.codexAccountDisplayName($0, fallback: nil)
+            }.joined(separator: ", ")
+            return chinese
+                ? "\n\n其他正在使用的账号：\(names)"
+                : "\n\nOther accounts in use: \(names)"
+        }
+    }
+
+    /// 账号环上显示的账号名，按既有的账号脱敏设置处理。
+    ///
+    /// 环的 tooltip 与左键菜单走的是同一套脱敏规则 —— 一个在菜单栏里
+    /// 露出的邮箱，不该因为它出现在 tooltip 里就绕过用户的脱敏选择。
+    static func codexAccountDisplayName(_ account: String, fallback: String?) -> String {
+        let shown = fallback.flatMap { $0.isEmpty ? nil : $0 } ?? account
+        let masksAccounts = UserDefaults.standard.bool(forKey: MenuAccountPrivacy.storageKey)
+        return MenuAccountPrivacy.display(shown, masked: masksAccounts)
+    }
+
+    /// 账号环的额度上限。
+    ///
+    /// 每个环 20pt（19pt 环宽 + 1pt 间距）。四个账号同时在用就是 80pt，
+    /// 加上另外三个模型族环会挤占菜单栏。常态是两个账号同时在用
+    /// （实测），三个是留出的余量。
+    static let maximumCodexAccountRings = 3
+
+    /// 某个账号自己的额度行（最紧的那个窗口）。
+    ///
+    /// 池行和 Current 行**不算**账号的行：池是合成值，Current 是
+    /// Magpie 标记的当前账号 —— 用户问"这个账号还剩多少"时，答案必须是
+    /// 这个账号自己的那一行。
+    private func codexPrimaryModel(
+        forAccount account: String,
+        in models: [ModelUsageData]
+    ) -> ModelUsageData? {
+        let accountModels = models.filter {
+            $0.provider == .codex
+                && !$0.isCodexPoolQuota
+                && !$0.isCodexCurrentAccountQuota
+                && Self.codexAccountKey($0) == account
+        }
+        guard !accountModels.isEmpty else { return nil }
+        // 与其它 provider 同一套挑法：先看 5h，没有 5h 就看周窗口。
+        if let fiveHour = accountModels.first(where: {
+            $0.modelName.localizedCaseInsensitiveContains("5h")
+        }) {
+            return fiveHour
+        }
+        return accountModels.min {
+            $0.currentIntervalPercentageRemaining
+                < $1.currentIntervalPercentageRemaining
+        }
+    }
+
+    /// 一行的规范账号身份（邮箱，小写）。
+    ///
+    /// 优先用 `accountKey` —— 那是 Magpie 报的邮箱，即网关用来归属在途
+    /// 请求的那个身份。用户给账号起了别名时 `accountName` 是别名，拿它
+    /// 去和网关的邮箱比对会对不上。
+    ///
+    /// 没有 `accountKey` 的行（非 Magpie 来源）退回名字。
+    static func codexAccountKey(_ model: ModelUsageData) -> String {
+        if let key = model.accountKey, !key.isEmpty { return key }
+        return model.normalizedAccountName
+    }
+
+    /// 菜单里显示的账号名 → 规范账号身份（邮箱，小写）。
+    ///
+    /// 菜单按**显示名**分组（Magpie 给的别名，没有别名才是邮箱），而网关
+    /// 报的是邮箱。所以要用显示名反查规范身份，不能直接拿显示名去比对。
+    func codexAccountKey(forAccountName name: String) -> String? {
+        let normalized = name.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        guard !normalized.isEmpty else { return nil }
+        // 显示名可能是别名，别名不是身份 —— 但它唯一地指向那一行，
+        // 所以按显示名找到行，再取那一行的规范身份。
+        if let match = usageData?.models.first(where: {
+            $0.provider == .codex
+                && ($0.normalizedAccountName == normalized
+                    || Self.codexAccountKey($0) == normalized)
+        }) {
+            return Self.codexAccountKey(match)
+        }
+        // 显示名就是邮箱（没有别名）时，直接当身份用。
+        return normalized.contains("@") ? normalized : nil
+    }
+
+    /// 左键菜单里的这个 Codex 账号此刻是否在服务。
+    ///
+    /// 菜单按显示名分组，所以入口仍收显示名；真正的比较在这里统一换成
+    /// 网关身份，别名与邮箱不会走出两套结果。
+    func isCodexAccountInUse(_ accountName: String?) -> Bool {
+        guard let accountName,
+              let usage = codexAccountUsage,
+              usage.isAvailable,
+              let key = codexAccountKey(forAccountName: accountName) else { return false }
+        return usage.busyCounts[key] ?? 0 > 0
     }
 
     private func makeMenuBarStateSnapshot(
@@ -576,7 +825,7 @@ final class UsageViewModel {
     /// （跟随模式 / 手动暂停），而不是数据问题。
     var isMenuBarDisplayIntentionallyHidden: Bool {
         allConfiguredProvidersPaused
-            || (followRunningApps
+            || (followRunningApps && !hasAlwaysVisibleRings
                 && !configuredProviders.isEmpty
                 && configuredProviders.allSatisfy {
                     !appPresenceMonitor.isRunning($0)
@@ -602,7 +851,9 @@ final class UsageViewModel {
 
     private func makeMenuBarSnapshot(
         primary: ModelUsageData,
-        models: [ModelUsageData]
+        models: [ModelUsageData],
+        accountName: String? = nil,
+        isAccountActive: Bool = false
     ) -> MenuBarSnapshot {
         // 「只有 Weekly、没有 5h」是可判定的：同一 provider、同一账号下找 5h，
         // 找不到就是周窗口独苗（关注来的快照、只报了周额度的账号都会这样）。
@@ -637,6 +888,22 @@ final class UsageViewModel {
         let centerWindow = reserveQuotaWindow(for: primary.provider)
             .resolved(outerRing: ringQuotaWindow(for: primary.provider))
         let centerUsesWeekly = centerWindow == .weekly
+        var tooltip = menuBarReadyTooltip(
+            primary: primary,
+            weeklyRemainingPercent: ringQuotaWindow(for: primary.provider) == .weekly
+                && (primary.provider == .codex || primary.provider == .kimi || primary.provider == .glm)
+                    ? ringPercent
+                    : nil,
+            paceDelta: paceDelta,
+            accountName: accountName,
+            isAccountActive: isAccountActive)
+        if primary.isCodexPoolQuota {
+            var lines = primary.detailText.map { [$0] } ?? []
+            lines += codexPoolAccountLines(from: models)
+            if !lines.isEmpty {
+                tooltip += "\n\n" + lines.joined(separator: "\n")
+            }
+        }
 
         return MenuBarSnapshot(
             provider: primary.provider,
@@ -648,13 +915,47 @@ final class UsageViewModel {
             resetsAt: primary.endTime,
             state: .ready,
             isLowQuota: remaining <= warningLimit,
-            tooltip: menuBarReadyTooltip(
-                primary: primary,
-                weeklyRemainingPercent: ringQuotaWindow(for: primary.provider) == .weekly
-                    && (primary.provider == .codex || primary.provider == .kimi || primary.provider == .glm)
-                        ? ringPercent
-                        : nil,
-                paceDelta: paceDelta))
+            tooltip: tooltip,
+            accountKey: accountName?.lowercased(),
+            isAccountActive: isAccountActive)
+    }
+
+    private func codexPoolAccountLines(from models: [ModelUsageData]) -> [String] {
+        Dictionary(grouping: models.filter {
+            $0.provider == .codex && $0.isMagpieQuotaRow && !$0.isCodexPoolQuota
+        }, by: \.normalizedAccountName)
+        .values
+        .compactMap { accountModels -> String? in
+            guard let first = accountModels.first,
+                  let accountName = first.accountName,
+                  !accountName.isEmpty else { return nil }
+            let row = accountModels.min {
+                $0.currentIntervalPercentageRemaining < $1.currentIntervalPercentageRemaining
+            }
+            guard let row else { return nil }
+            var parts: [String]
+            let masksAccounts = UserDefaults.standard.bool(forKey: MenuAccountPrivacy.storageKey)
+            let displayedAccountName = MenuAccountPrivacy.display(accountName, masked: masksAccounts)
+            let percent = Int(row.currentIntervalPercentageRemaining.rounded())
+            if row.modelName == "Magpie" {
+                let failed = appLanguage == .simplifiedChinese ? "读取失败" : "read failed"
+                parts = [displayedAccountName, failed]
+            } else {
+                let left = appLanguage == .simplifiedChinese ? "剩 \(percent)%" : "\(percent)% left"
+                parts = [displayedAccountName, row.modelName, left]
+                if let plan = row.parsedDetail.plan {
+                    parts.insert(plan, at: 1)
+                }
+                if row.endTime != nil {
+                    let reset = appLanguage == .simplifiedChinese
+                        ? "重置 \(row.resetTimeText)"
+                        : "resets \(row.resetTimeText)"
+                    parts.append(reset)
+                }
+            }
+            return parts.joined(separator: " · ")
+        }
+        .sorted { lhs, rhs in lhs.localizedStandardCompare(rhs) == .orderedAscending }
     }
 
     /// 这条 model 所属的账号还有没有 5h 短窗口。
@@ -775,6 +1076,13 @@ final class UsageViewModel {
     /// - Codex/Kimi 选 "5h" model(显示 5h 短周期剩余%/reset)
     /// - 其他 provider 取 candidates 第一个(已按 reset 排序)
     private func pickPrimary(from candidates: [ModelUsageData]) -> ModelUsageData? {
+        if codexMagpieRingScope == .allAccounts,
+           let pool = candidates.first(where: \.isCodexPoolQuota) {
+            return pool
+        }
+        if let current = candidates.first(where: \.isCodexCurrentAccountQuota) {
+            return current
+        }
         if let shortWindow = candidates.first(where: {
             ($0.provider == .codex || $0.provider == .kimi || $0.provider == .glm)
                 && $0.modelName.localizedCaseInsensitiveContains("5h")
@@ -887,6 +1195,9 @@ final class UsageViewModel {
         for primary: ModelUsageData,
         models: [ModelUsageData]
     ) -> Double? {
+        if primary.isCodexPoolQuota || primary.isCodexCurrentAccountQuota {
+            return primary.currentIntervalPercentageRemaining
+        }
         let window = ringQuotaWindow(for: primary.provider)
         guard window != .current,
               primary.provider == .codex || primary.provider == .kimi || primary.provider == .glm else {
@@ -924,7 +1235,9 @@ final class UsageViewModel {
     private func menuBarReadyTooltip(
         primary: ModelUsageData,
         weeklyRemainingPercent: Double?,
-        paceDelta: Double?
+        paceDelta: Double?,
+        accountName: String? = nil,
+        isAccountActive: Bool = false
     ) -> String {
         appLanguage.menuBarReadyTooltip(
             provider: primary.provider,
@@ -932,7 +1245,9 @@ final class UsageViewModel {
             remainingText: primary.currentIntervalRemainingText,
             weeklyRemainingPercent: weeklyRemainingPercent,
             paceDeltaPercent: paceDelta,
-            resetText: primary.statusBarResetText)
+            resetText: primary.statusBarResetText,
+            accountName: accountName,
+            isAccountActive: isAccountActive)
     }
 
     var hasAPIKey: Bool {
@@ -978,12 +1293,16 @@ final class UsageViewModel {
         scheduleCycleEndRefresh()
     }
 
-    /// 菜单栏的供应商级显示过滤：已启用，且未开启跟随
-    /// 或对应桌面应用正在运行。配额刷新、设置页与手机看板不受此影响。
+    private var hasAlwaysVisibleRings: Bool {
+        menuBarAppearance == .compactRing && menuBarRingDisplayMode == .all
+    }
+
+    /// 常驻 ring 优先于跟随应用过滤；暂停的供应商始终隐藏。
+    /// 配额刷新、设置页与手机看板不受此影响。
     /// 左键菜单不再移除供应商，而是自动收起（见 collapsedProviders）。
     func isProviderDisplayedInMenus(_ provider: UsageProvider) -> Bool {
         isProviderEnabled(provider)
-            && (!followRunningApps || appPresenceMonitor.isRunning(provider))
+            && (hasAlwaysVisibleRings || !followRunningApps || appPresenceMonitor.isRunning(provider))
     }
 
     /// 左键菜单中供应商区的收起状态（持久化，手动与自动共用）。
@@ -1103,6 +1422,7 @@ final class UsageViewModel {
     /// 凭证在 `~/.codex`（CLI）或 `~/.codexbar`（managed store）。
     /// 未登录的新设备保持未配置；供应商设置入口始终可用。
     @ObservationIgnored private var providerPresenceOverride: ((UsageProvider) -> Bool)?
+    @ObservationIgnored private let fetchProviderUsage: @Sendable (UsageProvider) async throws -> UsageData
 
     /// 本机行与云端行撞上同一个 cycle 时选哪一条。
     ///
@@ -1284,14 +1604,20 @@ final class UsageViewModel {
     private var refreshRequestedWhileLoading = false
     /// 周期结束后触发对齐刷新的延迟（秒），避免踩在服务端重置生效的边界上。
     private let cycleEndRefreshDelay: TimeInterval = 15
+    private let cycleEndNotificationCoordinator: QuotaCycleEndNotificationCoordinator
 
     // MARK: - Initialization
 
     init(
         providerPresence: ((UsageProvider) -> Bool)? = nil,
-        appPresenceMonitor: ProviderAppPresenceMonitor? = nil
+        appPresenceMonitor: ProviderAppPresenceMonitor? = nil,
+        cycleEndNotifier: QuotaCycleEndNotifying? = nil,
+        fetchProviderUsage: @escaping @Sendable (UsageProvider) async throws -> UsageData = {
+            try await UsageService.shared.fetchUsage(provider: $0)
+        }
     ) {
         self.providerPresenceOverride = providerPresence
+        self.fetchProviderUsage = fetchProviderUsage
         self.appPresenceMonitor = appPresenceMonitor ?? ProviderAppPresenceMonitor()
         self.refreshInterval = UserDefaults.standard.object(forKey: "refreshInterval") as? Int ?? 600
         self.warningThreshold = UserDefaults.standard.double(forKey: "warningThreshold") > 0
@@ -1299,6 +1625,9 @@ final class UsageViewModel {
             : 20.0
         self.warningThresholdEnabled = UserDefaults.standard.object(forKey: "warningThresholdEnabled") as? Bool ?? false
         self.autoRefreshOnLaunch = UserDefaults.standard.object(forKey: "autoRefreshOnLaunch") as? Bool ?? true
+        self.quotaCycleEndNotificationsEnabled = UserDefaults.standard.object(
+            forKey: Self.quotaCycleEndNotificationsEnabledKey
+        ) as? Bool ?? true
         self.appLanguage = UserDefaults.standard.string(forKey: AppLanguage.storageKey)
             .flatMap(AppLanguage.init(rawValue:))
             ?? AppLanguage.fallback
@@ -1308,6 +1637,10 @@ final class UsageViewModel {
             ?? .automatic
         let ringPreferences = MenuBarRingPreferences.load(from: UserDefaults.standard)
         self.menuBarRingDisplayMode = ringPreferences.mode
+        self.codexMagpieRingScope = UserDefaults.standard.string(
+            forKey: CodexMagpieRingScope.storageKey)
+            .flatMap(CodexMagpieRingScope.init(rawValue:))
+            ?? .currentAccount
         self.menuBarRingSelectedProviders = ringPreferences.providers
         self.menuBarAppearance = UserDefaults.standard.string(forKey: MenuBarAppearance.storageKey)
             .flatMap(MenuBarAppearance.init(rawValue:))
@@ -1367,6 +1700,8 @@ final class UsageViewModel {
         self.followRunningApps =
             UserDefaults.standard.bool(forKey: Self.followRunningAppsKey)
         self.menuBarPlaceholderStyle = MenuBarPlaceholderStyle.stored()
+        self.cycleEndNotificationCoordinator = QuotaCycleEndNotificationCoordinator(
+            notifier: cycleEndNotifier ?? QuotaCycleEndNotificationService.shared)
 
         if providerPresence == nil {
             teamObserver = NotificationCenter.default.publisher(for: .teamConnectionChanged).sink { [weak self] _ in
@@ -1487,9 +1822,15 @@ final class UsageViewModel {
                 providerUsageData.removeValue(forKey: .kimi)
             }
         }
-        let allConfiguredProviders = configuredProviders
-        let providers = allConfiguredProviders.filter(shouldFetchProvider)
-        let skippedProviders = allConfiguredProviders.filter { !shouldFetchProvider($0) }
+        // All enabled registrations can be queried with their saved credentials,
+        // whether or not the companion desktop application is running.
+        let providers = configuredProviders
+        let dueCycleEndEvents = quotaCycleEndNotificationsEnabled
+            ? QuotaCycleEndEvent.due(
+                in: providerUsageData,
+                fetchableProviders: Set(providers),
+                now: Date())
+            : []
         guard providers.isEmpty == false else {
             providerErrors = [:]
             usageData = combinedUsageData(from: providerUsageData.values, timestamp: lastRefreshTime ?? Date())
@@ -1507,19 +1848,14 @@ final class UsageViewModel {
         let sampleTimestamp = Date()
         let sampledTeamBinding = CodexLocalUsageModel.shared.connection?.binding
         let sampledKimiSourceRevision = kimiSourceRevision
-        for provider in skippedProviders {
-            if let previous = providerUsageData[provider] {
-                nextProviderData[provider] = previous
-            }
-        }
-
+        let fetchUsage = fetchProviderUsage
         // 并行 fetch：3 个 provider 全开时延迟从 ~30s 降到 ~10s（取最慢的）。
         // recordUtilizationSamples 必须保持 main-actor 同步语义，所以放在 for await 块里。
         await withTaskGroup(of: (UsageProvider, Result<UsageData, Error>).self) { group in
             for provider in providers {
                 group.addTask {
                     do {
-                        let data = try await UsageService.shared.fetchUsage(provider: provider)
+                        let data = try await fetchUsage(provider)
                         return (provider, .success(data))
                     } catch {
                         return (provider, .failure(error))
@@ -1562,6 +1898,17 @@ final class UsageViewModel {
         }
         providerUsageData = nextProviderData
         providerErrors = nextProviderErrors
+        let refreshableCycleEndEvents = dueCycleEndEvents.filter {
+            fetchedProviderData[$0.provider] != nil
+        }
+        if !refreshableCycleEndEvents.isEmpty {
+            let refreshedProviderData = fetchedProviderData
+            Task { @MainActor [weak self] in
+                await self?.deliverCycleEndNotifications(
+                    refreshableCycleEndEvents,
+                    refreshedData: refreshedProviderData)
+            }
+        }
         usageData = combinedUsageData(from: nextProviderData.values, timestamp: sampleTimestamp)
         error = usageData == nil ? nextProviderErrors.values.first : nil
         if let usageData {
@@ -1593,19 +1940,6 @@ final class UsageViewModel {
             try await Task.sleep(nanoseconds: UInt64(remaining * 1_000_000_000))
         } catch {
             // Cancellation should restore the real icon immediately.
-        }
-    }
-
-    private func shouldFetchProvider(_ provider: UsageProvider) -> Bool {
-        switch provider {
-        case .codex:
-            return CodexAppPresence.isRunning
-        case .miniMax:
-            return true
-        case .glm:
-            return true
-        case .kimi:
-            return true
         }
     }
 
@@ -1864,7 +2198,7 @@ final class UsageViewModel {
     /// 调度一次性定时器在结束 `cycleEndRefreshDelay` 秒后刷新，并让
     /// 10 分钟重复定时器从该时刻重新对齐。云端同步模型不参与。
     private func scheduleCycleEndRefresh(now: Date = Date()) {
-        let fetchableProviders = Set(configuredProviders.filter(shouldFetchProvider))
+        let fetchableProviders = Set(configuredProviders)
         guard let endTime = nextCycleEndDate(at: now, fetchableProviders: fetchableProviders) else {
             invalidateCycleEndTimer()
             return
@@ -1906,6 +2240,18 @@ final class UsageViewModel {
         cycleEndTimer?.invalidate()
         cycleEndTimer = nil
         cycleEndFireDate = nil
+    }
+
+    private func deliverCycleEndNotifications(
+        _ events: [QuotaCycleEndEvent],
+        refreshedData: [UsageProvider: UsageData]
+    ) async {
+        guard quotaCycleEndNotificationsEnabled else { return }
+        await cycleEndNotificationCoordinator.deliver(
+            events,
+            refreshedData: refreshedData,
+            language: appLanguage,
+            masksAccountNames: UserDefaults.standard.bool(forKey: MenuAccountPrivacy.storageKey))
     }
 
     /// init 同步预加载所有 provider 的历史（文件小可接受）。
@@ -1984,7 +2330,10 @@ final class UsageViewModel {
 
         if codexAccountNames.count == 1, let accountName = codexAccountNames.first {
             return models.map { model in
-                if model.provider == .codex, model.normalizedAccountName.isEmpty {
+                if model.provider == .codex,
+                   model.normalizedAccountName.isEmpty,
+                   !model.isCodexPoolQuota,
+                   !model.isCodexCurrentAccountQuota {
                     return model.withAccountName(accountName)
                 }
                 return model
@@ -1992,7 +2341,10 @@ final class UsageViewModel {
         }
 
         return models.filter { model in
-            if model.provider == .codex, model.normalizedAccountName.isEmpty {
+            if model.provider == .codex,
+               model.normalizedAccountName.isEmpty,
+               !model.isCodexPoolQuota,
+               !model.isCodexCurrentAccountQuota {
                 return false
             }
             return true

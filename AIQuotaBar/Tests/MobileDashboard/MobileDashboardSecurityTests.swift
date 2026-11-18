@@ -3556,6 +3556,9 @@ final class MobileDashboardSecurityTests: XCTestCase {
             remainingPercent: 35,
             duration: 7 * 86_400)
         let viewModel = UsageViewModel()
+        // This assertion specifies the weekly outer ring. Do not inherit the
+        // developer's process-wide menu-bar window preference.
+        viewModel.menuBarRingQuotaWindow = .weekly
         viewModel.providerUsageData = [
             .codex: UsageData(
                 provider: .codex,
