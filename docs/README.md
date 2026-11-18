@@ -26,11 +26,13 @@
 
 ## 发布说明
 
-- [未发布 · 一分钟轻量模式](./releases/unreleased-lightweight.zh-CN.md)：[验证记录](./releases/unreleased-lightweight-checklist.md)，仅 macOS，公开下载不变。
+- [已纳入 v1.39.4 · 一分钟轻量模式](./releases/unreleased-lightweight.zh-CN.md)：[验证记录](./releases/unreleased-lightweight-checklist.md)，仅 macOS。
 
-- [未发布 · 后台额度与常驻圆环](./releases/unreleased-background-quota.zh-CN.md)：[Magpie 源码方案对照与使用步骤](./research/magpie-quota-2026-11-12.md)；[验证记录](./releases/unreleased-background-quota-checklist.md)。
+- [已纳入 v1.39.4 · 后台额度与常驻圆环](./releases/unreleased-background-quota.zh-CN.md)：[Magpie 源码方案对照与使用步骤](./research/magpie-quota-2026-11-12.md)；[验证记录](./releases/unreleased-background-quota-checklist.md)。
 
-- [未发布 · 官网上线记录](./releases/unreleased-website-deployment-checklist.md)：上述两项未发布功能的中英文官网同步与生产环境核验。
+- [未发布 · 官网上线记录](./releases/unreleased-website-deployment-checklist.md)：轻量模式与后台额度功能的中英文官网同步与生产环境核验。
+
+- [macOS v1.39.4](./releases/v1.39.4.zh-CN.md)：一分钟轻量模式、Magpie 多账号圆环、按账号拆分的 Codex 环、周期重置通知；[发布验证记录](./releases/v1.39.4-checklist.md)。
 
 - [macOS v1.39.3](./releases/v1.39.3.zh-CN.md)：重置消息 24 小时窗口与逐条消除、线路区按连通性收起、Dim 权限引导；[发布验证记录](./releases/v1.39.3-checklist.md)。
 - [macOS v1.39.2](./releases/v1.39.2.zh-CN.md)：Dim 默认输入即恢复；[发布验证记录](./releases/v1.39.2-checklist.md)。
