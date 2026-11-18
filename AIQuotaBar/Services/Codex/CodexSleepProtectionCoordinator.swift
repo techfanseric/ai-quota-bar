@@ -100,6 +100,14 @@ final class CodexSleepProtectionCoordinator {
 
     private(set) var activeTurnCount = 0
     private(set) var activeTaskCounts: [UsageProvider: Int] = [:]
+    private(set) var modelActivity = ProviderModelActivity()
+    private(set) var ringActivityCounts: [UsageProvider: Int] = [:]
+    /// Codex 账号此刻的归属状态（哪个账号正在被用）。
+    ///
+    /// 与 `ringActivityCounts` 正交：后者按**模型族**计数，决定流光画在
+    /// 哪个环上；前者按**账号**计数，决定 Codex 这一栏画几个环、每个环
+    /// 画哪个账号的额度。
+    private(set) var codexAccountUsage = MagpieAccountUsage.idle
     private(set) var protectedProviders: Set<UsageProvider> = [.codex]
     private(set) var protectionStatus: CodexSleepProtectionStatus = .idle
     private(set) var hookInstallationStatus: CodexHookInstallationStatus = .notChecked
@@ -107,6 +115,12 @@ final class CodexSleepProtectionCoordinator {
     let closedLidModeManager: ClosedLidModeManager
 
     private let defaults: UserDefaults
+    private let magpieActivityProvider: (any MagpieModelActivityProviding)?
+    private var magpieActivitySnapshot = MagpieModelActivitySnapshot.disabled
+    @ObservationIgnored private var magpieActivityTask: Task<Void, Never>?
+    private var readsCodexActivity: Bool {
+        !protectedProviders.isEmpty || magpieActivityProvider != nil
+    }
     private let logger = Logger(
         subsystem: "com.techfanseric.aiquotabar",
         category: "CodexActivity"
@@ -198,6 +212,7 @@ final class CodexSleepProtectionCoordinator {
         claudeCodeActivityProvider: (
             any ProviderLocalActivityProviding
         )? = ClaudeCodeActivityDetector(),
+        magpieActivityProvider: (any MagpieModelActivityProviding)? = nil,
         closedLidModeManager: ClosedLidModeManager? = nil,
         workspaceNotificationCenter: NotificationCenter = NSWorkspace.shared.notificationCenter,
         turnEndGracePeriod: TimeInterval = CodexSleepProtectionCoordinator.defaultTurnEndGracePeriod,
@@ -211,6 +226,7 @@ final class CodexSleepProtectionCoordinator {
         self.zcodeActivityProvider = zcodeActivityProvider
         self.miniMaxActivityProvider = miniMaxActivityProvider
         self.claudeCodeActivityProvider = claudeCodeActivityProvider
+        self.magpieActivityProvider = magpieActivityProvider
         self.closedLidModeManager = closedLidModeManager ?? ClosedLidModeManager(
             defaults: defaults
         )
@@ -238,7 +254,7 @@ final class CodexSleepProtectionCoordinator {
         guard !hasStarted else { return }
         hasStarted = true
         configureCodexHookListener()
-        if protectedProviders.contains(.codex),
+        if readsCodexActivity,
            let detector = localActivityProvider
             as? CodexLocalActivityDetector {
             receiveLocalSnapshot(
@@ -266,6 +282,7 @@ final class CodexSleepProtectionCoordinator {
             receiveClaudeCodeSnapshot(detector.detectSnapshot(now: Date()))
         }
         startLocalActivityMonitoring()
+        startMagpieActivityMonitoring()
         startKimiActivityMonitoring()
         startClientActivityMonitoring()
         installWorkspaceObservers()
@@ -290,6 +307,8 @@ final class CodexSleepProtectionCoordinator {
         kimiActivityTask = nil
         clientActivityTask?.cancel()
         clientActivityTask = nil
+        magpieActivityTask?.cancel()
+        magpieActivityTask = nil
         hookListener?.stop()
         hookListener = nil
         for token in workspaceObserverTokens {
@@ -304,6 +323,10 @@ final class CodexSleepProtectionCoordinator {
         claudeCodeActivitySnapshot = .empty
         activeTurnCount = 0
         activeTaskCounts = [:]
+        ringActivityCounts = [:]
+        codexAccountUsage = .idle
+        modelActivity = ProviderModelActivity()
+        magpieActivitySnapshot = .disabled
         lastEventAt = nil
         lastActiveTurnEndedAt = nil
         turnEndGraceTimer?.invalidate()
@@ -343,12 +366,18 @@ final class CodexSleepProtectionCoordinator {
     }
 
     func receive(_ event: CodexHookEvent) {
-        guard hasStarted, isEnabled,
-              protectedProviders.contains(.codex) else { return }
+        guard hasStarted,
+              readsCodexActivity else { return }
         activityTracker.receive(event)
         logger.notice(
             "Received Codex hook event \(event.name.rawValue, privacy: .public)"
         )
+        refreshMergedActivity()
+    }
+
+    func receiveMagpieSnapshot(_ snapshot: MagpieModelActivitySnapshot) {
+        guard hasStarted else { return }
+        magpieActivitySnapshot = snapshot
         refreshMergedActivity()
     }
 
@@ -365,6 +394,7 @@ final class CodexSleepProtectionCoordinator {
     func receiveLocalSnapshot(_ snapshot: CodexLocalActivitySnapshot) {
         guard hasStarted else { return }
         localActivitySnapshot = snapshot
+        activityTracker.reconcileCompletedTurns(snapshot.completedTurns)
         logActiveCountIfChanged(
             source: "Codex", count: snapshot.activeSessionIDs.count)
         refreshMergedActivity()
@@ -736,7 +766,9 @@ final class CodexSleepProtectionCoordinator {
         // Hook-tracked turns have no heartbeat of their own; reap the ones
         // whose Stop event never arrived (kill -9, lost hook) so they cannot
         // pin the ring in "working" forever.
-        if activityTracker.pruneStaleTurns(now: nowProvider()) {
+        if activityTracker.pruneStaleTurns(
+            now: nowProvider(),
+            retainingTerminalsFor: Set(localActivitySnapshot.activeTurns.keys)) {
             logger.notice("Pruned Codex hook turns idle past their TTL")
         }
         let codexCount = protectedProviders.contains(.codex)
@@ -781,7 +813,41 @@ final class CodexSleepProtectionCoordinator {
         ]
         .compactMap { $0 }
         .max()
+        refreshModelActivity()
         applyCurrentState()
+    }
+
+    private func refreshModelActivity() {
+        let live = localActivitySnapshot.activeTurns.filter {
+            !activityTracker.hasFinished($0.key, startedAt: $0.value.startedAt)
+        }
+        modelActivity = ProviderModelActivity.codex(
+            turns: live, gateway: magpieActivitySnapshot)
+        let resolvedAccountUsage = MagpieAccountUsageResolver.resolve(magpieActivitySnapshot)
+        if resolvedAccountUsage.state != .unavailable {
+            codexAccountUsage = resolvedAccountUsage
+        } else if codexAccountUsage.state != .unavailable {
+            // 一次读失败不能把"正在用"解释成"空闲"。保留最后一次可信
+            // 归属（及其 busy 计数），只把可用性改成 unavailable；tooltip
+            // 会明确告诉用户这是旧值，而不是此刻的新观测。
+            codexAccountUsage = MagpieAccountUsage(
+                state: .unavailable,
+                busyCounts: codexAccountUsage.busyCounts,
+                unattributedRequests: codexAccountUsage.unattributedRequests)
+        }
+        // Passive detectors already belong to a provider. Codex-client
+        // activity instead follows each model, never its application's name.
+        var counts = modelActivity.counts
+        counts[.kimi, default: 0] += kimiActivitySnapshot.activeSessionIDs.count
+        counts[.glm, default: 0] += glmActiveSessionIDs.count
+        counts[.miniMax, default: 0] += miniMaxActiveSessionIDs.count
+        // Ring visibility is controlled by menu-bar selection, not by the
+        // presence of a native client/credential for task power protection.
+        ringActivityCounts = counts
+    }
+
+    var ringActiveProviders: Set<UsageProvider> {
+        Set(ringActivityCounts.filter { $0.value > 0 }.keys)
     }
 
     private var glmActiveSessionIDs: Set<String> {
@@ -817,8 +883,18 @@ final class CodexSleepProtectionCoordinator {
     }
 
     private var mergedCodexActiveSessionIDs: Set<String> {
-        activityTracker.activeSessionIDs
-            .union(localActivitySnapshot.activeSessionIDs)
+        let local = localActivitySnapshot
+        // Older/custom detectors without per-turn metadata keep their
+        // session-level fallback. Never infer completion from an empty read.
+        let representedRoots = Set(local.activeTurns.values.map(\.rootSessionID))
+        var result = local.activeSessionIDs.subtracting(representedRoots)
+        for (key, turn) in local.activeTurns where !activityTracker.hasFinished(key, startedAt: turn.startedAt) {
+            result.insert(turn.rootSessionID)
+        }
+        for key in activityTracker.activeTurnKeys {
+            result.insert(local.activeTurns[key]?.rootSessionID ?? key.sessionID)
+        }
+        return result
     }
 
     private var hasReliableActivitySource: Bool {
@@ -885,15 +961,38 @@ final class CodexSleepProtectionCoordinator {
     private func scheduleTurnEndGraceTimer() {
         guard turnEndGracePeriod > 0 else { return }
         turnEndGraceTimer?.invalidate()
+        scheduleTurnEndGraceTimer(after: turnEndGracePeriod)
+    }
+
+    /// Arms the timer that ends the post-turn grace period.
+    ///
+    /// The timer is deliberately given no tolerance: a timer that fires
+    /// early would leave the grace window open, and the callback would then
+    /// keep the protection without re-arming itself, so the machine could
+    /// never sleep again. Scheduling the remaining time instead makes an
+    /// early fire harmless, because the callback simply arms a shorter
+    /// timer.
+    private func scheduleTurnEndGraceTimer(after interval: TimeInterval) {
+        guard turnEndGracePeriod > 0 else { return }
+        turnEndGraceTimer?.invalidate()
         let timer = Timer.scheduledTimer(
-            withTimeInterval: turnEndGracePeriod,
+            withTimeInterval: max(0.01, interval),
             repeats: false
         ) { [weak self] _ in
             Task { @MainActor [weak self] in
-                self?.applyCurrentState()
+                guard let self else { return }
+                self.applyCurrentState()
+                // The grace window is still open, so the timer has to be
+                // re-armed for the remaining time.
+                if let endedAt = self.lastActiveTurnEndedAt,
+                   self.isWithinTurnEndGrace {
+                    let remaining = self.turnEndGracePeriod
+                        - Date().timeIntervalSince(endedAt)
+                    self.scheduleTurnEndGraceTimer(after: remaining)
+                }
             }
         }
-        timer.tolerance = min(5, turnEndGracePeriod * 0.1)
+        timer.tolerance = 0
         turnEndGraceTimer = timer
     }
 
@@ -902,7 +1001,7 @@ final class CodexSleepProtectionCoordinator {
         localActivityTask = Task { [weak self] in
             while !Task.isCancelled {
                 guard let self else { return }
-                let shouldRead = self.protectedProviders.contains(.codex)
+                let shouldRead = self.readsCodexActivity
                 let snapshot = shouldRead
                     ? await localActivityProvider.snapshot()
                     : .empty
@@ -973,13 +1072,19 @@ final class CodexSleepProtectionCoordinator {
         async let claudeCodeSnapshot = readsClaude
             ? (claudeCodeActivityProvider?.snapshot() ?? .empty)
             : .empty
-        receiveZcodeSnapshot(await zcodeSnapshot)
-        receiveMiniMaxSnapshot(await miniMaxSnapshot)
-        receiveClaudeCodeSnapshot(await claudeCodeSnapshot)
+        let snapshots = await (zcodeSnapshot, miniMaxSnapshot, claudeCodeSnapshot)
+        guard !Task.isCancelled, hasStarted else { return }
+        zcodeActivitySnapshot = snapshots.0
+        miniMaxActivitySnapshot = snapshots.1
+        claudeCodeActivitySnapshot = snapshots.2
+        logActiveCountIfChanged(source: "ZCode", count: snapshots.0.activeSessionIDs.count)
+        logActiveCountIfChanged(source: "MiniMax", count: snapshots.1.activeSessionIDs.count)
+        logActiveCountIfChanged(source: "Claude Code", count: snapshots.2.activeSessionIDs.count)
+        refreshMergedActivity()
     }
 
     private func configureCodexHookListener() {
-        let shouldListen = protectedProviders.contains(.codex)
+        let shouldListen = readsCodexActivity
         if shouldListen, hookListener == nil {
             let listener = CodexHookListener { [weak self] event in
                 self?.receive(event)
@@ -991,6 +1096,20 @@ final class CodexSleepProtectionCoordinator {
             hookListener = nil
             activityTracker.reset()
             localActivitySnapshot = .empty
+        }
+    }
+
+    private func startMagpieActivityMonitoring() {
+        guard let magpieActivityProvider else { return }
+        magpieActivityTask = Task { [weak self] in
+            while !Task.isCancelled {
+                guard let self else { return }
+                let snapshot = await magpieActivityProvider.snapshot()
+                guard !Task.isCancelled else { return }
+                self.receiveMagpieSnapshot(snapshot)
+                do { try await Task.sleep(nanoseconds: 2_000_000_000) }
+                catch { return }
+            }
         }
     }
 

@@ -116,6 +116,12 @@ final class CodexLocalUsageModel {
 
     @ObservationIgnored private var historyCache: [String: [UsageHistoryBucket]] = [:]
     @ObservationIgnored private var summaryCache: [String: UsageSummary] = [:]
+    /// Only derived chart/summary values go. Source events, durable records,
+    /// upload queues and reporting tasks continue independently of the UI.
+    func releasePresentationCaches() {
+        historyCache.removeAll(keepingCapacity: false)
+        summaryCache.removeAll(keepingCapacity: false)
+    }
     func history(days: Int, currentAccount: Bool = false) -> [UsageHistoryBucket] {
         _ = events.count; _ = prices.count; _ = selectedAccount; _ = currentAccountID // Track observable invalidation for both views.
         let key = "\(days)|\(currentAccount)"

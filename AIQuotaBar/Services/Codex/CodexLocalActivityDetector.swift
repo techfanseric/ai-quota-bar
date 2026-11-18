@@ -66,18 +66,31 @@ struct CodexLocalSessionActivity: Equatable, Sendable {
 }
 
 struct CodexLocalActivitySnapshot: Equatable, Sendable {
+    struct ActiveTurn: Equatable, Sendable {
+        let rootSessionID: String
+        let startedAt: Date?
+        var model: String? = nil
+        var modelProvider: String? = nil
+    }
+
     var activeSessionIDs: Set<String>
     var lastEventAt: Date?
     var sessionActivities: [String: CodexLocalSessionActivity]
+    var activeTurns: [CodexActivityTracker.TurnKey: ActiveTurn]
+    var completedTurns: [CodexActivityTracker.TurnKey: Date]
 
     init(
         activeSessionIDs: Set<String>,
         lastEventAt: Date?,
-        sessionActivities: [String: CodexLocalSessionActivity] = [:]
+        sessionActivities: [String: CodexLocalSessionActivity] = [:],
+        activeTurns: [CodexActivityTracker.TurnKey: ActiveTurn] = [:],
+        completedTurns: [CodexActivityTracker.TurnKey: Date] = [:]
     ) {
         self.activeSessionIDs = activeSessionIDs
         self.lastEventAt = lastEventAt
         self.sessionActivities = sessionActivities
+        self.activeTurns = activeTurns
+        self.completedTurns = completedTurns
     }
 
     static let empty = CodexLocalActivitySnapshot(
@@ -128,6 +141,9 @@ final class CodexLocalActivityDetector: CodexLocalActivityProviding,
         var partialLine = Data()
         var activeTurnIDs: Set<String> = []
         var startsByTurn: [String: Date] = [:]
+        var completedTurns: [String: Date] = [:]
+        var model: String?
+        var modelProvider: String?
         var latestSemantic: CodexSafeActivitySemantic?
         var progressLines: [CodexSafeProgressLine] = []
         var recentEvents: [CodexSafeActivityEvent] = []
@@ -246,11 +262,22 @@ final class CodexLocalActivityDetector: CodexLocalActivityProviding,
 
         let cutoff = now.addingTimeInterval(-10 * 60)
         var grouped: [String: [(Candidate, ParserState)]] = [:]
+        var activeTurns: [CodexActivityTracker.TurnKey: CodexLocalActivitySnapshot.ActiveTurn] = [:]
+        var completedTurns: [CodexActivityTracker.TurnKey: Date] = [:]
         for candidate in candidates {
-            guard let state = statesByThread[candidate.threadID],
-                  state.isActive else { continue }
+            guard let state = statesByThread[candidate.threadID] else { continue }
             let rootID = rootByThread[candidate.threadID]
                 ?? candidate.threadID
+            for (turnID, date) in state.completedTurns {
+                completedTurns[.init(sessionID: candidate.threadID, turnID: turnID)] = date
+            }
+            guard state.isActive else { continue }
+            for turnID in state.activeTurnIDs {
+                activeTurns[.init(sessionID: candidate.threadID, turnID: turnID)] = .init(
+                    rootSessionID: rootID, startedAt: state.startsByTurn[turnID],
+                    model: state.model ?? candidate.model,
+                    modelProvider: state.modelProvider ?? candidate.modelProvider)
+            }
             grouped[rootID, default: []].append((candidate, state))
         }
 
@@ -312,7 +339,9 @@ final class CodexLocalActivityDetector: CodexLocalActivityProviding,
             activeSessionIDs: Set(activities.keys),
             lastEventAt: activities.values
                 .compactMap(\.lastEventAt).max(),
-            sessionActivities: activities)
+            sessionActivities: activities,
+            activeTurns: activeTurns,
+            completedTurns: completedTurns)
     }
 
     static func defaultStateDatabaseURL(
@@ -814,6 +843,13 @@ final class CodexLocalActivityDetector: CodexLocalActivityProviding,
                 candidate: candidate,
                 date: date,
                 into: &state)
+        case "turn_context":
+            if let model = payload["model"] as? String {
+                state.model = CodexTaskMetadataSanitizer.sanitize(model)
+            }
+            if let owner = payload["model_provider"] as? String {
+                state.modelProvider = CodexTaskMetadataSanitizer.sanitize(owner)
+            }
         case "response_item":
             parseResponseItem(payload, date: date, into: &state)
         default:
@@ -852,9 +888,18 @@ final class CodexLocalActivityDetector: CodexLocalActivityProviding,
             }
             state.activeTurnIDs.insert(turnID)
             state.startsByTurn[turnID] = startedAt
+            state.completedTurns.removeValue(forKey: turnID)
             setSemantic(.thinking, date: date, state: &state)
             appendEvent(.taskStarted, at: date, state: &state)
         case "task_complete", "turn_aborted", "task_aborted":
+            let completedIDs = turnID == "legacy"
+                ? state.activeTurnIDs.union([turnID]) : [turnID]
+            for id in completedIDs { state.completedTurns[id] = date }
+            if state.completedTurns.count > 64 {
+                state.completedTurns = Dictionary(uniqueKeysWithValues:
+                    state.completedTurns.sorted { $0.value > $1.value }.prefix(64)
+                        .map { ($0.key, $0.value) })
+            }
             if turnID == "legacy" {
                 state.activeTurnIDs.removeAll()
                 state.startsByTurn.removeAll()

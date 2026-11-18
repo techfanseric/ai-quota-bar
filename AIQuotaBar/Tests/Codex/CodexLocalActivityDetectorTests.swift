@@ -67,6 +67,44 @@ final class CodexLocalActivityDetectorTests: XCTestCase {
         )
     }
 
+    func testSnapshotExposesTurnLifecycleForHookReconciliation() throws {
+        let fixture = try makeFixture()
+        defer { fixture.cleanup() }
+        let now = Date(timeIntervalSince1970: 90_000)
+        let file = fixture.directory.appendingPathComponent("lifecycle.jsonl")
+        try fixture.insert(id: "thread", rolloutURL: file, updatedAt: 89_999)
+        let detector = makeDetector(fixture)
+        let old = CodexActivityTracker.TurnKey(sessionID: "thread", turnID: "old")
+        let next = CodexActivityTracker.TurnKey(sessionID: "thread", turnID: "next")
+        try writeRollout([
+            try eventRecord("task_started", turnID: "old", timestamp: now - 30),
+            try eventRecord("turn_aborted", turnID: "old", timestamp: now - 20),
+            try eventRecord("task_started", turnID: "next", timestamp: now - 10),
+        ], to: file)
+        let snapshot = detector.detectSnapshot(now: now)
+        XCTAssertEqual(snapshot.activeSessionIDs, ["thread"])
+        XCTAssertEqual(snapshot.completedTurns[old], now - 20)
+        XCTAssertNil(snapshot.activeTurns[old])
+        XCTAssertEqual(snapshot.activeTurns[next], .init(rootSessionID: "thread", startedAt: now - 10))
+    }
+
+    func testCurrentTurnModelOverridesStaleThreadModelMetadata() throws {
+        let fixture = try makeFixture()
+        defer { fixture.cleanup() }
+        let now = Date(timeIntervalSince1970: 90_000)
+        let file = fixture.directory.appendingPathComponent("model.jsonl")
+        try fixture.insert(id: "thread", rolloutURL: file, updatedAt: 89_999,
+            model: "gpt-6", modelProvider: "custom")
+        try writeRollout([
+            try eventRecord("task_started", turnID: "turn", timestamp: now - 10),
+            #"{"type":"turn_context","payload":{"model":"glm-5.3","model_provider":"zai"}}"#,
+        ], to: file)
+        let snapshot = makeDetector(fixture).detectSnapshot(now: now)
+        let turn = try XCTUnwrap(snapshot.activeTurns[.init(sessionID: "thread", turnID: "turn")])
+        XCTAssertEqual(turn.model, "glm-5.3")
+        XCTAssertEqual(turn.modelProvider, "zai")
+    }
+
     func testUnchangedDatabaseRowsReuseSafeMetadataButDetectSameTimestampEdits() throws {
         let fixture = try makeFixture()
         defer { fixture.cleanup() }

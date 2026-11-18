@@ -417,6 +417,157 @@ final class CodexSleepProtectionCoordinatorTests: XCTestCase {
         XCTAssertFalse(fixture.assertions.isHoldingAssertions)
     }
 
+    func testHookActivityStillUpdatesWithPowerProtectionDisabled() throws {
+        let fixture = try makeFixture()
+        fixture.coordinator.start()
+        fixture.coordinator.isEnabled = false
+        fixture.coordinator.receive(event(.userPromptSubmit))
+        XCTAssertEqual(fixture.coordinator.activeTaskCount(for: .codex), 1)
+        XCTAssertFalse(fixture.assertions.isHoldingAssertions)
+        fixture.coordinator.receive(event(.stop))
+        XCTAssertEqual(fixture.coordinator.activeTaskCount(for: .codex), 0)
+    }
+
+    func testCodexClientRequestsLightActualProviderRingsAndClearOnFailure() throws {
+        let fixture = try makeFixture()
+        fixture.coordinator.setProtectedProviders(Set(UsageProvider.allCases))
+        fixture.coordinator.start()
+        fixture.coordinator.receive(event(.userPromptSubmit))
+        fixture.coordinator.receiveLocalSnapshot(.init(
+            activeSessionIDs: ["session"], lastEventAt: Date(),
+            activeTurns: [.init(sessionID: "session", turnID: "turn"): .init(
+                rootSessionID: "session", startedAt: Date(),
+                model: "codex/gpt-6", modelProvider: "magpie")]))
+        fixture.coordinator.receiveMagpieSnapshot(.init(
+            isConfigured: true, isAvailable: true, providerIDs: ["magpie"], requests: [
+                .init(id: 1, provider: .miniMax, model: "MiniMax-M3"),
+                .init(id: 2, provider: .miniMax, model: "MiniMax-M3"),
+                .init(id: 3, provider: .glm, model: "GLM-5.3"),
+            ]))
+        XCTAssertEqual(fixture.coordinator.ringActivityCounts[.miniMax], 2)
+        XCTAssertEqual(fixture.coordinator.ringActivityCounts[.glm], 1)
+        XCTAssertNil(fixture.coordinator.ringActivityCounts[.codex])
+        XCTAssertEqual(fixture.coordinator.activeTurnCount, 1, "requests are not added to power-protection tasks")
+        fixture.coordinator.receiveMagpieSnapshot(.init(
+            isConfigured: true, isAvailable: false, providerIDs: ["magpie"], requests: []))
+        XCTAssertEqual(fixture.coordinator.ringActivityCounts[.miniMax], 0)
+        XCTAssertTrue(fixture.coordinator.modelActivity.gatewayUnavailable)
+        XCTAssertEqual(fixture.coordinator.activeTurnCount, 1, "tool gaps or failed reads do not finish the task")
+    }
+
+    func testGatewayRingDoesNotRequireThatModelsNativeClientToBeProtected() throws {
+        let fixture = try makeFixture()
+        fixture.coordinator.setProtectedProviders([.codex])
+        fixture.coordinator.start()
+        fixture.coordinator.receiveMagpieSnapshot(.init(
+            isConfigured: true, isAvailable: true, providerIDs: ["magpie"], requests: [
+                .init(id: 1, provider: .kimi, model: "Kimi-K3"),
+            ]))
+        XCTAssertEqual(fixture.coordinator.ringActivityCounts[.kimi], 1)
+        XCTAssertEqual(fixture.coordinator.ringActiveProviders, [.kimi])
+        XCTAssertEqual(fixture.coordinator.activeTurnCount, 0)
+    }
+
+    func testGatewayFailureRetainsLastKnownAccountWithoutCallingItActive() throws {
+        let fixture = try makeFixture()
+        fixture.coordinator.start()
+        fixture.coordinator.receiveMagpieSnapshot(.init(
+            isConfigured: true, isAvailable: true, providerIDs: ["magpie"], requests: [
+                .init(id: 1, provider: .codex, model: "gpt-6",
+                    accountKey: "a@example.com"),
+            ]))
+        XCTAssertEqual(
+            fixture.coordinator.codexAccountUsage.activeAccounts,
+            ["a@example.com"])
+
+        fixture.coordinator.receiveMagpieSnapshot(.init(
+            isConfigured: true, isAvailable: false, providerIDs: ["magpie"], requests: []))
+
+        XCTAssertEqual(fixture.coordinator.codexAccountUsage.state, .unavailable)
+        XCTAssertEqual(
+            fixture.coordinator.codexAccountUsage.activeAccounts,
+            ["a@example.com"])
+        XCTAssertFalse(fixture.coordinator.codexAccountUsage.isAvailable)
+
+        fixture.coordinator.receiveMagpieSnapshot(.init(
+            isConfigured: true, isAvailable: true, providerIDs: ["magpie"], requests: []))
+        XCTAssertEqual(fixture.coordinator.codexAccountUsage.state, .idle)
+        XCTAssertTrue(fixture.coordinator.codexAccountUsage.busyCounts.isEmpty)
+    }
+
+    func testStopOverridesLaggingLocalTurnWithoutHidingNextTurn() throws {
+        let now = Date(timeIntervalSince1970: 10_000)
+        let fixture = try makeFixture(nowProvider: { now })
+        fixture.coordinator.start()
+        let key = CodexActivityTracker.TurnKey(sessionID: "session", turnID: "turn")
+        let lagging = CodexLocalActivitySnapshot(
+            activeSessionIDs: ["session"], lastEventAt: now - 20,
+            activeTurns: [key: .init(rootSessionID: "session", startedAt: now - 30)])
+        fixture.coordinator.receive(event(.userPromptSubmit, date: now - 30))
+        fixture.coordinator.receiveLocalSnapshot(lagging)
+        XCTAssertEqual(fixture.coordinator.activeTaskCount(for: .codex), 1)
+        fixture.coordinator.receive(event(.stop, date: now - 10))
+        fixture.coordinator.receiveLocalSnapshot(lagging)
+        XCTAssertEqual(fixture.coordinator.activeTaskCount(for: .codex), 0)
+
+        let next = CodexActivityTracker.TurnKey(sessionID: "session", turnID: "next")
+        fixture.coordinator.receiveLocalSnapshot(.init(
+            activeSessionIDs: ["session"], lastEventAt: now,
+            activeTurns: [next: .init(rootSessionID: "session", startedAt: now - 5)]))
+        XCTAssertEqual(fixture.coordinator.activeTaskCount(for: .codex), 1)
+    }
+
+    func testLocalTerminalClearsLostHookStopButEmptyReadDoesNot() throws {
+        let now = Date(timeIntervalSince1970: 10_000)
+        let fixture = try makeFixture(nowProvider: { now })
+        fixture.coordinator.start()
+        fixture.coordinator.receive(event(.userPromptSubmit, date: now - 30))
+        fixture.coordinator.receiveLocalSnapshot(.empty)
+        XCTAssertEqual(fixture.coordinator.activeTaskCount(for: .codex), 1)
+        fixture.coordinator.receiveLocalSnapshot(.init(
+            activeSessionIDs: [], lastEventAt: nil,
+            completedTurns: [.init(sessionID: "session", turnID: "turn"): now - 10]))
+        XCTAssertEqual(fixture.coordinator.activeTaskCount(for: .codex), 0)
+        XCTAssertFalse(fixture.assertions.isHoldingAssertions)
+        fixture.coordinator.receive(event(.postToolUse, date: now - 5))
+        XCTAssertEqual(fixture.coordinator.activeTaskCount(for: .codex), 0)
+    }
+
+    func testStoppedLocalTurnDoesNotReappearWhenHookTTLPasses() throws {
+        var now = Date(timeIntervalSince1970: 10_000)
+        let fixture = try makeFixture(nowProvider: { now })
+        fixture.coordinator.start()
+        let key = CodexActivityTracker.TurnKey(sessionID: "session", turnID: "turn")
+        let lagging = CodexLocalActivitySnapshot(
+            activeSessionIDs: ["session"], lastEventAt: now - 20,
+            activeTurns: [key: .init(rootSessionID: "session", startedAt: now - 30)])
+        fixture.coordinator.receiveLocalSnapshot(lagging)
+        fixture.coordinator.receive(event(.stop, date: now - 10))
+        XCTAssertEqual(fixture.coordinator.activeTaskCount(for: .codex), 0)
+        now += CodexActivityTracker.defaultTurnTTL + 60
+        fixture.coordinator.receiveLocalSnapshot(lagging)
+        XCTAssertEqual(fixture.coordinator.activeTaskCount(for: .codex), 0)
+    }
+
+    func testHookAndLocalChildNormalizeToOneRootTask() throws {
+        let now = Date(timeIntervalSince1970: 10_000)
+        let fixture = try makeFixture(nowProvider: { now })
+        fixture.coordinator.start()
+        fixture.coordinator.receive(event(.userPromptSubmit, sessionID: "root", date: now - 20))
+        fixture.coordinator.receive(event(.userPromptSubmit, sessionID: "child", date: now - 10))
+        fixture.coordinator.receiveLocalSnapshot(.init(
+            activeSessionIDs: ["root"], lastEventAt: now,
+            activeTurns: [
+                .init(sessionID: "root", turnID: "turn"): .init(rootSessionID: "root", startedAt: now - 20),
+                .init(sessionID: "child", turnID: "turn"): .init(rootSessionID: "root", startedAt: now - 10),
+            ]))
+        XCTAssertEqual(fixture.coordinator.activeTaskCount(for: .codex), 1)
+        fixture.coordinator.receive(event(.stop, sessionID: "root", date: now - 5))
+        XCTAssertEqual(fixture.coordinator.activeTaskCount(for: .codex), 1, "child work must remain visible")
+        fixture.coordinator.receive(event(.stop, sessionID: "child", date: now))
+        XCTAssertEqual(fixture.coordinator.activeTaskCount(for: .codex), 0)
+    }
+
     private func makeFixture(
         turnEndGracePeriod: TimeInterval = 0,
         zcodeActivityProvider: (any ProviderLocalActivityProviding)? = nil,

@@ -152,6 +152,60 @@ final class CodexActivityTrackerTests: XCTestCase {
         XCTAssertFalse(tracker.pruneStaleTurns(now: now))
     }
 
+    func testCompletedTurnCannotBeResurrectedByLateToolEvents() {
+        var tracker = CodexActivityTracker()
+        let start = Date(timeIntervalSince1970: 100)
+        tracker.receive(event(.userPromptSubmit, date: start))
+        tracker.receive(event(.stop, date: start + 10))
+        tracker.receive(event(.postToolUse, date: start + 11))
+        tracker.receive(event(.userPromptSubmit, date: start))
+        XCTAssertEqual(tracker.activeTurnCount, 0)
+
+        tracker.receive(event(.userPromptSubmit, turnID: "next", date: start + 12))
+        tracker.receive(event(.stop, date: start + 13))
+        XCTAssertEqual(tracker.activeTurnCount, 1, "the old turn cannot stop a new turn")
+    }
+
+    func testOlderTerminalEventDoesNotOverrideNewerWork() {
+        var tracker = CodexActivityTracker()
+        let start = Date(timeIntervalSince1970: 100)
+        tracker.receive(event(.userPromptSubmit, date: start))
+        tracker.receive(event(.preToolUse, date: start + 20))
+        tracker.receive(event(.stop, date: start + 10))
+        tracker.receive(event(.sessionEnd, turnID: nil, date: start + 15))
+        XCTAssertEqual(tracker.activeTurnCount, 1)
+        XCTAssertEqual(tracker.lastEventAt, start + 20)
+    }
+
+    func testSessionEndWithCompletedTurnIDStillClearsOtherTurns() {
+        var tracker = CodexActivityTracker()
+        let start = Date(timeIntervalSince1970: 100)
+        tracker.receive(event(.userPromptSubmit, date: start))
+        tracker.receive(event(.stop, date: start + 1))
+        tracker.receive(event(.userPromptSubmit, turnID: "next", date: start + 2))
+        tracker.receive(event(.sessionEnd, date: start + 3))
+        XCTAssertEqual(tracker.activeTurnCount, 0)
+    }
+
+    func testLocalCompletionEndsMissingStopButKeepsActiveSubagents() {
+        var tracker = CodexActivityTracker()
+        let start = Date(timeIntervalSince1970: 100)
+        let key = CodexActivityTracker.TurnKey(sessionID: "session-1", turnID: "turn-1")
+        tracker.receive(event(.userPromptSubmit, date: start))
+        tracker.receive(event(.subagentStart, agentID: "child", date: start + 1))
+        tracker.reconcileCompletedTurns([key: start + 2])
+        XCTAssertEqual(tracker.activeTurnCount, 1)
+        tracker.receive(event(.postToolUse, date: start + 2.5))
+        tracker.receive(event(.subagentStop, agentID: "child", date: start + 3))
+        XCTAssertEqual(tracker.activeTurnCount, 0)
+
+        tracker.receive(event(.userPromptSubmit, turnID: "next", date: start + 4))
+        tracker.reconcileCompletedTurns([.init(sessionID: "session-1", turnID: "next"): start + 5])
+        XCTAssertEqual(tracker.activeTurnCount, 0, "a logged completion replaces a missing Stop")
+        tracker.receive(event(.postToolUse, turnID: "next", date: start + 6))
+        XCTAssertEqual(tracker.activeTurnCount, 0)
+    }
+
     private func event(
         _ name: CodexHookEventName,
         sessionID: String = "session-1",

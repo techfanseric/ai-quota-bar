@@ -110,7 +110,7 @@ struct CodexSafeProgressLine: Equatable, Sendable {
 }
 
 struct CodexActivityTracker {
-    struct TurnKey: Hashable {
+    struct TurnKey: Hashable, Sendable {
         let sessionID: String
         let turnID: String
     }
@@ -127,6 +127,8 @@ struct CodexActivityTracker {
     private(set) var latestSemantic: CodexSafeActivitySemantic?
     private var latestSemanticSessionID: String?
     private var turns: [TurnKey: TurnState] = [:]
+    private var completedTurns: [TurnKey: Date] = [:]
+    private var endedSessions: [String: Date] = [:]
     private var safeRecentEvents: [CodexSafeActivityEvent] = []
 
     /// A hook-tracked turn that produced no event for this long is treated as
@@ -141,9 +143,17 @@ struct CodexActivityTracker {
     /// Drops turns idle past the TTL. Returns true when anything changed.
     mutating func pruneStaleTurns(
         now: Date,
-        ttl: TimeInterval = CodexActivityTracker.defaultTurnTTL
+        ttl: TimeInterval = CodexActivityTracker.defaultTurnTTL,
+        retainingTerminalsFor localTurns: Set<TurnKey> = []
     ) -> Bool {
         let cutoff = now.addingTimeInterval(-ttl)
+        let localSessions = Set(localTurns.map(\.sessionID))
+        completedTurns = completedTurns.filter {
+            $0.value >= cutoff || localTurns.contains($0.key)
+        }
+        endedSessions = endedSessions.filter {
+            $0.value >= cutoff || localSessions.contains($0.key)
+        }
         let staleKeys = turns.filter { $0.value.lastEventAt < cutoff }.keys
         guard !staleKeys.isEmpty else { return false }
         for key in staleKeys {
@@ -159,6 +169,32 @@ struct CodexActivityTracker {
 
     var activeSessionIDs: Set<String> {
         Set(turns.keys.map(\.sessionID))
+    }
+
+    var activeTurnKeys: Set<TurnKey> { Set(turns.keys) }
+
+    /// A terminal signal wins over a lagging copy of the same turn. A
+    /// later, explicitly observed start can still begin new work.
+    func hasFinished(_ key: TurnKey, startedAt: Date?) -> Bool {
+        guard let endedAt = [completedTurns[key], endedSessions[key.sessionID]]
+            .compactMap({ $0 }).max() else { return false }
+        return startedAt.map { $0 <= endedAt } ?? true
+    }
+
+    mutating func reconcileCompletedTurns(_ completed: [TurnKey: Date]) {
+        for (key, date) in completed {
+            if var state = turns[key] {
+                guard state.lastEventAt <= date else { continue }
+                state.rootStopped = true
+                if !state.activeSubagents.isEmpty {
+                    turns[key] = state
+                    continue
+                }
+                turns.removeValue(forKey: key)
+            }
+            completedTurns[key] = max(completedTurns[key] ?? date, date)
+        }
+        activeTurnCount = turns.count
     }
 
     /// Returns a start time only when every active session was observed from a
@@ -222,13 +258,31 @@ struct CodexActivityTracker {
     }
 
     mutating func receive(_ event: CodexHookEvent) {
-        lastEventAt = event.date
+        if let endedAt = endedSessions[event.sessionID], event.date <= endedAt {
+            return
+        }
+        if event.name != .sessionEnd, let turnID = event.turnID {
+            let key = TurnKey(sessionID: event.sessionID, turnID: turnID)
+            if let endedAt = completedTurns[key] {
+                guard event.name == .userPromptSubmit,
+                      event.date > endedAt else { return }
+                completedTurns.removeValue(forKey: key)
+            }
+            if let latest = turns[key]?.lastEventAt, event.date < latest { return }
+            if turns[key]?.rootStopped == true, event.agentID == nil,
+               [.preToolUse, .postToolUse, .permissionRequest]
+                .contains(event.name) { return }
+        }
+        lastEventAt = max(lastEventAt ?? event.date, event.date)
         appendSafeEvent(for: event)
         updateSafeSemantic(for: event)
         latestSemanticSessionID = event.sessionID
 
         if event.name == .sessionEnd {
-            turns = turns.filter { $0.key.sessionID != event.sessionID }
+            endedSessions[event.sessionID] = event.date
+            turns = turns.filter {
+                $0.key.sessionID != event.sessionID || $0.value.lastEventAt > event.date
+            }
             activeTurnCount = turns.count
             return
         }
@@ -240,6 +294,9 @@ struct CodexActivityTracker {
         let key = TurnKey(sessionID: event.sessionID, turnID: turnID)
         if turns[key] == nil
             && (event.name == .subagentStop || event.name == .stop) {
+            if event.name == .stop, event.agentID == nil {
+                completedTurns[key] = event.date
+            }
             return
         }
         var state = turns[key] ?? TurnState(lastEventAt: event.date)
@@ -282,6 +339,7 @@ struct CodexActivityTracker {
 
         if state.rootStopped && state.activeSubagents.isEmpty {
             turns.removeValue(forKey: key)
+            completedTurns[key] = event.date
         } else {
             turns[key] = state
         }
@@ -290,6 +348,8 @@ struct CodexActivityTracker {
 
     mutating func reset() {
         turns.removeAll()
+        completedTurns.removeAll()
+        endedSessions.removeAll()
         safeRecentEvents.removeAll()
         activeTurnCount = 0
         lastEventAt = nil
