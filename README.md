@@ -25,6 +25,15 @@ AI coding work is hard to manage when quota, network routes, and Mac sleep setti
   <img src="./docs/images/control-center.png" alt="AI Quota Bar control center" width="342">
 </p>
 
+## v1.39.5 · Kimi quota without opening the client
+
+When Kimi.app is closed, AI Quota Bar can renew an expired Kimi Desktop access
+token in memory using the refresh token already stored by Kimi's own desktop
+client. Quota keeps refreshing without opening the client; Kimi's refresh token
+is not rotated or written back, and no token is logged or uploaded. If Kimi
+rejects the refresh token, sign in again in Kimi. Ships in the v1.39.5
+download. [Release notes](./docs/releases/v1.39.5.en.md).
+
 ## v1.39.4 · One-minute lightweight mode
 
 On macOS, **Settings → General → System → Lightweight mode** is on by default. Closed menus and settings release their native interface resources after one minute and rebuild on the next click. Quota rings, live model lights, hover details, alerts and background services keep running. Open/minimized windows are protected. Saved settings remain; unsaved temporary input may be cleared. It is included in the v1.39.4 download and is not ported to Windows. [Research and behavior](./docs/research/lightweight-mode-2026-11-12.md) · [Release notes](./docs/releases/v1.39.4.en.md).
@@ -73,13 +82,14 @@ Unzip and run `AIQuotaBar/AIQuotaBar.exe` on 64-bit Windows 10 or later. The ZIP
 
 This beta includes Codex OAuth quota with CLI fallback, Kimi/GLM/MiniMax quota, Clash routes and connections, local usage, a read-only mobile dashboard and Codex task sleep protection. Settings → Providers manages per-account sharing and watched emails, with immediate Watch saves and refresh requests. Sharing is off by default; anyone knowing a shared email can query its published quota without joining a team. Provider credentials stay local.
 
-| Capability | macOS v1.39.3 | Windows v1.38.6-beta.1 |
+| Capability | macOS v1.39.5 | Windows v1.38.6-beta.1 |
 | --- | --- | --- |
-| All rings with companion apps closed | v1.39.4: Always visible overrides Follow running apps | No equivalent ring controls |
-| One-minute lightweight mode | v1.39.4: on by default; releases closed UI, keeps full rings | Not ported |
-| Model-based activity rings | v1.39.4: local model metadata and actual local Magpie routes; hover shows models/counts | Not ported |
-| Quota cycle-reset notifications | v1.39.4: one deduplicated summary per registered account/model window after a successful refresh | Not ported |
-| Codex hook/log lifecycle reconciliation | v1.39.4: terminal events and child identities reconciled | Not ported |
+| All rings with companion apps closed | v1.39.5: Always visible overrides Follow running apps | No equivalent ring controls |
+| One-minute lightweight mode | v1.39.5: on by default; releases closed UI, keeps full rings | Not ported |
+| Kimi Desktop quota with client closed | v1.39.5: expired access token renews in memory | Available through its own source controls |
+| Model-based activity rings | v1.39.5: local model metadata and actual local Magpie routes; hover shows models/counts | Not ported |
+| Quota cycle-reset notifications | v1.39.5: one deduplicated summary per registered account/model window after a successful refresh | Not ported |
+| Codex hook/log lifecycle reconciliation | v1.39.5: terminal events and child identities reconciled | Not ported |
 | Codex / Kimi / GLM / MiniMax quota | Available | Available; source controls differ |
 | Codex Watch by email | Available | Available; changes save immediately |
 | Clash/Mihomo routes and connections | Available | Available |
@@ -252,7 +262,7 @@ No source setup is needed. Auto detects a saved API key → valid Desktop sign-i
 
 - Desktop supports the newer encrypted Kimi token store and legacy cookies. Click **Allow Desktop Access** if macOS Keychain authorization is needed. Background refresh never prompts.
 - Web automatically detects accessible kimi.com browser sessions without Keychain prompts. Scan results are cached for five minutes. Multiple accounts require a choice in Advanced, which also supports explicit browser import and manual kimi.ai sign-in.
-- Sign in again when Desktop credentials expire; re-import an expired web session. AI Quota Bar never modifies Kimi's credentials or refresh tokens.
+- When the Desktop access token has expired — it is short-lived and Kimi only rewrites it while the app is running — AI Quota Bar renews it from the refresh token in the same local token store, so quota keeps working with Kimi closed. The refresh token is not rotated, Kimi's own stored credential stays valid, and nothing is written to Kimi's store, Keychain entry, or cookies. Sign in again when the Desktop sign-in itself is rejected; re-import an expired web session.
 - Code short-window and weekly limits are shown separately from the membership total when provided. Mainland Desktop has been verified on a real installation; overseas endpoints have not.
 
 ## Install
@@ -400,7 +410,7 @@ On macOS v1.39.1, enable **Settings → General → Account display → Mask acc
 
 - MiniMax credentials are stored in macOS Keychain.
 - GLM API keys and imported web-request credentials are stored in macOS Keychain.
-- Optional Kimi API keys and explicitly saved web sessions are stored in macOS Keychain. Desktop and browser sessions are read locally; CLI credentials remain managed by Kimi Code.
+- Optional Kimi API keys and explicitly saved web sessions are stored in macOS Keychain. Desktop and browser sessions are read locally; the Desktop access token may be renewed in memory from the refresh token already in Kimi's local token store, without writing to Kimi. CLI credentials remain managed by Kimi Code.
 - Codex credentials are managed locally by Codex/CodexBar. The Mac credential guard also keeps local copies outside `~/.codex` (0700 directory, 0600 files); see the [credential mirror guide](docs/codex-auth-guard.md).
 - Clash/Mihomo access is limited to a loopback external controller.
 - Connection monitoring is read-only.

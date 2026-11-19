@@ -30,15 +30,31 @@ struct KimiDesktopSessionReader {
     let home: URL
     let keyCache: SafeStorageKeyCache
     let freshKey: (Bool) throws -> Data
+    /// Renews the short-lived access token from the store's own refresh token.
+    ///
+    /// The desktop client only rewrites its token store while it is running,
+    /// so an access token left behind when it last quit is already expired.
+    /// Injected so tests can exercise the renewal without network access.
+    let renewAccessToken: (@Sendable (String, String) async throws -> KimiDesktopTokenRefresher.Refreshed)?
+    /// Holds a renewed token so repeated polls reuse it instead of renewing
+    /// again on every cycle.
+    let tokenCache: KimiDesktopTokenCache
 
     init(
         home: URL = FileManager.default.homeDirectoryForCurrentUser,
         keyCache: SafeStorageKeyCache = .live,
-        freshKey: ((Bool) throws -> Data)? = nil
+        freshKey: ((Bool) throws -> Data)? = nil,
+        renewAccessToken: (@Sendable (String, String) async throws -> KimiDesktopTokenRefresher.Refreshed)? = nil,
+        tokenCache: KimiDesktopTokenCache = .shared
     ) {
         self.home = home
         self.keyCache = keyCache
         self.freshKey = freshKey ?? { try Self.password(allowInteraction: $0) }
+        self.tokenCache = tokenCache
+        self.renewAccessToken = renewAccessToken ?? { refreshToken, origin in
+            try await KimiDesktopTokenRefresher()
+                .refresh(refreshToken: refreshToken, origin: origin)
+        }
     }
 
     var tokenStoreURL: URL {
@@ -51,7 +67,7 @@ struct KimiDesktopSessionReader {
             || KimiDesktopAuthToken.load(homeDirectory: home) != nil
     }
 
-    func load(allowInteraction: Bool = false) throws -> KimiWebSession {
+    func load(allowInteraction: Bool = false) async throws -> KimiWebSession {
         if FileManager.default.fileExists(atPath: tokenStoreURL.path) {
             let envelope = try JSONDecoder().decode(Envelope.self, from: Data(contentsOf: tokenStoreURL))
             guard envelope.encryption == "safeStorage.v1",
@@ -63,8 +79,17 @@ struct KimiDesktopSessionReader {
             // session counts as a cache hit.
             if let cached = keyCache.read() {
                 if let plaintext = try? Self.decrypt(encrypted, password: cached),
-                   let session = try? Self.decodeStore(plaintext).validated() {
-                    return session
+                   let store = try? Self.decodeStoreTokens(plaintext) {
+                    if let accessToken = store.tokens.access_token,
+                       let session = try? KimiWebSession(
+                           token: accessToken, origin: store.origin).validated() {
+                        return session
+                    }
+                    // The stored access token expired while Kimi was closed.
+                    // Renew it from the same store's refresh token before
+                    // giving up — otherwise every later read fails with 401.
+                    return try await Self.renewedSession(
+                        store: store, renew: renewAccessToken, cache: tokenCache)
                 }
                 if !allowInteraction {
                     // Stale cache on a background refresh: stay silent and let
@@ -85,7 +110,15 @@ struct KimiDesktopSessionReader {
             }
             let password = try freshKey(allowInteraction)
             keyCache.write(password)
-            return try Self.decodeStore(Self.decrypt(encrypted, password: password)).validated()
+            let plaintext = try Self.decrypt(encrypted, password: password)
+            let store = try Self.decodeStoreTokens(plaintext)
+            if let accessToken = store.tokens.access_token,
+               let session = try? KimiWebSession(
+                   token: accessToken, origin: store.origin).validated() {
+                return session
+            }
+            return try await Self.renewedSession(
+                store: store, renew: renewAccessToken, cache: tokenCache)
         }
         if let token = KimiDesktopAuthToken.load(homeDirectory: home) {
             return try KimiWebSession(token: token, origin: "https://www.kimi.com").validated()
@@ -95,17 +128,82 @@ struct KimiDesktopSessionReader {
 
     struct Envelope: Decodable { let encryption: String; let data: String }
 
-    static func decodeStore(_ data: Data) throws -> KimiWebSession {
-        struct Store: Decodable {
-            struct Tokens: Decodable { let access_token: String? }
-            let origin: String
-            let tokens: Tokens
+    /// The desktop client's token store, including the long-lived refresh
+    /// token used to renew an expired access token.
+    struct StoreTokens: Decodable {
+        struct Tokens: Decodable {
+            let access_token: String?
+            let refresh_token: String?
         }
-        guard let store = try? JSONDecoder().decode(Store.self, from: data),
+        let origin: String
+        let tokens: Tokens
+    }
+
+    static func decodeStoreTokens(_ data: Data) throws -> StoreTokens {
+        try JSONDecoder().decode(StoreTokens.self, from: data)
+    }
+
+    static func decodeStore(_ data: Data) throws -> KimiWebSession {
+        guard let store = try? decodeStoreTokens(data),
               let token = store.tokens.access_token, !token.isEmpty else {
             throw KimiSessionError.invalidStore
         }
         return KimiWebSession(token: token, origin: store.origin)
+    }
+
+    /// Renews the access token stored in the desktop client's token store.
+    ///
+    /// The store keeps both tokens: a short-lived `access_token` and a
+    /// long-lived `refresh_token`. The server does not rotate the refresh
+    /// token, so renewing here leaves the desktop client's own stored
+    /// credential valid — we never write the store.
+    static func renewedSession(
+        store: StoreTokens,
+        renew: (@Sendable (String, String) async throws -> KimiDesktopTokenRefresher.Refreshed)?,
+        cache: KimiDesktopTokenCache
+    ) async throws -> KimiWebSession {
+        guard let refreshToken = store.tokens.refresh_token,
+              !refreshToken.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+            throw KimiSessionError.expired
+        }
+        // A token renewed by an earlier poll is still good for this account.
+        // Reusing it keeps each refresh cycle to a single request.
+        let accountID = store.tokens.access_token.flatMap {
+            KimiDesktopTokenRefresher.accountID(of: $0)
+        } ?? KimiDesktopTokenRefresher.accountID(of: refreshToken)
+        if let cached = cache.token(
+            accountID: accountID,
+            origin: store.origin) {
+            if let session = try? KimiWebSession(
+                token: cached, origin: store.origin).validated() {
+                return session
+            }
+            cache.clear()
+        }
+        guard let renew else { throw KimiSessionError.expired }
+        let refreshed: KimiDesktopTokenRefresher.Refreshed
+        do {
+            refreshed = try await renew(refreshToken, store.origin)
+        } catch is CancellationError {
+            throw CancellationError()
+        } catch {
+            // A rejected renewal means the Desktop sign-in itself is gone.
+            // Report it as an expired login so the user is told to sign in
+            // again instead of seeing an opaque transport failure.
+            throw KimiSessionError.expired
+        }
+        guard !refreshed.accessToken.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+            throw KimiSessionError.expired
+        }
+        // Store under the same identity used for the lookup, so a renewed
+        // token is only ever reused for the account it was read for.
+        cache.store(
+            refreshed.accessToken,
+            accountID: accountID ?? refreshed.accountID,
+            origin: refreshed.origin,
+            expiry: refreshed.expiry)
+        return try KimiWebSession(
+            token: refreshed.accessToken, origin: refreshed.origin).validated()
     }
 
     private static func password(allowInteraction: Bool) throws -> Data {

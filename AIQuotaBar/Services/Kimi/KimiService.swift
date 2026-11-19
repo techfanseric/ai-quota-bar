@@ -6,7 +6,7 @@ final class KimiService {
 
     static let webSessionBinding = "kimi.web-session.v1"
     private let defaults: UserDefaults
-    private let desktopSession: () throws -> KimiWebSession
+    private let desktopSession: () async throws -> KimiWebSession
     private let webSession: () async throws -> KimiWebSession
     private let webUsage: (KimiWebSession) async throws -> UsageSnapshot
     private let cliAvailable: () -> Bool
@@ -17,7 +17,9 @@ final class KimiService {
     init(
         cliStatusProvider: any KimiCLIStatusProviding = KimiCLIStatusProbe(),
         defaults: UserDefaults = .standard,
-        desktopSession: @escaping () throws -> KimiWebSession = { try KimiDesktopSessionReader().load() },
+        desktopSession: @escaping () async throws -> KimiWebSession = {
+            try await KimiDesktopSessionReader().load()
+        },
         webSession: @escaping () async throws -> KimiWebSession = {
             guard let stored = await KeychainService.shared.deviceCredential(binding: KimiService.webSessionBinding),
                   let data = stored.data(using: .utf8),
@@ -81,7 +83,8 @@ final class KimiService {
             try Task.checkCancellation()
             switch selected {
             case .auto: return try await fetchAutomaticUsage()
-            case .desktop: return try await fetchWebUsage(desktopSession(), source: "Kimi Desktop")
+            case .desktop: return try await fetchWebUsage(
+                try await desktopSession(), source: "Kimi Desktop")
             case .web: return try await fetchWebUsage(webSession(), source: "Kimi Web")
             case .cli: return try await fetchCLIUsage()
             }
@@ -97,7 +100,7 @@ final class KimiService {
     private func fetchAutomaticUsage() async throws -> UsageData {
         var localError: Error?
         var desktop: KimiWebSession?
-        do { desktop = try desktopSession().validated() }
+        do { desktop = try await desktopSession().validated() }
         catch {
             if Self.isCancellation(error) { throw error }
             if desktopAvailable() { localError = error }

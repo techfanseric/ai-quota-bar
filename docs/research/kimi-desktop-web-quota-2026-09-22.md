@@ -100,3 +100,61 @@
 - 已安装可执行文件与 dist 产物 SHA-256 相同：`f60280f2f4b79f98f96a00922e1e27c7fd4e1882f599541aed61dc172915c96a`；签名验证通过。
 - 运行中应用写入的最近成功来源为 `Kimi Desktop`；未设置 kimiSourceMode，使用默认自动检测。该状态只在真实请求成功并映射完成后更新，不包含 token。
 - 新设置页展示最近成功来源。重启后 GUI 自动化取窗口超时，因此运行验收依据安装路径、构建号、哈希、活动进程及成功来源状态，而非截图。
+
+## 桌面端 access token 过期导致常驻红色（2026-11-19）
+
+用户报告 Kimi 环长期显示红色。诊断结论：**不是依赖客户端运行状态，而是桌面端
+access token 过期**。
+
+### 现场事实
+
+| 项 | 值 |
+| --- | --- |
+| `kimi-desktop/bridge-store/token-store.json` 的 `access_token` | `iat` 2026-11-18 07:03 UTC，`exp` 2026-11-18 07:18 UTC（TTL **900 秒**） |
+| 同一 store 的 `refresh_token` | `exp` 2027-02-14（TTL **90 天**），仍然可用 |
+| 实机请求 | `401 {"code":"unauthenticated","message":"token has invalid claims: token is expired"}` |
+| Kimi.app 是否运行 | **未运行**（`pgrep -f "MacOS/Kimi"` 无匹配） |
+| CLI 账号 | `cnucaqecp7f4smsvu9fg`，`user_level_name: Free`（与桌面端 `cqie4e004rj5plut54j0` / Max **不是同一账号**） |
+
+桌面客户端只在自身运行时才续写 token store，退出时留下的 access token 15 分钟后
+必然过期。此前实现"只读不刷新"，于是每轮轮询都 401，环进入 `.failed` 状态
+（`QuotaSymbolRenderer` 的 `danger` 色）。
+
+### 为什么其他回退救不了
+
+- **CLI**：`/status` 在 Kimi Code v2.6.3 的面板只剩 Model / Directory /
+  Permissions / Plan mode / Session / Context window，**不再输出额度行**；
+  旧解析器要找的 `5h limit` / `Weekly limit` 已不存在（新版把配额渲染在网页
+  端设置面板）。`https://api.kimi.com/coding/v1/usages` 返回 `{}`。
+- **浏览器 Cookie**：Chrome 的 `kimi-auth` Cookie 有效期到 2027-06-16，但其中
+  token 同样已过期 → 401。
+- **网页登录**：未保存（`kimiSavedWebSessionAvailable = 0`）。
+
+### 采用的修复
+
+桌面端 store 同时保存 access token 与 refresh token，官方客户端自身也用
+`GET https://www.kimi.com/api/auth/token/refresh` 续期（`app.asar` 的
+`doRefreshViaRest`）。本项目现在在 access token 过期时做同样的只读续期：
+
+- **refresh token 不轮换**：实机连续两次续期后，返回的 refresh token 与 store
+  中保存的完全一致，原始 refresh token 也仍然可用 —— Kimi 客户端自己保存的
+  凭证不会因此失效。
+- **只访问账号所属区域**：origin 取自 token store 本身；`www.kimi.com` 返回
+  200，`www.kimi.ai` 返回 403，因此绝不跨区域试探。
+- **不写任何东西**：不写 Kimi 的 store、钥匙串条目或 Cookie；续期后的 access
+  token 只存在于内存。
+- **续期后的 token 更耐用**：存储里的 access token `iss: account`、TTL 900 秒；
+  续期得到的是 `iss: user-center`、有效期 30 天。
+
+实机验证（Kimi.app 未运行）：续期 → `GetUsages` 200，weekly limit 100 /
+remaining 100，5h limit 100 / remaining 100，totalQuota used 71 / remaining 29；
+`GetSubscriptionStats` 200，`subscriptionBalance.amountUsedRatio` 0.7123；
+`GetSubscription` 200，套餐 Max。
+
+### 与 Magpie 原则的对照
+
+Magpie 的做法是"**凭据归属方保留 refresh 所有权**"——Codex 由 Magpie 自己续，
+AI Quota Bar 只读它的额度报告，从不碰 refresh token。Kimi 之前缺少对应的归属
+方：桌面端 token 没有 owner，CLI 又是另一个（Free）账号。修复补上了这个缺口，
+但边界比 Codex 更窄：只用 Kimi **自己**的 refresh token 续 **Kimi 自己**的
+access token，且不落盘、不轮换、不跨区域。

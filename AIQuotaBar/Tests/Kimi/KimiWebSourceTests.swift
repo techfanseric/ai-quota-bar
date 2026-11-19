@@ -1,4 +1,5 @@
 import CodexBarCore
+import CommonCrypto
 import XCTest
 @testable import AIQuotaBar
 
@@ -149,14 +150,19 @@ final class KimiWebSourceTests: XCTestCase {
         catch { XCTAssertTrue(error is CancellationError) }
     }
 
-    func testMissingDesktopIsNotDetectedFromAnEmptyHome() throws {
+    func testMissingDesktopIsNotDetectedFromAnEmptyHome() async throws {
         let home = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         let reader = KimiDesktopSessionReader(home: home)
         XCTAssertFalse(reader.isPresent)
-        XCTAssertThrowsError(try reader.load())
+        do {
+            _ = try await reader.load()
+            XCTFail("Expected a missing Desktop session")
+        } catch {
+            XCTAssertTrue(error is KimiSessionError)
+        }
     }
 
-    func testLoadUsesCachedSafeStorageKeyWithoutFreshKeychainRead() throws {
+    func testLoadUsesCachedSafeStorageKeyWithoutFreshKeychainRead() async throws {
         let home = try makeDesktopHome()
         var reads = 0
         var writes = 0
@@ -169,14 +175,14 @@ final class KimiWebSourceTests: XCTestCase {
             XCTFail("Cached key must be used without touching Kimi's Keychain entry")
             throw KimiSessionError.missing
         }
-        let session = try reader.load()
+        let session = try await reader.load()
         XCTAssertEqual(session.token, "fixture-token")
         XCTAssertEqual(reads, 1)
         XCTAssertEqual(writes, 0)
         XCTAssertEqual(clears, 0)
     }
 
-    func testLoadCachesKeyAfterFreshAuthorizedRead() throws {
+    func testLoadCachesKeyAfterFreshAuthorizedRead() async throws {
         let home = try makeDesktopHome()
         var written: Data?
         var clears = 0
@@ -190,14 +196,14 @@ final class KimiWebSourceTests: XCTestCase {
             XCTAssertTrue(allowInteraction)
             return Data("test-password".utf8)
         }
-        let session = try reader.load(allowInteraction: true)
+        let session = try await reader.load(allowInteraction: true)
         XCTAssertEqual(session.token, "fixture-token")
         XCTAssertEqual(written, Data("test-password".utf8))
         XCTAssertEqual(freshCalls, 1)
         XCTAssertEqual(clears, 0)
     }
 
-    func testBackgroundLoadWithoutCachedKeyNeverTouchesKeychain() throws {
+    func testBackgroundLoadWithoutCachedKeyNeverTouchesKeychain() async throws {
         let home = try makeDesktopHome()
         var writes = 0
         let cache = KimiDesktopSessionReader.SafeStorageKeyCache(
@@ -208,7 +214,10 @@ final class KimiWebSourceTests: XCTestCase {
             XCTFail("Background refresh must not read Kimi's Keychain entry")
             throw KimiSessionError.missing
         }
-        XCTAssertThrowsError(try reader.load()) { error in
+        do {
+            _ = try await reader.load()
+            XCTFail("Expected a keychain error")
+        } catch {
             guard case let KimiSessionError.keychain(status) = error else {
                 return XCTFail("Expected keychain error, got \(error)")
             }
@@ -217,7 +226,7 @@ final class KimiWebSourceTests: XCTestCase {
         XCTAssertEqual(writes, 0)
     }
 
-    func testStaleCachedKeyStaysSilentInBackgroundAndRefreshesInteractively() throws {
+    func testStaleCachedKeyStaysSilentInBackgroundAndRefreshesInteractively() async throws {
         let home = try makeDesktopHome()
         var written: Data?
         var clears = 0
@@ -231,19 +240,22 @@ final class KimiWebSourceTests: XCTestCase {
             return Data("test-password".utf8)
         }
         // Background: stale key must not trigger a fresh read or a vault write.
-        XCTAssertThrowsError(try reader.load())
+        do {
+            _ = try await reader.load()
+            XCTFail("Expected the background load to stay silent")
+        } catch {}
         XCTAssertEqual(freshCalls, 0)
         XCTAssertEqual(clears, 0)
         XCTAssertNil(written)
         // Interactive: clear the stale copy, re-authorize once, cache the new key.
-        let session = try reader.load(allowInteraction: true)
+        let session = try await reader.load(allowInteraction: true)
         XCTAssertEqual(session.token, "fixture-token")
         XCTAssertEqual(clears, 1)
         XCTAssertEqual(freshCalls, 1)
         XCTAssertEqual(written, Data("test-password".utf8))
     }
 
-    func testUnrecoverableKeyFailsInsteadOfRetryingForever() throws {
+    func testUnrecoverableKeyFailsInsteadOfRetryingForever() async throws {
         let home = try makeDesktopHome()
         var freshCalls = 0
         let reader = KimiDesktopSessionReader(
@@ -253,21 +265,227 @@ final class KimiWebSourceTests: XCTestCase {
             freshCalls += 1
             return Data("wrong".utf8)
         }
-        XCTAssertThrowsError(try reader.load(allowInteraction: true))
+        do {
+            _ = try await reader.load(allowInteraction: true)
+            XCTFail("Expected the unrecoverable key to fail")
+        } catch {}
         XCTAssertEqual(freshCalls, 1)
     }
 
     private func makeDesktopHome() throws -> URL {
+        try makeDesktopHome(envelope: Self.liveStoreEnvelope)
+    }
+
+    private func makeDesktopHome(envelope: String) throws -> URL {
         let home = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         let storeDirectory = home.appendingPathComponent("Library/Application Support/kimi-desktop/bridge-store")
         try FileManager.default.createDirectory(at: storeDirectory, withIntermediateDirectories: true)
-        let envelope = #"{"encryption":"safeStorage.v1","data":"djEwYB7lpQcXAs4B4ScVNUAkltS5wY3vQdQ37kgpSNtHa4/YqOOJDTtOiIEDCQ8lz+DB4o2EzAxsN33rYE0PI7ItsuoSeN8qVvvpxV9TGhwk6PIgayEV8Pw9QNKyZC9M7liY/l6HRUYhZJGHh3s0M8KRkw=="}"#
         try envelope.write(
             to: storeDirectory.appendingPathComponent("token-store.json"),
             atomically: true,
             encoding: .utf8)
         addTeardownBlock { try? FileManager.default.removeItem(at: home) }
         return home
+    }
+
+    /// A live desktop store: the access token is not a JWT, so it never
+    /// expires and no renewal is attempted.
+    private static let liveStoreEnvelope = """
+    {"encryption":"safeStorage.v1","data":"djEwYB7lpQcXAs4B4ScVNUAkltS5wY3vQdQ37kgpSNtHa4/\
+    YqOOJDTtOiIEDCQ8lz+DB4o2EzAxsN33rYE0PI7ItsuoSeN8qVvvpxV9TGhwk6PIgayEV8Pw9QNKyZC9M7liY/\
+    l6HRUYhZJGHh3s0M8KRkw=="}
+    """
+
+    /// A desktop store whose access token is already expired.
+    ///
+    /// Encrypted with the same "test-password" the cached-key fixtures use, so
+    /// the reader reaches the renewal path instead of the Keychain branch.
+    /// The blobs are Electron safeStorage v10 payloads with an access token
+    /// whose `exp` is in the past.
+    private static let expiredStoreEnvelope = """
+    {"encryption":"safeStorage.v1","data":"djEwYB7lpQcXAs4B4ScVNUAkltS5wY3vQdQ37kgpSNtHa4/\
+    YqOOJDTtOiIEDCQ8lz+DBJdJvcDw9HL17WcgVaKANfpfjMDDfElMwC5mxoPTxQjMFrOjIn7Qh4x0Dyn3sleCLWEUFx9CZjSCzH8LpNoyRqQra17TR9RHifxtOcCLufDgdz+Q/erORZxknf8898LjHf/UanmQV62OlAxp1+o+geg=="}
+    """
+
+    /// The same expired store without a refresh token, so no renewal can be
+    /// attempted.
+    private static let expiredStoreEnvelopeWithoutRefreshToken = """
+    {"encryption":"safeStorage.v1","data":"djEwYB7lpQcXAs4B4ScVNUAkltS5wY3vQdQ37kgpSNtHa4/\
+    YqOOJDTtOiIEDCQ8lz+DBJdJvcDw9HL17WcgVaKANfpfjMDDfElMwC5mxoPTxQjMFrOjIn7Qh4x0Dyn3sleCLacDZZrrDAf3vX76EwBCPoA=="}
+    """
+
+    private static func expiredStore(includeRefreshToken: Bool) -> String {
+        includeRefreshToken ? Self.expiredStoreEnvelope
+            : Self.expiredStoreEnvelopeWithoutRefreshToken
+    }
+
+    // MARK: - Expired access token renewal
+
+    /// A desktop store whose access token has expired but whose refresh token
+    /// is still valid — the state that left the Kimi ring red.
+    private func makeExpiredDesktopHome() throws -> URL {
+        try makeDesktopHome(envelope: Self.expiredStore(includeRefreshToken: true))
+    }
+
+    func testExpiredDesktopAccessTokenIsRenewedFromTheStoredRefreshToken() async throws {
+        let home = try makeExpiredDesktopHome()
+        var receivedRefreshToken: String?
+        var receivedOrigin: String?
+        let renewed = jwt(subject: "desktop-account", expiry: 9_000_000_000)
+        let reader = KimiDesktopSessionReader(
+            home: home,
+            keyCache: .init(read: { Data("test-password".utf8) }, write: { _ in }, clear: {}),
+            renewAccessToken: { refreshToken, origin in
+                receivedRefreshToken = refreshToken
+                receivedOrigin = origin
+                return KimiDesktopTokenRefresher.Refreshed(
+                    accessToken: renewed, origin: origin, expiry: nil, accountID: "desktop-account")
+            },
+            tokenCache: KimiDesktopTokenCache())
+        let session = try await reader.load()
+        XCTAssertEqual(session.token, renewed)
+        XCTAssertEqual(receivedRefreshToken, "refresh-fixture")
+        XCTAssertEqual(receivedOrigin, "https://www.kimi.com")
+    }
+
+    func testRenewalFailureSurfacesTheOriginalFailureInsteadOfASilentEmptySession() async throws {
+        let home = try makeExpiredDesktopHome()
+        let reader = KimiDesktopSessionReader(
+            home: home,
+            keyCache: .init(read: { Data("test-password".utf8) }, write: { _ in }, clear: {}),
+            renewAccessToken: { _, _ in throw KimiDesktopTokenRefresher.RefreshError.rejected },
+            tokenCache: KimiDesktopTokenCache())
+        do {
+            _ = try await reader.load()
+            XCTFail("Expected the expired session to fail")
+        } catch {
+            // A rejected renewal means the Desktop sign-in is gone, so the
+            // user is told to sign in again rather than seeing a raw
+            // transport failure.
+            guard case KimiSessionError.expired = error else {
+                return XCTFail("Expected an expired Desktop sign-in, got \(error)")
+            }
+        }
+    }
+
+    func testRenewedTokenIsValidatedLikeAnyOtherSession() async throws {
+        let home = try makeExpiredDesktopHome()
+        // A renewal that returns an already-expired token must not be accepted.
+        let reader = KimiDesktopSessionReader(
+            home: home,
+            keyCache: .init(read: { Data("test-password".utf8) }, write: { _ in }, clear: {}),
+            renewAccessToken: { _, origin in
+                KimiDesktopTokenRefresher.Refreshed(
+                    accessToken: self.jwt(subject: "desktop-account", expiry: 1),
+                    origin: origin, expiry: nil, accountID: "desktop-account")
+            },
+            tokenCache: KimiDesktopTokenCache())
+        do {
+            _ = try await reader.load()
+            XCTFail("Expected an expired renewed token to be rejected")
+        } catch {
+            guard case KimiSessionError.expired = error else {
+                return XCTFail("Expected an expired Desktop sign-in, got \(error)")
+            }
+        }
+    }
+
+    func testValidDesktopAccessTokenIsUsedWithoutRenewal() async throws {
+        let home = try makeDesktopHome()
+        var renewalCalls = 0
+        let reader = KimiDesktopSessionReader(
+            home: home,
+            keyCache: .init(read: { Data("test-password".utf8) }, write: { _ in }, clear: {}),
+            renewAccessToken: { _, origin in
+                renewalCalls += 1
+                return KimiDesktopTokenRefresher.Refreshed(
+                    accessToken: "renewed", origin: origin, expiry: nil, accountID: nil)
+            },
+            tokenCache: KimiDesktopTokenCache())
+        let session = try await reader.load()
+        XCTAssertEqual(session.token, "fixture-token")
+        XCTAssertEqual(renewalCalls, 0, "A live access token must not trigger a renewal")
+    }
+
+    func testRenewalIsNotAttemptedWithoutARefreshToken() async throws {
+        let home = try makeDesktopHome(
+            envelope: Self.expiredStore(includeRefreshToken: false))
+        var renewalCalls = 0
+        let reader = KimiDesktopSessionReader(
+            home: home,
+            keyCache: .init(read: { Data("test-password".utf8) }, write: { _ in }, clear: {}),
+            renewAccessToken: { _, origin in
+                renewalCalls += 1
+                return KimiDesktopTokenRefresher.Refreshed(
+                    accessToken: "renewed", origin: origin, expiry: nil, accountID: nil)
+            },
+            tokenCache: KimiDesktopTokenCache())
+        do {
+            _ = try await reader.load()
+            XCTFail("Expected the expired session to fail")
+        } catch {
+            guard case KimiSessionError.expired = error else {
+                return XCTFail("Expected an expired Desktop sign-in, got \(error)")
+            }
+        }
+        XCTAssertEqual(renewalCalls, 0)
+    }
+
+    func testARenewedTokenIsReusedOnTheNextPollInsteadOfRenewingAgain() async throws {
+        let home = try makeExpiredDesktopHome()
+        let cache = KimiDesktopTokenCache()
+        var renewalCalls = 0
+        let renewed = jwt(subject: "desktop-account", expiry: 9_000_000_000)
+        let reader = KimiDesktopSessionReader(
+            home: home,
+            keyCache: .init(read: { Data("test-password".utf8) }, write: { _ in }, clear: {}),
+            renewAccessToken: { _, origin in
+                renewalCalls += 1
+                return KimiDesktopTokenRefresher.Refreshed(
+                    accessToken: renewed,
+                    origin: origin,
+                    expiry: nil,
+                    accountID: "desktop-account")
+            },
+            tokenCache: cache)
+        let first = try await reader.load()
+        let second = try await reader.load()
+        XCTAssertEqual(first.token, renewed)
+        XCTAssertEqual(second.token, renewed)
+        XCTAssertEqual(renewalCalls, 1, "A cached renewal must not be repeated")
+    }
+
+    func testACachedTokenIsNotReusedForAnotherAccount() {
+        let cache = KimiDesktopTokenCache()
+        cache.store("renewed", accountID: "account-a", origin: "https://www.kimi.com", expiry: nil)
+        XCTAssertEqual(
+            cache.token(accountID: "account-a", origin: "https://www.kimi.com"), "renewed")
+        XCTAssertNil(
+            cache.token(accountID: "account-b", origin: "https://www.kimi.com"),
+            "A renewed token must never be served for another Kimi account")
+        XCTAssertNil(
+            cache.token(accountID: "account-a", origin: "https://www.kimi.ai"),
+            "A renewed token must never cross regions")
+    }
+
+    func testACachedTokenAboutToExpireIsNotReused() {
+        let cache = KimiDesktopTokenCache()
+        let expiry = Date().addingTimeInterval(30)
+        cache.store("renewed", accountID: "account-a", origin: "https://www.kimi.com", expiry: expiry)
+        XCTAssertNil(
+            cache.token(accountID: "account-a", origin: "https://www.kimi.com"),
+            "A token that is about to expire must be renewed instead of reused")
+    }
+
+    func testLiveDesktopRenewalWhenExplicitlyEnabled() async throws {
+        guard ProcessInfo.processInfo.environment["AIQUOTABAR_LIVE_KIMI_DESKTOP_TEST"] == "1" else {
+            throw XCTSkip("Set AIQUOTABAR_LIVE_KIMI_DESKTOP_TEST=1 for a read-only Desktop quota request.")
+        }
+        let service = KimiService(defaults: defaults(.auto))
+        let result = try await service.fetchUsage(apiKey: nil)
+        XCTAssertEqual(result.provider, .kimi)
+        XCTAssertTrue(result.models.contains { $0.modelName == "5h" })
+        XCTAssertTrue(result.models.contains { $0.modelName == "7d" })
     }
 
     func testLiveAutomaticDesktopWhenExplicitlyEnabled() async throws {

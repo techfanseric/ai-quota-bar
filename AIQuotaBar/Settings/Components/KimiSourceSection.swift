@@ -54,7 +54,7 @@ struct KimiSourceSection: View {
                             Task {
                                 do {
                                     let session = try await Task.detached {
-                                        try KimiDesktopSessionReader().load(allowInteraction: true)
+                                        try await KimiDesktopSessionReader().load(allowInteraction: true)
                                     }.value
                                     feedback = (chinese ? "已读取：" : "Connected: ") + session.accountLabel
                                     onChange()
