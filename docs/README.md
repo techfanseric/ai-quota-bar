@@ -32,6 +32,10 @@
 
 - [未发布 · 官网上线记录](./releases/unreleased-website-deployment-checklist.md)：轻量模式与后台额度功能的中英文官网同步与生产环境核验。
 
+- [macOS v1.39.6](./releases/v1.39.6.zh-CN.md)：折叠 Codex 账号行显示同一周期的使用节奏；[发布验证记录](./releases/v1.39.6-checklist.md)；[本地实施记录](./releases/unreleased-collapsed-codex-pace-checklist.md)。
+
+- [macOS v1.39.5](./releases/v1.39.5.zh-CN.md)：不打开 Kimi 也能读取额度；[发布验证记录](./releases/v1.39.5-checklist.md)。
+
 - [macOS v1.39.4](./releases/v1.39.4.zh-CN.md)：一分钟轻量模式、Magpie 多账号圆环、按账号拆分的 Codex 环、周期重置通知；[发布验证记录](./releases/v1.39.4-checklist.md)。
 
 - [macOS v1.39.3](./releases/v1.39.3.zh-CN.md)：重置消息 24 小时窗口与逐条消除、线路区按连通性收起、Dim 权限引导；[发布验证记录](./releases/v1.39.3-checklist.md)。

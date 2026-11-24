@@ -25,6 +25,15 @@ AI coding work is hard to manage when quota, network routes, and Mac sleep setti
   <img src="./docs/images/control-center.png" alt="AI Quota Bar control center" width="342">
 </p>
 
+## v1.39.6 · Pace in collapsed Codex account rows
+
+In the macOS left-click menu, a collapsed Codex account now shows pace between
+the account name and its remaining quota, so you can tell whether the current
+pace lasts until reset without expanding the account. Pace and remaining quota
+use the same window; expand the account to switch between available windows.
+Pace appears only when the selected window is current and has enough data.
+Windows does not include this change. [Release notes](./docs/releases/v1.39.6.en.md).
+
 ## v1.39.5 · Kimi quota without opening the client
 
 When Kimi.app is closed, AI Quota Bar can renew an expired Kimi Desktop access
@@ -82,16 +91,17 @@ Unzip and run `AIQuotaBar/AIQuotaBar.exe` on 64-bit Windows 10 or later. The ZIP
 
 This beta includes Codex OAuth quota with CLI fallback, Kimi/GLM/MiniMax quota, Clash routes and connections, local usage, a read-only mobile dashboard and Codex task sleep protection. Settings → Providers manages per-account sharing and watched emails, with immediate Watch saves and refresh requests. Sharing is off by default; anyone knowing a shared email can query its published quota without joining a team. Provider credentials stay local.
 
-| Capability | macOS v1.39.5 | Windows v1.38.6-beta.1 |
+| Capability | macOS v1.39.6 | Windows v1.38.6-beta.1 |
 | --- | --- | --- |
-| All rings with companion apps closed | v1.39.5: Always visible overrides Follow running apps | No equivalent ring controls |
-| One-minute lightweight mode | v1.39.5: on by default; releases closed UI, keeps full rings | Not ported |
-| Kimi Desktop quota with client closed | v1.39.5: expired access token renews in memory | Available through its own source controls |
-| Model-based activity rings | v1.39.5: local model metadata and actual local Magpie routes; hover shows models/counts | Not ported |
-| Quota cycle-reset notifications | v1.39.5: one deduplicated summary per registered account/model window after a successful refresh | Not ported |
-| Codex hook/log lifecycle reconciliation | v1.39.5: terminal events and child identities reconciled | Not ported |
+| All rings with companion apps closed | v1.39.6: Always visible overrides Follow running apps | No equivalent ring controls |
+| One-minute lightweight mode | v1.39.6: on by default; releases closed UI, keeps full rings | Not ported |
+| Kimi Desktop quota with client closed | v1.39.6: expired access token renews in memory | Available through its own source controls |
+| Model-based activity rings | v1.39.6: local model metadata and actual local Magpie routes; hover shows models/counts | Not ported |
+| Quota cycle-reset notifications | v1.39.6: one deduplicated summary per registered account/model window after a successful refresh | Not ported |
+| Codex hook/log lifecycle reconciliation | v1.39.6: terminal events and child identities reconciled | Not ported |
 | Codex / Kimi / GLM / MiniMax quota | Available | Available; source controls differ |
 | Codex Watch by email | Available | Available; changes save immediately |
+| Pace in collapsed Codex account rows | v1.39.6: same selected window as the remaining percentage | Unavailable |
 | Clash/Mihomo routes and connections | Available | Available |
 | Task sleep protection | Four providers | Codex tasks |
 | Local usage and mobile dashboard | Available | Available; dashboard uses a subset of Mac data |
@@ -339,6 +349,7 @@ AI Quota Bar does more than show a percentage. It combines remaining quota, rese
 - See both short limits such as **5h** and longer limits such as **Weekly**.
 - Use the trend line to see how quickly quota is falling.
 - Use the reserve/deficit message to see whether your current pace can last until reset.
+- In macOS v1.39.6, a collapsed Codex account shows pace for the same quota window as its remaining percentage. Expand the account to switch between available windows.
 - Receive a warning before a limit becomes a surprise.
 - Use the compact ring when you only need a quick glance.
 
