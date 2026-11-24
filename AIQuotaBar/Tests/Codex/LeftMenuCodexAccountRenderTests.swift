@@ -11,7 +11,7 @@ final class LeftMenuCodexAccountRenderTests: XCTestCase {
         // 与本机 auth.json 对齐当前账号，命中「当前账号」判定。
         CodexLocalUsageModel.shared.refreshCurrentAccount()
 
-        let viewModel = UsageViewModel()
+        let viewModel = UsageViewModel(providerPresence: { _ in true })
         let now = Date()
         viewModel.providerUsageData = [
             .codex: UsageData(
@@ -29,6 +29,24 @@ final class LeftMenuCodexAccountRenderTests: XCTestCase {
                         sampledAt: now.addingTimeInterval(-120),
                         windowStart: now.addingTimeInterval(-5 * 86_400),
                         windowEnd: now.addingTimeInterval(2 * 86_400)),
+                    makeModel(
+                        account: "a-very-long-codex-account-name@example.com",
+                        name: "5h",
+                        detail: "Pro · Cloud · resets 10/01 20:36",
+                        remainingPercent: 50,
+                        weeklyRemainingPercent: nil,
+                        sampledAt: now,
+                        windowStart: now.addingTimeInterval(-3_600),
+                        windowEnd: now.addingTimeInterval(4 * 3_600)),
+                    makeModel(
+                        account: "on-pace@example.com",
+                        name: "5h",
+                        detail: "Cloud · resets 10/01 20:36",
+                        remainingPercent: 50,
+                        weeklyRemainingPercent: nil,
+                        sampledAt: now,
+                        windowStart: now.addingTimeInterval(-9_000),
+                        windowEnd: now.addingTimeInterval(9_000)),
                     makeModel(
                         account: "marvaggarrett@gmail.com",
                         name: "5h",
@@ -110,7 +128,7 @@ final class LeftMenuCodexAccountRenderTests: XCTestCase {
 
         // 变体：当前账号组也是过期云端数据，验证展开态的快照行布局
         // （行头 + 胶囊条 + 元数据，不退化成只剩周期行）。
-        let staleViewModel = UsageViewModel()
+        let staleViewModel = UsageViewModel(providerPresence: { _ in true })
         staleViewModel.providerUsageData = [
             .codex: UsageData(
                 provider: .codex,

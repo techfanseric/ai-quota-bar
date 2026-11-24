@@ -715,13 +715,15 @@ private struct ProviderModelsSection: View {
     private func accountHeader(_ group: AccountModelGroup, isCurrent: Bool) -> some View {
         let tooltipID = accountTooltipID(group.accountName)
         if data.provider == .codex {
+            let isCollapsed = isAccountCollapsed(group, isCurrent: isCurrent)
+            let selectedCycle = selectedCycleRow(group)
+            let trailing = accountTrailing(group, isCurrent: isCurrent, selectedCycle: selectedCycle)
             Button {
                 toggleAccountCollapsed(group)
             } label: {
                 HStack(alignment: .firstTextBaseline, spacing: 6) {
                     HStack(spacing: 4) {
-                        Image(systemName: isAccountCollapsed(group, isCurrent: isCurrent)
-                            ? "chevron.right" : "chevron.down")
+                        Image(systemName: isCollapsed ? "chevron.right" : "chevron.down")
                             .font(.system(size: 7, weight: .bold))
                             .foregroundStyle(.tertiary)
                             .frame(width: 8)
@@ -742,23 +744,27 @@ private struct ProviderModelsSection: View {
                         }
 
                         if let plan = accountPlanSummary(group.models) {
-                            Text("·")
-                                .foregroundStyle(.tertiary)
-                            Text(plan)
-                                .font(.system(size: 10, weight: .medium, design: .rounded))
-                                .foregroundStyle(.tertiary)
-                                .lineLimit(1)
-                                // 套餐名是装饰，账号名才是身份 —— 宽度不够时先让套餐名让位。
-                                .layoutPriority(-1)
+                            ViewThatFits(in: .horizontal) {
+                                Text("· \(plan)")
+                                    .font(.system(size: 10, weight: .medium, design: .rounded))
+                                    .foregroundStyle(.tertiary)
+                                    .fixedSize()
+                                Color.clear.frame(width: 0, height: 0)
+                            }
+                            .layoutPriority(-1)
                         }
                     }
 
-                    Spacer()
+                    Spacer(minLength: 0)
 
-                    // 图标 + 标签 + 时间 + 剩余量。四段都是原子的，宽度压力全部
-                    // 由左侧账号名吸收 —— 截掉半个 "10/5 11:1" 或半个 "43%"
-                    // 比账号名少几个字符糟糕得多。
-                    accountTrailingSummary(group, isCurrent: isCurrent)
+                    if isCollapsed, let selectedCycle,
+                       hasRenderableCurrentWindow(for: selectedCycle),
+                       let pace = selectedCycle.currentIntervalPace {
+                        UsagePaceLabel(pace: pace, language: language, cycleName: selectedCycle.modelName)
+                            .fixedSize()
+                    }
+
+                    accountTrailingSummary(trailing)
                 }
                 .padding(.horizontal, 8)
                 .padding(.top, 8)
@@ -771,7 +777,7 @@ private struct ProviderModelsSection: View {
             .onHover { over in hoverTooltip(over, id: tooltipID) }
             .menuTooltipAnchor(
                 id: tooltipID,
-                lines: accountTrailingHelpLines(group, isCurrent: isCurrent),
+                lines: accountTrailingHelpLines(trailing),
                 isHovered: hoveredTooltipID == tooltipID)
         } else {
             HStack(alignment: .firstTextBaseline, spacing: 6) {
@@ -857,12 +863,7 @@ private struct ProviderModelsSection: View {
     ///
     /// 折叠时就把剩余量放在这里，是为了不用展开也能读到数字 —— 展开只留给
     /// "想看全部 cycle" 和 "想换一个 cycle 看" 这两件事。
-    @ViewBuilder
-    private func accountTrailingSummary(
-        _ group: AccountModelGroup,
-        isCurrent: Bool
-    ) -> some View {
-        let summary = accountTrailing(group, isCurrent: isCurrent)
+    private func accountTrailingSummary(_ summary: AccountTrailing) -> some View {
         HStack(spacing: 3) {
             ForEach(summary.symbols, id: \.self) { symbol in
                 Image(systemName: symbol)
@@ -896,10 +897,7 @@ private struct ProviderModelsSection: View {
     ///
     /// 返回**行数组**而不是拼好的字符串：气泡自己按行排版（每行独立 Text），
     /// 拿到一个用 `\n` 拼好的串再拆回来等于凭空引入一次拆分规则。
-    private func accountTrailingHelpLines(
-        _ group: AccountModelGroup, isCurrent: Bool
-    ) -> [String] {
-        let summary = accountTrailing(group, isCurrent: isCurrent)
+    private func accountTrailingHelpLines(_ summary: AccountTrailing) -> [String] {
         let kinds = AccountSourceKind.ordered(summary.kinds)
         let remote = kinds.filter { $0 != .local }
         let lang = language
@@ -976,24 +974,23 @@ private struct ProviderModelsSection: View {
     }
 
     private func accountTrailing(
-        _ group: AccountModelGroup, isCurrent: Bool
+        _ group: AccountModelGroup, isCurrent: Bool, selectedCycle: ModelUsageData?
     ) -> AccountTrailing {
         let kinds = group.models.reduce(into: Set<AccountSourceKind>()) {
             $0.formUnion($1.accountSourceKinds)
         }
         let remote = kinds.subtracting([.local])
         let symbols = AccountSourceKind.ordered(remote).compactMap(\.symbolName)
-        let row = selectedCycleRow(group)
         let sourceLabel = kinds.isSubset(of: [.local])
             ? accountSourceSummary(group.models)
             : ""
-        let sampledAt: Date? = isCurrent ? nil : row?.sampledAt ?? group.models.compactMap(\.sampledAt).max()
+        let sampledAt: Date? = isCurrent ? nil : selectedCycle?.sampledAt ?? group.models.compactMap(\.sampledAt).max()
         return AccountTrailing(
             symbols: symbols,
             sourceLabel: sourceLabel,
             kinds: kinds,
             sampledAt: sampledAt,
-            percent: row.map { Int($0.currentIntervalPercentageRemaining.rounded()) })
+            percent: selectedCycle.map { Int($0.currentIntervalPercentageRemaining.rounded()) })
     }
 
     /// 旧的纯文本摘要，仅保留给"只有一行"的老布局使用。
@@ -1491,9 +1488,7 @@ private struct ModelRow: View {
                             .foregroundStyle(.tertiary)
                     }
 
-                    Text(language.paceLabel(stage: pace.stage, deltaPercent: pace.deltaPercent))
-                        .font(.system(size: 10, design: .rounded))
-                        .foregroundStyle(paceLabelColor(pace: pace))
+                    UsagePaceLabel(pace: pace, language: language)
                 }
 
                 if let resetsText {
@@ -1674,21 +1669,20 @@ private struct ModelRow: View {
         }
         return ticks.map { (percent: $0.ratio * 100, label: $0.label) }
     }
+}
 
-    /// reset time 行里 pace 文字颜色：reserve（你有余量）用 secondary 灰，
-    /// deficit（你快用完）用红色提醒
-    private func paceLabelColor(pace: UsagePace) -> Color {
-        if pace.stage == .onTrack {
-            let roundedDelta = Int(abs(pace.deltaPercent).rounded())
-            return roundedDelta > 0 && pace.deltaPercent > 0 ? .red : .secondary
-        }
+private struct UsagePaceLabel: View {
+    let pace: UsagePace
+    let language: AppLanguage
+    var cycleName: String? = nil
 
-        switch pace.stage {
-        case .onTrack, .slightlyBehind, .behind, .farBehind:
-            return .secondary
-        case .slightlyAhead, .ahead, .farAhead:
-            return .red
-        }
+    var body: some View {
+        let label = language.paceLabel(stage: pace.stage, deltaPercent: pace.deltaPercent)
+        let showsDeficit = !pace.stage.isAhead || (pace.stage == .onTrack && pace.deltaPercent.rounded() > 0)
+        Text(label)
+            .font(.system(size: 10, design: .rounded))
+            .foregroundStyle(showsDeficit ? Color.red : Color.secondary)
+            .accessibilityLabel(cycleName.map { "\($0) · \(label)" } ?? label)
     }
 }
 
