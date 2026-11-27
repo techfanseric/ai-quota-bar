@@ -25,13 +25,19 @@ AI coding work is hard to manage when quota, network routes, and Mac sleep setti
   <img src="./docs/images/control-center.png" alt="AI Quota Bar control center" width="342">
 </p>
 
+## v1.39.8 · Accessibility setup from the right-click menu
+
+Right-click the menu bar icon and choose **Open Settings** at the top. If brightness keys or keyboard restore needs Accessibility, the notice takes you straight to the macOS Accessibility list. Turn on AI Quota Bar. If the app is missing, drag its icon from the floating guide into the list and turn it on.
+
+If the switch is already on after an upgrade and the notice persists, select the old AI Quota Bar entry, click the minus button, then drag the current app back in. The guide stays beside System Settings. Both the guide and the menu notice disappear when the app detects the grant. [Release notes](./docs/releases/v1.39.8.en.md)
+
 ## v1.39.7 · Magic Keyboard brightness after reconnect
 
 With pointer brightness keys enabled and Accessibility granted, place the pointer on a supported external display and press F1 or F2. AI Quota Bar restores the brightness mappings for the two verified Bluetooth Magic Keyboard models (product IDs 0x029A and 0x0267) when they reconnect. Enable Launch at login to restore this behavior after restarting your Mac. Custom key assignments take priority.
 
 Magpie is optional. Without it, Codex reads the current signed-in account through the usual quota source. A visible Magpie-backed ring checks its local cache every five seconds. If the gateway fails, the regular refresh falls back to the current account. A loopback provider must be named Magpie (provider ID or display name) to enable discovery; aliases pointing to the same address work too.
 
-In the right-click panel, Step away → Allow now requests Accessibility before opening System Settings. Finish the grant there to restore brightness with keyboard activity. [Release notes](./docs/releases/v1.39.7.en.md)
+ [Release notes](./docs/releases/v1.39.7.en.md)
 
 ## v1.39.6 · Pace in collapsed Codex account rows
 
@@ -65,7 +71,7 @@ macOS v1.39.4 also reconciles Codex hooks and rollout logs by turn, clearing fin
 
 The reset-alert panel now shows only the last 24 hours: the unread count, pinned signal and clock history share that window, while older announcements stay archived locally for 30 days for revision deduplication. Each message gains a **Dismiss** action — the same revision cannot return on the next poll.
 
-The right-click panel's OpenAI routes section now starts collapsed: it auto-expands only when OpenAI connectivity is unreachable and collapses again once reachable; "Follow running apps" aligns only the connections section. When "Restore on input" lacks Accessibility permission, the Dim controls show an orange hint with an **Allow** button that opens the Accessibility pane in System Settings.
+The right-click panel's OpenAI routes section now starts collapsed: it auto-expands only when OpenAI connectivity is unreachable and collapses again once reachable; "Follow running apps" aligns only the connections section. Open Accessibility from the top of the right-click menu. Drag the current app from the floating guide if the entry is missing or stale after an upgrade.
 
 [Release notes](./docs/releases/v1.39.3.en.md)
 
@@ -99,8 +105,9 @@ Unzip and run `AIQuotaBar/AIQuotaBar.exe` on 64-bit Windows 10 or later. The ZIP
 
 This beta includes Codex OAuth quota with CLI fallback, Kimi/GLM/MiniMax quota, Clash routes and connections, local usage, a read-only mobile dashboard and Codex task sleep protection. Settings → Providers manages per-account sharing and watched emails, with immediate Watch saves and refresh requests. Sharing is off by default; anyone knowing a shared email can query its published quota without joining a team. Provider credentials stay local.
 
-| Capability | macOS v1.39.7 | Windows v1.38.6-beta.1 |
+| Capability | macOS v1.39.8 | Windows v1.38.6-beta.1 |
 | --- | --- | --- |
+| Accessibility setup | Right-click menu notice and floating drag guide | Unavailable |
 | Bluetooth Magic Keyboard brightness | Automatically restored on supported models | Unavailable |
 | All rings with companion apps closed | v1.39.6: Always visible overrides Follow running apps | No equivalent ring controls |
 | One-minute lightweight mode | v1.39.6: on by default; releases closed UI, keeps full rings | Not ported |

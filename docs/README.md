@@ -26,6 +26,8 @@
 
 ## 发布说明
 
+- [macOS v1.39.8 · 右键菜单辅助功能授权指南](./releases/v1.39.8.zh-CN.md) · [English](./releases/v1.39.8.en.md)
+
 - [macOS v1.39.7 · Magic Keyboard、Dim 授权与可选 Magpie](./releases/v1.39.7.zh-CN.md) · [English](./releases/v1.39.7.en.md)
 
 - [已纳入 v1.39.4 · 一分钟轻量模式](./releases/unreleased-lightweight.zh-CN.md)：[验证记录](./releases/unreleased-lightweight-checklist.md)，仅 macOS。
