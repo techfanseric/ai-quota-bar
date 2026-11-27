@@ -211,6 +211,9 @@ final class MagpieCodexQuotaServiceTests: XCTestCase {
 
         XCTAssertEqual(result.total, fallback.total)
         XCTAssertTrue(result.models.isEmpty)
+        let missing = MagpieCodexQuotaService(configURL: missingConfig)
+        let cached = try await missing.fetchCachedUsage()
+        XCTAssertNil(cached)
     }
 
     func testCodexServiceUsesMagpieBeforeActiveAccountReader() async throws {

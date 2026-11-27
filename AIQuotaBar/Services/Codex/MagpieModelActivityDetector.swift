@@ -118,6 +118,7 @@ actor MagpieModelActivityDetector: MagpieModelActivityProviding {
     static func endpoint(in config: String) -> Endpoint? {
         var section: String?
         var urls: [URL: Set<String>] = [:]
+        var namedProviders: Set<String> = ["magpie"]
         for raw in config.split(separator: "\n") {
             let line = raw.trimmingCharacters(in: .whitespaces)
             if line.hasPrefix("[") {
@@ -129,20 +130,19 @@ actor MagpieModelActivityDetector: MagpieModelActivityProviding {
                 }
             }
             guard let owner = section,
-                  let equals = line.firstIndex(of: "="),
-                  line[..<equals].trimmingCharacters(in: .whitespaces) == "base_url" else { continue }
+                  let equals = line.firstIndex(of: "=") else { continue }
+            let field = line[..<equals].trimmingCharacters(in: .whitespaces)
             let value = line[line.index(after: equals)...].trimmingCharacters(in: .whitespaces)
             guard let quote = value.first, quote == "\"" || quote == "'",
-                  let end = value.dropFirst().firstIndex(of: quote),
-                  let url = loopbackRoot(String(value[value.index(after: value.startIndex)..<end]))
-            else { continue }
+                  let end = value.dropFirst().firstIndex(of: quote) else { continue }
+            let literal = String(value[value.index(after: value.startIndex)..<end])
+            if field == "name", literal.lowercased() == "magpie" { namedProviders.insert(owner) }
+            guard field == "base_url", let url = loopbackRoot(literal) else { continue }
             urls[url, default: []].insert(owner)
         }
         // Do not merge different local gateways' request namespaces.
-        if let item = urls.first(where: { $0.value.contains("magpie") }) {
-            return Endpoint(url: item.key, providerIDs: item.value)
-        }
-        guard urls.count == 1, let item = urls.first else { return nil }
+        let gateways = urls.filter { !$0.value.isDisjoint(with: namedProviders) }
+        guard gateways.count == 1, let item = gateways.first else { return nil }
         return Endpoint(url: item.key, providerIDs: item.value)
     }
 

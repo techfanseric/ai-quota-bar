@@ -1,5 +1,8 @@
 # Magpie quota research and macOS adaptation
 
+As of macOS v1.39.7, discovery requires a loopback Codex provider with ID or display name Magpie. Aliases at the same endpoint are supported. Other local proxies skip Magpie discovery and use the ordinary current-account path.
+
+
 Reviewed 2026-11-12 against `yetone/magpie` commit `805e5c29a33540a4e968613a0ef41682c43f423f`.
 
 ## How Magpie reads quota

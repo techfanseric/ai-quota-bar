@@ -187,17 +187,23 @@ struct BrightnessTargetDiscoverySchedule {
 
 @MainActor @Observable
 final class PointerBrightnessController {
-    static let shared = PointerBrightnessController()
+    static let shared = PointerBrightnessController(magicKeyboard: MagicKeyboardBrightness())
     static let enabledKey = "pointerBrightnessKeysEnabled"
     var enabled: Bool {
         didSet {
             defaults.set(enabled, forKey: Self.enabledKey)
-            if enabled { start() } else { removeTap() }
+            if enabled {
+                start()
+            } else {
+                removeTap()
+                magicKeyboard?.reconcile(removing: true)
+            }
         }
     }
     private(set) var listening = false
     private(set) var lastAdjustment: String?
     private let defaults: UserDefaults
+    private let magicKeyboard: MagicKeyboardBrightness?
     private let backend: PointerBrightnessBackend
     private let dim: StepAwayDimController
     private var tap: CFMachPort?
@@ -212,7 +218,8 @@ final class PointerBrightnessController {
     private var heldKeys: Set<Int> = []
 
     init(defaults: UserDefaults = .standard, backend: PointerBrightnessBackend = PointerBrightnessBackend(),
-         dim: StepAwayDimController? = nil) {
+         dim: StepAwayDimController? = nil, magicKeyboard: MagicKeyboardBrightness? = nil) {
+        self.magicKeyboard = magicKeyboard
         self.defaults = defaults
         self.backend = backend
         self.dim = dim ?? .shared
@@ -251,6 +258,7 @@ final class PointerBrightnessController {
     func stop() {
         timer?.invalidate()
         timer = nil
+        magicKeyboard?.reconcile(removing: true)
         pending.removeAll()
         removeTap()
         for (center, token) in displayObservers { center.removeObserver(token) }
@@ -344,6 +352,7 @@ final class PointerBrightnessController {
     private func service() {
         guard enabled else { return }
         if !AXIsProcessTrusted() { removeTap() } else { installTap() }
+        if listening { magicKeyboard?.reconcile() }
         guard !servicing else { return }
         servicing = true
         let refresh = discoverySchedule.beginIfNeeded(now: Date(), hasTargets: !targets.isEmpty)

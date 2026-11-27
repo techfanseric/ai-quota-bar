@@ -26,6 +26,8 @@
 
 ## 发布说明
 
+- [macOS v1.39.7 · Magic Keyboard、Dim 授权与可选 Magpie](./releases/v1.39.7.zh-CN.md) · [English](./releases/v1.39.7.en.md)
+
 - [已纳入 v1.39.4 · 一分钟轻量模式](./releases/unreleased-lightweight.zh-CN.md)：[验证记录](./releases/unreleased-lightweight-checklist.md)，仅 macOS。
 
 - [已纳入 v1.39.4 · 后台额度与常驻圆环](./releases/unreleased-background-quota.zh-CN.md)：[Magpie 源码方案对照与使用步骤](./research/magpie-quota-2026-11-12.md)；[验证记录](./releases/unreleased-background-quota-checklist.md)。

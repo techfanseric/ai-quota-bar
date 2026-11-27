@@ -25,13 +25,13 @@ AI coding work is hard to manage when quota, network routes, and Mac sleep setti
   <img src="./docs/images/control-center.png" alt="AI Quota Bar control center" width="342">
 </p>
 
-## Unreleased · Codex ring follows the local Magpie cache
+## v1.39.7 · Magic Keyboard brightness after reconnect
 
-On macOS, a visible Magpie-backed Codex ring checks the local quota cache every five seconds and updates when the reading changes. Regular provider refreshes keep their existing schedule. [Unreleased](./docs/releases/unreleased-magpie-ring.en.md)
+With pointer brightness keys enabled and Accessibility granted, place the pointer on a supported external display and press F1 or F2. AI Quota Bar restores the brightness mappings for the two verified Bluetooth Magic Keyboard models (product IDs 0x029A and 0x0267) when they reconnect. Enable Launch at login to restore this behavior after restarting your Mac. Custom key assignments take priority.
 
-## Unreleased · Dim Allow raises the Accessibility request in place
+Magpie is optional. Without it, Codex reads the current signed-in account through the usual quota source. A visible Magpie-backed ring checks its local cache every five seconds. If the gateway fails, the regular refresh falls back to the current account. A loopback provider must be named Magpie (provider ID or display name) to enable discovery; aliases pointing to the same address work too.
 
-In the macOS right-click panel, the **Step away** row's **Allow** button now behaves like the lid-closed helper's **Install** button: it raises the system Accessibility request from the menu itself, then opens the Accessibility pane in System Settings, where macOS still requires you to finish the grant. Pointer activity keeps restoring Dim without the permission. Not yet in the public v1.39.6 download; Windows is unchanged. [Unreleased notes](./docs/releases/unreleased-dim-accessibility-request.en.md).
+In the right-click panel, Step away → Allow now requests Accessibility before opening System Settings. Finish the grant there to restore brightness with keyboard activity. [Release notes](./docs/releases/v1.39.7.en.md)
 
 ## v1.39.6 · Pace in collapsed Codex account rows
 
@@ -99,8 +99,9 @@ Unzip and run `AIQuotaBar/AIQuotaBar.exe` on 64-bit Windows 10 or later. The ZIP
 
 This beta includes Codex OAuth quota with CLI fallback, Kimi/GLM/MiniMax quota, Clash routes and connections, local usage, a read-only mobile dashboard and Codex task sleep protection. Settings → Providers manages per-account sharing and watched emails, with immediate Watch saves and refresh requests. Sharing is off by default; anyone knowing a shared email can query its published quota without joining a team. Provider credentials stay local.
 
-| Capability | macOS v1.39.6 | Windows v1.38.6-beta.1 |
+| Capability | macOS v1.39.7 | Windows v1.38.6-beta.1 |
 | --- | --- | --- |
+| Bluetooth Magic Keyboard brightness | Automatically restored on supported models | Unavailable |
 | All rings with companion apps closed | v1.39.6: Always visible overrides Follow running apps | No equivalent ring controls |
 | One-minute lightweight mode | v1.39.6: on by default; releases closed UI, keeps full rings | Not ported |
 | Kimi Desktop quota with client closed | v1.39.6: expired access token renews in memory | Available through its own source controls |

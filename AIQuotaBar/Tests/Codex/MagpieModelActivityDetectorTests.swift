@@ -26,6 +26,15 @@ final class MagpieModelActivityDetectorTests: XCTestCase {
         """))
     }
 
+    func testSingleUnrelatedProxyIsNotAMagpieGateway() {
+        let config = """
+        [model_providers.custom]
+        base_url = "http://127.0.0.1:3425/v1"
+        """
+        XCTAssertNil(MagpieModelActivityDetector.endpoint(in: config))
+        XCTAssertNotNil(MagpieModelActivityDetector.endpoint(in: config + "\nname = 'Magpie'"))
+    }
+
     func testActualFallbackModelsDriveCountsNotClientOrRequestedGroup() throws {
         let concurrency = Data(#"{"object":"concurrency","active":[{"id":1,"agent":"codex","phase":"upstream","route":9},{"id":2,"agent":"codex","phase":"upstream","route":10},{"id":3,"agent":"codex","phase":"rpm","route":9},{"id":1,"agent":"codex","phase":"upstream","route":9},{"id":4,"agent":"other","phase":"upstream","route":9}]}"#.utf8)
         let trace = Data(#"{"object":"trace","routes":[{"id":9,"done":false,"provider":"group","model":"auto/k3","order":[{"id":"c","provider":"codex","model":"gpt-6"},{"id":"m","provider":"minimax-cn","model":"MiniMax-M3.1"}],"tries":[{"id":"c","model":"gpt-6","done":true},{"id":"m","model":"MiniMax-M3.1","done":false}]},{"id":10,"done":false,"order":[{"id":"g","provider":"zcode-plugin","model":"GLM-5.3"}],"tries":[{"id":"g","model":"GLM-5.3","done":false}]}]}"#.utf8)

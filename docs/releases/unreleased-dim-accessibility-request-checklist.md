@@ -1,3 +1,5 @@
+Published in [macOS v1.39.7](v1.39.7-checklist.md). The entries below record pre-release testing.
+
 # Dim Allow raises the Accessibility request in place · local delivery checklist
 
 - Public-impact assessment: the macOS right-click panel's **Step away →

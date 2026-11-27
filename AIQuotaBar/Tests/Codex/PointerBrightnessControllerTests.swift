@@ -3,6 +3,16 @@ import XCTest
 @testable import AIQuotaBar
 
 final class PointerBrightnessControllerTests: XCTestCase {
+    func testMagicKeyboardPreservesCustomMappingsAndAvoidsDuplicates() {
+        let pairs = MagicKeyboardBrightness.pairs
+        XCTAssertEqual(MagicKeyboardBrightness.additions(to: []).count, 2)
+        let custom = [MagicKeyboardBrightness.source: 0xff0100000021, MagicKeyboardBrightness.destination: 1]
+        let additions = MagicKeyboardBrightness.additions(to: [custom])
+        XCTAssertEqual(additions.count, 1)
+        XCTAssertEqual(additions.first?[MagicKeyboardBrightness.destination] as? Int, 0x00ff00000004)
+        XCTAssertTrue(MagicKeyboardBrightness.additions(to: pairs).isEmpty)
+    }
+
     func testDisplayDiscoveryIsImmediateForChangesAndMissingTargetsWithoutIdleEnumeration() {
         var schedule = BrightnessTargetDiscoverySchedule()
         let now = Date(timeIntervalSince1970: 1_000)
