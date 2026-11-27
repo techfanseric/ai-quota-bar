@@ -25,6 +25,14 @@ AI coding work is hard to manage when quota, network routes, and Mac sleep setti
   <img src="./docs/images/control-center.png" alt="AI Quota Bar control center" width="342">
 </p>
 
+## Unreleased · Codex ring follows the local Magpie cache
+
+On macOS, a visible Magpie-backed Codex ring checks the local quota cache every five seconds and updates when the reading changes. Regular provider refreshes keep their existing schedule. [Unreleased](./docs/releases/unreleased-magpie-ring.en.md)
+
+## Unreleased · Dim Allow raises the Accessibility request in place
+
+In the macOS right-click panel, the **Step away** row's **Allow** button now behaves like the lid-closed helper's **Install** button: it raises the system Accessibility request from the menu itself, then opens the Accessibility pane in System Settings, where macOS still requires you to finish the grant. Pointer activity keeps restoring Dim without the permission. Not yet in the public v1.39.6 download; Windows is unchanged. [Unreleased notes](./docs/releases/unreleased-dim-accessibility-request.en.md).
+
 ## v1.39.6 · Pace in collapsed Codex account rows
 
 In the macOS left-click menu, a collapsed Codex account now shows pace between

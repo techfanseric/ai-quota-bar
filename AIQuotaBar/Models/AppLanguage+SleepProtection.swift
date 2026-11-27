@@ -496,9 +496,9 @@ extension AppLanguage {
     func stepAwayKeyboardPermissionDescription() -> String {
         switch self {
         case .english:
-            return "Allow AI Quota Bar in System Settings → Privacy & Security → Accessibility so keyboard input can restore Dim. Pointer activity already works without it."
+            return "Shows the system Accessibility request and opens its pane. Allow AI Quota Bar there so keyboard input can restore Dim. Pointer activity already works without it."
         case .simplifiedChinese:
-            return "前往“系统设置 → 隐私与安全性 → 辅助功能”允许 AI Quota Bar，以便按键恢复 Dim；指针活动无需此权限。"
+            return "弹出系统辅助功能请求并打开对应面板，在其中允许 AI Quota Bar 后按键即可恢复 Dim；指针活动无需此权限。"
         }
     }
 

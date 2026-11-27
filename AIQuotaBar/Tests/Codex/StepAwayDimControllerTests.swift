@@ -128,6 +128,7 @@ final class StepAwayDimControllerTests: XCTestCase {
         gracePeriod: TimeInterval = 0,
         smartRestore: Bool = true,
         accessibilityPermissionGranted: Bool = true,
+        accessibilityPromptRequester: @escaping () -> Void = {},
         accessibilitySettingsOpener: @escaping () -> Void = {}
     ) -> StepAwayDimController {
         let controller = StepAwayDimController(
@@ -138,6 +139,7 @@ final class StepAwayDimControllerTests: XCTestCase {
             topology: topology,
             monitors: monitors,
             accessibilityPermissionProvider: { accessibilityPermissionGranted },
+            accessibilityPromptRequester: accessibilityPromptRequester,
             accessibilitySettingsOpener: accessibilitySettingsOpener,
             preferences: preferences,
             defaults: defaults,
@@ -158,15 +160,18 @@ final class StepAwayDimControllerTests: XCTestCase {
         XCTAssertFalse(controller.needsAccessibilityForKeyboardRestore)
     }
 
-    func testKeyboardRestorePermissionActionOpensAccessibilitySettings() {
-        var opened = false
+    func testKeyboardRestorePermissionActionPromptsThenOpensAccessibilitySettings() {
+        var prompts = 0
+        var openings = 0
         let controller = makeController(
             accessibilityPermissionGranted: false,
-            accessibilitySettingsOpener: { opened = true })
+            accessibilityPromptRequester: { prompts += 1 },
+            accessibilitySettingsOpener: { openings += 1 })
 
-        controller.openAccessibilitySettings()
+        controller.requestAccessibilityPermission()
 
-        XCTAssertTrue(opened)
+        XCTAssertEqual(prompts, 1)
+        XCTAssertEqual(openings, 1)
     }
 
     private func runBackgroundWork() async {

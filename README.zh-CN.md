@@ -25,6 +25,14 @@
   <img src="./docs/images/control-center.png" alt="AI Quota Bar 右键控制中心" width="342">
 </p>
 
+## 未发布 · Codex 圆环跟随 Magpie 本地缓存
+
+在 macOS 上，使用 Magpie 数据的 Codex 圆环显示时，每 5 秒读取一次本机额度缓存，读数变化后更新圆环。常规额度刷新仍按原有时间表运行。 [未发布](./docs/releases/unreleased-magpie-ring.zh-CN.md)
+
+## 未发布 · Dim「授权」就地弹出辅助功能请求
+
+macOS 右键面板「暂时离开」一行的「授权」按钮现在与合盖助手的「安装」按钮一致：直接在菜单里弹出系统辅助功能请求，再打开系统设置的辅助功能面板，macOS 仍要求你在该面板手动完成授权。指针活动无需此权限即可恢复 Dim。尚未包含在公开的 v1.39.6 下载中，Windows 不变。[未发布说明](./docs/releases/unreleased-dim-accessibility-request.zh-CN.md)。
+
 ## v1.39.6 · Codex 账号折叠时显示节奏
 
 macOS 左键菜单中，折叠 Codex 账号后，账号名与剩余额度之间会显示使用节奏，不必展开就能判断当前节奏能否坚持到重置。节奏与剩余额度采用同一个额度周期；展开账号可切换可用周期。节奏只在所选周期有效且数据足够时显示。Windows 未包含此改动。[发布说明](./docs/releases/v1.39.6.zh-CN.md)。

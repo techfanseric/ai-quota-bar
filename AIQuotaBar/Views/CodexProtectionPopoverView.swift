@@ -173,7 +173,7 @@ struct CodexProtectionPopoverView: View {
 
             if stepAwayDimController.needsAccessibilityForKeyboardRestore {
                 Button(language.stepAwayOpenAccessibilityActionTitle()) {
-                    stepAwayDimController.openAccessibilitySettings()
+                    stepAwayDimController.requestAccessibilityPermission()
                 }
                 .controlSize(.mini)
                 .tint(.orange)

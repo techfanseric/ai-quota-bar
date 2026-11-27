@@ -1,4 +1,5 @@
 import AppKit
+import ApplicationServices
 import Foundation
 import OSLog
 
@@ -219,6 +220,7 @@ final class StepAwayDimController {
     private let topology: DisplayTopologyMonitoring
     private let monitors: ActivityMonitorInstalling
     private let accessibilityPermissionProvider: () -> Bool
+    private let accessibilityPromptRequester: () -> Void
     private let accessibilitySettingsOpener: () -> Void
     private let defaults: UserDefaults
     private let preferences: StepAwayPreferences
@@ -241,6 +243,10 @@ final class StepAwayDimController {
         topology: DisplayTopologyMonitoring? = nil,
         monitors: ActivityMonitorInstalling? = nil,
         accessibilityPermissionProvider: @escaping () -> Bool = { AXIsProcessTrusted() },
+        accessibilityPromptRequester: @escaping () -> Void = {
+            let options = [kAXTrustedCheckOptionPrompt.takeUnretainedValue() as String: true] as CFDictionary
+            _ = AXIsProcessTrustedWithOptions(options)
+        },
         accessibilitySettingsOpener: @escaping () -> Void = {
             guard let url = URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility") else { return }
             NSWorkspace.shared.open(url)
@@ -255,6 +261,7 @@ final class StepAwayDimController {
         self.gamma = gamma
         self.monitors = monitors ?? GlobalActivityMonitorInstaller()
         self.accessibilityPermissionProvider = accessibilityPermissionProvider
+        self.accessibilityPromptRequester = accessibilityPromptRequester
         self.accessibilitySettingsOpener = accessibilitySettingsOpener
         self.maintenance = maintenance ?? DimmingMaintenanceMonitor()
         self.topology = topology ?? DisplayTopologyMonitor()
@@ -279,7 +286,11 @@ final class StepAwayDimController {
         smartRestoreEnabled && !accessibilityPermissionProvider()
     }
 
-    func openAccessibilitySettings() {
+    /// Raises the system Accessibility request in place, the way the lid-closed
+    /// helper's install button raises its authorization, then opens the pane
+    /// where macOS requires the user to finish the grant.
+    func requestAccessibilityPermission() {
+        accessibilityPromptRequester()
         accessibilitySettingsOpener()
     }
 

@@ -446,9 +446,19 @@ final class UsageViewModel {
         return menuBarCandidateModels(from: data.models, now: Date())
     }
 
+    @ObservationIgnored private var cachedMagpieRing: (regularTimestamp: Date, data: UsageData)?
+
+    private var menuBarModels: [ModelUsageData] {
+        let models = usageData?.models ?? []
+        guard menuBarAppearance == .compactRing, let cachedMagpieRing,
+              cachedMagpieRing.regularTimestamp == providerUsageData[.codex]?.timestamp
+        else { return models }
+        return models.filter { $0.provider != .codex } + cachedMagpieRing.data.models
+    }
+
     private func updateStatusBarText() {
         let now = Date()
-        let allModels = usageData?.models ?? []
+        let allModels = menuBarModels
         let candidates = menuBarCandidateModels(from: allModels, now: now)
             .filter { isProviderDisplayedInMenus($0.provider) }
 
@@ -516,7 +526,7 @@ final class UsageViewModel {
     ) -> [MenuBarSnapshot] {
         guard menuBarAppearance == .compactRing else { return [fallback] }
         return allProviderRingSnapshots(
-            models: usageData?.models ?? [], defaultState: defaultState)
+            models: menuBarModels, defaultState: defaultState)
     }
 
     /// Always-on rings depend on quota registration, not task tracking support.
@@ -1599,6 +1609,7 @@ final class UsageViewModel {
     // MARK: - Private
 
     private var timer: Timer?
+    @ObservationIgnored private var magpieRingTask: Task<Void, Never>?
     private var cycleEndTimer: Timer?
     private var cycleEndFireDate: Date?
     private var refreshRequestedWhileLoading = false
@@ -1947,6 +1958,18 @@ final class UsageViewModel {
         invalidateCycleEndTimer()
         restartTimer()
 
+        magpieRingTask?.cancel()
+        magpieRingTask = Task { @MainActor [weak self] in
+            let service = MagpieCodexQuotaService()
+            while !Task.isCancelled {
+                do {
+                    try await Task.sleep(for: .seconds(5))
+                } catch { return }
+                guard let self else { return }
+                await refreshMagpieRing { try await service.fetchCachedUsage() }
+            }
+        }
+
         if autoRefreshOnLaunch || usageData == nil {
             Task { @MainActor in
                 // Let applicationDidFinishLaunching return before any
@@ -1957,7 +1980,56 @@ final class UsageViewModel {
         }
     }
 
+    /// Only an existing Magpie-backed ring consumes cache updates. The regular
+    /// refresh still owns provider discovery, history, errors and cloud sync.
+    func refreshMagpieRing(fetch: () async throws -> UsageData?) async {
+        guard shouldReadMagpieRing, let previous = providerUsageData[.codex],
+              let cached = try? await fetch(),
+              !Task.isCancelled, shouldReadMagpieRing,
+              previous.timestamp == providerUsageData[.codex]?.timestamp
+        else { return }
+
+        let baseline = cachedMagpieRing.flatMap {
+            $0.regularTimestamp == previous.timestamp ? $0.data : nil
+        } ?? previous
+        // Reject an older reading for any known account. An absent readAt
+        // is represented by the report timestamp and cannot establish age.
+        var latestByAccount: [String: Date] = [:]
+        for row in baseline.models {
+            if let key = row.accountKey, let date = row.sampledAt, date != baseline.timestamp {
+                latestByAccount[key] = max(latestByAccount[key] ?? date, date)
+            }
+        }
+        guard !cached.models.contains(where: { row in
+            guard let key = row.accountKey, let date = row.sampledAt, date != cached.timestamp,
+                  let latest = latestByAccount[key] else { return false }
+            return date < latest
+        }) else { return }
+
+        // Compare quota fields, ignoring poll time and the derived reset countdown.
+        let changed = !baseline.models.elementsEqual(cached.models) { lhs, rhs in
+            lhs.id == rhs.id && lhs.accountKey == rhs.accountKey
+                && lhs.currentIntervalUsed == rhs.currentIntervalUsed
+                && lhs.currentIntervalTotal == rhs.currentIntervalTotal
+                && lhs.currentIntervalRemainingPercent == rhs.currentIntervalRemainingPercent
+                && lhs.endTime == rhs.endTime && lhs.detailText == rhs.detailText
+                && lhs.progressBarRightText == rhs.progressBarRightText
+        }
+        cachedMagpieRing = (previous.timestamp, cached)
+        if changed { updateStatusBarText() }
+    }
+
+    private var shouldReadMagpieRing: Bool {
+        !isLoading && menuBarAppearance == .compactRing
+            && menuBarRingSelectedProviders.contains(.codex)
+            && isProviderDisplayedInMenus(.codex)
+            && providerUsageData[.codex]?.models.first?.isCodexPoolQuota == true
+    }
+
     func stopAutoRefresh() {
+        magpieRingTask?.cancel()
+        magpieRingTask = nil
+        cachedMagpieRing = nil
         timer?.invalidate()
         timer = nil
         invalidateCycleEndTimer()

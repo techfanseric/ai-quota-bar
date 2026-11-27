@@ -41,6 +41,14 @@ actor MagpieCodexQuotaService: MagpieCodexQuotaProviding {
     }
 
     func fetchUsage() async throws -> UsageData? {
+        try await fetchUsage(cachedOnly: false)
+    }
+
+    func fetchCachedUsage() async throws -> UsageData? {
+        try await fetchUsage(cachedOnly: true)
+    }
+
+    private func fetchUsage(cachedOnly: Bool) async throws -> UsageData? {
         guard let configData = try? Data(contentsOf: configURL),
               configData.count <= 1 << 20,
               let config = String(data: configData, encoding: .utf8),
@@ -48,7 +56,10 @@ actor MagpieCodexQuotaService: MagpieCodexQuotaProviding {
         else { return nil }
 
         let root = endpoint.url
-        let url = root.appendingPathComponent("v1/magpie/quotas")
+        var url = root.appendingPathComponent("v1/magpie/quotas")
+        if cachedOnly {
+            url.append(queryItems: [URLQueryItem(name: "kept", value: "1")])
+        }
         var request = URLRequest(url: url)
         request.cachePolicy = .reloadIgnoringLocalCacheData
         request.timeoutInterval = 15

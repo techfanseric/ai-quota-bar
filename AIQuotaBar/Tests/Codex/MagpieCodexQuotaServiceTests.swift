@@ -3,7 +3,7 @@ import XCTest
 
 final class MagpieCodexQuotaServiceTests: XCTestCase {
     @MainActor
-    func testCodexPoolDrivesSingleRingAndHoverAccountDetails() throws {
+    func testCodexPoolDrivesSingleRingAndHoverAccountDetails() async throws {
         let defaults = UserDefaults.standard
         let keys = [
             MenuBarContentSelection.storageKey,
@@ -16,6 +16,8 @@ final class MagpieCodexQuotaServiceTests: XCTestCase {
             CloudSyncSettings.enabledKey,
             MenuAccountPrivacy.storageKey,
             CodexMagpieRingScope.storageKey,
+            UsageViewModel.pausedProvidersKey,
+            UsageViewModel.followRunningAppsKey,
         ]
         let previousValues = keys.map { key in
             (key: key, value: defaults.object(forKey: key))
@@ -36,6 +38,9 @@ final class MagpieCodexQuotaServiceTests: XCTestCase {
         defaults.set(CodexMagpieRingScope.allAccounts.rawValue, forKey: CodexMagpieRingScope.storageKey)
         defaults.set(false, forKey: CloudSyncSettings.enabledKey)
         defaults.set(false, forKey: MenuAccountPrivacy.storageKey)
+
+        defaults.set(false, forKey: UsageViewModel.followRunningAppsKey)
+        defaults.removeObject(forKey: UsageViewModel.pausedProvidersKey)
 
         let now = Date()
         let payload = """
@@ -68,6 +73,55 @@ final class MagpieCodexQuotaServiceTests: XCTestCase {
         XCTAssertTrue(viewModel.menuBarSnapshot.tooltip.contains("Magpie · 3/3 accounts"))
         XCTAssertTrue(viewModel.menuBarSnapshot.tooltip.contains("****@example.com · Pro 20x · 5h · 20% left"))
         XCTAssertFalse(viewModel.menuBarSnapshot.tooltip.contains("a@example.com"))
+
+        viewModel.providerUsageData[.codex] = data
+        let updated = try MagpieCodexQuotaService.usageData(from: Data(
+            payload.replacingOccurrences(of: "\"remaining\":20", with: "\"remaining\":8").utf8))
+        await viewModel.refreshMagpieRing { updated }
+        XCTAssertEqual(viewModel.menuBarSnapshot.ringPercent, 5)
+        XCTAssertEqual(viewModel.providerUsageData[.codex]?.timestamp, data.timestamp)
+        await viewModel.refreshMagpieRing { throw URLError(.timedOut) }
+        XCTAssertEqual(viewModel.menuBarSnapshot.ringPercent, 5)
+
+        // A cache response with an older upstream readAt cannot move the ring back.
+        func datedReport(_ payload: String, readAt: String) throws -> UsageData {
+            let dated = payload.replacingOccurrences(of: "\"windows\":",
+                with: "\"readAt\":\"\(readAt)\",\"windows\":")
+            return try MagpieCodexQuotaService.usageData(from: Data(dated.utf8))
+        }
+        let current = try datedReport(payload, readAt: "2026-11-13T03:00:00Z")
+        await viewModel.refreshMagpieRing { current }
+        let stale = try datedReport(payload.replacingOccurrences(of: "\"remaining\":20",
+            with: "\"remaining\":8"), readAt: "2026-11-13T02:00:00Z")
+        await viewModel.refreshMagpieRing { stale }
+        XCTAssertEqual(viewModel.menuBarSnapshot.ringPercent, 9)
+
+        // A regular fetch finishes while an earlier cache read is suspended.
+        await viewModel.refreshMagpieRing {
+            let regular = try MagpieCodexQuotaService.usageData(from: Data(payload.utf8))
+            viewModel.providerUsageData[.codex] = regular
+            viewModel.usageData = regular
+            return updated
+        }
+        XCTAssertEqual(viewModel.menuBarSnapshot.ringPercent, 9)
+    }
+
+    func testCacheReadUsesKeptQueryAndRegularReadStillRequestsQuota() async throws {
+        let file = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: file) }
+        try #"""
+        [model_providers.magpie]
+        base_url = "http://127.0.0.1:3425/v1"
+        """#.write(to: file, atomically: true, encoding: .utf8)
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.protocolClasses = [QuotaFixtureProtocol.self]
+        let session = URLSession(configuration: configuration)
+        defer { session.invalidateAndCancel() }
+        let service = MagpieCodexQuotaService(configURL: file, session: session)
+        let cached = try await service.fetchCachedUsage()
+        let regular = try await service.fetchUsage()
+        XCTAssertEqual(cached?.models.first?.currentIntervalRemainingPercent, 25)
+        XCTAssertEqual(regular?.models.first?.currentIntervalRemainingPercent, 50)
     }
 
     func testMapsThreeMagpieAccountsIntoPoolAndPerAccountRows() throws {
@@ -216,4 +270,27 @@ private actor ActiveAccountReaderStub {
 
 private func iso(_ date: Date) -> String {
     ISO8601DateFormatter().string(from: date)
+}
+
+private final class QuotaFixtureProtocol: URLProtocol, @unchecked Sendable {
+    override class func canInit(with request: URLRequest) -> Bool { true }
+    override class func canonicalRequest(for request: URLRequest) -> URLRequest { request }
+
+    override func startLoading() {
+        guard let url = request.url, url.host == "127.0.0.1", url.path == "/v1/magpie/quotas",
+              url.query == nil || url.query == "kept=1" else {
+            client?.urlProtocol(self, didFailWithError: URLError(.badURL))
+            return
+        }
+        let percent = url.query == nil ? 50 : 25
+        let body = """
+        {"data":[{"provider":"codex","windows":[{"name":"5 hours","remaining":\(percent)}]}]}
+        """
+        let response = HTTPURLResponse(url: url, statusCode: 200, httpVersion: nil, headerFields: nil)!
+        client?.urlProtocol(self, didReceive: response, cacheStoragePolicy: .notAllowed)
+        client?.urlProtocol(self, didLoad: Data(body.utf8))
+        client?.urlProtocolDidFinishLoading(self)
+    }
+
+    override func stopLoading() {}
 }
