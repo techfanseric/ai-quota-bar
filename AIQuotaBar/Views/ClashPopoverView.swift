@@ -7,6 +7,7 @@ enum ClashPopoverLayout {
     static let height: CGFloat = 850
     /// 保护分区：头部 50 + 保持唤醒/防屏保行 36 + 合盖行 52 + 暂时离开行 52
     /// + 3 条 divider。
+    static let permissionNoticeHeight: CGFloat = 36
     static let protectionSectionHeight: CGFloat = 193
     static let routeSectionHeight: CGFloat = 334
     static let routeListMinimumHeight: CGFloat = 96
@@ -78,10 +79,11 @@ enum ClashPopoverLayout {
         connectionsCollapsed: Bool,
         accountsCollapsed: Bool,
         accountsContentHeight: CGFloat,
+        showsPermissionNotice: Bool = false,
         maximumHeight: CGFloat?
     ) -> (accounts: CGFloat, connections: CGFloat) {
         let routes = routesCollapsed ? collapsedSectionHeight : routeSectionHeight
-        let fixed = protectionSectionHeight + routes + dividerAllowance * 3
+        let fixed = (showsPermissionNotice ? permissionNoticeHeight : 0) + protectionSectionHeight + routes + dividerAllowance * 3
         let naturalAccounts = accountsCollapsed
             ? collapsedSectionHeight
             : max(accountsSectionMinimumHeight, accountsContentHeight)
@@ -139,6 +141,7 @@ enum ClashPopoverLayout {
         connectionsCollapsed: Bool,
         accountsCollapsed: Bool = false,
         accountsContentHeight: CGFloat = 100,
+        showsPermissionNotice: Bool = false,
         maximumHeight: CGFloat? = nil
     ) -> CGFloat {
         let sections = resolveSectionHeights(
@@ -146,8 +149,9 @@ enum ClashPopoverLayout {
             connectionsCollapsed: connectionsCollapsed,
             accountsCollapsed: accountsCollapsed,
             accountsContentHeight: accountsContentHeight,
+            showsPermissionNotice: showsPermissionNotice,
             maximumHeight: maximumHeight)
-        return protectionSectionHeight
+        return (showsPermissionNotice ? permissionNoticeHeight : 0) + protectionSectionHeight
             + (routesCollapsed ? collapsedSectionHeight : routeSectionHeight)
             + sections.accounts + sections.connections
             + dividerAllowance * 3
@@ -163,6 +167,10 @@ struct ClashPopoverView: View {
     var stepAwayDimController = StepAwayDimController.shared
     var onDimDismiss: (() -> Void)?
 
+    private var showsPermissionNotice: Bool {
+        stepAwayDimController.needsAccessibilityNotice(brightnessKeysEnabled: PointerBrightnessController.shared.enabled)
+    }
+
     var body: some View {
         let routesCollapsed = displayStore.isRoutesCollapsed
         let connectionsCollapsed = displayStore.isConnectionsCollapsed
@@ -177,8 +185,16 @@ struct ClashPopoverView: View {
             connectionsCollapsed: connectionsCollapsed,
             accountsCollapsed: accountsCollapsed,
             accountsContentHeight: naturalAccountsHeight,
+            showsPermissionNotice: showsPermissionNotice,
             maximumHeight: displayStore.panelMaximumHeight)
         VStack(spacing: 0) {
+            if showsPermissionNotice {
+                AccessibilityMenuNotice(chinese: routeViewModel.language == .simplifiedChinese,
+                                        brightnessEnabled: PointerBrightnessController.shared.enabled) {
+                    onDimDismiss?()
+                    stepAwayDimController.requestAccessibilityPermission()
+                }
+            }
             CodexProtectionPopoverView(
                 coordinator: sleepProtectionCoordinator,
                 closedLidModeManager: sleepProtectionCoordinator.closedLidModeManager,
@@ -230,6 +246,7 @@ struct ClashPopoverView: View {
                 connectionsCollapsed: connectionsCollapsed,
                 accountsCollapsed: accountsCollapsed,
                 accountsContentHeight: naturalAccountsHeight,
+                showsPermissionNotice: showsPermissionNotice,
                 maximumHeight: displayStore.panelMaximumHeight))
         .background(Color(nsColor: .windowBackgroundColor))
         .onDisappear {

@@ -171,15 +171,6 @@ struct CodexProtectionPopoverView: View {
 
             Spacer(minLength: 8)
 
-            if stepAwayDimController.needsAccessibilityForKeyboardRestore {
-                Button(language.stepAwayOpenAccessibilityActionTitle()) {
-                    stepAwayDimController.requestAccessibilityPermission()
-                }
-                .controlSize(.mini)
-                .tint(.orange)
-                .help(language.stepAwayKeyboardPermissionDescription())
-            }
-
             Toggle(
                 language.stepAwaySmartRestoreLabel(),
                 isOn: $stepAwayDimController.smartRestoreEnabled

@@ -160,6 +160,23 @@ final class StepAwayDimControllerTests: XCTestCase {
         XCTAssertFalse(controller.needsAccessibilityForKeyboardRestore)
     }
 
+    func testPermissionNoticeTracksGrantAndRevocationWithDimRestoreOff() {
+        var granted = false
+        let controller = StepAwayDimController(
+            builtinBrightness: builtin, externalBrightness: external, gamma: gamma,
+            maintenance: maintenance, topology: topology, monitors: monitors,
+            accessibilityPermissionProvider: { granted }, preferences: preferences, defaults: defaults)
+        controller.smartRestoreEnabled = false
+        XCTAssertFalse(controller.needsAccessibilityNotice(brightnessKeysEnabled: false))
+        XCTAssertTrue(controller.needsAccessibilityNotice(brightnessKeysEnabled: true))
+        granted = true
+        controller.refreshAccessibilityPermission()
+        XCTAssertFalse(controller.needsAccessibilityNotice(brightnessKeysEnabled: true))
+        granted = false
+        controller.refreshAccessibilityPermission()
+        XCTAssertTrue(controller.needsAccessibilityNotice(brightnessKeysEnabled: true))
+    }
+
     func testKeyboardRestorePermissionActionPromptsThenOpensAccessibilitySettings() {
         var prompts = 0
         var openings = 0

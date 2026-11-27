@@ -271,9 +271,7 @@ final class PointerBrightnessController {
     }
 
     func requestPermission() {
-        let options = [kAXTrustedCheckOptionPrompt.takeUnretainedValue() as String: true] as CFDictionary
-        _ = AXIsProcessTrustedWithOptions(options)
-        NSWorkspace.shared.open(URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility")!)
+        dim.requestAccessibilityPermission()
     }
 
     private func installTap() {
@@ -350,6 +348,7 @@ final class PointerBrightnessController {
     }
 
     private func service() {
+        dim.refreshAccessibilityPermission()
         guard enabled else { return }
         if !AXIsProcessTrusted() { removeTap() } else { installTap() }
         if listening { magicKeyboard?.reconcile() }

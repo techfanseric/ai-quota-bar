@@ -33,6 +33,7 @@ final class ClashRoutePopoverController: NSObject {
         self.lightweightMode = lightweightMode ?? .shared
         super.init()
         observeSectionChanges()
+        observePermissionChanges()
     }
 
     var loadedPanel: MenuBarPanel? { panel }
@@ -112,6 +113,7 @@ final class ClashRoutePopoverController: NSObject {
         guard panel?.isVisible != true,
               let placement = MenuBarPanelPlacement.resolve(
                 relativeTo: button) else { return }
+        stepAwayDimController.refreshAccessibilityPermission()
         loadPanelIfNeeded()
         guard let panel, let hostingView else { return }
 
@@ -155,6 +157,7 @@ final class ClashRoutePopoverController: NSObject {
                     legacyCount: accountStore.legacyBackupFileNames.count,
                     hasPending: accountStore.pendingRequest != nil,
                     hasStatus: accountStore.statusMessage != nil),
+                showsPermissionNotice: showsPermissionNotice,
                 maximumHeight: displayStore.panelMaximumHeight))
     }
 
@@ -186,6 +189,22 @@ final class ClashRoutePopoverController: NSObject {
             placement.panelFrame(contentSize: size),
             display: true)
         hostingView.frame = NSRect(origin: .zero, size: size)
+    }
+
+    private var showsPermissionNotice: Bool {
+        stepAwayDimController.needsAccessibilityNotice(brightnessKeysEnabled: PointerBrightnessController.shared.enabled)
+    }
+
+    private func observePermissionChanges() {
+        withObservationTracking {
+            _ = showsPermissionNotice
+        } onChange: { [weak self] in
+            Task { @MainActor [weak self] in
+                guard let self else { return }
+                if isShown { resizePanel() }
+                observePermissionChanges()
+            }
+        }
     }
 
     private func observeSectionChanges() {

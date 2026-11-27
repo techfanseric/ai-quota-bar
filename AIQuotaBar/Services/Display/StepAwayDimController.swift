@@ -219,9 +219,10 @@ final class StepAwayDimController {
     private let maintenance: DimmingMaintenanceMonitoring
     private let topology: DisplayTopologyMonitoring
     private let monitors: ActivityMonitorInstalling
+    private(set) var accessibilityGranted: Bool
     private let accessibilityPermissionProvider: () -> Bool
     private let accessibilityPromptRequester: () -> Void
-    private let accessibilitySettingsOpener: () -> Void
+    private let accessibilitySettingsOpener: @MainActor () -> Void
     private let defaults: UserDefaults
     private let preferences: StepAwayPreferences
     private let gracePeriod: TimeInterval
@@ -247,9 +248,10 @@ final class StepAwayDimController {
             let options = [kAXTrustedCheckOptionPrompt.takeUnretainedValue() as String: true] as CFDictionary
             _ = AXIsProcessTrustedWithOptions(options)
         },
-        accessibilitySettingsOpener: @escaping () -> Void = {
+        accessibilitySettingsOpener: @escaping @MainActor () -> Void = {
             guard let url = URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility") else { return }
             NSWorkspace.shared.open(url)
+            AccessibilityGuideWindow.shared.show()
         },
         preferences: StepAwayPreferences = .shared,
         defaults: UserDefaults = .standard,
@@ -260,6 +262,7 @@ final class StepAwayDimController {
         self.externalBrightness = externalBrightness
         self.gamma = gamma
         self.monitors = monitors ?? GlobalActivityMonitorInstaller()
+        self.accessibilityGranted = accessibilityPermissionProvider()
         self.accessibilityPermissionProvider = accessibilityPermissionProvider
         self.accessibilityPromptRequester = accessibilityPromptRequester
         self.accessibilitySettingsOpener = accessibilitySettingsOpener
@@ -283,7 +286,19 @@ final class StepAwayDimController {
     /// Pointer activity continues to restore without Accessibility. This only
     /// describes whether the optional keyboard portion can be monitored.
     var needsAccessibilityForKeyboardRestore: Bool {
-        smartRestoreEnabled && !accessibilityPermissionProvider()
+        smartRestoreEnabled && !accessibilityGranted
+    }
+
+    func needsAccessibilityNotice(brightnessKeysEnabled: Bool) -> Bool {
+        !accessibilityGranted && (brightnessKeysEnabled || smartRestoreEnabled)
+    }
+
+    func refreshAccessibilityPermission() {
+        let granted = accessibilityPermissionProvider()
+        guard granted != accessibilityGranted else { return }
+        accessibilityGranted = granted
+        if granted { AccessibilityGuideWindow.shared.dismiss() }
+        if isActive { updateActivityMonitoring() }
     }
 
     /// Raises the system Accessibility request in place, the way the lid-closed
