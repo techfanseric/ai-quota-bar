@@ -1,5 +1,18 @@
 [
   {
+    "tag_name": "v1.39.7",
+    "name": "v1.39.7 · Magic Keyboard 亮度键、Dim 授权与可选 Magpie",
+    "published_at": "2026-11-27T15:45:24Z",
+    "html_url": "https://github.com/techfanseric/ai-quota-bar/releases/tag/v1.39.7",
+    "body": "# v1.39.7 · Magic Keyboard 重连后继续调节外接屏亮度\n\nmacOS 1.39.7 (90) · Windows v1.38.6-beta.1\n\n开启跟随指针的亮度键并授予辅助功能权限后，把指针移到支持的外接屏上，按 F1 或 F2 调节亮度。两款已验证的蓝牙 Magic Keyboard（产品 ID 0x029A 和 0x0267）重连后会自动恢复亮度键映射。开启「登录时启动」即可在 Mac 重启登录后继续使用。已有的自定义键位优先。\n\nMagpie 是可选组件。未安装时，Codex 沿用现有数据源读取当前已登录账号。使用 Magpie 的可见额度环每五秒读取本机缓存，网关异常时常规刷新回退到当前账号。仅当本机服务商 ID 或显示名为 Magpie 时才识别该网关，指向同一地址的别名也受支持。\n\n右键面板「暂时离开 → 授权」会先请求辅助功能权限，再打开系统设置。完成授权后，可用键盘活动恢复亮度。\n# v1.39.7 · Magic Keyboard brightness after reconnect\n\nmacOS 1.39.7 (90) · Windows v1.38.6-beta.1\n\nWith pointer brightness keys enabled and Accessibility granted, place the pointer on a supported external display and press F1 or F2. AI Quota Bar restores the brightness mappings for the two verified Bluetooth Magic Keyboard models (product IDs 0x029A and 0x0267) when they reconnect. Enable Launch at login to restore this behavior after restarting your Mac. Custom key assignments take priority.\n\nMagpie is optional. Without it, Codex reads the current signed-in account through the usual quota source. A visible Magpie-backed ring checks its local cache every five seconds. If the gateway fails, the regular refresh falls back to the current account. A loopback provider must be named Magpie (provider ID or display name) to enable discovery; aliases pointing to the same address work too.\n\nIn the right-click panel, Step away → Allow now requests Accessibility before opening System Settings. Finish the grant there to restore brightness with keyboard activity.\n",
+    "prerelease": false,
+    "platform": "macos",
+    "body_en": "# v1.39.7 · Magic Keyboard brightness after reconnect\n\nmacOS 1.39.7 (90) · Windows v1.38.6-beta.1\n\nWith pointer brightness keys enabled and Accessibility granted, place the pointer on a supported external display and press F1 or F2. AI Quota Bar restores the brightness mappings for the two verified Bluetooth Magic Keyboard models (product IDs 0x029A and 0x0267) when they reconnect. Enable Launch at login to restore this behavior after restarting your Mac. Custom key assignments take priority.\n\nMagpie is optional. Without it, Codex reads the current signed-in account through the usual quota source. A visible Magpie-backed ring checks its local cache every five seconds. If the gateway fails, the regular refresh falls back to the current account. A loopback provider must be named Magpie (provider ID or display name) to enable discovery; aliases pointing to the same address work too.\n\nIn the right-click panel, Step away → Allow now requests Accessibility before opening System Settings. Finish the grant there to restore brightness with keyboard activity.\n",
+    "name_en": "v1.39.7 · Magic Keyboard brightness after reconnect",
+    "body_zh": "# v1.39.7 · Magic Keyboard 重连后继续调节外接屏亮度\n\nmacOS 1.39.7 (90) · Windows v1.38.6-beta.1\n\n开启跟随指针的亮度键并授予辅助功能权限后，把指针移到支持的外接屏上，按 F1 或 F2 调节亮度。两款已验证的蓝牙 Magic Keyboard（产品 ID 0x029A 和 0x0267）重连后会自动恢复亮度键映射。开启「登录时启动」即可在 Mac 重启登录后继续使用。已有的自定义键位优先。\n\nMagpie 是可选组件。未安装时，Codex 沿用现有数据源读取当前已登录账号。使用 Magpie 的可见额度环每五秒读取本机缓存，网关异常时常规刷新回退到当前账号。仅当本机服务商 ID 或显示名为 Magpie 时才识别该网关，指向同一地址的别名也受支持。\n\n右键面板「暂时离开 → 授权」会先请求辅助功能权限，再打开系统设置。完成授权后，可用键盘活动恢复亮度。\n",
+    "name_zh": "v1.39.7 · Magic Keyboard 重连后继续调节外接屏亮度"
+  },
+  {
     "tag_name": "v1.39.6",
     "name": "v1.39.6 · Codex 账号折叠时显示节奏",
     "published_at": "2026-11-24T08:11:10Z",
